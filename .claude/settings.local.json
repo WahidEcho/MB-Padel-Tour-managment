@@ -19,7 +19,10 @@
       "Bash(node -e \"const c=require\\('crypto'\\);console.log\\(c.randomBytes\\(32\\).toString\\('hex'\\)\\); for\\(let i=0;i<4;i++\\) console.log\\(c.randomBytes\\(6\\).toString\\('base64url'\\)\\)\")",
       "Bash(npx vitest *)",
       "Bash(git add *)",
-      "Bash(git commit -q -m 'Core: schema env, auth, scoring engine, round-robin, draws, standings, bracket libs + tests *)"
+      "Bash(git commit -q -m 'Core: schema env, auth, scoring engine, round-robin, draws, standings, bracket libs + tests *)",
+      "Bash(git check-ignore *)",
+      "Bash(git commit -q -m 'Add env example *)",
+      "Bash(git commit -q -m 'Admin: shell, login, tournaments CRUD, teams + check-in + CSV import, settings, clone, ops layer *)"
     ]
   }
 }

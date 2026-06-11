@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
+/* Move Beyond theme tokens (spec §3.5) — replace when brand identity lands */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #111111;
+  --card: #f6f7f8;
+  --border: #e2e5e8;
+  --muted: #5b6470;
+  --accent: #00aeef;
+  --accent-dark: #0090c5;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --radius: 20px;
+}
+
+.theme-dark {
+  --background: #0b0b0b;
+  --foreground: #ffffff;
+  --card: #161a1e;
+  --border: #2a3138;
+  --muted: #9aa6b2;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --radius-brand: var(--radius);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-dark;
+  }
+  .btn-secondary {
+    @apply btn bg-card border border-border hover:border-accent;
+  }
+  .btn-danger {
+    @apply btn bg-danger text-white hover:bg-red-700;
+  }
+  .card {
+    @apply bg-card border border-border rounded-[20px] p-4;
+  }
+  .input {
+    @apply w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent;
+  }
+  .label {
+    @apply block text-xs font-semibold text-muted uppercase tracking-wide mb-1;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
+}
+
+@keyframes score-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); color: var(--accent); }
+  100% { transform: scale(1); }
+}
+.score-pop {
+  animation: score-pop 0.5s ease;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pulse-live {
+  animation: pulse-live 1.6s ease-in-out infinite;
 }
