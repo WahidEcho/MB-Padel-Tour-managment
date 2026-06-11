@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__list_projects",
+      "Bash(mv \"/Users/wahid/MW/Side Hustle/Move Beyond/Code Base/Padel-training-app-p1/move_beyond_tournament_management_spec.md\" /tmp/mb_spec.md)",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__get_cost",
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --skip-install --yes)",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__confirm_cost",
+      "Bash(rm -rf /tmp/mb-tournament)",
+      "Bash(mkdir -p /tmp/mb-tournament)",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__create_project",
+      "Bash(rsync -a /tmp/mb-tournament/ .)",
+      "Bash(npm pkg *)",
+      "Bash(npm install *)",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__get_project_url",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__get_publishable_keys",
+      "mcp__d83e062d-6316-4484-8793-970a1dcb6297__apply_migration",
+      "Bash(node -e \"const c=require\\('crypto'\\);console.log\\(c.randomBytes\\(32\\).toString\\('hex'\\)\\); for\\(let i=0;i<4;i++\\) console.log\\(c.randomBytes\\(6\\).toString\\('base64url'\\)\\)\")",
+      "Bash(npx vitest *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'Core: schema env, auth, scoring engine, round-robin, draws, standings, bracket libs + tests *)"
+    ]
+  }
+}
