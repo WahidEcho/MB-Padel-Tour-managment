@@ -22,7 +22,9 @@
       "Bash(git commit -q -m 'Core: schema env, auth, scoring engine, round-robin, draws, standings, bracket libs + tests *)",
       "Bash(git check-ignore *)",
       "Bash(git commit -q -m 'Add env example *)",
-      "Bash(git commit -q -m 'Admin: shell, login, tournaments CRUD, teams + check-in + CSV import, settings, clone, ops layer *)"
+      "Bash(git commit -q -m 'Admin: shell, login, tournaments CRUD, teams + check-in + CSV import, settings, clone, ops layer *)",
+      "Bash(npx tsc *)",
+      "Bash(git commit -q -m 'Groups with randomizer + drag/drop, match scheduling pages *)"
     ]
   }
 }
