@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/supabase";
 import type { Tournament } from "@/lib/types";
+import { seedDemoTournament } from "./demo";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,14 @@ export default async function TournamentsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Tournaments</h1>
-        <Link href="/admin/tournaments/new" className="btn-primary">+ New Tournament</Link>
+        <div className="flex gap-2">
+          <form action={seedDemoTournament}>
+            <button className="btn-secondary" title="Creates a 12-team demo tournament for referee training and screen testing">
+              Seed demo tournament
+            </button>
+          </form>
+          <Link href="/admin/tournaments/new" className="btn-primary">+ New Tournament</Link>
+        </div>
       </div>
 
       {tournaments.length === 0 ? (

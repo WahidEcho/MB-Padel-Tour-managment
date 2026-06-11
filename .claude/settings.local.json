@@ -29,7 +29,12 @@
       "Bash(git commit -q -m 'Admin leaderboard with qualification override, bracket generate/edit/approve/publish *)",
       "Bash(mkdir -p \"src/app/t/[slug]/\\(public\\)\")",
       "Bash(mv \"src/app/t/[slug]/layout.tsx\" \"src/app/t/[slug]/\\(public\\)/layout.tsx\")",
-      "Bash(git commit -q -m 'Public pages, TV screen with display modes, operator control, winner podium *)"
+      "Bash(git commit -q -m 'Public pages, TV screen with display modes, operator control, winner podium *)",
+      "Bash(npm run *)",
+      "Bash(npx tsx *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(python3 -)",
+      "Bash(git commit -q -m 'Excel export, demo seed, smoke test, README; fix rapid-tap state race in scoring *)"
     ]
   }
 }

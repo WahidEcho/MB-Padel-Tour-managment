@@ -15,7 +15,6 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
     getGroups(id),
   ]);
   const tm = teamMap(teams);
-  const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const liveCount = matches.filter((m) => ["live", "paused"].includes(m.status)).length;
 
   return (

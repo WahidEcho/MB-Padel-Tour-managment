@@ -70,77 +70,19 @@ export default function ScoreClient({
   const startedAtRef = useRef<string | null>(match.started_at);
   const syncingRef = useRef(false);
   const deviceIdRef = useRef<string>("");
+  // Live mirrors of state/history so rapid taps never read stale React state
+  const stateRef = useRef<ScoreState | null>(null);
+  const historyRef = useRef<ScoreState[]>([]);
+
+  const commit = useCallback((next: ScoreState | null, nextHistory: ScoreState[]) => {
+    stateRef.current = next;
+    historyRef.current = nextHistory;
+    setState(next);
+    setHistory(nextHistory);
+  }, []);
 
   const finished = FINISHED.includes(matchStatus);
   const team = useCallback((k: TeamKey) => (k === "A" ? teamA : teamB), [teamA, teamB]);
-
-  /* ---------------- init: restore state, claim lock ---------------- */
-  useEffect(() => {
-    deviceIdRef.current = getDeviceId();
-    setOnline(navigator.onLine);
-
-    async function init() {
-      const local = await offlineDb.matchState.get(match.id);
-      const serverState = (serverSnapshot?.snapshot_json as ScoreState | null) ?? null;
-      const serverEventNo = serverSnapshot?.last_event_number ?? 0;
-
-      if (local && local.last_event_number >= serverEventNo) {
-        setState(local.state);
-        setHistory(local.history);
-        eventNumberRef.current = local.last_event_number;
-        if (!FINISHED.includes(match.status)) setMatchStatus(local.match_status as Match["status"]);
-      } else if (serverState) {
-        setState(serverState);
-        setHistory([]);
-      }
-      const pend = await offlineDb.events
-        .where("match_id").equals(match.id)
-        .and((e) => e.sync_status === "pending")
-        .count();
-      setPendingCount(pend);
-      if (pend > 0) setSyncStatus("pending");
-
-      if (FINISHED.includes(match.status)) {
-        setController(false);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/matches/${match.id}/claim`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceId: deviceIdRef.current }),
-        });
-        const data = await res.json();
-        setController(Boolean(data.controller));
-      } catch {
-        // Offline on load: allow control if we already have local state for this match
-        setController(Boolean(local) || match.active_scoring_device_id === deviceIdRef.current);
-      }
-    }
-    init();
-
-    const on = () => { setOnline(true); void trySync(); };
-    const off = () => setOnline(false);
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
-    return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [match.id]);
-
-  /* ---------------- timer ---------------- */
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!startedAtRef.current || finished) return;
-      const ms = Date.now() - new Date(startedAtRef.current).getTime();
-      const m = Math.floor(ms / 60000);
-      const s = Math.floor((ms % 60000) / 1000);
-      setElapsed(`${m}:${String(s).padStart(2, "0")}`);
-    }, 1000);
-    return () => clearInterval(id);
-  }, [finished]);
 
   /* ---------------- sync loop ---------------- */
   const trySync = useCallback(async () => {
@@ -197,6 +139,73 @@ export default function ScoreClient({
     return () => clearInterval(id);
   }, [trySync]);
 
+
+  /* ---------------- init: restore state, claim lock ---------------- */
+  useEffect(() => {
+    deviceIdRef.current = getDeviceId();
+
+    async function init() {
+      setOnline(navigator.onLine);
+      const local = await offlineDb.matchState.get(match.id);
+      const serverState = (serverSnapshot?.snapshot_json as ScoreState | null) ?? null;
+      const serverEventNo = serverSnapshot?.last_event_number ?? 0;
+
+      if (local && local.last_event_number >= serverEventNo) {
+        commit(local.state, local.history);
+        eventNumberRef.current = local.last_event_number;
+        if (!FINISHED.includes(match.status)) setMatchStatus(local.match_status as Match["status"]);
+      } else if (serverState) {
+        commit(serverState, []);
+      }
+      const pend = await offlineDb.events
+        .where("match_id").equals(match.id)
+        .and((e) => e.sync_status === "pending")
+        .count();
+      setPendingCount(pend);
+      if (pend > 0) setSyncStatus("pending");
+
+      if (FINISHED.includes(match.status)) {
+        setController(false);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/matches/${match.id}/claim`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId: deviceIdRef.current }),
+        });
+        const data = await res.json();
+        setController(Boolean(data.controller));
+      } catch {
+        // Offline on load: allow control if we already have local state for this match
+        setController(Boolean(local) || match.active_scoring_device_id === deviceIdRef.current);
+      }
+    }
+    init();
+
+    const on = () => { setOnline(true); void trySync(); };
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.id]);
+
+  /* ---------------- timer ---------------- */
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!startedAtRef.current || finished) return;
+      const ms = Date.now() - new Date(startedAtRef.current).getTime();
+      const m = Math.floor(ms / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      setElapsed(`${m}:${String(s).padStart(2, "0")}`);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [finished]);
+
   /* ---------------- event creation ---------------- */
   const pushEvent = useCallback(
     async (
@@ -204,7 +213,7 @@ export default function ScoreClient({
       newState: ScoreState,
       opts: { teamId?: string | null; payload?: Record<string, unknown>; newStatus?: string } = {}
     ) => {
-      const prev = state;
+      const prev = stateRef.current;
       const n = ++eventNumberRef.current;
       const event: LocalScoreEvent = {
         client_event_id: crypto.randomUUID(),
@@ -219,25 +228,30 @@ export default function ScoreClient({
         sync_status: "pending",
       };
       const nextStatus = opts.newStatus ?? matchStatus;
-      const nextHistory = eventType === "UNDO" ? history.slice(0, -1) : prev ? [...history, prev] : history;
-      await offlineDb.events.put(event);
-      await offlineDb.matchState.put({
-        match_id: match.id,
-        state: newState,
-        history: nextHistory.slice(-200),
-        last_event_number: n,
-        match_status: nextStatus,
-        updated_at: new Date().toISOString(),
-      });
-      setState(newState);
-      setHistory(nextHistory.slice(-200));
+      const nextHistory = (
+        eventType === "UNDO"
+          ? historyRef.current.slice(0, -1)
+          : prev
+            ? [...historyRef.current, prev]
+            : historyRef.current
+      ).slice(-200);
+      commit(newState, nextHistory); // synchronous ref update first — taps can be rapid
       if (opts.newStatus) setMatchStatus(opts.newStatus as Match["status"]);
       setPendingCount((c) => c + 1);
       setSyncStatus(navigator.onLine ? "syncing" : "pending");
       setPopKey((k) => k + 1);
+      await offlineDb.events.put(event);
+      await offlineDb.matchState.put({
+        match_id: match.id,
+        state: newState,
+        history: nextHistory,
+        last_event_number: n,
+        match_status: nextStatus,
+        updated_at: new Date().toISOString(),
+      });
       void trySync();
     },
-    [state, history, match.id, matchStatus, trySync]
+    [match.id, matchStatus, trySync, commit]
   );
 
   /* ---------------- actions ---------------- */
@@ -251,8 +265,9 @@ export default function ScoreClient({
   }
 
   function tapScore(teamKey: TeamKey) {
-    if (!state || finished || matchStatus === "paused") return;
-    const outcome = pointOutcome(state, teamKey, scoringConfig);
+    const cur = stateRef.current;
+    if (!cur || finished || matchStatus === "paused") return;
+    const outcome = pointOutcome(cur, teamKey, scoringConfig);
     if (outcome.winsGame || outcome.winsSet || outcome.winsMatch) {
       const what = outcome.winsMatch ? "the MATCH" : outcome.winsSet ? "the set" : "this game";
       setModal({
@@ -266,8 +281,9 @@ export default function ScoreClient({
   }
 
   function applyPoint(teamKey: TeamKey) {
-    if (!state) return;
-    const next = awardPoint(state, teamKey, scoringConfig);
+    const cur = stateRef.current;
+    if (!cur) return;
+    const next = awardPoint(cur, teamKey, scoringConfig);
     const ended = next.matchOver;
     void pushEvent("POINT_AWARDED", next, {
       teamId: team(teamKey).id,
@@ -277,30 +293,34 @@ export default function ScoreClient({
   }
 
   function doUndo() {
-    if (history.length === 0 || !state) return setModal(null);
-    const prev = history[history.length - 1];
+    const cur = stateRef.current;
+    if (historyRef.current.length === 0 || !cur) return setModal(null);
+    const prev = historyRef.current[historyRef.current.length - 1];
     void pushEvent("UNDO", prev, { newStatus: finished ? "live" : undefined });
     setModal(null);
   }
 
   function togglePause() {
-    if (!state) return;
+    const cur = stateRef.current;
+    if (!cur) return;
     if (matchStatus === "paused") {
-      void pushEvent("MATCH_RESUMED", state, { newStatus: "live" });
+      void pushEvent("MATCH_RESUMED", cur, { newStatus: "live" });
     } else {
-      void pushEvent("MATCH_PAUSED", state, { newStatus: "paused" });
+      void pushEvent("MATCH_PAUSED", cur, { newStatus: "paused" });
     }
   }
 
   function switchServer() {
-    if (!state || state.isTiebreak || !state.servingTeam) return;
-    const next = changeServer(state, state.servingTeam === "A" ? "B" : "A");
+    const cur = stateRef.current;
+    if (!cur || cur.isTiebreak || !cur.servingTeam) return;
+    const next = changeServer(cur, cur.servingTeam === "A" ? "B" : "A");
     void pushEvent("SERVER_CHANGED", next);
   }
 
   function endSet(winnerKey: TeamKey) {
-    if (!state) return;
-    const next = manualEndSet(state, winnerKey, scoringConfig);
+    const cur = stateRef.current;
+    if (!cur) return;
+    const next = manualEndSet(cur, winnerKey, scoringConfig);
     void pushEvent("MANUAL_SET_END", next, {
       teamId: team(winnerKey).id,
       newStatus: next.matchOver ? (navigator.onLine ? "completed" : "pending_sync") : undefined,
@@ -309,8 +329,9 @@ export default function ScoreClient({
   }
 
   function endWith(eventType: string, winnerKey: TeamKey, newStatus: string) {
-    if (!state) return;
-    const next: ScoreState = { ...state, matchOver: true, winner: winnerKey };
+    const cur = stateRef.current;
+    if (!cur) return;
+    const next: ScoreState = { ...cur, matchOver: true, winner: winnerKey };
     void pushEvent(eventType, next, {
       teamId: team(winnerKey).id,
       payload: { winner_team_id: team(winnerKey).id },

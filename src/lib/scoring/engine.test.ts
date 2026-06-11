@@ -47,7 +47,7 @@ describe("point progression", () => {
 
 describe("advantage scoring", () => {
   function deuce(): ScoreState {
-    let s = score(initialScoreState(), "A", 3);
+    const s = score(initialScoreState(), "A", 3);
     return score(s, "B", 3);
   }
 

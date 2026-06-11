@@ -36,9 +36,17 @@ export default async function TournamentLayout({
             {tournament.is_demo ? " · demo" : ""} · public: /t/{tournament.slug}
           </p>
         </div>
-        <Link href={`/t/${tournament.slug}`} target="_blank" className="btn-secondary text-xs">
-          Open public page ↗
-        </Link>
+        <div className="flex gap-2">
+          <a href={`/api/tournaments/${id}/export`} className="btn-secondary text-xs">
+            ⬇ Export Excel
+          </a>
+          <Link href={`/admin/tournaments/${id}/clone`} className="btn-secondary text-xs">
+            Clone
+          </Link>
+          <Link href={`/t/${tournament.slug}`} target="_blank" className="btn-secondary text-xs">
+            Public page ↗
+          </Link>
+        </div>
       </div>
       <nav className="flex flex-wrap gap-1 border-b border-border pb-2 text-sm">
         {TABS.map(([path, label]) => (
