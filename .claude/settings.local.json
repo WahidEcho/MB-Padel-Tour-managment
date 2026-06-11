@@ -26,7 +26,10 @@
       "Bash(npx tsc *)",
       "Bash(git commit -q -m 'Groups with randomizer + drag/drop, match scheduling pages *)",
       "Bash(git commit -q -m 'Referee scoring screen with offline IndexedDB queue, sync API, device lock *)",
-      "Bash(git commit -q -m 'Admin leaderboard with qualification override, bracket generate/edit/approve/publish *)"
+      "Bash(git commit -q -m 'Admin leaderboard with qualification override, bracket generate/edit/approve/publish *)",
+      "Bash(mkdir -p \"src/app/t/[slug]/\\(public\\)\")",
+      "Bash(mv \"src/app/t/[slug]/layout.tsx\" \"src/app/t/[slug]/\\(public\\)/layout.tsx\")",
+      "Bash(git commit -q -m 'Public pages, TV screen with display modes, operator control, winner podium *)"
     ]
   }
 }
