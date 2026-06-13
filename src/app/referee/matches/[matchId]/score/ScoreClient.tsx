@@ -331,7 +331,20 @@ export default function ScoreClient({
   function endWith(eventType: string, winnerKey: TeamKey, newStatus: string) {
     const cur = stateRef.current;
     if (!cur) return;
-    const next: ScoreState = { ...cur, matchOver: true, winner: winnerKey };
+    // Capture any in-progress set so scoreSummary shows real games (e.g. force-end mid-set)
+    const extraSet =
+      (cur.teamA.games > 0 || cur.teamB.games > 0) &&
+      !cur.completedSets.some(
+        (s) => s.teamAGames === cur.teamA.games && s.teamBGames === cur.teamB.games
+      )
+        ? [{ teamAGames: cur.teamA.games, teamBGames: cur.teamB.games }]
+        : [];
+    const next: ScoreState = {
+      ...cur,
+      completedSets: [...cur.completedSets, ...extraSet],
+      matchOver: true,
+      winner: winnerKey,
+    };
     void pushEvent(eventType, next, {
       teamId: team(winnerKey).id,
       payload: { winner_team_id: team(winnerKey).id },

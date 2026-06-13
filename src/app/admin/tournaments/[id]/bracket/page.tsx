@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getBracket, getBracketSlots, getMatches, getStandings, getTeams, teamMap } from "@/lib/data";
 import BracketView, { orderedRounds } from "@/components/BracketView";
+import BracketSlotsEditor from "@/components/BracketSlotsEditor";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { approveAction, generateAction, publishAction, resetBracket, saveSlots } from "./actions";
 
@@ -114,27 +115,7 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
             </p>
           )}
           <input type="hidden" name="tournament_id" value={id} />
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: Math.ceil(firstRoundSlots.length / 2) }, (_, mi) => (
-              <div key={mi} className="rounded-xl border border-border bg-background p-2">
-                <p className="mb-1 text-xs font-bold uppercase text-muted">Match {mi + 1}</p>
-                {firstRoundSlots.slice(mi * 2, mi * 2 + 2).map((slot) => (
-                  <select
-                    key={slot.id}
-                    name={`slot_${slot.id}`}
-                    defaultValue={slot.is_bye ? "__bye__" : slot.team_id ?? ""}
-                    className="input mb-1 text-xs"
-                  >
-                    <option value="">— empty —</option>
-                    <option value="__bye__">BYE (lucky team advances)</option>
-                    {teams.map((t) => (
-                      <option key={t.id} value={t.id}>{t.team_name}</option>
-                    ))}
-                  </select>
-                ))}
-              </div>
-            ))}
-          </div>
+          <BracketSlotsEditor slots={firstRoundSlots} teams={teams} />
           <button className="btn-primary text-xs">Save pairings</button>
         </form>
       )}

@@ -1,4 +1,5 @@
 import { getGroups, getStandings, getTeams, teamMap } from "@/lib/data";
+import AutoRefresh from "@/components/AutoRefresh";
 import StandingsTable from "@/components/StandingsTable";
 import { overrideQualification, recalcAction } from "./actions";
 
@@ -11,6 +12,7 @@ export default async function LeaderboardPage({ params }: { params: Promise<{ id
 
   return (
     <div className="space-y-4">
+      <AutoRefresh seconds={15} />
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Leaderboard</h2>
         <form action={recalcAction}>
