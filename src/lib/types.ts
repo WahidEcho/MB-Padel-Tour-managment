@@ -1,5 +1,7 @@
 export type Role = "admin" | "manager" | "referee" | "operator";
 
+export type Sport = "padel" | "chess";
+
 export type CheckInStatus = "not_arrived" | "checked_in" | "no_show" | "disqualified";
 
 export type MatchStatus =
@@ -37,10 +39,19 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 };
 
 export interface FormatConfig {
-  type: "group_knockout";
-  qualifyPerGroup: number;
-  thirdPlaceMatch: boolean;
+  // "group_knockout" (padel default) or "knockout" (chess: no group stage).
+  type: "group_knockout" | "knockout";
+  qualifyPerGroup?: number;
+  thirdPlaceMatch?: boolean;
+  // Chess knockout only: games per pairing (1 or 2). Defaults to 1.
+  legs?: 1 | 2;
 }
+
+export const DEFAULT_CHESS_FORMAT: FormatConfig = {
+  type: "knockout",
+  legs: 1,
+  thirdPlaceMatch: false,
+};
 
 export interface BrandingConfig {
   moveBeyondLogoUrl?: string;

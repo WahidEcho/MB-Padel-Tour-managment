@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { generateBracket, publishBracket } from "@/lib/ops";
-import { getBracket, getBracketSlots } from "@/lib/data";
+import { generateBracket, generateKnockoutFromTeams, publishBracket } from "@/lib/ops";
+import { getBracket, getBracketSlots, getTournament } from "@/lib/data";
 
 function path(id: string) {
   return `/admin/tournaments/${id}/bracket`;
@@ -14,7 +14,12 @@ function path(id: string) {
 export async function generateAction(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  await generateBracket(id, role);
+  const tournament = await getTournament(id);
+  if (tournament?.sport === "chess") {
+    await generateKnockoutFromTeams(id, role);
+  } else {
+    await generateBracket(id, role);
+  }
   revalidatePath(path(id));
 }
 

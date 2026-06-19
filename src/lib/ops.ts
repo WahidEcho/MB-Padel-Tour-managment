@@ -12,6 +12,7 @@ import {
   getMatches,
   getSnapshots,
   getStandings,
+  getTeams,
   getTournament,
 } from "./data";
 import type { Match, MatchSnapshot, Standing, Tournament } from "./types";
@@ -195,6 +196,67 @@ export async function generateBracket(tournamentId: string, actorRole: string) {
     entity_type: "bracket",
     entity_id: bracket.id,
     new_value: { qualifiers: qualifiers.length },
+  });
+  return bracket.id as string;
+}
+
+/**
+ * Chess (and other group-less sports): seed a knockout bracket directly from the
+ * team/player list — no group stage. Reuses the same bracket plan + slots so the
+ * editor, publish, and auto-advance paths all work unchanged.
+ */
+export async function generateKnockoutFromTeams(tournamentId: string, actorRole: string) {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) throw new Error("Tournament not found");
+  const teams = await getTeams(tournamentId);
+  const entrants = teams
+    .filter((t) => t.team_status !== "disqualified" && t.team_status !== "withdrawn")
+    .sort((a, b) => (a.seed_number ?? 9999) - (b.seed_number ?? 9999));
+  if (entrants.length < 2) throw new Error("Need at least 2 players to build a knockout");
+
+  // One synthetic group so buildBracketPlan uses pure seed placement.
+  const qualifiers: Qualifier[] = entrants.map((t, i) => ({
+    teamId: t.id,
+    groupOrder: 0,
+    rank: t.seed_number ?? i + 1,
+  }));
+
+  const existing = await getBracket(tournamentId);
+  if (existing) {
+    await db().from("matches").delete().eq("tournament_id", tournamentId).neq("stage", "group");
+    await db().from("brackets").delete().eq("id", existing.id);
+  }
+
+  const plan = buildBracketPlan(qualifiers, tournament.format_config?.thirdPlaceMatch ?? false);
+  const { data: bracket, error } = await db()
+    .from("brackets")
+    .insert({ tournament_id: tournamentId, status: "draft" })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+
+  const slotRows = plan.flatMap((round) =>
+    round.slots.map((s) => ({
+      bracket_id: bracket.id,
+      tournament_id: tournamentId,
+      round_name: round.roundName,
+      slot_order: s.slotOrder,
+      team_id: s.teamId,
+      source_type: s.sourceType,
+      source_ref: s.sourceRef,
+      is_bye: s.isBye,
+    }))
+  );
+  const { error: slotError } = await db().from("bracket_slots").insert(slotRows);
+  if (slotError) throw new Error(slotError.message);
+
+  await audit({
+    tournament_id: tournamentId,
+    actor_role: actorRole,
+    action: "BRACKET_GENERATED",
+    entity_type: "bracket",
+    entity_id: bracket.id,
+    new_value: { entrants: entrants.length, source: "team_list" },
   });
   return bracket.id as string;
 }
@@ -530,6 +592,34 @@ export async function upsertSnapshotFromState(
   state: EngineStateLike,
   lastEventNumber: number
 ) {
+  // Non-padel (e.g. chess) state has no padel set/game fields — store the JSON and
+  // leave the padel-specific columns at neutral defaults. Padel path is unchanged.
+  const loose = state as unknown as { teamA?: unknown; fen?: string; games?: unknown };
+  if (loose.teamA === undefined || loose.games !== undefined || loose.fen !== undefined) {
+    const chessRow = {
+      match_id: match.id,
+      tournament_id: match.tournament_id,
+      current_set_number: 1,
+      team_a_point_label: "",
+      team_b_point_label: "",
+      team_a_games: 0,
+      team_b_games: 0,
+      team_a_sets: 0,
+      team_b_sets: 0,
+      is_tiebreak: false,
+      tiebreak_team_a_points: 0,
+      tiebreak_team_b_points: 0,
+      serving_team_id: null,
+      last_event_number: lastEventNumber,
+      completed_sets: [],
+      snapshot_json: state as unknown as Record<string, unknown>,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await db().from("match_score_snapshots").upsert(chessRow, { onConflict: "match_id" });
+    if (error) throw new Error(error.message);
+    return chessRow as unknown as MatchSnapshot;
+  }
+
   const servingTeamId =
     state.servingTeam === "A" ? match.team_a_id : state.servingTeam === "B" ? match.team_b_id : null;
   const row = {

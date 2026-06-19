@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getBracket, getBracketSlots, getMatches, getStandings, getTeams, teamMap } from "@/lib/data";
+import { getBracket, getBracketSlots, getMatches, getStandings, getTeams, getTournament, teamMap } from "@/lib/data";
 import BracketView, { orderedRounds } from "@/components/BracketView";
 import BracketSlotsEditor from "@/components/BracketSlotsEditor";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
@@ -9,16 +9,19 @@ export const dynamic = "force-dynamic";
 
 export default async function BracketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [bracket, teams, standings, matches] = await Promise.all([
+  const [bracket, teams, standings, matches, tournament] = await Promise.all([
     getBracket(id),
     getTeams(id),
     getStandings(id),
     getMatches(id),
+    getTournament(id),
   ]);
   const tm = teamMap(teams);
   const slots = bracket ? await getBracketSlots(bracket.id) : [];
   const matchMap = new Map(matches.map((m) => [m.id, m]));
-  const qualifiedCount = standings.filter((s) => s.status === "qualified").length;
+  const isChess = tournament?.sport === "chess";
+  const entrantCount = teams.filter((t) => t.team_status !== "disqualified" && t.team_status !== "withdrawn").length;
+  const qualifiedCount = isChess ? entrantCount : standings.filter((s) => s.status === "qualified").length;
 
   const firstRound = slots.length > 0 ? orderedRounds(slots.filter((s) => s.round_name !== "TP"))[0] : null;
   const firstRoundSlots = slots
@@ -52,9 +55,17 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
             <input type="hidden" name="tournament_id" value={id} />
             <ConfirmSubmit
               className="btn-secondary text-xs"
-              message={bracket ? "Regenerate the bracket from current standings? Existing knockout matches are deleted." : "Generate bracket from current group standings?"}
+              message={
+                isChess
+                  ? bracket
+                    ? "Regenerate the knockout from the player list? Existing knockout matches are deleted."
+                    : "Generate the knockout from the player list (seeded by seed number)?"
+                  : bracket
+                    ? "Regenerate the bracket from current standings? Existing knockout matches are deleted."
+                    : "Generate bracket from current group standings?"
+              }
             >
-              {bracket ? "Regenerate from standings" : "Generate bracket"}
+              {bracket ? (isChess ? "Regenerate from players" : "Regenerate from standings") : "Generate bracket"}
             </ConfirmSubmit>
           </form>
           {bracket && bracket.status === "draft" && (
@@ -84,9 +95,15 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
 
       {!bracket && (
         <div className="card p-8 text-center text-muted">
-          <p>{qualifiedCount} team(s) currently qualified from groups.</p>
+          <p>
+            {isChess
+              ? `${entrantCount} player(s) ready for the knockout.`
+              : `${qualifiedCount} team(s) currently qualified from groups.`}
+          </p>
           <p className="mt-1 text-sm">
-            Generate the bracket once the group stage is (nearly) done. You can edit every pairing before publishing.
+            {isChess
+              ? "Generate the knockout from the player list (seeded by seed number). You can edit every pairing before publishing."
+              : "Generate the bracket once the group stage is (nearly) done. You can edit every pairing before publishing."}
           </p>
         </div>
       )}

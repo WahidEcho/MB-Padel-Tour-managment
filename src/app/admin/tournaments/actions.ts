@@ -6,14 +6,24 @@ import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit, slugify } from "@/lib/audit";
 import { cloneTournament as cloneOp, type CloneOptions } from "@/lib/ops";
-import { DEFAULT_SCORING_CONFIG } from "@/lib/types";
+import { DEFAULT_CHESS_FORMAT, DEFAULT_SCORING_CONFIG, type FormatConfig } from "@/lib/types";
 
 export async function createTournament(formData: FormData) {
   const role = await requirePermission("manage_tournament");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Name is required");
+  const sport = String(formData.get("sport") ?? "padel") === "chess" ? "chess" : "padel";
   const courtCount = Math.min(20, Math.max(1, parseInt(String(formData.get("courts") ?? "2"), 10) || 2));
   const isDemo = formData.get("is_demo") === "on";
+
+  const isChess = sport === "chess";
+  const formatConfig: FormatConfig | undefined = isChess
+    ? {
+        ...DEFAULT_CHESS_FORMAT,
+        legs: String(formData.get("legs") ?? "1") === "2" ? 2 : 1,
+        thirdPlaceMatch: formData.get("third_place") === "on",
+      }
+    : undefined;
 
   const slug = `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`;
   const { data: tournament, error } = await db()
@@ -21,17 +31,20 @@ export async function createTournament(formData: FormData) {
     .insert({
       name,
       slug,
+      sport,
       is_demo: isDemo,
       scoring_config: DEFAULT_SCORING_CONFIG,
+      ...(formatConfig ? { format_config: formatConfig } : {}),
       created_by: role,
     })
     .select()
     .single();
   if (error) throw new Error(error.message);
 
+  const label = isChess ? "Board" : "Court";
   const courts = Array.from({ length: courtCount }, (_, i) => ({
     tournament_id: tournament.id,
-    court_name: `Court ${i + 1}`,
+    court_name: `${label} ${i + 1}`,
     court_order: i + 1,
   }));
   await db().from("courts").insert(courts);

@@ -15,6 +15,7 @@ import {
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
 import LiveMatchCard from "@/components/LiveMatchCard";
+import ChessLiveCard from "@/components/ChessLiveCard";
 import LowerThird from "@/components/LowerThird";
 import SponsorRotator from "@/components/SponsorRotator";
 import StandingsTable from "@/components/StandingsTable";
@@ -41,6 +42,7 @@ export default async function TvScreen({ params }: { params: Promise<{ slug: str
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const live = matches.filter((m) => ["live", "paused"].includes(m.status));
   const mode = settings.display_mode;
+  const isChess = tournament.sport === "chess";
 
   const bracket = await getBracket(id);
   const slots = bracket && bracket.status === "published" ? await getBracketSlots(bracket.id) : [];
@@ -73,17 +75,20 @@ export default async function TvScreen({ params }: { params: Promise<{ slug: str
             {focusMatches.length === 0 ? (
               <p className="flex items-center justify-center text-3xl text-muted">No live matches right now</p>
             ) : (
-              focusMatches.map((m) => (
-                <LiveMatchCard
-                  key={m.id}
-                  match={m}
-                  snapshot={snapByMatch.get(m.id) ?? null}
-                  teamA={m.team_a_id ? tm.get(m.team_a_id) : undefined}
-                  teamB={m.team_b_id ? tm.get(m.team_b_id) : undefined}
-                  courtName={m.court_id ? courtName.get(m.court_id) : undefined}
-                  big={focusMatches.length <= 2}
-                />
-              ))
+              focusMatches.map((m) => {
+                const common = {
+                  match: m,
+                  snapshot: snapByMatch.get(m.id) ?? null,
+                  teamA: m.team_a_id ? tm.get(m.team_a_id) : undefined,
+                  teamB: m.team_b_id ? tm.get(m.team_b_id) : undefined,
+                  big: focusMatches.length <= 2,
+                };
+                return isChess ? (
+                  <ChessLiveCard key={m.id} {...common} boardName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                ) : (
+                  <LiveMatchCard key={m.id} {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                );
+              })
             )}
           </div>
         )}

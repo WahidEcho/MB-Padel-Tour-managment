@@ -12,6 +12,7 @@ import {
 } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
+import ChessLiveCard from "@/components/ChessLiveCard";
 import StandingsTable from "@/components/StandingsTable";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export default async function PublicOverview({ params }: { params: Promise<{ slu
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const live = matches.filter((m) => ["live", "paused"].includes(m.status));
   const upcoming = matches.filter((m) => ["scheduled", "ready"].includes(m.status)).slice(0, 8);
+  const isChess = tournament.sport === "chess";
 
   return (
     <div className="space-y-6">
@@ -43,33 +45,41 @@ export default async function PublicOverview({ params }: { params: Promise<{ slu
         <section className="space-y-2">
           <h2 className="label">Live now</h2>
           <div className="grid gap-3 sm:grid-cols-2">
-            {live.map((m) => (
-              <Link key={m.id} href={`/t/${slug}/match/${m.id}`}>
-                <LiveMatchCard
-                  match={m}
-                  snapshot={snapByMatch.get(m.id) ?? null}
-                  teamA={m.team_a_id ? tm.get(m.team_a_id) : undefined}
-                  teamB={m.team_b_id ? tm.get(m.team_b_id) : undefined}
-                  courtName={m.court_id ? courtName.get(m.court_id) : undefined}
-                />
-              </Link>
-            ))}
+            {live.map((m) => {
+              const common = {
+                match: m,
+                snapshot: snapByMatch.get(m.id) ?? null,
+                teamA: m.team_a_id ? tm.get(m.team_a_id) : undefined,
+                teamB: m.team_b_id ? tm.get(m.team_b_id) : undefined,
+              };
+              return (
+                <Link key={m.id} href={`/t/${slug}/match/${m.id}`}>
+                  {isChess ? (
+                    <ChessLiveCard {...common} boardName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                  ) : (
+                    <LiveMatchCard {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}
 
-      <section className="space-y-2">
-        <h2 className="label">Groups</h2>
-        {groups.length === 0 && <p className="card p-6 text-center text-muted">Groups coming soon.</p>}
-        <div className="grid gap-3 md:grid-cols-2">
-          {groups.map((g) => (
-            <div key={g.id} className="card overflow-x-auto">
-              <h3 className="mb-1 font-bold">{g.group_name}</h3>
-              <StandingsTable standings={standings.filter((s) => s.group_id === g.id)} teams={tm} compact />
-            </div>
-          ))}
-        </div>
-      </section>
+      {!isChess && (
+        <section className="space-y-2">
+          <h2 className="label">Groups</h2>
+          {groups.length === 0 && <p className="card p-6 text-center text-muted">Groups coming soon.</p>}
+          <div className="grid gap-3 md:grid-cols-2">
+            {groups.map((g) => (
+              <div key={g.id} className="card overflow-x-auto">
+                <h3 className="mb-1 font-bold">{g.group_name}</h3>
+                <StandingsTable standings={standings.filter((s) => s.group_id === g.id)} teams={tm} compact />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {upcoming.length > 0 && (
         <section className="space-y-2">

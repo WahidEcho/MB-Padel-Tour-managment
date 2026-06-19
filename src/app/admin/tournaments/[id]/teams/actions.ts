@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { uploadImage } from "@/lib/upload";
 import { recalcStandings } from "@/lib/ops";
+import { getTournament } from "@/lib/data";
 
 function teamsPath(tournamentId: string) {
   return `/admin/tournaments/${tournamentId}/teams`;
@@ -14,6 +15,44 @@ function teamsPath(tournamentId: string) {
 export async function addTeam(formData: FormData) {
   const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const tournament = await getTournament(tournamentId);
+  const isChess = tournament?.sport === "chess";
+
+  // Chess = a single player; the player's name is stored as team_name.
+  if (isChess) {
+    const playerName = String(formData.get("team_name") ?? "").trim();
+    if (!playerName) throw new Error("Player name is required");
+    const { data: team, error } = await db()
+      .from("teams")
+      .insert({
+        tournament_id: tournamentId,
+        team_name: playerName,
+        phone: String(formData.get("phone") ?? "").trim() || null,
+        notes: String(formData.get("notes") ?? "").trim() || null,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    let photoUrl: string | null = null;
+    const file = formData.get("player_1_photo");
+    if (file instanceof File && file.size > 0) {
+      photoUrl = await uploadImage(file, `players/${tournamentId}`);
+    }
+    await db().from("players").insert([
+      { tournament_id: tournamentId, team_id: team.id, player_order: 1, full_name: playerName, photo_url: photoUrl },
+    ]);
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: role,
+      action: "TEAM_ADDED",
+      entity_type: "team",
+      entity_id: team.id,
+      new_value: { player_name: playerName },
+    });
+    revalidatePath(teamsPath(tournamentId));
+    return;
+  }
+
   const teamName = String(formData.get("team_name") ?? "").trim();
   const p1 = String(formData.get("player_1_name") ?? "").trim();
   const p2 = String(formData.get("player_2_name") ?? "").trim();
@@ -65,15 +104,48 @@ export async function updateTeam(formData: FormData) {
   const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
   const teamId = String(formData.get("team_id"));
+  const tournament = await getTournament(tournamentId);
+  const isChess = tournament?.sport === "chess";
+
+  const newName = String(formData.get("team_name") ?? "").trim();
   await db()
     .from("teams")
     .update({
-      team_name: String(formData.get("team_name") ?? "").trim(),
+      team_name: newName,
       phone: String(formData.get("phone") ?? "").trim() || null,
       notes: String(formData.get("notes") ?? "").trim() || null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", teamId);
+
+  // Chess: single player whose name mirrors team_name.
+  if (isChess) {
+    if (newName) {
+      await db()
+        .from("players")
+        .update({ full_name: newName, updated_at: new Date().toISOString() })
+        .eq("team_id", teamId)
+        .eq("player_order", 1);
+    }
+    const file = formData.get("player_1_photo");
+    if (file instanceof File && file.size > 0) {
+      const url = await uploadImage(file, `players/${tournamentId}`);
+      await db()
+        .from("players")
+        .update({ photo_url: url, updated_at: new Date().toISOString() })
+        .eq("team_id", teamId)
+        .eq("player_order", 1);
+    }
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: role,
+      action: "TEAM_UPDATED",
+      entity_type: "team",
+      entity_id: teamId,
+    });
+    revalidatePath(teamsPath(tournamentId));
+    return;
+  }
 
   for (const order of [1, 2]) {
     const name = String(formData.get(`player_${order}_name`) ?? "").trim();
