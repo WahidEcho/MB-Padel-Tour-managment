@@ -8,6 +8,7 @@ export default async function OperatorIndex() {
   const { data } = await db()
     .from("tournaments")
     .select("*")
+    .eq("kind", "tournament")
     .in("status", ["active", "draft", "completed"])
     .order("created_at", { ascending: false });
   const tournaments = (data ?? []) as Tournament[];

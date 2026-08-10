@@ -9,6 +9,7 @@ export default async function Home() {
   const { data: tournaments } = await db()
     .from("tournaments")
     .select("id, name, slug, status, sport")
+    .eq("kind", "tournament")
     .eq("public_access_enabled", true)
     .in("status", ["active", "completed"])
     .order("created_at", { ascending: false })

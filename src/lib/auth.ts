@@ -80,6 +80,12 @@ const PERMISSIONS: Record<string, Role[]> = {
   edit_bracket: ["admin", "manager", "referee"],
   control_screen: ["admin", "manager", "operator"],
   export: ["admin", "manager"],
+  // Friendly sessions. Referees may check players in on arrival, matching the
+  // existing `check_in` permission, but cannot alter sessions or profiles.
+  manage_sessions: ["admin", "manager"],
+  manage_players: ["admin", "manager"],
+  manage_seasons: ["admin", "manager"],
+  check_in_session: ["admin", "manager", "referee"],
 };
 
 export function can(role: Role | null, action: keyof typeof PERMISSIONS): boolean {

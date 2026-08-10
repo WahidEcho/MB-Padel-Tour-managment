@@ -418,7 +418,13 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
     new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null },
   });
 
-  if (match.stage === "group") {
+  if (match.stage === "friendly") {
+    // Friendly sessions award individual player points instead of team
+    // standings or bracket advancement. Imported lazily to keep the friendly
+    // module out of the tournament code path.
+    const { applyFriendlyResult } = await import("./friendly/ops");
+    await applyFriendlyResult({ ...match, winner_team_id: opts.winnerTeamId }, opts);
+  } else if (match.stage === "group") {
     await recalcStandings(match.tournament_id);
   } else {
     await advanceKnockout({ ...match, winner_team_id: opts.winnerTeamId });

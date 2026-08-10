@@ -23,8 +23,15 @@ import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
 
 export const dynamic = "force-dynamic";
 
-export default async function TvScreen({ params }: { params: Promise<{ slug: string }> }) {
+export default async function TvScreen({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ court?: string; mode?: string }>;
+}) {
   const { slug } = await params;
+  const overrides = await searchParams;
   const tournament = await getTournamentBySlug(slug);
   if (!tournament || !tournament.public_access_enabled) notFound();
   const id = tournament.id;
@@ -41,15 +48,26 @@ export default async function TvScreen({ params }: { params: Promise<{ slug: str
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const live = matches.filter((m) => ["live", "paused"].includes(m.status));
-  const mode = settings.display_mode;
+  // URL overrides give a court its own permanent scoreboard link, independent
+  // of whatever the operator has the main screen showing. Without params the
+  // operator's setting still wins, so existing screens are unaffected.
+  const VALID_MODES = ["leaderboard", "live_court", "all_live", "bracket", "winner", "sponsors"];
+  const mode = (
+    overrides.mode && VALID_MODES.includes(overrides.mode)
+      ? overrides.mode
+      : overrides.court
+        ? "live_court"
+        : settings.display_mode
+  ) as typeof settings.display_mode;
+  const focusCourtId = overrides.court ?? settings.focus_court_id;
   const isChess = tournament.sport === "chess";
 
   const bracket = await getBracket(id);
   const slots = bracket && bracket.status === "published" ? await getBracketSlots(bracket.id) : [];
 
   const focusMatches =
-    mode === "live_court" && settings.focus_court_id
-      ? live.filter((m) => m.court_id === settings.focus_court_id)
+    mode === "live_court" && focusCourtId
+      ? live.filter((m) => m.court_id === focusCourtId)
       : live;
 
   return (
