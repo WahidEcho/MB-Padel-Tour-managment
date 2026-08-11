@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AutoRefresh from "@/components/AutoRefresh";
-import { getCourts, getMatches, getTeams, teamMap } from "@/lib/data";
+import SponsorMarquee from "@/components/SponsorMarquee";
+import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
 
 export const dynamic = "force-dynamic";
@@ -16,12 +17,14 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const session = await getSessionBySlug(slug);
   if (!session || session.visibility !== "public") notFound();
 
-  const [matches, teams, courts, ranking] = await Promise.all([
+  const [matches, teams, courts, ranking, tournament] = await Promise.all([
     getMatches(session.tournament_id),
     getTeams(session.tournament_id),
     getCourts(session.tournament_id),
     getRankingSnapshot("session", session.id),
+    getTournament(session.tournament_id),
   ]);
+  const sponsors = tournament?.branding_config?.sponsorLogoUrls ?? [];
 
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
@@ -139,6 +142,8 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
           {" "}&ldquo;P&rdquo; is matches played — not everyone plays the same number.
         </p>
       </section>
+
+      <SponsorMarquee logos={sponsors} />
     </main>
   );
 }

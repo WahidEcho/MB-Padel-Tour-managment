@@ -18,6 +18,7 @@ import LiveMatchCard from "@/components/LiveMatchCard";
 import ChessLiveCard from "@/components/ChessLiveCard";
 import LowerThird from "@/components/LowerThird";
 import SponsorRotator from "@/components/SponsorRotator";
+import SponsorMarquee from "@/components/SponsorMarquee";
 import StandingsTable from "@/components/StandingsTable";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
 
@@ -153,6 +154,17 @@ export default async function TvScreen({
           </div>
         )}
       </main>
+
+      {/* A continuous sponsor ribbon along the bottom of the venue screen.
+          The dedicated "sponsors" display mode still shows them full-screen;
+          this keeps them visible during live scoring too. */}
+      {mode !== "sponsors" && (
+        <SponsorMarquee
+          logos={tournament.branding_config.sponsorLogoUrls ?? []}
+          label=""
+          size="big"
+        />
+      )}
 
       <LowerThird tournament={tournament} big />
     </div>

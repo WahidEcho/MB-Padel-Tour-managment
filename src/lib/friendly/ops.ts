@@ -1494,23 +1494,39 @@ export async function applyFriendlyResult(
  * Mirrors the tournament standings pattern: delete the scope's rows and
  * reinsert, so the snapshot can never drift from the ledger.
  */
-export async function recalcSessionRanking(sessionId: string): Promise<void> {
-  const { data: session } = await db()
-    .from("friendly_sessions")
-    .select("id, season_id, tournament_id")
-    .eq("id", sessionId)
-    .maybeSingle();
-  if (!session) return;
+/**
+ * Per-player match stats (wins, losses, games) for a set of sessions.
+ *
+ * Every ranking table — session, season and lifetime — is built from these, so
+ * the tiebreak chain is identical everywhere: points, then wins, then game
+ * difference, then games won. Without this the season table had no game data
+ * and silently broke ties differently from the session table.
+ */
+async function buildStatsForSessions(sessionIds: string[]): Promise<PlayerMatchStat[]> {
+  if (sessionIds.length === 0) return [];
 
-  const [{ data: ledger }, { data: parts }, { data: matches }, { data: profiles }] = await Promise.all([
-    db().from("player_score_ledger").select("*").eq("session_id", sessionId).order("id"),
-    db().from("friendly_match_participants").select("*").eq("session_id", sessionId),
+  const [{ data: sessions }, { data: parts }] = await Promise.all([
+    db().from("friendly_sessions").select("id, season_id, tournament_id").in("id", sessionIds),
+    db().from("friendly_match_participants").select("*").in("session_id", sessionIds),
+  ]);
+
+  const sessionRows = (sessions ?? []) as {
+    id: string;
+    season_id: string | null;
+    tournament_id: string;
+  }[];
+  if (sessionRows.length === 0) return [];
+
+  const [{ data: matches }, { data: snaps }] = await Promise.all([
     db()
       .from("matches")
       .select("id, status, winner_team_id, team_a_id")
-      .eq("tournament_id", session.tournament_id)
+      .in("tournament_id", sessionRows.map((s) => s.tournament_id))
       .eq("stage", "friendly"),
-    db().from("player_profiles").select("id, active_streak"),
+    db()
+      .from("match_score_snapshots")
+      .select("*")
+      .in("tournament_id", sessionRows.map((s) => s.tournament_id)),
   ]);
 
   const matchById = new Map(
@@ -1518,21 +1534,20 @@ export async function recalcSessionRanking(sessionId: string): Promise<void> {
       (m) => [m.id, m]
     )
   );
+  const snapByMatch = new Map(
+    ((snaps ?? []) as MatchSnapshot[]).map((s) => [s.match_id, s])
+  );
+  const seasonOf = new Map(sessionRows.map((s) => [s.id, s.season_id]));
 
-  // Per-player match stats drive the tiebreaker columns.
   const stats: PlayerMatchStat[] = [];
   for (const p of (parts ?? []) as Record<string, string | null>[]) {
-    const m = matchById.get(p.match_id as string);
+    const matchId = p.match_id as string;
+    const m = matchById.get(matchId);
     if (!m || !FINISHED_STATUSES.includes(m.status)) continue;
 
-    const { data: snap } = await db()
-      .from("match_score_snapshots")
-      .select("*")
-      .eq("match_id", p.match_id as string)
-      .maybeSingle();
     const winnerIsA = m.winner_team_id === m.team_a_id;
     const g = gamesFromSnapshot(
-      (snap ?? null) as MatchSnapshot | null,
+      snapByMatch.get(matchId) ?? null,
       6,
       winnerIsA,
       m.status === "walkover" || m.status === "disqualified"
@@ -1547,15 +1562,31 @@ export async function recalcSessionRanking(sessionId: string): Promise<void> {
       if (!id) continue;
       stats.push({
         playerProfileId: id,
-        matchId: p.match_id as string,
+        matchId,
         won: onA === winnerIsA,
         gamesWon: onA ? g.a : g.b,
         gamesLost: onA ? g.b : g.a,
-        sessionId,
-        seasonId: session.season_id,
+        sessionId: p.session_id as string,
+        seasonId: seasonOf.get(p.session_id as string) ?? null,
       });
     }
   }
+  return stats;
+}
+
+export async function recalcSessionRanking(sessionId: string): Promise<void> {
+  const { data: session } = await db()
+    .from("friendly_sessions")
+    .select("id, season_id, tournament_id")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session) return;
+
+  const [{ data: ledger }, { data: profiles }, stats] = await Promise.all([
+    db().from("player_score_ledger").select("*").eq("session_id", sessionId).order("id"),
+    db().from("player_profiles").select("id, active_streak"),
+    buildStatsForSessions([sessionId]),
+  ]);
 
   const streaks = new Map(
     ((profiles ?? []) as { id: string; active_streak: number }[]).map((p) => [p.id, p.active_streak])
@@ -1821,22 +1852,22 @@ export async function recalcSeasonAndLifetime(seasonId: string | null): Promise<
     if (scope === "season" && scopeId) q = q.eq("season_id", scopeId);
     const { data: ledger } = await q.order("id");
 
-    const lines = buildRanking(toLedgerEntries(ledger ?? []), [], {
+    // Same stats the session table uses, so the tiebreak chain is identical in
+    // every scope: points, then wins, then game difference, then games won.
+    const sessionIds = [
+      ...new Set(
+        toLedgerEntries(ledger ?? [])
+          .map((e) => e.sessionId)
+          .filter(Boolean) as string[]
+      ),
+    ];
+    const stats = await buildStatsForSessions(sessionIds);
+
+    const lines = buildRanking(toLedgerEntries(ledger ?? []), stats, {
       scope: scope === "lifetime" ? { kind: "lifetime" } : { kind: "season", seasonId: scopeId! },
       officialOnly: true,
       activeStreaks: streaks,
     });
-
-    // Matches played and win/loss come from the ledger's base rows, since
-    // official rankings span sessions and re-deriving per match would be slow.
-    const perPlayer = new Map<string, { played: number; wins: number }>();
-    for (const e of toLedgerEntries(ledger ?? [])) {
-      if (e.component === "fire") continue;
-      const cur = perPlayer.get(e.playerProfileId) ?? { played: 0, wins: 0 };
-      cur.played += 1;
-      if (e.points > 0) cur.wins += 1;
-      perPlayer.set(e.playerProfileId, cur);
-    }
 
     let del = db().from("friendly_ranking_snapshots").delete().eq("scope", scope);
     del = scopeId === null ? del.is("scope_id", null) : del.eq("scope_id", scopeId);
@@ -1846,25 +1877,22 @@ export async function recalcSeasonAndLifetime(seasonId: string | null): Promise<
     const { error } = await db()
       .from("friendly_ranking_snapshots")
       .insert(
-        lines.map((l) => {
-          const agg = perPlayer.get(l.playerProfileId) ?? { played: 0, wins: 0 };
-          return {
-            scope,
-            scope_id: scopeId,
-            player_profile_id: l.playerProfileId,
-            rank: l.rank,
-            points: l.totalPoints,
-            base_points: l.basePoints,
-            fire_points: l.firePoints,
-            wins: agg.wins,
-            losses: Math.max(0, agg.played - agg.wins),
-            games_won: l.gamesWon,
-            games_lost: l.gamesLost,
-            game_diff: l.gameDiff,
-            matches_played: agg.played,
-            active_streak: l.activeStreak ?? 0,
-          };
-        })
+        lines.map((l) => ({
+          scope,
+          scope_id: scopeId,
+          player_profile_id: l.playerProfileId,
+          rank: l.rank,
+          points: l.totalPoints,
+          base_points: l.basePoints,
+          fire_points: l.firePoints,
+          wins: l.wins,
+          losses: l.losses,
+          games_won: l.gamesWon,
+          games_lost: l.gamesLost,
+          game_diff: l.gameDiff,
+          matches_played: l.matchesPlayed,
+          active_streak: l.activeStreak ?? 0,
+        }))
       );
     if (error) throw new Error(error.message);
   }
