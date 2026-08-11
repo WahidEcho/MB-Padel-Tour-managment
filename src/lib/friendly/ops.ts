@@ -6,7 +6,14 @@
 import { db } from "../supabase";
 import { audit, slugify } from "../audit";
 import { getCourts } from "../data";
-import { DEFAULT_SCORING_CONFIG, type PairingMode, type RankingModel, type ScoringConfig } from "../types";
+import {
+  DEFAULT_SCORING_CONFIG,
+  type PairingMode,
+  type RankingModel,
+  type RegistrationMode,
+  type ScoringConfig,
+  type ScoringMode,
+} from "../types";
 import type { CompletedSet, Match, MatchSnapshot } from "../types";
 import { normalizeMobile } from "./mobile";
 import {
@@ -34,7 +41,10 @@ export interface CreateSessionInput {
   name: string;
   seasonId: string | null;
   startsAt: string | null;
-  durationMinutes: number;
+  /** Null = no time box. The capacity estimate stays advisory either way. */
+  durationMinutes: number | null;
+  registrationMode?: RegistrationMode;
+  scoringMode?: ScoringMode;
   courtCount: number;
   pairingMode: PairingMode;
   rankingModel: RankingModel;
@@ -108,6 +118,8 @@ export async function createFriendlySession(input: CreateSessionInput) {
       status: "draft",
       starts_at: input.startsAt,
       duration_minutes: input.durationMinutes,
+      registration_mode: input.registrationMode ?? "individual",
+      scoring_mode: input.scoringMode ?? "point_by_point",
       registration_deadline: input.registrationDeadline,
       expected_match_minutes: scoringConfig.setsToWinMatch > 1 ? 60 : 30,
       pairing_mode: input.pairingMode,
@@ -147,11 +159,82 @@ export interface RegistrationInput {
   preferredPartnerName?: string | null;
   /** Explicit opt-in. Unticked by default on the form (PDPL). */
   consentWhatsapp: boolean;
+  /** Present when a pair registers together in one submission. */
+  partner?: { publicName: string; mobile: string } | null;
+  teamName?: string | null;
 }
 
 export type RegistrationOutcome =
   | { ok: true }
-  | { ok: false; reason: "closed" | "invalid_name" | "invalid_mobile" };
+  | {
+      ok: false;
+      reason:
+        | "closed"
+        | "invalid_name"
+        | "invalid_mobile"
+        | "invalid_partner"
+        | "same_person"
+        | "team_not_allowed"
+        | "individual_not_allowed";
+    };
+
+/**
+ * Find an existing profile by mobile, or create a pending one.
+ * Handles the race where two submissions arrive for the same number.
+ */
+async function findOrCreateProfile(publicName: string, mobile: string): Promise<string> {
+  const { data: existing } = await db()
+    .from("player_profiles")
+    .select("id")
+    .eq("mobile_normalized", mobile)
+    .maybeSingle();
+  if (existing) return existing.id;
+
+  const { data: created, error } = await db()
+    .from("player_profiles")
+    .insert({ public_name: publicName, mobile_normalized: mobile, approval_status: "pending" })
+    .select("id")
+    .single();
+  if (!error) return created.id;
+
+  const { data: raced } = await db()
+    .from("player_profiles")
+    .select("id")
+    .eq("mobile_normalized", mobile)
+    .maybeSingle();
+  if (!raced) throw new Error(error.message);
+  return raced.id;
+}
+
+/**
+ * Create or revive an entry.
+ * A player who was previously rejected and applies again becomes pending
+ * and visible once more — the rejection is history, not a permanent ban.
+ */
+async function upsertEntry(sessionId: string, profileId: string): Promise<void> {
+  const { data: existing } = await db()
+    .from("friendly_entries")
+    .select("id, approval")
+    .eq("session_id", sessionId)
+    .eq("player_profile_id", profileId)
+    .maybeSingle();
+
+  if (!existing) {
+    await db()
+      .from("friendly_entries")
+      .insert({ session_id: sessionId, player_profile_id: profileId, source: "self", approval: "pending" });
+    return;
+  }
+
+  // Re-applying after a rejection or withdrawal puts them back in the queue.
+  if (existing.approval === "rejected" || existing.approval === "withdrawn") {
+    await db()
+      .from("friendly_entries")
+      .update({ approval: "pending", hidden: false, updated_at: new Date().toISOString() })
+      .eq("id", existing.id);
+  }
+  // Otherwise leave it alone — a duplicate submit must change nothing.
+}
 
 /**
  * Register a player for a session from the public form.
@@ -171,7 +254,7 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
 
   const { data: session } = await db()
     .from("friendly_sessions")
-    .select("id, status, registration_deadline")
+    .select("id, status, registration_deadline, registration_mode")
     .eq("id", input.sessionId)
     .maybeSingle();
   if (!session) return { ok: false, reason: "closed" };
@@ -180,42 +263,31 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
     return { ok: false, reason: "closed" };
   }
 
-  // Find-or-create the profile. A self-registration always starts pending;
-  // an existing profile keeps whatever status it already had.
-  const { data: existing } = await db()
-    .from("player_profiles")
-    .select("id")
-    .eq("mobile_normalized", mobile)
-    .maybeSingle();
+  const asTeam = Boolean(input.partner);
+  const mode = session.registration_mode as "individual" | "team" | "either";
+  if (asTeam && mode === "individual") return { ok: false, reason: "team_not_allowed" };
+  if (!asTeam && mode === "team") return { ok: false, reason: "individual_not_allowed" };
 
-  let profileId = existing?.id as string | undefined;
-  if (!profileId) {
-    const { data: created, error } = await db()
-      .from("player_profiles")
-      .insert({
-        public_name: publicName,
-        mobile_normalized: mobile,
-        approval_status: "pending",
-      })
-      .select("id")
-      .single();
-    // A concurrent submit may have created it first; fall back to a re-read.
-    if (error) {
-      const { data: raced } = await db()
-        .from("player_profiles")
-        .select("id")
-        .eq("mobile_normalized", mobile)
-        .maybeSingle();
-      if (!raced) throw new Error(error.message);
-      profileId = raced.id;
-    } else {
-      profileId = created.id;
+  // Validate the partner before creating anything, so a bad second half never
+  // leaves a half-registered team behind.
+  let partnerMobile: string | null = null;
+  let partnerName = "";
+  if (input.partner) {
+    partnerName = input.partner.publicName.trim();
+    if (partnerName.length < 2 || partnerName.length > 80) {
+      return { ok: false, reason: "invalid_partner" };
     }
+    partnerMobile = normalizeMobile(input.partner.mobile);
+    if (!partnerMobile) return { ok: false, reason: "invalid_partner" };
+    if (partnerMobile === mobile) return { ok: false, reason: "same_person" };
   }
 
-  // Consent is per-player, not per-session, and only ever recorded on an
-  // explicit tick. Never upgrade an existing grant to a revoke or vice versa
-  // without the player asking.
+  const profileId = await findOrCreateProfile(publicName, mobile);
+  const partnerId = partnerMobile ? await findOrCreateProfile(partnerName, partnerMobile) : null;
+
+  // Consent is per-player and only ever recorded on an explicit tick. Never
+  // flip an existing grant without the player asking. The tick covers whoever
+  // filled the form; a partner they signed up is not assumed to have agreed.
   if (input.consentWhatsapp) {
     const now = new Date().toISOString();
     await db().from("player_consents").upsert(
@@ -232,24 +304,34 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
     );
   }
 
-  // Idempotent: re-submitting the same form does not create a second entry
-  // and does not reveal that the player was already in.
-  await db().from("friendly_entries").upsert(
-    {
-      session_id: input.sessionId,
-      player_profile_id: profileId,
-      source: "self",
-      approval: "pending",
-    },
-    { onConflict: "session_id,player_profile_id", ignoreDuplicates: true }
-  );
+  await upsertEntry(input.sessionId, profileId);
+  if (partnerId) await upsertEntry(input.sessionId, partnerId);
+
+  // Remember the intended partnership so the organiser can honour it when
+  // pairing, without it counting as an approved pair yet.
+  if (partnerId) {
+    await db()
+      .from("friendly_entries")
+      .update({ preferred_partner_profile_id: partnerId })
+      .eq("session_id", input.sessionId)
+      .eq("player_profile_id", profileId);
+    await db()
+      .from("friendly_entries")
+      .update({ preferred_partner_profile_id: profileId })
+      .eq("session_id", input.sessionId)
+      .eq("player_profile_id", partnerId);
+  }
 
   await audit({
     actor_role: "public",
-    action: "FRIENDLY_REGISTRATION_SUBMITTED",
+    action: asTeam ? "FRIENDLY_TEAM_REGISTRATION_SUBMITTED" : "FRIENDLY_REGISTRATION_SUBMITTED",
     entity_type: "friendly_session",
     entity_id: input.sessionId,
-    new_value: { player_profile_id: profileId },
+    new_value: {
+      player_profile_id: profileId,
+      partner_profile_id: partnerId,
+      team_name: input.teamName ?? null,
+    },
   });
 
   return { ok: true };
@@ -334,9 +416,16 @@ export async function releaseEntry(
     .maybeSingle();
   if (!entry) throw new Error("Registration not found");
 
+  // Rejections are hidden, never deleted — a mis-click stays recoverable and
+  // the player can re-apply, which makes the entry pending and visible again.
   await db()
     .from("friendly_entries")
-    .update({ approval: next, updated_at: new Date().toISOString() })
+    .update({
+      approval: next,
+      hidden: next === "rejected",
+      rejected_at: next === "rejected" ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", entryId);
 
   await audit({
@@ -386,6 +475,31 @@ export async function promoteFromWaitlist(
     entity_id: nextUp.id,
   });
   return nextUp.id;
+}
+
+/**
+ * Undo a rejection. The entry returns to the pending queue rather than being
+ * auto-approved, so the organiser still makes the call deliberately.
+ */
+export async function undoRejection(entryId: string, actorRole: string): Promise<void> {
+  const { error } = await db()
+    .from("friendly_entries")
+    .update({
+      approval: "pending",
+      hidden: false,
+      rejected_at: null,
+      rejection_note: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", entryId);
+  if (error) throw new Error(error.message);
+
+  await audit({
+    actor_role: actorRole,
+    action: "FRIENDLY_ENTRY_REJECTION_UNDONE",
+    entity_type: "friendly_entry",
+    entity_id: entryId,
+  });
 }
 
 /** Admin adds a player directly, bypassing the public form. */
@@ -446,6 +560,30 @@ async function ensurePairTeam(
   const key = pairKey(profileA, profileB);
   const cached = cache.get(key);
   if (cached) return cached;
+
+  // Reuse a pair row that already exists for these two players in this session.
+  // Without this, a second call (re-pairing, regenerating, a repeat partnership
+  // in a later round) creates a duplicate team for the same two people — which
+  // is how a 7-pair session ended up showing 11 teams.
+  const { data: existingPairs } = await db()
+    .from("friendly_pairs")
+    .select("id, team_id, player_one_profile_id, player_two_profile_id")
+    .eq("session_id", sessionId);
+  const match = ((existingPairs ?? []) as {
+    id: string;
+    team_id: string;
+    player_one_profile_id: string;
+    player_two_profile_id: string | null;
+  }[]).find(
+    (p) =>
+      p.player_two_profile_id &&
+      pairKey(p.player_one_profile_id, p.player_two_profile_id) === key
+  );
+  if (match) {
+    const reused = { teamId: match.team_id, pairId: match.id };
+    cache.set(key, reused);
+    return reused;
+  }
 
   const nameA = names.get(profileA) ?? "Player";
   const nameB = names.get(profileB) ?? "Player";
@@ -609,22 +747,37 @@ export interface ScheduleResult {
  * round 1 only — later rounds depend on live standings and are generated one
  * at a time via `generateNextMexicanoRound`.
  */
+export interface GenerateOptions {
+  /**
+   * "fit" trims the schedule to the rounds that fit the session window.
+   * "all" generates the complete draw regardless of the clock — for fixed
+   * partners that is a full round robin where every pair meets every other.
+   * Defaults to "all": an organiser asking for a schedule usually wants the
+   * whole thing, with the time estimate as advice rather than a silent cap.
+   */
+  fit?: "fit" | "all";
+}
+
 export async function generateSchedule(
   sessionId: string,
-  actorRole: string
+  actorRole: string,
+  opts: GenerateOptions = {}
 ): Promise<ScheduleResult> {
   const { session, profileIds, names, courts } = await loadSessionContext(sessionId);
   if (profileIds.length < 4) throw new Error("At least 4 approved players are needed to build a schedule");
   if (courts.length === 0) throw new Error("This session has no courts");
 
   const capacity = estimateCapacity({
-    durationMinutes: session.duration_minutes,
+    durationMinutes: session.duration_minutes ?? 120,
     expectedMatchMinutes: session.expected_match_minutes,
     turnoverMinutes: session.turnover_minutes,
     courts: courts.length,
     playerCount: profileIds.length,
   });
-  const roundLimit = Math.max(1, capacity.roundsThatFit);
+  // In "all" mode the clock does not truncate the draw — the estimate becomes
+  // a warning the organiser can act on instead of silently losing matches.
+  const fitToTime = opts.fit === "fit";
+  const roundLimit = fitToTime ? Math.max(1, capacity.roundsThatFit) : undefined;
 
   const removedUnstarted = await clearUnstartedMatches(session.tournament_id);
 
@@ -652,9 +805,12 @@ export async function generateSchedule(
       }),
     ];
   } else if (session.pairing_mode === "americano") {
+    // Americano has no natural end, so "all" means enough rounds for everyone
+    // to have partnered as widely as the group allows.
+    const americanoRounds = roundLimit ?? Math.max(1, profileIds.length - 1);
     rounds = generateAmericanoSchedule(profileIds, {
       courts: courts.length,
-      rounds: roundLimit,
+      rounds: americanoRounds,
       maxRounds: roundLimit,
     });
   } else {
@@ -844,16 +1000,39 @@ export async function setFixedPairs(
 
   await clearUnstartedMatches(session.tournament_id);
 
-  // Drop the old pairs and the team rows they used.
+  // Reconcile rather than delete-and-recreate. Pairs that survive the edit keep
+  // their existing team row, so nothing that a match might reference is dropped
+  // and no duplicate team is created for the same two players.
+  const wanted = new Set(couples.map(([a, b]) => pairKey(a, b)));
+
   const { data: oldPairs } = await db()
     .from("friendly_pairs")
-    .select("team_id")
+    .select("id, team_id, player_one_profile_id, player_two_profile_id")
     .eq("session_id", sessionId);
-  const oldTeamIds = (oldPairs ?? []).map((p) => p.team_id as string);
-  await db().from("friendly_pairs").delete().eq("session_id", sessionId);
-  if (oldTeamIds.length > 0) {
-    await db().from("players").delete().in("team_id", oldTeamIds);
-    await db().from("teams").delete().in("id", oldTeamIds);
+
+  const obsolete = ((oldPairs ?? []) as {
+    id: string;
+    team_id: string;
+    player_one_profile_id: string;
+    player_two_profile_id: string | null;
+  }[]).filter(
+    (p) =>
+      !p.player_two_profile_id ||
+      !wanted.has(pairKey(p.player_one_profile_id, p.player_two_profile_id))
+  );
+
+  for (const p of obsolete) {
+    // Only remove a team that nothing points at; otherwise leave it in place.
+    const { count: used } = await db()
+      .from("matches")
+      .select("id", { count: "exact", head: true })
+      .or(`team_a_id.eq.${p.team_id},team_b_id.eq.${p.team_id}`);
+
+    await db().from("friendly_pairs").delete().eq("id", p.id);
+    if ((used ?? 0) === 0) {
+      await db().from("players").delete().eq("team_id", p.team_id);
+      await db().from("teams").delete().eq("id", p.team_id);
+    }
   }
 
   const cache = new Map<string, PairTeam>();

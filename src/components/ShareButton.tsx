@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+
+/** Never changes after load, so the subscribe callback is a no-op. */
+const noopSubscribe = () => () => {};
 
 /**
  * Share a link the way club organisers actually do it: WhatsApp, or copy.
@@ -19,8 +22,16 @@ export default function ShareButton({
   label?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  // The absolute URL only exists in the browser. The server snapshot is empty
+  // so both renders agree, then React swaps in the real origin after hydration
+  // — resolving it during render is what caused the hydration mismatch.
+  const origin = useSyncExternalStore(
+    noopSubscribe,
+    () => window.location.origin,
+    () => ""
+  );
 
-  const url = typeof window === "undefined" ? path : new URL(path, window.location.origin).toString();
+  const url = origin ? `${origin}${path}` : path;
   const wa = `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`;
 
   async function copy() {

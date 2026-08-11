@@ -288,6 +288,25 @@ export type MexicanoPairing = "balanced_1_4" | "semi_1_3" | "top_heavy_1_2";
 /** Messaging channels we may hold consent for. SMS is deliberately absent. */
 export type ConsentChannel = "whatsapp" | "web_push" | "email";
 
+/**
+ * Who the public registration form accepts.
+ *  - "individual": one player per submission (rotating formats need this).
+ *  - "team": both players and a team name captured in one submission.
+ *  - "either": the form offers both.
+ */
+export type RegistrationMode = "individual" | "team" | "either";
+
+/**
+ * How a referee records a match.
+ *  - "point_by_point": the full scoring screen, every rally.
+ *  - "final_score": enter the finished set score in one go.
+ * Set per session; a referee may override it on an individual match.
+ */
+export type ScoringMode = "point_by_point" | "final_score";
+
+/** How matches are drawn when a session's schedule is generated. */
+export type MatchFormat = "rotating" | "group_stage" | "knockout";
+
 export interface PlayerConsent {
   id: string;
   player_profile_id: string;
@@ -311,6 +330,12 @@ export interface PlayerProfile {
   /** Reserved for a future player login. Nothing reads these today. */
   auth_user_id: string | null;
   claim_status: "unclaimed" | "claimed";
+  /** Optional structured details — all admin-only, never public. */
+  email: string | null;
+  birth_year: number | null;
+  /** Free-form so each club can use its own vocabulary (A/B/C, 1-7, …). */
+  skill_level: string | null;
+  gender: "male" | "female" | "other" | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -346,7 +371,10 @@ export interface FriendlySession {
   name: string;
   status: FriendlySessionStatus;
   starts_at: string | null;
-  duration_minutes: number;
+  /** Null means no fixed time box — the capacity estimate becomes advisory. */
+  duration_minutes: number | null;
+  registration_mode: RegistrationMode;
+  scoring_mode: ScoringMode;
   registration_deadline: string | null;
   expected_match_minutes: number;
   turnover_minutes: number;
@@ -373,6 +401,10 @@ export interface FriendlyEntry {
   preferred_partner_profile_id: string | null;
   checked_in: boolean;
   registered_at: string;
+  /** Rejections are hidden rather than deleted, so they can be undone. */
+  hidden: boolean;
+  rejected_at: string | null;
+  rejection_note: string | null;
 }
 
 export interface FriendlyPair {

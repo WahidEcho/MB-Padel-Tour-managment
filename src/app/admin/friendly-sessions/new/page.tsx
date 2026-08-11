@@ -80,7 +80,27 @@ export default async function NewSessionPage() {
 
         <div>
           <label className="label" htmlFor="s-duration">Duration (minutes)</label>
-          <input id="s-duration" name="duration_minutes" type="number" min={30} max={480} defaultValue={120} className="input" />
+          <input id="s-duration" name="duration_minutes" type="number" min={1} className="input" placeholder="leave empty for no limit" />
+          <p className="mt-1 text-xs text-muted">Optional. Only used to estimate how many rounds fit — it never trims the draw.</p>
+        </div>
+
+        <div>
+          <label className="label" htmlFor="s-registration">Who can register</label>
+          <select id="s-registration" name="registration_mode" defaultValue="individual" className="input">
+            <option value="individual">Individuals — one player per sign-up</option>
+            <option value="team">Teams — both players in one sign-up</option>
+            <option value="either">Either — the player chooses</option>
+          </select>
+          <p className="mt-1 text-xs text-muted">Rotating formats need individuals; fixed partners suit teams.</p>
+        </div>
+
+        <div>
+          <label className="label" htmlFor="s-scoring">Referee scoring</label>
+          <select id="s-scoring" name="scoring_mode" defaultValue="point_by_point" className="input">
+            <option value="point_by_point">Point by point — full live scoring</option>
+            <option value="final_score">Final score only — quick entry</option>
+          </select>
+          <p className="mt-1 text-xs text-muted">A referee can switch this on any individual match.</p>
         </div>
 
         <div>

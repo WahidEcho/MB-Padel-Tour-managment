@@ -44,11 +44,22 @@ export async function createSessionAction(formData: FormData) {
   const maxPlayersRaw = String(formData.get("max_players") ?? "").trim();
   const seasonId = String(formData.get("season_id") ?? "").trim() || null;
 
+  const durationRaw = String(formData.get("duration_minutes") ?? "").trim();
+  const regMode = String(formData.get("registration_mode") ?? "individual");
+  const scoreMode = String(formData.get("scoring_mode") ?? "point_by_point");
+
   const session = await createFriendlySession({
     name,
     seasonId,
     startsAt: startsAtRaw ? new Date(startsAtRaw).toISOString() : null,
-    durationMinutes: num("duration_minutes", 120),
+    // Empty means no time box at all.
+    durationMinutes: durationRaw ? Math.max(1, num("duration_minutes", 120)) : null,
+    registrationMode: (["individual", "team", "either"].includes(regMode)
+      ? regMode
+      : "individual") as "individual" | "team" | "either",
+    scoringMode: (["point_by_point", "final_score"].includes(scoreMode)
+      ? scoreMode
+      : "point_by_point") as "point_by_point" | "final_score",
     courtCount: num("courts", 2),
     pairingMode,
     rankingModel,

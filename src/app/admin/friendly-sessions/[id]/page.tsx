@@ -114,7 +114,9 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   const season = seasons.find((s) => s.id === session.season_id);
 
   const capacity = estimateCapacity({
-    durationMinutes: session.duration_minutes,
+    // No time box set — estimate against a nominal 2 hours purely so the
+    // "rounds that fit" hint has something to say. It never caps the draw.
+    durationMinutes: session.duration_minutes ?? 120,
     expectedMatchMinutes: session.expected_match_minutes,
     turnoverMinutes: session.turnover_minutes,
     courts: courtCount,
@@ -444,10 +446,15 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             </p>
           ))}
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-            <span className="text-xs font-bold uppercase text-muted">Share</span>
-            <ShareButton path={`/f/${session.slug}`} text={`${session.name} — live scores:`} />
-            <ShareButton path={`/f/${session.slug}/rankings`} text={`${session.name} — standings:`} />
+          <div className="grid gap-2 border-t border-border pt-3 sm:grid-cols-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase text-muted">Live page</span>
+              <ShareButton path={`/f/${session.slug}`} text={`${session.name} — live scores:`} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase text-muted">Standings</span>
+              <ShareButton path={`/f/${session.slug}/rankings`} text={`${session.name} — standings:`} />
+            </div>
           </div>
         </div>
       )}

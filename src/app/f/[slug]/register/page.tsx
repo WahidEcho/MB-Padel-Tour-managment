@@ -35,7 +35,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
       </header>
 
       {open ? (
-        <RegisterClient slug={slug} />
+        <RegisterClient slug={slug} mode={session.registration_mode} />
       ) : (
         <div className="card space-y-2 text-center">
           <p className="text-3xl">🔒</p>

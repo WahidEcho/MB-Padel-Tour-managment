@@ -71,7 +71,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
 
   const { data: session } = await db()
     .from("friendly_sessions")
-    .select("id, status")
+    .select("id, status, registration_mode")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -84,26 +84,41 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     );
   }
 
-  const publicName = typeof body.public_name === "string" ? body.public_name.slice(0, 80) : "";
-  const mobile = typeof body.mobile === "string" ? body.mobile.slice(0, 40) : "";
+  const str = (v: unknown, max = 80) => (typeof v === "string" ? v.slice(0, max) : "");
+  const publicName = str(body.public_name);
+  const mobile = str(body.mobile, 40);
   const consentWhatsapp = body.consent_whatsapp === true;
+
+  // A team submission carries the partner inline, so one form creates both.
+  const partnerName = str(body.partner_name);
+  const partnerMobile = str(body.partner_mobile, 40);
+  const wantsTeam = Boolean(partnerName || partnerMobile);
 
   const result = await registerForSession({
     sessionId: session.id,
     publicName,
     mobile,
     consentWhatsapp,
+    partner: wantsTeam ? { publicName: partnerName, mobile: partnerMobile } : null,
+    teamName: str(body.team_name) || null,
   });
 
   if (!result.ok) {
-    // Only failures the submitter can actually fix are distinguished.
-    const message =
-      result.reason === "invalid_name"
-        ? "Please enter your full name."
-        : result.reason === "invalid_mobile"
-          ? "Please enter a valid mobile number."
-          : "Registration for this session is not open.";
-    return NextResponse.json({ ok: false, message }, { status: result.reason === "closed" ? 409 : 400 });
+    // Only failures the submitter can actually fix are distinguished; anything
+    // that would reveal session state collapses into the same closed message.
+    const messages: Record<string, string> = {
+      invalid_name: "Please enter your full name.",
+      invalid_mobile: "Please enter a valid mobile number.",
+      invalid_partner: "Please enter your partner's name and a valid mobile number.",
+      same_person: "You and your partner need different mobile numbers.",
+      team_not_allowed: "This session takes individual sign-ups only.",
+      individual_not_allowed: "This session takes team sign-ups only — add your partner's details.",
+    };
+    const message = messages[result.reason] ?? "Registration for this session is not open.";
+    return NextResponse.json(
+      { ok: false, message },
+      { status: result.reason === "closed" ? 409 : 400 }
+    );
   }
 
   return NextResponse.json(OPAQUE_OK);
