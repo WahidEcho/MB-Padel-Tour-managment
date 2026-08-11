@@ -8,8 +8,9 @@ import type { FriendlyEntry, PlayerProfile } from "@/lib/types";
 import ShareButton from "@/components/ShareButton";
 import { checkFinalizeReady } from "@/lib/friendly/ops";
 import PairsClient, { type PlayerLite } from "./PairsClient";
+import AddPlayersDialog from "./AddPlayersDialog";
+import ActionButton from "@/components/ActionButton";
 import {
-  addPlayerAction,
   approveEntryAction,
   autoPairAction,
   finalizeSessionAction,
@@ -181,7 +182,8 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           </h1>
           <p className="text-xs text-muted">
             {session.pairing_mode} · {session.ranking_model === "games_won" ? "games won" : "win points"} ·{" "}
-            {courtCount} court{courtCount === 1 ? "" : "s"} · {session.duration_minutes} min ·{" "}
+            {courtCount} court{courtCount === 1 ? "" : "s"} ·{" "}
+            {session.duration_minutes ? `${session.duration_minutes} min · ` : "no time limit · "}
             {season ? season.name : "no season (Lifetime only)"}
           </p>
         </div>
@@ -253,7 +255,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             <h2 className="font-bold">Waitlist ({waitlisted.length})</h2>
             <form action={promoteWaitlistAction}>
               <input type="hidden" name="session_id" value={session.id} />
-              <button className="btn-secondary text-xs">Promote next</button>
+              <ActionButton pendingLabel="Promoting…">Promote next</ActionButton>
             </form>
           </div>
           {waitlisted.map((e) => (
@@ -287,7 +289,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             {!anyStarted && (
               <form action={autoPairAction}>
                 <input type="hidden" name="session_id" value={session.id} />
-                <button className="btn-secondary text-xs">Auto-pair the rest</button>
+                <ActionButton pendingLabel="Pairing…">Auto-pair the rest</ActionButton>
               </form>
             )}
           </div>
@@ -295,6 +297,10 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             <p className="text-sm text-muted">Approve at least 4 players before pairing.</p>
           ) : (
             <PairsClient
+              // The board keeps its own drag state, so it must remount when the
+              // server sends different pairs — otherwise auto-pair and the
+              // player picker appear to do nothing until a manual reload.
+              key={initialCouples.flat().join("|")}
               sessionId={session.id}
               players={approvedPlayers}
               initialCouples={initialCouples}
@@ -315,42 +321,61 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {matches.length === 0 ? (
-              <form action={generateScheduleAction}>
+            {session.pairing_mode === "mexicano" && matches.length > 0 && allFinished && (
+              <form action={nextRoundAction}>
                 <input type="hidden" name="session_id" value={session.id} />
-                <button className="btn-primary text-xs" disabled={approved.length < 4}>
-                  {session.pairing_mode === "mexicano" ? "Draw round 1" : "Generate schedule"}
-                </button>
+                <ActionButton className="btn-primary text-xs" pendingLabel="Drawing…">Draw next round</ActionButton>
               </form>
-            ) : (
-              <>
-                {session.pairing_mode === "mexicano" && allFinished && (
-                  <form action={nextRoundAction}>
-                    <input type="hidden" name="session_id" value={session.id} />
-                    <button className="btn-primary text-xs">Draw next round</button>
-                  </form>
-                )}
-                {!anyStarted && (
-                  <form action={generateScheduleAction}>
-                    <input type="hidden" name="session_id" value={session.id} />
-                    <ConfirmSubmit
-                      className="btn-secondary text-xs"
-                      message="Rebuild the schedule? Matches that have not started will be replaced."
-                    >
-                      Regenerate
-                    </ConfirmSubmit>
-                  </form>
-                )}
-              </>
             )}
           </div>
         </div>
+
+        {(!anyStarted || matches.length === 0) && approved.length >= 4 && (
+          <form action={generateScheduleAction} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-4">
+            <input type="hidden" name="session_id" value={session.id} />
+            <div className="sm:col-span-2">
+              <label className="label" htmlFor="gen-format">Draw format</label>
+              <select id="gen-format" name="format" defaultValue="rotating" className="input text-sm">
+                <option value="rotating">
+                  {session.pairing_mode === "fixed"
+                    ? "Round robin — every pair plays every other"
+                    : session.pairing_mode === "mexicano"
+                      ? "Mexicano — one round at a time from standings"
+                      : "Americano — partners rotate each round"}
+                </option>
+                <option value="group_stage">Group stage — random draw into groups</option>
+                <option value="knockout">Knockout bracket — single elimination</option>
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="gen-groups">Groups</label>
+              <input id="gen-groups" name="group_count" type="number" min={1} max={12} defaultValue={2} className="input text-sm" />
+              <p className="mt-1 text-xs text-muted">Group stage only</p>
+            </div>
+            <div className="flex flex-col justify-end gap-1">
+              <label className="flex items-center gap-1 text-xs">
+                <input type="checkbox" name="fit" />
+                Trim to time
+              </label>
+              {matches.length === 0 ? (
+                <ActionButton className="btn-primary text-xs" pendingLabel="Generating…">Generate matches</ActionButton>
+              ) : (
+                <ConfirmSubmit
+                  className="btn-secondary text-xs"
+                  message="Rebuild the draw? Matches that have not started will be replaced."
+                >
+                  Regenerate
+                </ConfirmSubmit>
+              )}
+            </div>
+          </form>
+        )}
 
         {matches.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted">
             {approved.length < 4
               ? "At least 4 approved players are needed to build a schedule."
-              : "No matches yet — generate the schedule to get started."}
+              : "No matches yet — pick a format above and generate."}
           </p>
         ) : (
           <div className="space-y-3">
@@ -459,28 +484,34 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
         </div>
       )}
 
-      <details className="card">
-        <summary className="cursor-pointer font-bold">Add a player directly</summary>
+      <div className="card flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="font-bold">Add players</h2>
+          <p className="text-xs text-muted">
+            {session.pairing_mode === "fixed"
+              ? "Pick players two at a time — each consecutive pair becomes a team."
+              : "Pick as many as you like; partners rotate automatically in this format."}
+          </p>
+        </div>
         {addable.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">
-            Every player in the directory is already in this session.{" "}
-            <Link href="/admin/players" className="font-semibold text-accent">Add a new player</Link>.
+          <p className="text-sm text-muted">
+            Everyone is already in.{" "}
+            <Link href="/admin/players" className="font-semibold text-accent">Add a new player</Link>
           </p>
         ) : (
-          <form action={addPlayerAction} className="mt-3 flex flex-wrap items-end gap-2">
-            <input type="hidden" name="session_id" value={session.id} />
-            <div className="min-w-56 flex-1">
-              <label className="label" htmlFor="add-player">Player</label>
-              <select id="add-player" name="player_profile_id" className="input" required>
-                {addable.map((p) => (
-                  <option key={p.id} value={p.id}>{p.public_name}</option>
-                ))}
-              </select>
-            </div>
-            <button className="btn-secondary text-sm">Add to session</button>
-          </form>
+          <AddPlayersDialog
+            sessionId={session.id}
+            pairThem={session.pairing_mode === "fixed"}
+            players={profiles.map((p) => ({
+              id: p.id,
+              name: p.public_name,
+              mobile: p.mobile_normalized,
+              level: p.skill_level,
+              inSession: alreadyIn.has(p.id),
+            }))}
+          />
         )}
-      </details>
+      </div>
     </div>
   );
 }

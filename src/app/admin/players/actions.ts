@@ -7,6 +7,39 @@ import { audit } from "@/lib/audit";
 import { normalizeMobile } from "@/lib/friendly/mobile";
 import { mergePlayerProfiles } from "@/lib/friendly/ops";
 
+/**
+ * Optional player details, shared by create and update.
+ * Empty inputs become null rather than empty strings so "not recorded" and
+ * "recorded as blank" don't end up looking the same in the directory.
+ */
+function detailFields(formData: FormData) {
+  const text = (key: string) => String(formData.get(key) ?? "").trim() || null;
+
+  const birthRaw = String(formData.get("birth_year") ?? "").trim();
+  const birthYear = birthRaw ? parseInt(birthRaw, 10) : null;
+  if (birthYear !== null && (!Number.isFinite(birthYear) || birthYear < 1900 || birthYear > 2100)) {
+    throw new Error("Birth year must be a four-digit year, e.g. 1994.");
+  }
+
+  const email = text("email");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("That email address doesn't look valid.");
+  }
+
+  const gender = text("gender");
+  if (gender && !["male", "female", "other"].includes(gender)) {
+    throw new Error("Unknown gender value");
+  }
+
+  return {
+    email,
+    birth_year: birthYear,
+    skill_level: text("skill_level"),
+    gender,
+    notes: text("notes"),
+  };
+}
+
 export async function mergePlayersAction(formData: FormData) {
   const role = await requirePermission("manage_players");
   const survivorId = String(formData.get("survivor_id") ?? "");
@@ -48,7 +81,7 @@ export async function createPlayerProfile(formData: FormData) {
       // Admin-created players are trusted immediately; only self-registrations
       // sit in the pending queue.
       approval_status: "approved",
-      notes: String(formData.get("notes") ?? "").trim() || null,
+      ...detailFields(formData),
     })
     .select()
     .single();
@@ -94,7 +127,7 @@ export async function updatePlayerProfile(formData: FormData) {
     .update({
       public_name: publicName,
       mobile_normalized: mobile,
-      notes: String(formData.get("notes") ?? "").trim() || null,
+      ...detailFields(formData),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);

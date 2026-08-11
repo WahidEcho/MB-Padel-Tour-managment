@@ -6,6 +6,7 @@
 import { db } from "../supabase";
 import { audit, slugify } from "../audit";
 import { getCourts } from "../data";
+import { generateDraw, groupName } from "../draws";
 import {
   DEFAULT_SCORING_CONFIG,
   type PairingMode,
@@ -1119,6 +1120,50 @@ function gamesFromSnapshot(
 
 const FINISHED_STATUSES = ["completed", "walkover", "disqualified", "retired"];
 
+/**
+ * Write the participant snapshot for a match whose teams only became known
+ * later — a semi-final once the quarter-finals resolved, for example.
+ * Returns null if the teams don't belong to a session pair.
+ */
+async function backfillParticipants(match: Match) {
+  const { data: pairs } = await db()
+    .from("friendly_pairs")
+    .select("id, session_id, team_id, player_one_profile_id, player_two_profile_id")
+    .in("team_id", [match.team_a_id, match.team_b_id].filter(Boolean) as string[]);
+
+  const rows = (pairs ?? []) as {
+    id: string;
+    session_id: string;
+    team_id: string;
+    player_one_profile_id: string;
+    player_two_profile_id: string | null;
+  }[];
+  const a = rows.find((p) => p.team_id === match.team_a_id);
+  const b = rows.find((p) => p.team_id === match.team_b_id);
+  if (!a || !b) return null;
+
+  const round = parseInt((match.round_name ?? "").replace(/\D/g, ""), 10);
+  const { data } = await db()
+    .from("friendly_match_participants")
+    .upsert(
+      {
+        match_id: match.id,
+        session_id: a.session_id,
+        pair_a_id: a.id,
+        pair_b_id: b.id,
+        team_a_player_one: a.player_one_profile_id,
+        team_a_player_two: a.player_two_profile_id,
+        team_b_player_one: b.player_one_profile_id,
+        team_b_player_two: b.player_two_profile_id,
+        round_number: Number.isFinite(round) ? round : null,
+      },
+      { onConflict: "match_id" }
+    )
+    .select()
+    .single();
+  return data;
+}
+
 /** A `player_score_ledger` row as Postgres returns it. */
 interface LedgerRowDb {
   player_profile_id: string;
@@ -1337,13 +1382,20 @@ export async function applyFriendlyResult(
   match: Match,
   opts: { status: string; winnerTeamId: string; actorRole: string }
 ): Promise<void> {
-  const { data: parts } = await db()
+  let { data: parts } = await db()
     .from("friendly_match_participants")
     .select("*")
     .eq("match_id", match.id)
     .maybeSingle();
-  // A friendly match without a participant snapshot cannot be scored — bail
-  // rather than guessing who played.
+
+  // Knockout rounds beyond the first have no snapshot at draw time — their
+  // teams are unknown until earlier winners advance. Write it now that both
+  // sides are known, otherwise the match would score nothing.
+  if (!parts && match.team_a_id && match.team_b_id) {
+    parts = await backfillParticipants(match);
+  }
+  // Still nothing means we genuinely cannot tell who played; bail rather than
+  // guess and award points to the wrong people.
   if (!parts) return;
 
   const { data: session } = await db()
@@ -1543,6 +1595,208 @@ export async function recalcSessionRanking(sessionId: string): Promise<void> {
         }))
       );
     if (error) throw new Error(error.message);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Alternative match formats: group stage and knockout                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Draw a session's pairs into groups and generate the round-robin fixtures.
+ *
+ * The backing tournament makes this almost free: groups, group_teams and
+ * `generateGroupMatches` are the same machinery tournaments already use, so a
+ * session gets a real group stage without duplicating any of it.
+ */
+export async function generateSessionGroupStage(
+  sessionId: string,
+  groupCount: number,
+  actorRole: string
+): Promise<ScheduleResult> {
+  const { session } = await loadSessionContext(sessionId);
+
+  const { data: pairs } = await db()
+    .from("friendly_pairs")
+    .select("team_id")
+    .eq("session_id", sessionId)
+    .is("retired_after_round", null);
+  const teamIds = (pairs ?? []).map((p) => p.team_id as string);
+  if (teamIds.length < 2) {
+    throw new Error("Create at least 2 pairs before drawing a group stage");
+  }
+
+  const count = Math.max(1, Math.min(teamIds.length, groupCount));
+  const removedUnstarted = await clearUnstartedMatches(session.tournament_id);
+
+  // Redraw from scratch: groups are cheap and a partial draw is confusing.
+  await db().from("group_teams").delete().eq("tournament_id", session.tournament_id);
+  await db().from("groups").delete().eq("tournament_id", session.tournament_id);
+
+  const { data: groupRows, error: gErr } = await db()
+    .from("groups")
+    .insert(
+      Array.from({ length: count }, (_, i) => ({
+        tournament_id: session.tournament_id,
+        group_name: groupName(i),
+        group_order: i + 1,
+        status: "published",
+      }))
+    )
+    .select("id, group_order");
+  if (gErr) throw new Error(gErr.message);
+
+  const draw = generateDraw(teamIds, count);
+  const ordered = (groupRows ?? []).sort((a, b) => a.group_order - b.group_order);
+
+  const assignments = draw.groups.flatMap((members, gi) =>
+    members.map((teamId, position) => ({
+      tournament_id: session.tournament_id,
+      group_id: ordered[gi].id,
+      team_id: teamId,
+      position: position + 1,
+    }))
+  );
+  const { error: gtErr } = await db().from("group_teams").insert(assignments);
+  if (gtErr) throw new Error(gtErr.message);
+
+  const { generateGroupMatches } = await import("../ops");
+  const created = await generateGroupMatches(session.tournament_id, actorRole);
+
+  // Group matches carry stage='group'; friendly scoring keys off 'friendly',
+  // so relabel them and record who played for the player ledger.
+  await relabelAsFriendly(sessionId, session.tournament_id);
+
+  await db()
+    .from("friendly_sessions")
+    .update({ status: "scheduled", updated_at: new Date().toISOString() })
+    .eq("id", sessionId);
+
+  await audit({
+    tournament_id: session.tournament_id,
+    actor_role: actorRole,
+    action: "FRIENDLY_GROUP_STAGE_GENERATED",
+    entity_type: "friendly_session",
+    entity_id: sessionId,
+    new_value: { groups: count, matches: created },
+  });
+
+  return { matchesCreated: created, roundsCreated: count, removedUnstarted, warnings: [] };
+}
+
+/** Seed a knockout bracket from the session's pairs and publish it. */
+export async function generateSessionKnockout(
+  sessionId: string,
+  actorRole: string
+): Promise<ScheduleResult> {
+  const { session } = await loadSessionContext(sessionId);
+
+  const { data: pairs } = await db()
+    .from("friendly_pairs")
+    .select("team_id")
+    .eq("session_id", sessionId)
+    .is("retired_after_round", null);
+  if ((pairs ?? []).length < 2) {
+    throw new Error("Create at least 2 pairs before drawing a knockout");
+  }
+
+  const removedUnstarted = await clearUnstartedMatches(session.tournament_id);
+
+  const { generateKnockoutFromTeams, publishBracket } = await import("../ops");
+  await generateKnockoutFromTeams(session.tournament_id, actorRole);
+  await publishBracket(session.tournament_id, actorRole);
+
+  await relabelAsFriendly(sessionId, session.tournament_id);
+
+  await db()
+    .from("friendly_sessions")
+    .update({ status: "scheduled", updated_at: new Date().toISOString() })
+    .eq("id", sessionId);
+
+  const { count } = await db()
+    .from("matches")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", session.tournament_id)
+    .eq("stage", "friendly");
+
+  await audit({
+    tournament_id: session.tournament_id,
+    actor_role: actorRole,
+    action: "FRIENDLY_KNOCKOUT_GENERATED",
+    entity_type: "friendly_session",
+    entity_id: sessionId,
+    new_value: { matches: count ?? 0 },
+  });
+
+  return { matchesCreated: count ?? 0, roundsCreated: 1, removedUnstarted, warnings: [] };
+}
+
+/**
+ * Convert freshly generated tournament-shaped matches into friendly ones.
+ *
+ * Group and bracket generators write stage='group'/'quarter_final'/…; friendly
+ * scoring branches on stage='friendly', so they are relabelled and given the
+ * participant snapshot that the player ledger needs. The original stage is kept
+ * in `round_name` so the schedule still reads sensibly.
+ */
+async function relabelAsFriendly(sessionId: string, tournamentId: string): Promise<void> {
+  const { data: fresh } = await db()
+    .from("matches")
+    .select("id, stage, round_name, team_a_id, team_b_id")
+    .eq("tournament_id", tournamentId)
+    .neq("stage", "friendly");
+
+  const rows = (fresh ?? []) as {
+    id: string;
+    stage: string;
+    round_name: string | null;
+    team_a_id: string | null;
+    team_b_id: string | null;
+  }[];
+  if (rows.length === 0) return;
+
+  const { data: pairs } = await db()
+    .from("friendly_pairs")
+    .select("id, team_id, player_one_profile_id, player_two_profile_id")
+    .eq("session_id", sessionId);
+  const byTeam = new Map(
+    ((pairs ?? []) as {
+      id: string;
+      team_id: string;
+      player_one_profile_id: string;
+      player_two_profile_id: string | null;
+    }[]).map((p) => [p.team_id, p])
+  );
+
+  for (const m of rows) {
+    await db()
+      .from("matches")
+      .update({
+        stage: "friendly",
+        round_name: m.round_name ?? m.stage.replace(/_/g, " "),
+      })
+      .eq("id", m.id);
+
+    const a = m.team_a_id ? byTeam.get(m.team_a_id) : undefined;
+    const b = m.team_b_id ? byTeam.get(m.team_b_id) : undefined;
+    // Bracket slots can be empty until earlier rounds resolve; those get their
+    // snapshot when the winners are known.
+    if (!a || !b) continue;
+
+    await db().from("friendly_match_participants").upsert(
+      {
+        match_id: m.id,
+        session_id: sessionId,
+        pair_a_id: a.id,
+        pair_b_id: b.id,
+        team_a_player_one: a.player_one_profile_id,
+        team_a_player_two: a.player_two_profile_id,
+        team_b_player_one: b.player_one_profile_id,
+        team_b_player_two: b.player_two_profile_id,
+        round_number: 1,
+      },
+      { onConflict: "match_id" }
+    );
   }
 }
 

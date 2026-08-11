@@ -11,12 +11,15 @@ import {
   finalizeSession,
   generateNextMexicanoRound,
   generateSchedule,
+  generateSessionGroupStage,
+  generateSessionKnockout,
   promoteFromWaitlist,
   releaseEntry,
   reopenSession,
   setFixedPairs,
   setSessionStatus,
 } from "@/lib/friendly/ops";
+import { listActivePairs } from "@/lib/friendly/data";
 import type { PairingMode, RankingModel } from "@/lib/types";
 
 const PAIRING_MODES: PairingMode[] = ["fixed", "americano", "mexicano"];
@@ -124,7 +127,18 @@ export async function generateScheduleAction(formData: FormData) {
   const sessionId = String(formData.get("session_id") ?? "");
   if (!sessionId) throw new Error("Session is required");
 
-  await generateSchedule(sessionId, role);
+  const format = String(formData.get("format") ?? "rotating");
+  const fitToTime = formData.get("fit") === "on";
+
+  if (format === "group_stage") {
+    const groups = Math.max(1, parseInt(String(formData.get("group_count") ?? "2"), 10) || 2);
+    await generateSessionGroupStage(sessionId, groups, role);
+  } else if (format === "knockout") {
+    await generateSessionKnockout(sessionId, role);
+  } else {
+    await generateSchedule(sessionId, role, { fit: fitToTime ? "fit" : "all" });
+  }
+
   revalidatePath(`/admin/friendly-sessions/${sessionId}`);
 }
 
@@ -173,6 +187,43 @@ export async function reopenSessionAction(formData: FormData) {
   await reopenSession(sessionId, role);
   revalidatePath(`/admin/friendly-sessions/${sessionId}`);
   revalidatePath("/admin/rankings");
+}
+
+/**
+ * Add several players at once from the picker dialog.
+ * When `pairThem` is set, selection order is the pairing: picks 1+2 become a
+ * team, 3+4 the next, and so on — matching the colour coding in the dialog.
+ */
+export async function addPlayersAction(
+  sessionId: string,
+  profileIds: string[],
+  pairThem: boolean
+) {
+  const role = await requirePermission("manage_sessions");
+  if (!sessionId) throw new Error("Session is required");
+  if (profileIds.length === 0) throw new Error("Pick at least one player");
+  if (pairThem && profileIds.length % 2 !== 0) {
+    throw new Error("Fixed-partner sessions need an even number of players");
+  }
+
+  for (const id of profileIds) {
+    await addEntryForProfile(sessionId, id, role);
+  }
+
+  if (pairThem) {
+    // Keep any pairs that already exist, then append the new couples.
+    const existing = await listActivePairs(sessionId, 1);
+    const couples: [string, string][] = existing
+      .filter((p) => p.player_two_profile_id)
+      .map((p) => [p.player_one_profile_id, p.player_two_profile_id!]);
+
+    for (let i = 0; i + 1 < profileIds.length; i += 2) {
+      couples.push([profileIds[i], profileIds[i + 1]]);
+    }
+    await setFixedPairs(sessionId, couples, role);
+  }
+
+  revalidatePath(`/admin/friendly-sessions/${sessionId}`);
 }
 
 export async function addPlayerAction(formData: FormData) {
