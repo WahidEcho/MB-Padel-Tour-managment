@@ -54,6 +54,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   const snapshot = await getSnapshot(matchId);
   let lastApplied = snapshot?.last_event_number ?? 0;
+  // Read once per request. Only `true` turns confirmation on, so a tournament
+  // that has never set it keeps finishing on the final point as before. Chess has
+  // no confirm step on its board, so the flag never applies to it — otherwise a
+  // chess match would sit finished-but-live forever.
+  const { data: owner } = await db()
+    .from("tournaments")
+    .select("sport, scoring_config")
+    .eq("id", match.tournament_id)
+    .maybeSingle();
+  const ownerRow = owner as { sport?: string; scoring_config?: { requireResultConfirmation?: boolean } } | null;
+  const requiresConfirmation =
+    ownerRow?.sport !== "chess" && ownerRow?.scoring_config?.requireResultConfirmation === true;
   // Carried into the snapshot so the venue screen can tell a scored point from a
   // correction. Events are append-only, so an UNDO has a higher number than the
   // point it cancels — without this watermark nothing downstream can see it.
@@ -155,8 +167,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
         finalize = { status: "retired", winner: (e.payload?.winner_team_id as string) ?? "" };
         break;
     }
-    // A point that ends the match naturally also completes it
-    if (!finalize && e.new_state.matchOver && e.new_state.winner) {
+    // A point that ends the match naturally also completes it — unless the
+    // tournament asks the referee to confirm. Then the snapshot records the final
+    // score (so every screen shows it at once) but the match waits for an
+    // explicit MATCH_ENDED. Explicit end events above always finalise.
+    if (!finalize && e.new_state.matchOver && e.new_state.winner && !requiresConfirmation) {
       finalize = { status: "completed", winner: winnerTeamId(match, e.new_state) ?? "" };
     }
     // Undo past the end reopens the match (spec §4.5 "Match reopened")

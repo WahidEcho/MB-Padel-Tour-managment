@@ -125,6 +125,30 @@ export async function getSnapshot(matchId: string): Promise<MatchSnapshot | null
   return data as MatchSnapshot | null;
 }
 
+/**
+ * The score just before a finished match's winning point, so any referee device
+ * can undo it — not only the tablet that confirmed. A reloaded or second tablet
+ * starts with no local history, which left "Undo (reopen match)" doing nothing.
+ *
+ * The most recent event that crossed into match-over is the finishing point; its
+ * previous state is what an undo restores. Undos and re-scores after it are
+ * newer events, so the latest crossing is always the one that stands. Null for a
+ * match that never finished on the scoreboard (a walkover, a retirement).
+ */
+export async function getReopenState(matchId: string): Promise<Record<string, unknown> | null> {
+  const { data } = await db()
+    .from("score_events")
+    .select("event_number, previous_state_json, new_state_json")
+    .eq("match_id", matchId)
+    .order("event_number", { ascending: false })
+    .limit(50);
+  type Row = { previous_state_json: { matchOver?: boolean } | null; new_state_json: { matchOver?: boolean } | null };
+  const crossing = ((data ?? []) as Row[]).find(
+    (e) => e.new_state_json?.matchOver === true && e.previous_state_json && e.previous_state_json.matchOver !== true,
+  );
+  return (crossing?.previous_state_json as Record<string, unknown> | undefined) ?? null;
+}
+
 export async function getStandings(tournamentId: string): Promise<Standing[]> {
   const { data } = await db()
     .from("standings_snapshots")

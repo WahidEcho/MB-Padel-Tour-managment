@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/guard";
-import { getCourts, getMatch, getSnapshot, getTeams, getTournament, tierForMatch } from "@/lib/data";
+import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "@/lib/data";
+import type { ScoreState } from "@/lib/scoring/engine";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
@@ -13,12 +14,13 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
 
   const match = await getMatch(matchId);
   if (!match || !match.team_a_id || !match.team_b_id) notFound();
-  const [tournament, teams, courts, snapshot, tier] = await Promise.all([
+  const [tournament, teams, courts, snapshot, tier, reopenState] = await Promise.all([
     getTournament(match.tournament_id),
     getTeams(match.tournament_id),
     getCourts(match.tournament_id),
     getSnapshot(matchId),
     tierForMatch(match),
+    match.status === "completed" ? getReopenState(matchId) : Promise.resolve(null),
   ]);
   if (!tournament) notFound();
 
@@ -70,6 +72,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         checkedIn: teamB.check_in_status === "checked_in",
       }}
       serverSnapshot={snapshot}
+      reopenState={reopenState as ScoreState | null}
     />
   );
 }

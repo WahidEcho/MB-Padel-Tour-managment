@@ -75,6 +75,9 @@ export async function createFriendlySession(input: CreateSessionInput) {
     ...DEFAULT_SCORING_CONFIG,
     setsToWinMatch: Math.min(3, Math.max(1, input.setsToWinMatch)),
     gamesToWinSet: Math.min(9, Math.max(1, input.gamesToWinSet)),
+    // Points and fire streaks are written when a match finalises, so the referee
+    // confirms the result first rather than the last tap committing it.
+    requireResultConfirmation: true,
   };
 
   const suffix = Math.random().toString(36).slice(2, 6);

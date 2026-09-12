@@ -34,7 +34,11 @@ export async function createTournament(formData: FormData) {
       slug,
       sport,
       is_demo: isDemo,
-      scoring_config: DEFAULT_SCORING_CONFIG,
+      // A new padel tournament confirms results by default: the match-winning
+      // point shows the score and waits, so a mis-tap on match point is caught
+      // before it reaches the standings and the bracket. Existing tournaments
+      // are left as they were, so no referee finds the flow changed mid-event.
+      scoring_config: { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: !isChess },
       ...(formatConfig ? { format_config: formatConfig } : {}),
       created_by: role,
     })

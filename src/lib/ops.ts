@@ -38,6 +38,7 @@ import type {
   Team,
   Tournament,
 } from "./types";
+import { DEFAULT_SCORING_CONFIG } from "./types";
 import { ensureMainScreen } from "./screens";
 
 /* ------------------------------------------------------------------ */
@@ -708,7 +709,9 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
       status: "draft",
       cloned_from_tournament_id: sourceId,
       branding_config: opts.copyBranding ? source.branding_config : {},
-      scoring_config: opts.copyScoring ? source.scoring_config : undefined,
+      scoring_config: opts.copyScoring
+        ? source.scoring_config
+        : { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: source.sport !== "chess" },
       format_config: source.format_config,
       court_config: source.court_config,
       lower_third_text: opts.copyBranding ? source.lower_third_text : undefined,

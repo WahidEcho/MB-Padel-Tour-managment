@@ -134,7 +134,6 @@ body {
   /* Legibility floor at 6m on a 65" 1920x1080 panel (0.75mm per CSS pixel). */
   --bc-min-text: 22px;
   --bc-accent: var(--accent);
-  --bc-card: color-mix(in oklab, var(--card) 86%, transparent);
 }
 
 /* The stage is authored in canvas pixels and scaled once. */
@@ -168,7 +167,11 @@ body {
 /* Translucent, so the sponsor glow reads through the cards rather than only in
    the gutters between them. */
 .bc-card {
-  background: var(--bc-card);
+  /* Resolved here, on the card, not pre-computed into a variable at :root. A
+     custom property that references another is resolved where it is declared,
+     so --bc-card defined on :root baked in the LIGHT --card and inherited that
+     colour into a .theme-dark stage — every card rendered light on a dark wall. */
+  background: color-mix(in oklab, var(--card) 86%, transparent);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);

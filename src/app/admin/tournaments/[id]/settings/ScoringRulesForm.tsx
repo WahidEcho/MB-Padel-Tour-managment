@@ -111,11 +111,13 @@ export default function ScoringRulesForm({
   scoring,
   format,
   plateEnabled,
+  sport,
 }: {
   tournamentId: string;
   scoring: ScoringConfig;
   format: FormatConfig;
   plateEnabled: boolean;
+  sport: string;
 }) {
   const [state, action, pending] = useActionState<ScoringFormState, FormData>(updateScoring, null);
 
@@ -162,6 +164,31 @@ export default function ScoringRulesForm({
         <input type="checkbox" name="thirdPlaceMatch" defaultChecked={format.thirdPlaceMatch} className="h-4 w-4" />
         Third-place match
       </label>
+      {/* Chess boards finish on the last move with no confirm step, so the setting
+          is not offered there (the events route ignores it for chess too). */}
+      {sport !== "chess" && (
+        <>
+          {/* The hidden "off" rides along so unticking is written too: an unchecked
+              box sends nothing, which would otherwise read as "leave it alone". */}
+          <input type="hidden" name="requireResultConfirmation" value="off" />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="requireResultConfirmation"
+              value="on"
+              defaultChecked={scoring.requireResultConfirmation === true}
+              className="h-4 w-4"
+            />
+            Referee confirms each result
+          </label>
+          <p className="-mt-1 text-xs text-muted">
+            The match-winning point shows the final score and waits for Confirm result, so a mis-tap on
+            match point can be undone before it reaches the standings, the bracket or the venue screen&apos;s
+            result animation. Walkovers and retirements always finish straight away.
+          </p>
+        </>
+      )}
+
       <div>
         <label className="label">Cup podium places</label>
         <select name="cupPodiumDepth" defaultValue={String(format.tiers?.cup?.podiumDepth ?? 3)} className="input">

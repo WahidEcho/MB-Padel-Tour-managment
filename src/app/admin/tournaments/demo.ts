@@ -37,7 +37,7 @@ export async function seedDemoTournament() {
       slug,
       is_demo: true,
       status: "active",
-      scoring_config: DEFAULT_SCORING_CONFIG,
+      scoring_config: { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: true },
       created_by: role,
     })
     .select()

@@ -37,6 +37,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
         scoring={s}
         format={f}
         plateEnabled={Boolean(f.tiers?.plate?.enabled)}
+        sport={tournament.sport}
       />
 
       <div className="card space-y-3">

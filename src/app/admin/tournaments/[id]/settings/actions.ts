@@ -123,7 +123,7 @@ export async function updateScoring(
     // Only written when the form actually carries the field, so a form that does
     // not show the toggle cannot clear it.
     ...(formData.has("requireResultConfirmation")
-      ? { requireResultConfirmation: formData.get("requireResultConfirmation") === "on" }
+      ? { requireResultConfirmation: formData.getAll("requireResultConfirmation").includes("on") }
       : {}),
   };
 
