@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import {
   courtsForScreen,
   defaultScreenSettings,
-  getBracket,
+  getBrackets,
   getBracketSlots,
   getCourts,
   getGroups,
@@ -15,6 +15,7 @@ import {
   teamMap,
 } from "@/lib/data";
 import { MAIN_SCREEN, isValidScreenKey } from "@/lib/screens";
+import { podiumDepthFor } from "@/lib/bracket";
 import { normalizeDisplayMode, type Court, type DisplayMode, type Match } from "@/lib/types";
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
@@ -126,8 +127,16 @@ export default async function TvScreen({
     focusMatches = live.filter((m) => m.court_id === pinnedCourtId);
   }
 
-  const bracket = await getBracket(id);
-  const slots = bracket && bracket.status === "published" ? await getBracketSlots(bracket.id) : [];
+  // Which bracket the bracket, winner and ceremony scenes show. A screen set to
+  // 'both' shows them one after another; otherwise it shows the tier it is set
+  // to, falling back to whatever is published when that tier is not.
+  const published = (await getBrackets(id)).filter((b) => b.status === "published");
+  const shownBrackets =
+    settings.bracket_tier === "both"
+      ? published
+      : published.filter((b) => b.tier === settings.bracket_tier);
+  const brackets = shownBrackets.length > 0 ? shownBrackets : published;
+  const slotsByBracket = await Promise.all(brackets.map((b) => getBracketSlots(b.id)));
 
   return (
     <div
@@ -200,15 +209,42 @@ export default async function TvScreen({
         )}
 
         {mode === "bracket" &&
-          (slots.length > 0 ? (
-            <BracketView slots={slots} teams={tm} matches={new Map(matches.map((m) => [m.id, m]))} big />
+          (brackets.length > 0 ? (
+            <div className={`grid h-full gap-4 ${brackets.length > 1 ? "lg:grid-cols-2" : ""}`}>
+              {brackets.map((bracket, i) => (
+                <div key={bracket.id} className="min-w-0">
+                  {brackets.length > 1 && (
+                    <p className="mb-1 text-xl font-bold uppercase tracking-widest text-muted">
+                      {bracket.tier === "plate" ? "Plate" : "Cup"}
+                    </p>
+                  )}
+                  <BracketView
+                    slots={slotsByBracket[i]}
+                    teams={tm}
+                    matches={new Map(matches.map((m) => [m.id, m]))}
+                    big={brackets.length === 1}
+                  />
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="flex h-full items-center justify-center text-3xl text-muted">Bracket coming soon</p>
           ))}
 
         {(mode === "winner" || mode === "ceremony") && (
-          <div className="flex h-full items-center justify-center">
-            <WinnerDisplay podium={podiumFromMatches(matches, tm)} big />
+          <div className="flex h-full flex-col items-center justify-center gap-6">
+            {(brackets.length > 0 ? brackets : [null]).map((bracket) => (
+              <WinnerDisplay
+                key={bracket?.id ?? "cup"}
+                title={brackets.length > 1 ? (bracket?.tier === "plate" ? "Plate" : "Cup") : undefined}
+                podium={podiumFromMatches(matches, tm, {
+                  tier: bracket?.tier ?? "cup",
+                  bracketId: bracket?.id ?? undefined,
+                  depth: podiumDepthFor(tournament.format_config, bracket?.tier ?? "cup"),
+                })}
+                big
+              />
+            ))}
           </div>
         )}
 

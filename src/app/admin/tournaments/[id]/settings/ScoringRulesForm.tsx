@@ -162,6 +162,64 @@ export default function ScoringRulesForm({
         <input type="checkbox" name="thirdPlaceMatch" defaultChecked={format.thirdPlaceMatch} className="h-4 w-4" />
         Third-place match
       </label>
+      <div>
+        <label className="label">Cup podium places</label>
+        <select name="cupPodiumDepth" defaultValue={String(format.tiers?.cup?.podiumDepth ?? 3)} className="input">
+          <option value="1">Champion only</option>
+          <option value="2">Champion and runner-up</option>
+          <option value="3">Top three</option>
+          <option value="4">Top four</option>
+        </select>
+        <p className="mt-1 text-xs text-muted">
+          Third and fourth place only exist when a third-place match is played, so a deeper podium needs
+          that switched on.
+        </p>
+      </div>
+
+      <div className="space-y-2 border-t border-border pt-3">
+        <div>
+          <h3 className="text-sm font-bold">Plate bracket</h3>
+          <p className="text-xs text-muted">
+            A second knockout for the teams placed below the Cup places, so nobody goes home after the
+            group stage. Off by default.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="plateEnabled" defaultChecked={plateEnabled} className="h-4 w-4" />
+          Run a Plate bracket
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Plate places per group</label>
+            <input
+              name="platePerGroup"
+              type="number"
+              min={1}
+              max={4}
+              defaultValue={format.tiers?.plate?.perGroup ?? 2}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label">Plate podium places</label>
+            <select name="platePodiumDepth" defaultValue={String(format.tiers?.plate?.podiumDepth ?? 3)} className="input">
+              <option value="1">Champion only</option>
+              <option value="2">Champion and runner-up</option>
+              <option value="3">Top three</option>
+              <option value="4">Top four</option>
+            </select>
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="plateThirdPlaceMatch"
+            defaultChecked={format.tiers?.plate?.thirdPlaceMatch ?? format.thirdPlaceMatch ?? true}
+            className="h-4 w-4"
+          />
+          Plate third-place match
+        </label>
+      </div>
       <div className="space-y-2 border-t border-border pt-3">
         <div>
           <h3 className="text-sm font-bold">Rules per stage</h3>

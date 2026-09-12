@@ -1049,10 +1049,19 @@ export async function setFixedPairs(
 
   for (const p of obsolete) {
     // Only remove a team that nothing points at; otherwise leave it in place.
-    const { count: used } = await db()
-      .from("matches")
-      .select("id", { count: "exact", head: true })
-      .or(`team_a_id.eq.${p.team_id},team_b_id.eq.${p.team_id}`);
+    // bracket_slots counts as well as matches: a drawn-but-unpublished bracket
+    // has slots carrying team_id with match_id still null, so checking matches
+    // alone would delete a team that is in the draw. bracket_slots.team_id is
+    // ON DELETE SET NULL, so the slot would blank and the draw would quietly
+    // lose an entrant with no error anywhere.
+    const [{ count: inMatches }, { count: inDraw }] = await Promise.all([
+      db()
+        .from("matches")
+        .select("id", { count: "exact", head: true })
+        .or(`team_a_id.eq.${p.team_id},team_b_id.eq.${p.team_id}`),
+      db().from("bracket_slots").select("id", { count: "exact", head: true }).eq("team_id", p.team_id),
+    ]);
+    const used = (inMatches ?? 0) + (inDraw ?? 0);
 
     await db().from("friendly_pairs").delete().eq("id", p.id);
     if ((used ?? 0) === 0) {
@@ -1754,6 +1763,22 @@ export async function generateSessionKnockout(
     .is("retired_after_round", null);
   if ((pairs ?? []).length < 2) {
     throw new Error("Create at least 2 pairs before drawing a knockout");
+  }
+
+  // Re-drawing tears the old bracket down, and that cascade takes the matches
+  // it owns with it — including their player_score_ledger rows and fire
+  // streaks. clearUnstartedMatches one line below is careful to touch only
+  // scheduled matches; without this guard the teardown would undo that care and
+  // silently delete banked points. Refuse instead, and say what to do.
+  const { count: playedCount } = await db()
+    .from("matches")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", session.tournament_id)
+    .not("status", "in", "(scheduled,ready)");
+  if ((playedCount ?? 0) > 0) {
+    throw new Error(
+      "Some matches in this session have already been played, so the knockout cannot be redrawn — the results would be deleted with it. Undo those results first, or finish the session and start a new one.",
+    );
   }
 
   const removedUnstarted = await clearUnstartedMatches(session.tournament_id);

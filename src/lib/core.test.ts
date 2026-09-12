@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { roundRobin, matchesPerGroup } from "./roundrobin";
 import { groupSizes, generateDraw, generateDrawOptions } from "./draws";
-import { buildBracketPlan, advanceTarget, roundNameForSize } from "./bracket";
+import {
+  buildBracketPlan,
+  advanceTarget,
+  orderKnockoutMatches,
+  orderedRoundNames,
+  podiumDepthFor,
+  roundNameForSize,
+  roundSequence,
+  thirdPlaceFor,
+  tierSizes,
+  validatePodiumSettings,
+  type Qualifier,
+} from "./bracket";
 import { parseTeamsCsv, CSV_TEMPLATE } from "./csv";
 import { calculateStandings, applyQualification } from "./standings";
 import type { Match, MatchSnapshot } from "./types";
@@ -161,5 +173,176 @@ describe("standings", () => {
     applyQualification(standings, 1, true);
     expect(standings[0].status).toBe("qualified");
     expect(standings[1].status).toBe("eliminated");
+  });
+});
+
+describe("orderedRoundNames", () => {
+  it("puts rounds in the order they are played", () => {
+    // getBracketSlots sorts by slot_order alone and every round has a slot 0,
+    // so a query's round order is arbitrary. Anything walking rounds in
+    // sequence has to sort them.
+    expect(orderedRoundNames(["F", "QF", "TP", "SF"])).toEqual(["QF", "SF", "TP", "F"]);
+    expect(orderedRoundNames(["SF", "R16", "F", "QF", "R32"])).toEqual(["R32", "R16", "QF", "SF", "F"]);
+  });
+
+  it("places the third-place match between the semis and the final", () => {
+    expect(roundSequence("SF")).toBeLessThan(roundSequence("TP"));
+    expect(roundSequence("TP")).toBeLessThan(roundSequence("F"));
+  });
+
+  it("never sorts an unrecognised round after the final", () => {
+    expect(roundSequence("mystery")).toBeLessThan(roundSequence("F"));
+  });
+
+  it("deduplicates", () => {
+    expect(orderedRoundNames(["QF", "QF", "F"])).toEqual(["QF", "F"]);
+  });
+});
+
+describe("cross-group draw is rank-relative", () => {
+  const q = (groupOrder: number, rank: number, teamId: string): Qualifier => ({ teamId, groupOrder, rank });
+
+  it("draws a Plate of ranks 3 and 4 exactly as it draws a Cup of 1 and 2", () => {
+    // Before this, crossGroupEntrants matched on rank === 1 and rank === 2, so a
+    // Plate found neither and fell back to flat seeding — losing the cross-group
+    // draw silently.
+    const cup = buildBracketPlan(
+      [q(0, 1, "a1"), q(0, 2, "a2"), q(1, 1, "b1"), q(1, 2, "b2")],
+      false,
+    );
+    const plate = buildBracketPlan(
+      [q(0, 3, "a3"), q(0, 4, "a4"), q(1, 3, "b3"), q(1, 4, "b4")],
+      false,
+    );
+    const shape = (rounds: ReturnType<typeof buildBracketPlan>) =>
+      rounds[0].slots.map((s) => s.sourceType);
+    expect(shape(plate)).toEqual(shape(cup));
+    // Each group's better-placed team meets the other group's worse-placed one.
+    expect(plate[0].slots.map((s) => s.teamId)).toEqual(["a3", "b4", "b3", "a4"]);
+    expect(cup[0].slots.map((s) => s.teamId)).toEqual(["a1", "b2", "b1", "a2"]);
+  });
+
+  it("still falls back to seeding when a group has an odd number of entrants", () => {
+    const rounds = buildBracketPlan([q(0, 3, "a3"), q(0, 4, "a4"), q(1, 3, "b3")], false);
+    expect(rounds[0].slots.some((s) => s.isBye)).toBe(true);
+  });
+});
+
+describe("orderKnockoutMatches", () => {
+  const round = (tier: "cup" | "plate", roundName: string, count: number) =>
+    Array.from({ length: count }, (_, matchIndex) => ({ tier, roundName, matchIndex }));
+
+  const both = [
+    ...round("cup", "QF", 4),
+    ...round("plate", "QF", 4),
+    ...round("cup", "SF", 2),
+    ...round("plate", "SF", 2),
+    ...round("cup", "F", 1),
+    ...round("plate", "F", 1),
+  ];
+
+  it("never schedules a later round before an earlier one, whatever the strategy", () => {
+    for (const strategy of ["parallel", "sequential"] as const) {
+      const out = orderKnockoutMatches(both, 4, strategy);
+      const lastQf = Math.max(...out.filter((m) => m.roundName === "QF").map((m) => m.order));
+      const firstSf = Math.min(...out.filter((m) => m.roundName === "SF").map((m) => m.order));
+      expect(lastQf).toBeLessThan(firstSf);
+    }
+  });
+
+  it("parallel interleaves the tiers and spreads them over the whole court pool", () => {
+    const qf = orderKnockoutMatches(both, 4, "parallel").filter((m) => m.roundName === "QF");
+    expect(qf.map((m) => m.tier)).toEqual(["cup", "plate", "cup", "plate", "cup", "plate", "cup", "plate"]);
+    // Eight matches over four courts: each court takes two, and no two matches
+    // sharing a court sit next to each other in the order.
+    expect(qf.map((m) => m.courtIndex)).toEqual([0, 1, 2, 3, 0, 1, 2, 3]);
+  });
+
+  it("sequential plays the Cup round out before the Plate starts", () => {
+    const qf = orderKnockoutMatches(both, 4, "sequential").filter((m) => m.roundName === "QF");
+    expect(qf.map((m) => m.tier)).toEqual(["cup", "cup", "cup", "cup", "plate", "plate", "plate", "plate"]);
+    // Court indexes repeat across the tiers on purpose: separated in time.
+    expect(qf.map((m) => m.courtIndex)).toEqual([0, 1, 2, 3, 0, 1, 2, 3]);
+    expect(qf.map((m) => m.order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("orders every match exactly once, with no gaps", () => {
+    const out = orderKnockoutMatches(both, 3, "parallel");
+    expect(out).toHaveLength(both.length);
+    expect(out.map((m) => m.order).sort((a, b) => a - b)).toEqual(both.map((_, i) => i));
+  });
+
+  it("a single-tier tournament is unaffected by the strategy", () => {
+    const cupOnly = [...round("cup", "QF", 4), ...round("cup", "SF", 2), ...round("cup", "F", 1)];
+    const p = orderKnockoutMatches(cupOnly, 2, "parallel");
+    const q = orderKnockoutMatches(cupOnly, 2, "sequential");
+    expect(p).toEqual(q);
+  });
+
+  it("puts the third-place match before the final", () => {
+    const withTp = [...round("cup", "SF", 2), ...round("cup", "TP", 1), ...round("cup", "F", 1)];
+    const out = orderKnockoutMatches(withTp, 2, "sequential");
+    const tp = out.find((m) => m.roundName === "TP")!;
+    const f = out.find((m) => m.roundName === "F")!;
+    expect(tp.order).toBeLessThan(f.order);
+  });
+
+  it("leaves the court unset when a tournament has none", () => {
+    const out = orderKnockoutMatches(round("cup", "F", 1), 0, "parallel");
+    expect(out[0].courtIndex).toBeNull();
+  });
+});
+
+describe("tier configuration", () => {
+  it("the Plate is off unless enabled, so nothing changes by default", () => {
+    expect(tierSizes({ type: "group_knockout" }).platePerGroup).toBe(0);
+    expect(tierSizes({ type: "group_knockout", qualifyPerGroup: 2 })).toEqual({
+      qualifyPerGroup: 2,
+      platePerGroup: 0,
+    });
+  });
+
+  it("reads the Plate size once it is on, defaulting to two per group", () => {
+    const f = { type: "group_knockout" as const, tiers: { plate: { enabled: true } } };
+    expect(tierSizes(f).platePerGroup).toBe(2);
+    expect(tierSizes({ ...f, tiers: { plate: { enabled: true, perGroup: 1 } } }).platePerGroup).toBe(1);
+  });
+
+  it("the Cup keeps the legacy third-place flag", () => {
+    expect(thirdPlaceFor({ type: "group_knockout", thirdPlaceMatch: false }, "cup")).toBe(false);
+    expect(thirdPlaceFor({ type: "group_knockout", thirdPlaceMatch: true }, "cup")).toBe(true);
+  });
+
+  it("the Plate inherits the Cup's third-place setting until given its own", () => {
+    const legacyOff = { type: "group_knockout" as const, thirdPlaceMatch: false };
+    expect(thirdPlaceFor(legacyOff, "plate")).toBe(false);
+    expect(
+      thirdPlaceFor({ ...legacyOff, tiers: { plate: { enabled: true, thirdPlaceMatch: true } } }, "plate"),
+    ).toBe(true);
+  });
+
+  it("caps a podium at what the bracket can actually produce", () => {
+    const noTp = { type: "group_knockout" as const, thirdPlaceMatch: false, tiers: { cup: { podiumDepth: 4 as const } } };
+    // No third-place match means no honest 3rd and 4th.
+    expect(podiumDepthFor(noTp, "cup")).toBe(2);
+    const withTp = { ...noTp, thirdPlaceMatch: true };
+    expect(podiumDepthFor(withTp, "cup")).toBe(4);
+  });
+
+  it("refuses a podium depth the bracket cannot fill, naming the tier", () => {
+    const problems = validatePodiumSettings({
+      type: "group_knockout",
+      thirdPlaceMatch: false,
+      tiers: { cup: { podiumDepth: 3 } },
+    });
+    expect(problems).toHaveLength(1);
+    expect(problems[0].tier).toBe("cup");
+    expect(problems[0].message).toContain("third-place match");
+  });
+
+  it("accepts a shallow podium without a third-place match", () => {
+    expect(
+      validatePodiumSettings({ type: "group_knockout", thirdPlaceMatch: false, tiers: { cup: { podiumDepth: 2 } } }),
+    ).toEqual([]);
   });
 });

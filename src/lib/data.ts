@@ -6,6 +6,7 @@ import type {
   Group,
   GroupTeam,
   Match,
+  BracketTier,
   MatchSnapshot,
   PhotoFields,
   Player,
@@ -133,15 +134,33 @@ export async function getStandings(tournamentId: string): Promise<Standing[]> {
   return (data ?? []) as Standing[];
 }
 
-export async function getBracket(tournamentId: string): Promise<Bracket | null> {
+/** One tier's bracket, or null. Defaults to the Cup, which is the only tier a
+ * single-bracket tournament has. */
+export async function getBracket(
+  tournamentId: string,
+  tier: BracketTier = "cup",
+): Promise<Bracket | null> {
   const { data } = await db()
     .from("brackets")
     .select("*")
     .eq("tournament_id", tournamentId)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .eq("tier", tier)
     .maybeSingle();
-  return data as Bracket | null;
+  return (data as Bracket | null) ?? null;
+}
+
+/** Which tier a match belongs to, or null when it is not a bracket match. */
+export async function tierForMatch(match: Pick<Match, "bracket_id">): Promise<BracketTier | null> {
+  if (!match.bracket_id) return null;
+  const { data } = await db().from("brackets").select("tier").eq("id", match.bracket_id).maybeSingle();
+  return ((data as { tier: BracketTier } | null)?.tier) ?? null;
+}
+
+/** Every bracket a tournament has, Cup first. */
+export async function getBrackets(tournamentId: string): Promise<Bracket[]> {
+  const { data } = await db().from("brackets").select("*").eq("tournament_id", tournamentId);
+  const rows = (data ?? []) as Bracket[];
+  return rows.sort((a, b) => (a.tier === "cup" ? -1 : b.tier === "cup" ? 1 : 0));
 }
 
 export async function getBracketSlots(bracketId: string): Promise<BracketSlot[]> {

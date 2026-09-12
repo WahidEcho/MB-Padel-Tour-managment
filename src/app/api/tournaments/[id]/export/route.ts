@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { currentRole, can } from "@/lib/auth";
 import {
   getBracket,
+  getBrackets,
   getBracketSlots,
   getCourts,
   getGroups,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/data";
 import { db } from "@/lib/supabase";
 import { podiumFromMatches } from "@/components/WinnerDisplay";
+import { podiumDepthFor } from "@/lib/bracket";
 import { audit, slugify } from "@/lib/audit";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -45,7 +47,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   wb.creator = "Move Beyond Tournament Management";
 
   const summary = wb.addWorksheet("Tournament Summary");
-  const podium = podiumFromMatches(matches, tm);
+  // One podium per bracket: a Cup and a Plate each crown their own champion.
+  const brackets = await getBrackets(tournament.id);
+  const podiums = (brackets.length > 0 ? brackets : [null]).map((bracket) => ({
+    label: bracket ? (bracket.tier === "plate" ? "Plate" : "Cup") : "Cup",
+    podium: podiumFromMatches(matches, tm, {
+      tier: bracket?.tier ?? "cup",
+      bracketId: bracket?.id ?? undefined,
+      depth: podiumDepthFor(tournament.format_config, bracket?.tier ?? "cup"),
+    }),
+  }));
+  const placeName = (label: string, place: number) =>
+    (podiums.find((p) => p.label === label)?.podium.places.find((x) => x.place === place)?.team?.team_name) ?? "—";
   summary.addRows([
     ["Tournament", tournament.name],
     ["Status", tournament.status],
@@ -54,9 +67,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     ["Teams", teams.length],
     ["Groups", groups.length],
     ["Matches", matches.length],
-    ["Champion", podium.champion?.team_name ?? "—"],
-    ["Runner-up", podium.runnerUp?.team_name ?? "—"],
-    ["Third place", podium.third?.team_name ?? "—"],
+    ["Champion", placeName("Cup", 1)],
+    ["Runner-up", placeName("Cup", 2)],
+    ["Third place", placeName("Cup", 3)],
+    ...(podiums.some((p) => p.label === "Plate")
+      ? [
+          ["Plate champion", placeName("Plate", 1)],
+          ["Plate runner-up", placeName("Plate", 2)],
+        ]
+      : []),
     ["Exported at", new Date().toISOString()],
   ]);
   summary.getColumn(1).width = 22;
@@ -145,11 +164,17 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const finalSheet = wb.addWorksheet("Final Results");
-  finalSheet.addRows([
-    ["Champion", podium.champion?.team_name ?? "—"],
-    ["Runner-up", podium.runnerUp?.team_name ?? "—"],
-    ["Third place", podium.third?.team_name ?? "—"],
-  ]);
+  for (const { label, podium } of podiums) {
+    finalSheet.addRow([label]);
+    for (const place of podium.places) {
+      finalSheet.addRow([
+        ["", "Champion", "Runner-up", "Third place", "Fourth place"][place.place],
+        place.team?.team_name ?? "—",
+      ]);
+    }
+    if (podium.places.length === 0) finalSheet.addRow(["Not finished", "—"]);
+    finalSheet.addRow([]);
+  }
 
   const auditSheet = wb.addWorksheet("Audit Summary");
   auditSheet.addRow(["Time", "Role", "Action", "Entity", "Details"]);

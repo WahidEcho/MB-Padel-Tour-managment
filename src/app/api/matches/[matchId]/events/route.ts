@@ -155,6 +155,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       finalize = null;
       const wasFinished = ["completed", "walkover", "disqualified", "retired"].includes(match.status);
       if (wasFinished) {
+        // Reopening a knockout match has to take the winner back out of the next
+        // round. Without this the bracket kept the retracted team and the next
+        // match kept it as a side, so a wall showing the bracket showed a
+        // pairing that was no longer true. Refused outright once that next match
+        // has started, because silently rewriting a match in progress is worse
+        // than making the referee resolve it.
+        if (match.stage !== "group" && match.stage !== "friendly") {
+          const { retractKnockout } = await import("@/lib/ops");
+          const retraction = await retractKnockout(match);
+          if (!retraction.ok) {
+            return NextResponse.json(
+              {
+                error:
+                  "The next round has already started, so this result cannot be undone. Correct the later match first.",
+                conflict: retraction.reason,
+                applied,
+              },
+              { status: 409 },
+            );
+          }
+        }
         statusUpdate = { ...statusUpdate, status: "live", winner_team_id: null, ended_at: null };
       }
     }

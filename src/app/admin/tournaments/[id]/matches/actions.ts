@@ -77,10 +77,30 @@ export async function createManualMatch(formData: FormData) {
   revalidatePath(path(tournamentId));
 }
 
+/**
+ * Deletes a manually created match.
+ *
+ * Refuses a match that belongs to a bracket. `bracket_slots.match_id` is
+ * ON DELETE SET NULL, so deleting one leaves the draw looking intact while
+ * advancement is silently dead: advanceKnockout finds its slots by match_id and
+ * returns early when none come back, so the winner never reaches the next round
+ * and nothing reports why. Resetting that tier is the supported way.
+ */
 export async function deleteMatch(formData: FormData) {
   const role = await requirePermission("generate_matches");
   const tournamentId = String(formData.get("tournament_id"));
   const matchId = String(formData.get("match_id"));
+
+  const [{ data: match }, { count: slotRefs }] = await Promise.all([
+    db().from("matches").select("bracket_id, round_name").eq("id", matchId).maybeSingle(),
+    db().from("bracket_slots").select("id", { count: "exact", head: true }).eq("match_id", matchId),
+  ]);
+  if ((match as { bracket_id: string | null } | null)?.bracket_id || (slotRefs ?? 0) > 0) {
+    throw new Error(
+      "That match is part of a knockout bracket. Deleting it would break advancement — reset that bracket instead.",
+    );
+  }
+
   await db().from("matches").delete().eq("id", matchId);
   await audit({
     tournament_id: tournamentId,

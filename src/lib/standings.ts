@@ -150,13 +150,31 @@ export function calculateStandings(
 }
 
 /** Apply qualification statuses once all group matches are finished. */
-export function applyQualification(standings: Standing[], qualifyPerGroup: number, groupComplete: boolean): void {
+/**
+ * Stamps qualification once a group's matches are all finished.
+ *
+ * With a Plate bracket configured, the places below the Cup places become
+ * `plate` rather than `eliminated`: they still have a tournament to play, and
+ * telling them they are knocked out on the public leaderboard and then putting
+ * them on court is the kind of thing a room notices. `platePerGroup` of 0 — the
+ * default — keeps the original two-way split exactly.
+ */
+export function applyQualification(
+  standings: Standing[],
+  qualifyPerGroup: number,
+  groupComplete: boolean,
+  platePerGroup = 0,
+): void {
   for (const row of standings) {
     if (row.status === "disqualified") continue;
     if (!groupComplete) {
       row.status = "pending";
+    } else if (row.rank <= qualifyPerGroup) {
+      row.status = "qualified";
+    } else if (row.rank <= qualifyPerGroup + platePerGroup) {
+      row.status = "plate";
     } else {
-      row.status = row.rank <= qualifyPerGroup ? "qualified" : "eliminated";
+      row.status = "eliminated";
     }
   }
 }

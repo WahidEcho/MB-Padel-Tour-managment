@@ -6,12 +6,13 @@ import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { uploadImage } from "@/lib/upload";
 import { getTournament } from "@/lib/data";
-import type { BrandingConfig, MatchRules, ScoringConfig, Stage, StageRuleKey } from "@/lib/types";
+import type { BrandingConfig, FormatConfig, MatchRules, ScoringConfig, Stage, StageRuleKey } from "@/lib/types";
 import {
   STAGE_RULE_LABELS,
   scoringConfigForMatch,
   validateMatchRules,
 } from "@/lib/scoring/rules";
+import { validatePodiumSettings } from "@/lib/bracket";
 
 /** A representative stage for each rule bucket, so the bucket can be resolved. */
 const STAGE_FOR_KEY: Record<StageRuleKey, Stage> = {
@@ -137,13 +138,35 @@ export async function updateScoring(
       problems.push(`${STAGE_RULE_LABELS[key]} — ${p.message}`);
     }
   }
-  if (problems.length > 0) return { ok: false, problems };
-
-  const format = {
+  const plateEnabled = formData.get("plateEnabled") === "on";
+  const depth = (key: string, fallback: 1 | 2 | 3 | 4) => {
+    const raw = parseInt(String(formData.get(key) ?? ""), 10);
+    return ([1, 2, 3, 4] as number[]).includes(raw) ? (raw as 1 | 2 | 3 | 4) : fallback;
+  };
+  const format: FormatConfig = {
     ...t.format_config,
     qualifyPerGroup: num("qualifyPerGroup", 2),
     thirdPlaceMatch: formData.get("thirdPlaceMatch") === "on",
+    tiers: {
+      cup: {
+        thirdPlaceMatch: formData.get("thirdPlaceMatch") === "on",
+        podiumDepth: depth("cupPodiumDepth", 3),
+      },
+      plate: {
+        enabled: plateEnabled,
+        perGroup: Math.max(1, num("platePerGroup", 2)),
+        thirdPlaceMatch: formData.get("plateThirdPlaceMatch") === "on",
+        podiumDepth: depth("platePodiumDepth", 3),
+      },
+    },
   };
+
+  // A podium deeper than the bracket can fill would render blank cards on a
+  // venue screen, so it is refused here rather than discovered there.
+  for (const p of validatePodiumSettings(format)) {
+    problems.push(`${p.tier === "plate" ? "Plate" : "Cup"} podium — ${p.message}`);
+  }
+  if (problems.length > 0) return { ok: false, problems };
   await db()
     .from("tournaments")
     .update({ scoring_config: scoring, format_config: format, updated_at: new Date().toISOString() })

@@ -4,8 +4,16 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { generateBracket, generateKnockoutFromTeams, publishBracket } from "@/lib/ops";
-import { getBracket, getBracketSlots, getTournament } from "@/lib/data";
+import { deleteBracketCascade, generateBracket, generateKnockoutFromTeams, publishBracket } from "@/lib/ops";
+import { getBracket, getBrackets, getBracketSlots, getTournament } from "@/lib/data";
+import type { BracketTier } from "@/lib/types";
+import type { CourtStrategy } from "@/lib/bracket";
+
+/** Which tier a form is acting on. Defaults to the Cup, the only tier most
+ *  tournaments have. */
+function tierFrom(formData: FormData): BracketTier {
+  return String(formData.get("tier") ?? "cup") === "plate" ? "plate" : "cup";
+}
 
 function path(id: string) {
   return `/admin/tournaments/${id}/bracket`;
@@ -16,9 +24,10 @@ export async function generateAction(formData: FormData) {
   const id = String(formData.get("tournament_id"));
   const tournament = await getTournament(id);
   if (tournament?.sport === "chess") {
+    // Chess has no group stage, so no Plate to draw from.
     await generateKnockoutFromTeams(id, role);
   } else {
-    await generateBracket(id, role);
+    await generateBracket(id, role, tierFrom(formData));
   }
   revalidatePath(path(id));
 }
@@ -27,7 +36,7 @@ export async function generateAction(formData: FormData) {
 export async function saveSlots(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  const bracket = await getBracket(id);
+  const bracket = await getBracket(id, tierFrom(formData));
   if (!bracket || bracket.status === "published") throw new Error("Bracket not editable");
 
   const slots = await getBracketSlots(bracket.id);
@@ -60,7 +69,7 @@ export async function saveSlots(formData: FormData) {
 export async function approveAction(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  const bracket = await getBracket(id);
+  const bracket = await getBracket(id, tierFrom(formData));
   if (!bracket) throw new Error("No bracket");
   await db()
     .from("brackets")
@@ -70,19 +79,51 @@ export async function approveAction(formData: FormData) {
   revalidatePath(path(id));
 }
 
+/**
+ * Publishes every drawn tier at once.
+ *
+ * Not per tier, because the court strategy cannot be honoured one bracket at a
+ * time: whichever went first would already hold every court and every low order
+ * number, so "both at once" would quietly become "one after another".
+ */
 export async function publishAction(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  await publishBracket(id, role);
+  const strategy = (String(formData.get("court_strategy") ?? "parallel") === "sequential"
+    ? "sequential"
+    : "parallel") as CourtStrategy;
+  await publishBracket(id, role, { courtStrategy: strategy });
   revalidatePath(path(id));
   revalidatePath(`/admin/tournaments/${id}/matches`);
 }
 
+/**
+ * Deletes one tier and only its matches.
+ *
+ * It used to delete every match in the tournament that was not a group match,
+ * which with two brackets would take the other tier's live draw with it.
+ */
 export async function resetBracket(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  await db().from("matches").delete().eq("tournament_id", id).neq("stage", "group");
-  await db().from("brackets").delete().eq("tournament_id", id);
-  await audit({ tournament_id: id, actor_role: role, action: "BRACKET_RESET" });
+  const tier = tierFrom(formData);
+  const bracket = await getBracket(id, tier);
+  if (!bracket) return;
+  const { matchesDeleted } = await deleteBracketCascade(bracket.id);
+  await audit({
+    tournament_id: id,
+    actor_role: role,
+    action: "BRACKET_RESET",
+    entity_type: "bracket",
+    entity_id: bracket.id,
+    old_value: { tier, matchesDeleted },
+  });
   revalidatePath(path(id));
+  revalidatePath(`/admin/tournaments/${id}/matches`);
+}
+
+/** Every tier a tournament has drawn, for the page to render one section each. */
+export async function listBrackets(tournamentId: string) {
+  await requirePermission("edit_bracket");
+  return getBrackets(tournamentId);
 }

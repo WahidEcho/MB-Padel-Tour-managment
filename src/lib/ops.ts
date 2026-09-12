@@ -4,9 +4,21 @@ import { roundRobin } from "./roundrobin";
 import { calculateStandings, applyQualification, isFinished, type MatchResultInput } from "./standings";
 import { scoringConfigForMatch } from "./scoring/rules";
 import { DEFAULT_FOCAL } from "./portrait";
-import { advanceTarget, buildBracketPlan, stageForRound, type Qualifier } from "./bracket";
+import {
+  advanceTarget,
+  buildBracketPlan,
+  orderKnockoutMatches,
+  orderedRoundNames,
+  stageForRound,
+  thirdPlaceFor,
+  tierSizes,
+  type CourtStrategy,
+  type PlannedMatch,
+  type Qualifier,
+} from "./bracket";
 import {
   getBracket,
+  getBrackets,
   getBracketSlots,
   getCourts,
   getGroups,
@@ -17,7 +29,15 @@ import {
   getTeams,
   getTournament,
 } from "./data";
-import type { Match, MatchSnapshot, Standing, Team, Tournament } from "./types";
+import type {
+  BracketSlot,
+  BracketTier,
+  Match,
+  MatchSnapshot,
+  Standing,
+  Team,
+  Tournament,
+} from "./types";
 import { ensureMainScreen } from "./screens";
 
 /* ------------------------------------------------------------------ */
@@ -110,7 +130,7 @@ export async function recalcStandings(tournamentId: string) {
   // stage's rules rather than reading the tournament default directly.
   const groupRules = scoringConfigForMatch(tournament, { stage: "group" });
   const walkoverGames = parseInt(groupRules.walkoverScore?.split("-")[0] ?? "6", 10) || 6;
-  const qualifyPerGroup = tournament.format_config?.qualifyPerGroup ?? 2;
+  const { qualifyPerGroup, platePerGroup } = tierSizes(tournament.format_config);
 
   const rows: Standing[] = [];
   for (const group of groups) {
@@ -122,7 +142,7 @@ export async function recalcStandings(tournamentId: string) {
     }));
     const standings = calculateStandings(tournamentId, group.id, teamIds, results, disqualified, walkoverGames);
     const groupComplete = groupMatches.length > 0 && groupMatches.every((m) => isFinished(m.status));
-    applyQualification(standings, qualifyPerGroup, groupComplete);
+    applyQualification(standings, qualifyPerGroup, groupComplete, platePerGroup);
     for (const s of standings) {
       const override = overrides.get(`${s.group_id}|${s.team_id}`);
       if (override) {
@@ -142,14 +162,89 @@ export async function recalcStandings(tournamentId: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Bracket teardown                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Deletes one bracket and only the matches that belong to it.
+ *
+ * The single place a bracket is torn down, because getting the order wrong
+ * destroys data silently. Two foreign keys decide it:
+ *
+ *   bracket_slots.bracket_id -> brackets   ON DELETE CASCADE
+ *   bracket_slots.match_id   -> matches    ON DELETE SET NULL
+ *
+ * So the match ids must be read FIRST. Delete the bracket before reading them
+ * and its slots cascade away, taking the only record of which matches were its —
+ * leaving orphaned knockout matches in the schedule with nothing pointing at
+ * them.
+ *
+ * Matches are found two ways on purpose: through the slots, and through
+ * matches.bracket_id. A draft bracket has slots with no match ids yet, and a
+ * republished one can have matches whose slot rows were re-pointed, so either
+ * source alone misses cases.
+ *
+ * What this deliberately does NOT do is delete by `tournament_id` and
+ * `stage <> 'group'`, which is what every call site used to do. With two
+ * brackets that wipes the other tier's live draw.
+ */
+export async function deleteBracketCascade(bracketId: string): Promise<{ matchesDeleted: number }> {
+  const [{ data: slots }, { data: owned }] = await Promise.all([
+    db().from("bracket_slots").select("match_id").eq("bracket_id", bracketId),
+    db().from("matches").select("id").eq("bracket_id", bracketId),
+  ]);
+
+  const matchIds = [
+    ...new Set([
+      ...((slots ?? []) as { match_id: string | null }[]).map((r) => r.match_id).filter((id): id is string => Boolean(id)),
+      ...((owned ?? []) as { id: string }[]).map((r) => r.id),
+    ]),
+  ];
+
+  if (matchIds.length > 0) {
+    // Cascades to score_events, match_score_snapshots, friendly_match_participants
+    // and player_score_ledger, which is why this is scoped so tightly.
+    const { error } = await db().from("matches").delete().in("id", matchIds);
+    if (error) throw new Error(error.message);
+  }
+
+  const { error: bracketError } = await db().from("brackets").delete().eq("id", bracketId);
+  if (bracketError) throw new Error(bracketError.message);
+
+  return { matchesDeleted: matchIds.length };
+}
+
+/* ------------------------------------------------------------------ */
 /* Knockout bracket                                                    */
 /* ------------------------------------------------------------------ */
 
-export async function generateBracket(tournamentId: string, actorRole: string) {
+/**
+ * Draws one tier's knockout from the finished group stage.
+ *
+ * Cup takes the teams that qualified — 1st and 2nd in each group by default.
+ * Plate takes the places below them, so a team knocked out of the Cup still has
+ * a tournament to play. Selection reads the status `recalcStandings` wrote
+ * (`qualified` / `plate`), so a manual override on the standings page is
+ * honoured rather than silently recomputed here, and a disqualified or withdrawn
+ * team is never drafted into either.
+ */
+export async function generateBracket(
+  tournamentId: string,
+  actorRole: string,
+  tier: BracketTier = "cup",
+) {
   const tournament = await getTournament(tournamentId);
   if (!tournament) throw new Error("Tournament not found");
-  const [groups, standings] = await Promise.all([getGroups(tournamentId), getStandings(tournamentId)]);
-  const qualifyPerGroup = tournament.format_config?.qualifyPerGroup ?? 2;
+  const [groups, standings, teams] = await Promise.all([
+    getGroups(tournamentId),
+    getStandings(tournamentId),
+    getTeams(tournamentId),
+  ]);
+  const { qualifyPerGroup, platePerGroup } = tierSizes(tournament.format_config);
+  if (tier === "plate" && platePerGroup < 1) {
+    throw new Error("Turn the Plate bracket on in tournament settings first.");
+  }
+  const playable = new Set(teams.filter((t) => t.team_status === "active").map((t) => t.id));
 
   const qualifiers: Qualifier[] = [];
   for (const [gi, group] of groups.entries()) {
@@ -157,25 +252,38 @@ export async function generateBracket(tournamentId: string, actorRole: string) {
       .filter((s) => s.group_id === group.id)
       .sort((a, b) => a.rank - b.rank);
     for (const row of groupRows) {
-      const qualified = row.status === "qualified" || (row.status === "pending" && row.rank <= qualifyPerGroup);
-      if (qualified && row.status !== "disqualified") {
-        qualifiers.push({ teamId: row.team_id, groupOrder: gi, rank: row.rank });
-      }
+      if (row.status === "disqualified" || !playable.has(row.team_id)) continue;
+      const inTier =
+        tier === "cup"
+          ? row.status === "qualified" || (row.status === "pending" && row.rank <= qualifyPerGroup)
+          : row.status === "plate" ||
+            (row.status === "pending" &&
+              row.rank > qualifyPerGroup &&
+              row.rank <= qualifyPerGroup + platePerGroup);
+      if (inTier) qualifiers.push({ teamId: row.team_id, groupOrder: gi, rank: row.rank });
     }
   }
-  if (qualifiers.length < 2) throw new Error("Not enough qualified teams to build a bracket");
-
-  // Replace any existing draft bracket (and its knockout matches)
-  const existing = await getBracket(tournamentId);
-  if (existing) {
-    await db().from("matches").delete().eq("tournament_id", tournamentId).neq("stage", "group");
-    await db().from("brackets").delete().eq("id", existing.id);
+  if (qualifiers.length < 2) {
+    throw new Error(
+      tier === "plate"
+        ? "Not enough teams for a Plate bracket. Check the group standings and the Plate size in settings."
+        : "Not enough qualified teams to build a bracket",
+    );
   }
 
-  const plan = buildBracketPlan(qualifiers, tournament.format_config?.thirdPlaceMatch ?? true);
+  // Replace this tier's bracket only. The other tier may be mid-play.
+  const existing = await getBracket(tournamentId, tier);
+  if (existing) await deleteBracketCascade(existing.id);
+
+  const plan = buildBracketPlan(qualifiers, thirdPlaceFor(tournament.format_config, tier));
   const { data: bracket, error } = await db()
     .from("brackets")
-    .insert({ tournament_id: tournamentId, status: "draft" })
+    .insert({
+      tournament_id: tournamentId,
+      status: "draft",
+      tier,
+      bracket_name: tier === "plate" ? "Plate" : "Cup",
+    })
     .select()
     .single();
   if (error) throw new Error(error.message);
@@ -201,7 +309,7 @@ export async function generateBracket(tournamentId: string, actorRole: string) {
     action: "BRACKET_GENERATED",
     entity_type: "bracket",
     entity_id: bracket.id,
-    new_value: { qualifiers: qualifiers.length },
+    new_value: { tier, qualifiers: qualifiers.length },
   });
   return bracket.id as string;
 }
@@ -227,11 +335,8 @@ export async function generateKnockoutFromTeams(tournamentId: string, actorRole:
     rank: t.seed_number ?? i + 1,
   }));
 
-  const existing = await getBracket(tournamentId);
-  if (existing) {
-    await db().from("matches").delete().eq("tournament_id", tournamentId).neq("stage", "group");
-    await db().from("brackets").delete().eq("id", existing.id);
-  }
+  const existing = await getBracket(tournamentId, "cup");
+  if (existing) await deleteBracketCascade(existing.id);
 
   const plan = buildBracketPlan(qualifiers, tournament.format_config?.thirdPlaceMatch ?? false);
   const { data: bracket, error } = await db()
@@ -268,14 +373,24 @@ export async function generateKnockoutFromTeams(tournamentId: string, actorRole:
 }
 
 /**
- * Publishing creates the knockout matches from the slots and auto-advances
- * lucky teams (byes) without a score (spec §5.3).
+ * Turns drawn slots into real matches, for every tier at once.
+ *
+ * All unpublished tiers are published together because the court strategy cannot
+ * be honoured otherwise: publishing the Cup and then the Plate means the Cup has
+ * already taken every court and every low order number, so "both at once" would
+ * silently degrade to "one after another". One call, one decision.
+ *
+ * Byes advance without a match, as before.
  */
-export async function publishBracket(tournamentId: string, actorRole: string) {
-  const bracket = await getBracket(tournamentId);
-  if (!bracket) throw new Error("No bracket to publish");
-  const slots = await getBracketSlots(bracket.id);
+export async function publishBracket(
+  tournamentId: string,
+  actorRole: string,
+  opts: { courtStrategy?: CourtStrategy } = {},
+) {
+  const brackets = (await getBrackets(tournamentId)).filter((b) => b.status !== "published");
+  if (brackets.length === 0) throw new Error("No bracket to publish");
   const courts = await getCourts(tournamentId);
+  const strategy = opts.courtStrategy ?? "parallel";
 
   const { data: maxOrderRow } = await db()
     .from("matches")
@@ -284,69 +399,125 @@ export async function publishBracket(tournamentId: string, actorRole: string) {
     .order("match_order", { ascending: false })
     .limit(1)
     .maybeSingle();
-  let order = (maxOrderRow?.match_order ?? 0) + 1;
+  const baseOrder = (maxOrderRow?.match_order ?? 0) + 1;
 
-  const roundNames = [...new Set(slots.map((s) => s.round_name))];
-  const byRound = (r: string) => slots.filter((s) => s.round_name === r).sort((a, b) => a.slot_order - b.slot_order);
+  // Collect every pairing across every tier first, so courts and play order can
+  // be decided for the whole knockout rather than one bracket at a time.
+  type Pairing = PlannedMatch & {
+    bracketId: string;
+    roundSlotCount: number;
+    a: BracketSlot;
+    b: BracketSlot;
+  };
+  const pairings: Pairing[] = [];
+  const byes: { bracketId: string; roundName: string; matchIndex: number; teamId: string }[] = [];
 
-  for (const roundName of roundNames) {
-    const roundSlots = byRound(roundName);
-    for (let i = 0; i < roundSlots.length; i += 2) {
-      const a = roundSlots[i];
-      const b = roundSlots[i + 1];
-      const matchIndex = i / 2;
-      if (a.is_bye || b.is_bye) {
-        // Lucky team advances without a match
-        const lucky = a.is_bye ? b : a;
-        const target = advanceTarget(roundName, matchIndex);
-        if (lucky.team_id && target) {
-          await db()
-            .from("bracket_slots")
-            .update({ team_id: lucky.team_id, source_type: "bye_advance" })
-            .eq("bracket_id", bracket.id)
-            .eq("round_name", target.roundName)
-            .eq("slot_order", target.slotOrder);
-          await audit({
-            tournament_id: tournamentId,
-            actor_role: actorRole,
-            action: "BYE_ADVANCE",
-            entity_type: "team",
-            entity_id: lucky.team_id,
-            new_value: { from: roundName, to: target.roundName },
-          });
+  for (const bracket of brackets) {
+    const slots = await getBracketSlots(bracket.id);
+    // Rounds must be walked in the order they are played; getBracketSlots sorts
+    // by slot_order alone, and every round has a slot 0.
+    for (const roundName of orderedRoundNames(slots.map((s) => s.round_name))) {
+      const roundSlots = slots
+        .filter((s) => s.round_name === roundName)
+        .sort((a, b) => a.slot_order - b.slot_order);
+      for (let i = 0; i < roundSlots.length; i += 2) {
+        const a = roundSlots[i];
+        const b = roundSlots[i + 1];
+        if (!a || !b) continue;
+        const matchIndex = i / 2;
+        if (a.is_bye || b.is_bye) {
+          const lucky = a.is_bye ? b : a;
+          if (lucky.team_id) {
+            byes.push({ bracketId: bracket.id, roundName, matchIndex, teamId: lucky.team_id });
+          }
+          continue;
         }
-        continue;
+        pairings.push({
+          bracketId: bracket.id,
+          tier: bracket.tier,
+          roundName,
+          matchIndex,
+          roundSlotCount: roundSlots.length,
+          a,
+          b,
+        });
       }
-      const { data: match, error } = await db()
-        .from("matches")
-        .insert({
-          tournament_id: tournamentId,
-          stage: stageForRound(roundName),
-          round_name: `${roundName}${roundSlots.length > 2 ? matchIndex + 1 : ""}`,
-          match_order: order++,
-          court_id: courts.length > 0 ? courts[matchIndex % courts.length].id : null,
-          team_a_id: a.team_id,
-          team_b_id: b.team_id,
-          status: "scheduled",
-        })
-        .select()
-        .single();
-      if (error) throw new Error(error.message);
-      await db().from("bracket_slots").update({ match_id: match.id }).in("id", [a.id, b.id]);
     }
   }
 
-  await db()
-    .from("brackets")
-    .update({ status: "published", published_at: new Date().toISOString() })
-    .eq("id", bracket.id);
-  await audit({
-    tournament_id: tournamentId,
-    actor_role: actorRole,
-    action: "BRACKET_PUBLISHED",
-    entity_type: "bracket",
-    entity_id: bracket.id,
-  });
+  // Byes first: a lucky team must be in its next slot before that round's match
+  // is created, or the match is built with an empty side.
+  for (const bye of byes) {
+    const target = advanceTarget(bye.roundName, bye.matchIndex);
+    if (!target) continue;
+    await db()
+      .from("bracket_slots")
+      .update({ team_id: bye.teamId, source_type: "bye_advance" })
+      .eq("bracket_id", bye.bracketId)
+      .eq("round_name", target.roundName)
+      .eq("slot_order", target.slotOrder);
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: actorRole,
+      action: "BYE_ADVANCE",
+      entity_type: "team",
+      entity_id: bye.teamId,
+      new_value: { from: bye.roundName, to: target.roundName },
+    });
+  }
+
+  const scheduled = orderKnockoutMatches(pairings, courts.length, strategy);
+  const plateName = (roundName: string) => (roundName === "TP" ? "Plate TP" : `Plate ${roundName}`);
+
+  for (const slot of scheduled) {
+    const pairing = pairings.find(
+      (p) => p.tier === slot.tier && p.roundName === slot.roundName && p.matchIndex === slot.matchIndex,
+    );
+    if (!pairing) continue;
+    const { a, b } = pairing;
+    // Re-read the slots: a bye may have filled this side a moment ago.
+    const [{ data: freshA }, { data: freshB }] = await Promise.all([
+      db().from("bracket_slots").select("team_id").eq("id", a.id).maybeSingle(),
+      db().from("bracket_slots").select("team_id").eq("id", b.id).maybeSingle(),
+    ]);
+    const suffix = pairing.roundSlotCount > 2 ? String(slot.matchIndex + 1) : "";
+    // The Plate's rounds are labelled so the two tiers can be told apart
+    // anywhere a round name is shown raw — a referee queue, the admin table, a
+    // court card. Two matches called "F" on one wall is the failure this avoids.
+    const baseName = `${slot.roundName}${suffix}`;
+    const { data: match, error } = await db()
+      .from("matches")
+      .insert({
+        tournament_id: tournamentId,
+        bracket_id: pairing.bracketId,
+        stage: stageForRound(slot.roundName),
+        round_name: slot.tier === "plate" ? plateName(baseName) : baseName,
+        match_order: baseOrder + slot.order,
+        court_id: slot.courtIndex === null ? null : courts[slot.courtIndex].id,
+        team_a_id: (freshA?.team_id as string | null) ?? a.team_id,
+        team_b_id: (freshB?.team_id as string | null) ?? b.team_id,
+        status: "scheduled",
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    await db().from("bracket_slots").update({ match_id: match.id }).in("id", [a.id, b.id]);
+  }
+
+  for (const bracket of brackets) {
+    await db()
+      .from("brackets")
+      .update({ status: "published", published_at: new Date().toISOString() })
+      .eq("id", bracket.id);
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: actorRole,
+      action: "BRACKET_PUBLISHED",
+      entity_type: "bracket",
+      entity_id: bracket.id,
+      new_value: { tier: bracket.tier, courtStrategy: strategy },
+    });
+  }
 }
 
 /** Fill next-round slots/matches after a knockout match finishes. */
@@ -388,6 +559,70 @@ async function advanceKnockout(match: Match) {
   }
 }
 
+
+/**
+ * Undoes what advanceKnockout did, when a finished match is reopened.
+ *
+ * An UNDO past the end of a match sets it back to live, but until now nothing
+ * took the winner back out of the next round: the bracket kept the retracted
+ * team, the next match kept it as a side, and a venue screen showing the bracket
+ * showed a pairing that was no longer true. If the next match has already
+ * started, retracting silently would be worse than refusing — so this reports
+ * that instead of corrupting the tree, and the caller turns it into a conflict
+ * the referee can see.
+ */
+export async function retractKnockout(match: Match): Promise<{ ok: boolean; reason?: "downstream_started" }> {
+  const { data: slotRows } = await db()
+    .from("bracket_slots")
+    .select("*")
+    .eq("match_id", match.id)
+    .order("slot_order");
+  if (!slotRows || slotRows.length === 0) return { ok: true };
+  const bracketId = slotRows[0].bracket_id as string;
+  const roundName = slotRows[0].round_name as string;
+  const matchIndex = Math.floor(slotRows[0].slot_order / 2);
+
+  const targets = [advanceTarget(roundName, matchIndex)];
+  // A semi-final also feeds the third-place match, with the loser.
+  if (roundName === "SF") targets.push({ roundName: "TP", slotOrder: matchIndex });
+
+  const slots: { id: string; slot_order: number; match_id: string | null }[] = [];
+  for (const target of targets) {
+    if (!target) continue;
+    const { data: slot } = await db()
+      .from("bracket_slots")
+      .select("id, slot_order, match_id")
+      .eq("bracket_id", bracketId)
+      .eq("round_name", target.roundName)
+      .eq("slot_order", target.slotOrder)
+      .maybeSingle();
+    if (slot) slots.push(slot as { id: string; slot_order: number; match_id: string | null });
+  }
+
+  // Check every downstream match before changing anything, so a refusal leaves
+  // the bracket exactly as it was.
+  const downstreamIds = slots.map((s) => s.match_id).filter((id): id is string => Boolean(id));
+  if (downstreamIds.length > 0) {
+    const { data: downstream } = await db().from("matches").select("id, status").in("id", downstreamIds);
+    const started = (downstream ?? []).some(
+      (m) => (m as { status: string }).status !== "scheduled" && (m as { status: string }).status !== "ready",
+    );
+    if (started) return { ok: false, reason: "downstream_started" };
+  }
+
+  for (const slot of slots) {
+    await db()
+      .from("bracket_slots")
+      .update({ team_id: null, source_type: null })
+      .eq("id", slot.id);
+    if (slot.match_id) {
+      const field = slot.slot_order % 2 === 0 ? "team_a_id" : "team_b_id";
+      await db().from("matches").update({ [field]: null }).eq("id", slot.match_id);
+    }
+  }
+  return { ok: true };
+}
+
 /* ------------------------------------------------------------------ */
 /* Match finalization                                                  */
 /* ------------------------------------------------------------------ */
@@ -426,10 +661,17 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
 
   if (match.stage === "friendly") {
     // Friendly sessions award individual player points instead of team
-    // standings or bracket advancement. Imported lazily to keep the friendly
-    // module out of the tournament code path.
+    // standings. Imported lazily to keep the friendly module out of the
+    // tournament code path.
     const { applyFriendlyResult } = await import("./friendly/ops");
     await applyFriendlyResult({ ...match, winner_team_id: opts.winnerTeamId }, opts);
+    // A session drawn as a knockout also has to advance. Session matches carry
+    // stage 'friendly' whatever their round, so this branch used to return
+    // before advanceKnockout ever ran, leaving a session bracket a dead end
+    // after round one: points banked correctly, next round's slots empty.
+    // A no-op when no bracket slot references the match, which is every session
+    // played as a rotation or a group stage.
+    await advanceKnockout({ ...match, winner_team_id: opts.winnerTeamId });
   } else if (match.stage === "group") {
     await recalcStandings(match.tournament_id);
   } else {

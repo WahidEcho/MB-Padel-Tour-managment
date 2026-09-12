@@ -5,6 +5,8 @@
  * winner of match m advances to slot m of the next round. Semi-final losers
  * feed the third-place match.
  */
+import type { BracketTier, FormatConfig } from "./types";
+
 export interface Qualifier {
   teamId: string;
   groupOrder: number; // 0-based group index (A=0)
@@ -50,6 +52,41 @@ export function stageForRound(roundName: string): string {
     default:
       return "knockout";
   }
+}
+
+/**
+ * How early a round is played, lowest first: R32, R16, QF, SF, TP, F.
+ *
+ * `getBracketSlots` orders slots by `slot_order` alone, and every round has a
+ * slot 0 — so the order rounds come out of a query is the order the rows happen
+ * to sit in, not the order they are played. Anything that walks rounds in
+ * sequence (assigning courts, numbering matches) has to sort them itself.
+ *
+ * The third-place match sits between the semis and the final, which is when it
+ * is actually played.
+ */
+export function roundSequence(roundName: string): number {
+  switch (roundName) {
+    case "TP":
+      return 997;
+    case "F":
+      return 998;
+    case "SF":
+      return 996;
+    case "QF":
+      return 992;
+    default: {
+      const size = parseInt(roundName.slice(1), 10);
+      // A bigger round is played earlier. Unrecognised names sort first, so a
+      // future round name cannot silently end up after the final.
+      return Number.isFinite(size) && size > 0 ? 1000 - size : -1;
+    }
+  }
+}
+
+/** Round names in the order they are played. */
+export function orderedRoundNames(roundNames: string[]): string[] {
+  return [...new Set(roundNames)].sort((a, b) => roundSequence(a) - roundSequence(b));
 }
 
 export function roundLabel(roundName: string): string {
@@ -105,8 +142,13 @@ function crossGroupEntrants(qualifiers: Qualifier[]): string[] | null {
     const qs = groups.get(g)!;
     if (qs.length !== 2) return null;
   }
-  const first = (g: number) => groups.get(g)!.find((q) => q.rank === 1)?.teamId;
-  const second = (g: number) => groups.get(g)!.find((q) => q.rank === 2)?.teamId;
+  // Rank-relative, not literally ranks 1 and 2. The Plate bracket is drawn from
+  // the teams placed 3rd and 4th, and it wants the same cross-group draw — each
+  // group's better-placed team meeting the other group's worse-placed one. For a
+  // Cup of ranks 1 and 2 this is identical to matching on the rank numbers.
+  const byRank = (g: number) => [...groups.get(g)!].sort((a, b) => a.rank - b.rank);
+  const first = (g: number) => byRank(g)[0]?.teamId;
+  const second = (g: number) => byRank(g)[1]?.teamId;
 
   const pairings: [string, string][] = [];
   for (let i = 0; i < groupOrders.length; i += 2) {
@@ -209,4 +251,146 @@ export function advanceTarget(
   const size = roundName === "SF" ? 4 : roundName === "QF" ? 8 : parseInt(roundName.slice(1), 10);
   if (!size || size < 4) return null;
   return { roundName: roundNameForSize(size / 2), slotOrder: matchIndex };
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Two tiers from one group stage                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How many places per group each tier takes.
+ *
+ * `platePerGroup` is 0 unless the Plate has been turned on, so a tournament
+ * that never touches it behaves exactly as it did with one bracket.
+ */
+export function tierSizes(format: FormatConfig | null | undefined): {
+  qualifyPerGroup: number;
+  platePerGroup: number;
+} {
+  const qualifyPerGroup = Math.max(1, format?.qualifyPerGroup ?? 2);
+  const plate = format?.tiers?.plate;
+  return {
+    qualifyPerGroup,
+    platePerGroup: plate?.enabled ? Math.max(1, plate.perGroup ?? 2) : 0,
+  };
+}
+
+/**
+ * Whether a tier plays a third-place match.
+ *
+ * The Cup falls back to the legacy top-level flag, so existing tournaments keep
+ * their setting. The Plate falls back to the Cup's, so enabling the Plate does
+ * not silently change how it finishes.
+ */
+export function thirdPlaceFor(format: FormatConfig | null | undefined, tier: BracketTier): boolean {
+  const cup = format?.tiers?.cup?.thirdPlaceMatch ?? format?.thirdPlaceMatch ?? true;
+  if (tier === "cup") return cup;
+  return format?.tiers?.plate?.thirdPlaceMatch ?? cup;
+}
+
+/**
+ * How many places a tier's podium shows.
+ *
+ * Capped at what the bracket can actually produce: third and fourth place only
+ * exist when a third-place match was played, so a deeper setting is reported
+ * rather than rendering blank cards on a venue screen.
+ */
+export function podiumDepthFor(format: FormatConfig | null | undefined, tier: BracketTier): 1 | 2 | 3 | 4 {
+  const configured = (tier === "plate" ? format?.tiers?.plate?.podiumDepth : format?.tiers?.cup?.podiumDepth) ?? 3;
+  const cap = thirdPlaceFor(format, tier) ? 4 : 2;
+  return Math.min(configured, cap) as 1 | 2 | 3 | 4;
+}
+
+export interface PodiumProblem {
+  tier: BracketTier;
+  message: string;
+}
+
+/** Refuses a podium depth the bracket cannot fill. Used on save, before it airs. */
+export function validatePodiumSettings(format: FormatConfig | null | undefined): PodiumProblem[] {
+  const problems: PodiumProblem[] = [];
+  const tiers: BracketTier[] = format?.tiers?.plate?.enabled ? ["cup", "plate"] : ["cup"];
+  for (const tier of tiers) {
+    const configured = (tier === "plate" ? format?.tiers?.plate?.podiumDepth : format?.tiers?.cup?.podiumDepth) ?? 3;
+    if (configured >= 3 && !thirdPlaceFor(format, tier)) {
+      problems.push({
+        tier,
+        message: `A ${configured}-place ${tier === "plate" ? "Plate" : "Cup"} podium needs a third-place match — without one the losing semi-finalists are tied and there is no honest 3rd and 4th.`,
+      });
+    }
+  }
+  return problems;
+}
+
+
+/** How the two tiers share the court pool once both are drawn. */
+export type CourtStrategy = "parallel" | "sequential";
+
+export interface PlannedMatch {
+  tier: BracketTier;
+  roundName: string;
+  /** 0-based position of the match within its round. */
+  matchIndex: number;
+}
+
+export interface ScheduledMatch extends PlannedMatch {
+  /** Index into the court list, or null when the tournament has no courts. */
+  courtIndex: number | null;
+  /** 0-based play order across the whole knockout. */
+  order: number;
+}
+
+/**
+ * Puts every knockout match of both tiers in play order and on a court.
+ *
+ * Grouped by round level first, because a semi-final cannot be played before the
+ * quarter-finals that feed it however the tiers are arranged. Within a level the
+ * strategy decides:
+ *
+ *   parallel   — the tiers are interleaved and spread across the whole court
+ *                pool, so Cup and Plate matches of the same round run side by
+ *                side. This is what "both brackets at once" means, and it can
+ *                only be done by ordering both tiers together; publishing one
+ *                tier and then the other can never produce it, because the first
+ *                tier would already hold every court and every low order number.
+ *   sequential — the Cup plays its whole round first, then the Plate plays the
+ *                same round on the same courts. Court indexes repeat across the
+ *                two tiers on purpose: they are separated in time, not in space.
+ */
+export function orderKnockoutMatches(
+  matches: PlannedMatch[],
+  courtCount: number,
+  strategy: CourtStrategy,
+): ScheduledMatch[] {
+  const levels = orderedRoundNames(matches.map((m) => m.roundName));
+  const out: ScheduledMatch[] = [];
+  let order = 0;
+
+  for (const roundName of levels) {
+    const inRound = matches.filter((m) => m.roundName === roundName);
+    const cup = inRound.filter((m) => m.tier === "cup").sort((a, b) => a.matchIndex - b.matchIndex);
+    const plate = inRound.filter((m) => m.tier === "plate").sort((a, b) => a.matchIndex - b.matchIndex);
+
+    if (strategy === "sequential") {
+      for (const group of [cup, plate]) {
+        group.forEach((m, i) => {
+          out.push({ ...m, courtIndex: courtCount > 0 ? i % courtCount : null, order: order++ });
+        });
+      }
+      continue;
+    }
+
+    // Interleave, so neither tier waits for the other to finish the round.
+    const woven: PlannedMatch[] = [];
+    for (let i = 0; i < Math.max(cup.length, plate.length); i++) {
+      if (cup[i]) woven.push(cup[i]);
+      if (plate[i]) woven.push(plate[i]);
+    }
+    woven.forEach((m, i) => {
+      out.push({ ...m, courtIndex: courtCount > 0 ? i % courtCount : null, order: order++ });
+    });
+  }
+
+  return out;
 }

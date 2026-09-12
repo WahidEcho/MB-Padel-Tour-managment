@@ -212,6 +212,12 @@ export interface Match {
   id: string;
   tournament_id: string;
   stage: Stage;
+  /**
+   * Which bracket a knockout match belongs to. Null for group and friendly
+   * matches. Both tiers produce a 'final', so this is what tells them apart
+   * everywhere a match is labelled, scoped or scored. See migration 0008.
+   */
+  bracket_id: string | null;
   group_id: string | null;
   round_name: string | null;
   match_order: number;
@@ -271,13 +277,20 @@ export interface Standing {
   games_won: number;
   games_lost: number;
   game_diff: number;
-  status: "pending" | "qualified" | "eliminated" | "disqualified";
+  /**
+   * `plate` is the Plate bracket's equivalent of `qualified`: placed below the
+   * Cup places but still playing. Without it, half the field reads as knocked
+   * out on the public leaderboard the moment the group stage finishes.
+   */
+  status: "pending" | "qualified" | "plate" | "eliminated" | "disqualified";
   manual_status_override: boolean;
 }
 
 export interface Bracket {
   id: string;
   tournament_id: string;
+  /** Which of the two knockouts this is. See supabase/migrations/0008. */
+  tier: BracketTier;
   bracket_name: string;
   status: "draft" | "approved" | "published";
   approved_by: string | null;
