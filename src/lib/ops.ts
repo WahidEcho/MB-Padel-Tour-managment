@@ -847,11 +847,26 @@ export interface EngineStateLike {
   matchOver: boolean;
 }
 
+export interface SnapshotEventFacts {
+  lastEventType?: string | null;
+  lastEventTeamId?: string | null;
+  /** The event number of the most recent UNDO applied, 0 if none. */
+  lastUndoEventNumber?: number;
+}
+
 export async function upsertSnapshotFromState(
   match: Match,
   state: EngineStateLike,
-  lastEventNumber: number
+  lastEventNumber: number,
+  facts: SnapshotEventFacts = {},
 ) {
+  // Optional so scripts and older callers keep compiling; a snapshot written
+  // without them simply reads as "no undo seen", which is the safe default.
+  const eventFacts = {
+    last_event_type: facts.lastEventType ?? null,
+    last_event_team_id: facts.lastEventTeamId ?? null,
+    last_undo_event_number: facts.lastUndoEventNumber ?? 0,
+  };
   // Non-padel (e.g. chess) state has no padel set/game fields — store the JSON and
   // leave the padel-specific columns at neutral defaults. Padel path is unchanged.
   const loose = state as unknown as { teamA?: unknown; fen?: string; games?: unknown };
@@ -871,6 +886,7 @@ export async function upsertSnapshotFromState(
       tiebreak_team_b_points: 0,
       serving_team_id: null,
       last_event_number: lastEventNumber,
+      ...eventFacts,
       completed_sets: [],
       snapshot_json: state as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
@@ -897,6 +913,7 @@ export async function upsertSnapshotFromState(
     tiebreak_team_b_points: state.teamB.tiebreakPoints,
     serving_team_id: servingTeamId,
     last_event_number: lastEventNumber,
+    ...eventFacts,
     completed_sets: state.completedSets,
     snapshot_json: state as unknown as Record<string, unknown>,
     updated_at: new Date().toISOString(),

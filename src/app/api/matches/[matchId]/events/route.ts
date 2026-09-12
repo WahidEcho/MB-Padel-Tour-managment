@@ -54,6 +54,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   const snapshot = await getSnapshot(matchId);
   let lastApplied = snapshot?.last_event_number ?? 0;
+  // Carried into the snapshot so the venue screen can tell a scored point from a
+  // correction. Events are append-only, so an UNDO has a higher number than the
+  // point it cancels — without this watermark nothing downstream can see it.
+  let lastUndo = snapshot?.last_undo_event_number ?? 0;
+  let lastEventType: string | null = null;
+  let lastEventTeamId: string | null = null;
 
   const { data: existingRows } = await db()
     .from("score_events")
@@ -102,6 +108,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     lastApplied = e.event_number;
     applied.push(e.client_event_id);
     finalState = e.new_state;
+    lastEventType = e.event_type;
+    lastEventTeamId = e.team_id ?? null;
+    if (e.event_type === "UNDO") lastUndo = e.event_number;
 
     switch (e.event_type) {
       case "MATCH_STARTED":
@@ -182,7 +191,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   }
 
   if (finalState) {
-    await upsertSnapshotFromState(match, finalState, lastApplied);
+    await upsertSnapshotFromState(match, finalState, lastApplied, {
+      lastEventType,
+      lastEventTeamId,
+      lastUndoEventNumber: lastUndo,
+    });
   }
   if (Object.keys(statusUpdate).length > 0 && !finalize) {
     await db()

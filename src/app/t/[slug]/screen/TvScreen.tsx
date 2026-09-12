@@ -17,15 +17,20 @@ import {
 import { MAIN_SCREEN, isValidScreenKey } from "@/lib/screens";
 import { podiumDepthFor } from "@/lib/bracket";
 import { normalizeDisplayMode, type Court, type DisplayMode, type Match } from "@/lib/types";
-import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
-import LiveMatchCard from "@/components/LiveMatchCard";
 import ChessLiveCard from "@/components/ChessLiveCard";
-import LowerThird from "@/components/LowerThird";
 import SponsorRotator from "@/components/SponsorRotator";
 import SponsorMarquee from "@/components/SponsorMarquee";
 import StandingsTable from "@/components/StandingsTable";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
+import BroadcastStage from "@/components/broadcast/BroadcastStage";
+import LiveFeedProvider from "@/components/broadcast/LiveFeedProvider";
+import LiveCourts from "@/components/broadcast/LiveCourts";
+import { toPublicTeam } from "@/lib/public";
+import { entranceRankFor } from "@/lib/tv/entrance";
+import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
+import { ROWS } from "@/lib/tv/layout";
+import { sizedImageSrc } from "@/lib/portrait";
 
 const VALID_MODES: DisplayMode[] = [
   "live",
@@ -138,145 +143,171 @@ export default async function TvScreen({
   const brackets = shownBrackets.length > 0 ? shownBrackets : published;
   const slotsByBracket = await Promise.all(brackets.map((b) => getBracketSlots(b.id)));
 
+  // ---------- broadcast data, projected for the client ----------
+  // Court cards are client components, so their props are serialised into the
+  // page. They get public projections only: a raw team row carries the
+  // organiser's phone number and internal notes.
+  const publicTeams = Object.fromEntries(teams.map((t) => [t.id, toPublicTeam(t)]));
+  const groupNames = new Map(groups.map((g) => [g.id, g.group_name]));
+  const rankCtx = {
+    standings,
+    groupNames,
+    matches,
+    completedSets: new Map(snapshots.map((sn) => [sn.match_id, sn.completed_sets ?? []])),
+    teamNames: new Map(teams.map((t) => [t.id, t.team_name])),
+  };
+  const ranks = Object.fromEntries(
+    matches
+      .filter((m) => m.team_a_id && m.team_b_id)
+      .map((m) => [
+        m.id,
+        { a: entranceRankFor(m, m.team_a_id!, rankCtx), b: entranceRankFor(m, m.team_b_id!, rankCtx) },
+      ]),
+  );
+  const initialFeed = await buildLiveFeed(id, settings);
+  const courtInfo = covered.map((c) => ({ id: c.id, name: c.court_name }));
+  const logos = tournament.branding_config;
+
   return (
-    <div
-      className={`${settings.theme === "dark" ? "theme-dark" : ""} flex min-h-screen flex-col bg-background text-foreground`}
-    >
-      {/* A control-room thumbnail polls more slowly than the wall it mirrors, so
-          a console showing several screens does not multiply the render load. */}
-      <AutoRefresh seconds={overrides.preview ? 10 : 5} />
-      <header className="flex items-center justify-between px-8 py-4">
-        <div>
-          <h1 className="text-3xl font-bold">{tournament.name}</h1>
-          {settings.screen_name && (
-            <p className="text-sm uppercase tracking-widest text-muted">{settings.screen_name}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {tournament.branding_config.clientLogoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={tournament.branding_config.clientLogoUrl} alt="" loading="eager" className="h-12" />
-          )}
-          {tournament.branding_config.moveBeyondLogoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={tournament.branding_config.moveBeyondLogoUrl} alt="Move Beyond" loading="eager" className="h-12" />
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-hidden px-8 pb-4">
-        {mode === "live" && (
-          <div className={`grid h-full gap-4 ${focusMatches.length > 1 ? "lg:grid-cols-2" : ""}`}>
-            {focusMatches.length === 0 ? (
-              <p className="flex items-center justify-center text-3xl text-muted">
-                {covered.length < courts.length
-                  ? `No live matches on ${covered.map((c) => c.court_name).join(", ") || "this screen"}`
-                  : "No live matches right now"}
+    <BroadcastStage className={settings.theme === "dark" ? "theme-dark bg-background text-foreground" : "bg-background text-foreground"}>
+      <LiveFeedProvider
+        slug={slug}
+        screenKey={screenKey}
+        initial={initialFeed}
+        preview={Boolean(overrides.preview)}
+        refreshOnScore={isChess}
+      >
+        {/* Three pinned rows that fill the canvas exactly. Each clips its own
+            content: a fixed row that overflows still paints into the next one. */}
+        <div className="grid h-full" style={{ gridTemplateRows: `${ROWS.header}px ${ROWS.content}px ${ROWS.ticker}px` }}>
+          <header className="flex min-h-0 items-center justify-between gap-8 overflow-hidden px-10">
+            <div className="min-w-0">
+              <h1 className="truncate text-[44px] font-black leading-tight">{tournament.name}</h1>
+              <p className="truncate text-[24px] uppercase tracking-widest text-muted">
+                {[settings.screen_name, tournament.lower_third_text].filter(Boolean).join(" · ")}
               </p>
-            ) : (
-              focusMatches.map((m) => {
-                const common = {
-                  match: m,
-                  snapshot: snapByMatch.get(m.id) ?? null,
-                  teamA: m.team_a_id ? tm.get(m.team_a_id) : undefined,
-                  teamB: m.team_b_id ? tm.get(m.team_b_id) : undefined,
-                  big: focusMatches.length <= 2,
-                };
-                return isChess ? (
-                  <ChessLiveCard key={m.id} {...common} boardName={m.court_id ? courtName.get(m.court_id) : undefined} />
-                ) : (
-                  <LiveMatchCard key={m.id} {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} />
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {mode === "leaderboard" && (
-          <div className="grid h-full content-start gap-4 lg:grid-cols-2">
-            {groups.map((g) => (
-              <div key={g.id} className="card">
-                <h3 className="mb-2 text-2xl font-bold">{g.group_name}</h3>
-                <div className="text-lg">
-                  <StandingsTable standings={standings.filter((s) => s.group_id === g.id)} teams={tm} />
-                </div>
-              </div>
-            ))}
-            {groups.length === 0 && (
-              <p className="flex items-center justify-center text-3xl text-muted">Leaderboard coming soon</p>
-            )}
-          </div>
-        )}
-
-        {mode === "bracket" &&
-          (brackets.length > 0 ? (
-            <div className={`grid h-full gap-4 ${brackets.length > 1 ? "lg:grid-cols-2" : ""}`}>
-              {brackets.map((bracket, i) => (
-                <div key={bracket.id} className="min-w-0">
-                  {brackets.length > 1 && (
-                    <p className="mb-1 text-xl font-bold uppercase tracking-widest text-muted">
-                      {bracket.tier === "plate" ? "Plate" : "Cup"}
-                    </p>
-                  )}
-                  <BracketView
-                    slots={slotsByBracket[i]}
-                    teams={tm}
-                    matches={new Map(matches.map((m) => [m.id, m]))}
-                    big={brackets.length === 1}
-                  />
-                </div>
-              ))}
             </div>
-          ) : (
-            <p className="flex h-full items-center justify-center text-3xl text-muted">Bracket coming soon</p>
-          ))}
+            <div className="flex shrink-0 items-center gap-6">
+              {logos.clientLogoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={sizedImageSrc(logos.clientLogoUrl, 320) ?? ""} alt="" loading="eager" className="h-[60px] w-auto object-contain" />
+              )}
+              {logos.moveBeyondLogoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={sizedImageSrc(logos.moveBeyondLogoUrl, 320) ?? ""} alt="Move Beyond" loading="eager" className="h-[60px] w-auto object-contain" />
+              )}
+            </div>
+          </header>
 
-        {(mode === "winner" || mode === "ceremony") && (
-          <div className="flex h-full flex-col items-center justify-center gap-6">
-            {(brackets.length > 0 ? brackets : [null]).map((bracket) => (
-              <WinnerDisplay
-                key={bracket?.id ?? "cup"}
-                title={brackets.length > 1 ? (bracket?.tier === "plate" ? "Plate" : "Cup") : undefined}
-                podium={podiumFromMatches(matches, tm, {
-                  tier: bracket?.tier ?? "cup",
-                  bracketId: bracket?.id ?? undefined,
-                  depth: podiumDepthFor(tournament.format_config, bracket?.tier ?? "cup"),
-                })}
-                big
-              />
-            ))}
-          </div>
-        )}
-
-        {mode === "holding" && (
-          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <p className="text-6xl font-bold">{tournament.name}</p>
-            <p className="text-3xl text-muted">Back shortly</p>
-          </div>
-        )}
-
-        {mode === "sponsors" && (
-          <div className="flex h-full flex-col items-center justify-center gap-8">
-            <SponsorRotator
-              logos={tournament.branding_config.sponsorLogoUrls ?? []}
-              seconds={settings.sponsor_rotation_seconds}
-              className="max-h-72 max-w-2xl"
-            />
-            {(tournament.branding_config.sponsorLogoUrls?.length ?? 0) === 0 && (
-              <p className="text-3xl text-muted">Upload sponsor logos in branding settings</p>
+          <main className="relative min-h-0 overflow-hidden">
+            {mode === "live" && !isChess && (
+              <LiveCourts courts={courtInfo} teams={publicTeams} ranks={ranks} pinnedCourtId={pinnedCourtId ?? null} />
             )}
-          </div>
-        )}
-      </main>
 
-      {/* A continuous sponsor ribbon along the bottom of the venue screen.
-          The dedicated "sponsors" display mode still shows them full-screen;
-          this keeps them visible during live scoring too. */}
-      {mode !== "sponsors" && (
-        <SponsorMarquee logos={tournament.branding_config.sponsorLogoUrls ?? []} label="" size="big" />
-      )}
+            {mode === "live" && isChess && (
+              <div className={`grid h-full gap-5 px-5 pb-5 ${focusMatches.length > 1 ? "grid-cols-2" : ""}`}>
+                {focusMatches.length === 0 ? (
+                  <p className="flex items-center justify-center text-[40px] text-muted">No live boards right now</p>
+                ) : (
+                  focusMatches.map((m) => (
+                    <ChessLiveCard
+                      key={m.id}
+                      match={m}
+                      snapshot={snapByMatch.get(m.id) ?? null}
+                      teamA={m.team_a_id ? tm.get(m.team_a_id) : undefined}
+                      teamB={m.team_b_id ? tm.get(m.team_b_id) : undefined}
+                      big={focusMatches.length <= 2}
+                      boardName={m.court_id ? courtName.get(m.court_id) : undefined}
+                    />
+                  ))
+                )}
+              </div>
+            )}
 
-      <LowerThird tournament={tournament} big />
-    </div>
+            {mode === "leaderboard" && (
+              <div className="grid h-full content-start gap-5 overflow-hidden px-5 pb-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                {groups.map((g) => (
+                  <div key={g.id} className="bc-card p-5">
+                    <h3 className="mb-2 text-[34px] font-bold">{g.group_name}</h3>
+                    <div className="text-[24px]">
+                      <StandingsTable standings={standings.filter((st) => st.group_id === g.id)} teams={tm} />
+                    </div>
+                  </div>
+                ))}
+                {groups.length === 0 && (
+                  <p className="col-span-2 flex items-center justify-center text-[40px] text-muted">Leaderboard coming soon</p>
+                )}
+              </div>
+            )}
+
+            {mode === "bracket" &&
+              (brackets.length > 0 ? (
+                <div className="grid h-full gap-5 overflow-hidden px-5 pb-5" style={{ gridTemplateColumns: brackets.length > 1 ? "1fr 1fr" : "1fr" }}>
+                  {brackets.map((bracket, i) => (
+                    <div key={bracket.id} className="min-w-0 overflow-hidden">
+                      {brackets.length > 1 && (
+                        <p className="mb-1 text-[28px] font-bold uppercase tracking-widest text-muted">
+                          {bracket.tier === "plate" ? "Plate" : "Cup"}
+                        </p>
+                      )}
+                      <BracketView
+                        slots={slotsByBracket[i]}
+                        teams={tm}
+                        matches={new Map(matches.map((m) => [m.id, m]))}
+                        big={brackets.length === 1}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="flex h-full items-center justify-center text-[40px] text-muted">Bracket coming soon</p>
+              ))}
+
+            {(mode === "winner" || mode === "ceremony") && (
+              <div className="flex h-full flex-col items-center justify-center gap-6 overflow-hidden px-10">
+                {(brackets.length > 0 ? brackets : [null]).map((bracket) => (
+                  <WinnerDisplay
+                    key={bracket?.id ?? "cup"}
+                    title={brackets.length > 1 ? (bracket?.tier === "plate" ? "Plate" : "Cup") : undefined}
+                    podium={podiumFromMatches(matches, tm, {
+                      tier: bracket?.tier ?? "cup",
+                      bracketId: bracket?.id ?? undefined,
+                      depth: podiumDepthFor(tournament.format_config, bracket?.tier ?? "cup"),
+                    })}
+                    big
+                  />
+                ))}
+              </div>
+            )}
+
+            {mode === "holding" && (
+              <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
+                <p className="text-[96px] font-black leading-none">{tournament.name}</p>
+                <p className="text-[48px] text-muted">Back shortly</p>
+              </div>
+            )}
+
+            {mode === "sponsors" && (
+              <div className="flex h-full flex-col items-center justify-center gap-8">
+                <SponsorRotator
+                  logos={logos.sponsorLogoUrls ?? []}
+                  seconds={settings.sponsor_rotation_seconds}
+                  className="max-h-[480px] max-w-[1200px]"
+                />
+                {(logos.sponsorLogoUrls?.length ?? 0) === 0 && (
+                  <p className="text-[40px] text-muted">Upload sponsor logos in branding settings</p>
+                )}
+              </div>
+            )}
+          </main>
+
+          {/* The during-play sponsor surface. The full-screen rotator above is the
+              between-matches one; showing both at once doubled every logo. */}
+          <footer className="min-h-0 overflow-hidden">
+            {mode !== "sponsors" && <SponsorMarquee logos={logos.sponsorLogoUrls ?? []} label="" size="big" />}
+          </footer>
+        </div>
+      </LiveFeedProvider>
+    </BroadcastStage>
   );
 }

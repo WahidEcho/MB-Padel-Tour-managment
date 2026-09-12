@@ -119,3 +119,113 @@ body {
     overflow-x: auto;
   }
 }
+
+/* ====================================================================
+   Broadcast layer — the venue screen.
+
+   Every animation here animates transform and opacity only. The screen polls,
+   and a frame can drop mid-animation; on the compositor that is invisible, on an
+   animated height or width it is a visible jolt. Every timeline is seeked with a
+   negative animation-delay from a server timestamp (src/lib/tv/timeline.ts), so a
+   re-render lands on the same frame instead of starting over.
+   ==================================================================== */
+
+:root {
+  /* Legibility floor at 6m on a 65" 1920x1080 panel (0.75mm per CSS pixel). */
+  --bc-min-text: 22px;
+  --bc-accent: var(--accent);
+  --bc-card: color-mix(in oklab, var(--card) 86%, transparent);
+}
+
+/* The stage is authored in canvas pixels and scaled once. */
+.bc-stage-host {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  cursor: none;
+}
+.bc-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: 0 0;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Numerals that never change width as they count. */
+.bc-num,
+.bc-stage output,
+.bc-stage time,
+.bc-stage [data-numeral] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Translucent, so the sponsor glow reads through the cards rather than only in
+   the gutters between them. */
+.bc-card {
+  background: var(--bc-card);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 20px;
+}
+
+.bc-animate { animation-fill-mode: both; animation-play-state: running; }
+
+/* ---------- entrance (9s) ---------- */
+@keyframes bc-strip-in { from { transform: translateX(-12%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-in-left  { from { transform: translateX(-48px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-in-right { from { transform: translateX(48px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-rank-in  { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* ---------- a scored point, inside its own card ---------- */
+@keyframes bc-swap-out { from { transform: none; opacity: 1; } to { transform: translateY(-40%); opacity: 0; } }
+@keyframes bc-swap-in  { from { transform: translateY(40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-row-pulse {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes bc-burst {
+  0% { transform: scale(0.4); opacity: 0; }
+  35% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* ---------- result (5s) ---------- */
+@keyframes bc-recede { from { opacity: 1; } to { opacity: 0.45; } }
+@keyframes bc-lift   { from { transform: none; } to { transform: scale(1.03); } }
+@keyframes bc-chip   { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes bc-set-in { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- main-sponsor watermark ---------- */
+@keyframes bc-bloom  { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.07); opacity: 1; } }
+@keyframes bc-breathe { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 45% { transform: translate(-50%, -50%) scale(1.03); } }
+@keyframes bc-ring   { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
+
+/* ---------- sponsor ticker ---------- */
+@keyframes bc-ticker { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(calc(-1 * var(--bc-ticker-shift, 50%)), 0, 0); } }
+
+/* The operator's mute, and a personal device's reduced-motion preference: paint
+   every final frame, move nothing. `animation: none` alone would leave elements
+   at their first keyframe — invisible — so the fill forwards to the end state. */
+.bc-still .bc-animate,
+.bc-still [data-ambient] {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bc-respect-motion .bc-animate,
+  .bc-respect-motion [data-ambient] {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

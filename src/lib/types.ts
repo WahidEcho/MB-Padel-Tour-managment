@@ -256,6 +256,14 @@ export interface MatchSnapshot {
   tiebreak_team_b_points: number;
   serving_team_id: string | null;
   last_event_number: number;
+  /** The type of the final event in the most recent batch. */
+  last_event_type?: string | null;
+  last_event_team_id?: string | null;
+  /**
+   * The number of the most recent UNDO, 0 if none. Needed because events are
+   * append-only: an undo's number is higher than the point it cancels.
+   */
+  last_undo_event_number?: number;
   completed_sets: CompletedSet[];
   snapshot_json: unknown;
   updated_at: string;
