@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTournamentBySlug } from "@/lib/data";
 import { sizedImageSrc } from "@/lib/portrait";
+import PresenceBeatForPath from "@/components/PresenceBeatForPath";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,12 @@ export default async function PublicLayout({
               <img src={sizedImageSrc(tournament.branding_config.eventLogoUrl, 160) ?? ""} alt="" className="h-9" />
             )}
             <div>
-              <h1 className="font-bold leading-tight">{tournament.name}</h1>
+              <h1 className="flex items-center gap-2 font-bold leading-tight">
+                {tournament.name}
+                {/* Reports this browser and shows how many others are here. The
+                    page is read from the path, so one mount covers every tab. */}
+                <PresenceBeatForPath slug={slug} />
+              </h1>
               <p className="text-[10px] uppercase tracking-widest text-muted">Powered by Move Beyond</p>
             </div>
           </div>

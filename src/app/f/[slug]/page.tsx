@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AutoRefresh from "@/components/AutoRefresh";
 import SponsorMarquee from "@/components/SponsorMarquee";
+import PresenceBeat from "@/components/PresenceBeat";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
 
@@ -43,7 +44,10 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
 
       <header className="space-y-1 text-center">
         <p className="text-xs font-bold uppercase tracking-widest text-accent">Move Beyond</p>
-        <h1 className="text-3xl font-bold">{session.name}</h1>
+        <h1 className="flex items-center justify-center gap-2 text-3xl font-bold">
+          {session.name}
+          <PresenceBeat slug={slug} page="session" kind="session" />
+        </h1>
         <p className="text-sm text-muted">
           {session.pairing_mode} · scored on {modelLabel}
           {session.starts_at
