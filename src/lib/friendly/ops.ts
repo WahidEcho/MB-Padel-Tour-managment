@@ -163,6 +163,12 @@ export interface RegistrationInput {
   /** Present when a pair registers together in one submission. */
   partner?: { publicName: string; mobile: string } | null;
   teamName?: string | null;
+  /**
+   * A photo the player uploaded through /api/f/[slug]/photo. Stored on the
+   * profile but withheld from every public page until an admin approves the
+   * registration, so an unreviewed face never reaches the wall.
+   */
+  photo?: { url: string; focalX: number; focalY: number } | null;
 }
 
 export type RegistrationOutcome =
@@ -285,6 +291,24 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
 
   const profileId = await findOrCreateProfile(publicName, mobile);
   const partnerId = partnerMobile ? await findOrCreateProfile(partnerName, partnerMobile) : null;
+
+  // Only ever fills an empty slot: a returning player's existing photo is never
+  // overwritten by a fresh sign-up, and the partner they entered did not upload
+  // anything themselves so they get nothing.
+  if (input.photo?.url) {
+    const clamp = (n: number, fallback: number) =>
+      Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+    await db()
+      .from("player_profiles")
+      .update({
+        photo_url: input.photo.url,
+        focal_x: clamp(input.photo.focalX, 0.5),
+        focal_y: clamp(input.photo.focalY, 0.35),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", profileId)
+      .is("photo_url", null);
+  }
 
   // Consent is per-player and only ever recorded on an explicit tick. Never
   // flip an existing grant without the player asking. The tick covers whoever
@@ -2037,9 +2061,10 @@ export async function mergePlayerProfiles(
 ): Promise<{ sessionsRecalculated: number }> {
   if (survivorId === absorbedId) throw new Error("Cannot merge a player into themselves");
 
+  const photoCols = "id, public_name, photo_url, portrait_url, focal_x, focal_y";
   const [{ data: survivor }, { data: absorbed }] = await Promise.all([
-    db().from("player_profiles").select("id, public_name").eq("id", survivorId).maybeSingle(),
-    db().from("player_profiles").select("id, public_name").eq("id", absorbedId).maybeSingle(),
+    db().from("player_profiles").select(photoCols).eq("id", survivorId).maybeSingle(),
+    db().from("player_profiles").select(photoCols).eq("id", absorbedId).maybeSingle(),
   ]);
   if (!survivor || !absorbed) throw new Error("Both players must exist");
 
@@ -2081,6 +2106,22 @@ export async function mergePlayerProfiles(
     .update({ player_profile_id: survivorId })
     .eq("player_profile_id", absorbedId);
   await db().from("players").update({ player_profile_id: survivorId }).eq("player_profile_id", absorbedId);
+
+  // A photoless survivor inherits the absorbed profile's face and framing —
+  // otherwise merging two registrations of one person can lose the only photo
+  // anyone ever uploaded of them.
+  if (!survivor.photo_url && !survivor.portrait_url && (absorbed.photo_url || absorbed.portrait_url)) {
+    await db()
+      .from("player_profiles")
+      .update({
+        photo_url: absorbed.photo_url,
+        portrait_url: absorbed.portrait_url,
+        focal_x: absorbed.focal_x,
+        focal_y: absorbed.focal_y,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", survivorId);
+  }
 
   await db()
     .from("player_profiles")

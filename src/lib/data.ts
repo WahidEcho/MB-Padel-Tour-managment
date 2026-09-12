@@ -7,11 +7,14 @@ import type {
   GroupTeam,
   Match,
   MatchSnapshot,
+  PhotoFields,
+  Player,
   ScreenSettings,
   Standing,
   Team,
   Tournament,
 } from "./types";
+import { resolvePortrait } from "./portrait";
 
 export async function getTournament(id: string): Promise<Tournament | null> {
   const { data } = await db().from("tournaments").select("*").eq("id", id).maybeSingle();
@@ -23,15 +26,44 @@ export async function getTournamentBySlug(slug: string): Promise<Tournament | nu
   return data as Tournament | null;
 }
 
+/**
+ * Teams with their players, each player's portrait already resolved.
+ *
+ * The profile embed lists its four columns rather than using `*`: this feeds
+ * public pages and the venue screen, and `player_profiles` holds the mobile
+ * number, which is the identity key and must never leave the server.
+ *
+ * The profile's values are folded onto the player row and the embed dropped, so
+ * every caller keeps seeing a plain `Player` and nothing has to know that a
+ * friendly-session player's photo lives somewhere else.
+ */
 export async function getTeams(tournamentId: string): Promise<Team[]> {
   const { data } = await db()
     .from("teams")
-    .select("*, players(*)")
+    .select("*, players(*, player_profiles(photo_url, portrait_url, focal_x, focal_y))")
     .eq("tournament_id", tournamentId)
     .order("team_name");
   const teams = (data ?? []) as Team[];
-  for (const t of teams) t.players?.sort((a, b) => a.player_order - b.player_order);
+  for (const t of teams) {
+    t.players?.sort((a, b) => a.player_order - b.player_order);
+    for (const p of t.players ?? []) foldProfilePortrait(p);
+  }
   return teams;
+}
+
+type WithProfile = Player & { player_profiles?: Partial<PhotoFields> | null };
+
+/** Copies a linked profile's photo fields onto the player row, in place. */
+export function foldProfilePortrait(player: Player): Player {
+  const withProfile = player as WithProfile;
+  const profile = withProfile.player_profiles;
+  const resolved = resolvePortrait(player, profile);
+  player.photo_url = resolved.photoUrl;
+  player.portrait_url = resolved.portraitUrl;
+  player.focal_x = resolved.focalX;
+  player.focal_y = resolved.focalY;
+  delete withProfile.player_profiles;
+  return player;
 }
 
 export async function getCourts(tournamentId: string): Promise<Court[]> {

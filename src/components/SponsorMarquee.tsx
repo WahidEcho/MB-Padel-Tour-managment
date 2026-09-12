@@ -1,3 +1,5 @@
+import { sizedImageSrc } from "@/lib/portrait";
+
 /**
  * Sponsor and partner logos scrolling left to right.
  *
@@ -37,10 +39,12 @@ export default function SponsorMarquee({
         <li key={`${src}-${i}`} className="shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={src}
+            src={sizedImageSrc(src, size === "big" ? 480 : 240) ?? src}
             alt={hidden ? "" : `Sponsor ${i + 1}`}
             className={`${height} w-auto object-contain opacity-80 transition-opacity hover:opacity-100`}
-            loading="lazy"
+            // A venue screen never scrolls, so a lazy logo in the duplicated
+            // track may never load at all — and sponsor exposure is contractual.
+            loading="eager"
           />
         </li>
       ))}

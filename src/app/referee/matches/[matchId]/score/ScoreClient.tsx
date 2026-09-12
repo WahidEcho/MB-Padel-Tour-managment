@@ -12,7 +12,7 @@ import {
   type ScoreState,
   type TeamKey,
 } from "@/lib/scoring/engine";
-import type { MatchSnapshot, Match, ScoringConfig } from "@/lib/types";
+import type { MatchSnapshot, Match, PhotoFields, ScoringConfig } from "@/lib/types";
 import { offlineDb, getDeviceId, type LocalScoreEvent } from "@/lib/offline/db";
 import Avatar from "@/components/Avatar";
 import { describeMatchRules } from "@/lib/scoring/rules";
@@ -20,7 +20,7 @@ import { describeMatchRules } from "@/lib/scoring/rules";
 interface TeamInfo {
   id: string;
   name: string;
-  players: { name: string; photo: string | null }[];
+  players: { name: string; photo: PhotoFields }[];
   checkedIn: boolean;
 }
 
@@ -464,7 +464,7 @@ export default function ScoreClient({
                 <div key={k} className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}>
                   <div className="flex items-center justify-center gap-1">
                     {info.players.map((p) => (
-                      <Avatar key={p.name} name={p.name} photoUrl={p.photo} size={28} />
+                      <Avatar key={p.name} name={p.name} person={p.photo} size={28} />
                     ))}
                   </div>
                   <p className="truncate text-sm font-bold">

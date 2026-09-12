@@ -17,14 +17,14 @@ import {
   type ChessState,
   type Side,
 } from "@/lib/chess/engine";
-import type { Match, MatchSnapshot } from "@/lib/types";
+import type { Match, MatchSnapshot, PhotoFields } from "@/lib/types";
 import { offlineDb, getDeviceId } from "@/lib/offline/db";
 import ChessBoard from "@/components/ChessBoard";
 
 interface TeamInfo {
   id: string;
   name: string;
-  players: { name: string; photo: string | null }[];
+  players: { name: string; photo: PhotoFields }[];
 }
 
 interface ChessLocalEvent {

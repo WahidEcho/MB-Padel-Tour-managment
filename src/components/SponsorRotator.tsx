@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { sizedImageSrc } from "@/lib/portrait";
 
 /** Rotates sponsor logos every `seconds` (spec §17.7, default 10s). */
 export default function SponsorRotator({
@@ -21,6 +22,11 @@ export default function SponsorRotator({
   if (logos.length === 0) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={logos[index]} alt="Sponsor" className={`${className} object-contain transition-opacity duration-500`} />
+    <img
+      src={sizedImageSrc(logos[index], 640) ?? logos[index]}
+      alt="Sponsor"
+      loading="eager"
+      className={`${className} object-contain transition-opacity duration-500`}
+    />
   );
 }

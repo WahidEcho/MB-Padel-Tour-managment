@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import PlayerPhotoField from "@/components/PlayerPhotoField";
 import type { RegistrationMode } from "@/lib/types";
 
 export default function RegisterClient({
@@ -30,6 +31,9 @@ export default function RegisterClient({
           public_name: form.get("public_name"),
           mobile: form.get("mobile"),
           consent_whatsapp: form.get("consent_whatsapp") === "on",
+          photo_url: form.get("player_photo_url") || "",
+          focal_x: Number(form.get("player_focal_x")),
+          focal_y: Number(form.get("player_focal_y")),
           website: form.get("website"), // honeypot
           ...(asTeam
             ? {
@@ -92,6 +96,19 @@ export default function RegisterClient({
         <label className="label" htmlFor="reg-name">{asTeam ? "Player 1 — your name" : "Your name"}</label>
         <input id="reg-name" name="public_name" className="input" autoComplete="name" required minLength={2} maxLength={80} />
         {!asTeam && <p className="mt-1 text-xs text-muted">This is the name shown on rankings.</p>}
+      </div>
+
+      <div>
+        <PlayerPhotoField
+          name="player"
+          endpoint={`/api/f/${slug}/photo`}
+          label="Your photo (optional)"
+          size={96}
+        />
+        <p className="mt-1 text-xs text-muted">
+          Shown on the venue screen when you are on court. An organiser checks it before
+          it appears anywhere.
+        </p>
       </div>
 
       <div>

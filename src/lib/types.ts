@@ -162,13 +162,23 @@ export interface Team {
   players?: Player[];
 }
 
-export interface Player {
+/** The photo fields every person-shaped row carries. See src/lib/portrait.ts. */
+export interface PhotoFields {
+  /** The original photo. */
+  photo_url: string | null;
+  /** A transparent cut-out, preferred on the big broadcast cards. */
+  portrait_url: string | null;
+  /** 0-1 point that keeps the face in frame at any crop. */
+  focal_x: number;
+  focal_y: number;
+}
+
+export interface Player extends PhotoFields {
   id: string;
   tournament_id: string;
   team_id: string;
   player_order: number;
   full_name: string;
-  photo_url: string | null;
   /** Link to a persistent profile. Null for tournament players not yet matched. */
   player_profile_id?: string | null;
 }
@@ -371,7 +381,7 @@ export interface PlayerConsent {
   source: "registration" | "admin" | "player";
 }
 
-export interface PlayerProfile {
+export interface PlayerProfile extends PhotoFields {
   id: string;
   public_name: string;
   /** Canonical form. Server-side and admin-only — never sent to public pages. */
@@ -396,7 +406,11 @@ export interface PlayerProfile {
 }
 
 /** Public projection of a profile — safe to send to unauthenticated pages. */
-export interface PublicPlayer {
+/**
+ * What a public page is allowed to know about a person: a name and a face.
+ * Never gains a mobile number, an email, or anything else admin-only.
+ */
+export interface PublicPlayer extends PhotoFields {
   id: string;
   public_name: string;
 }

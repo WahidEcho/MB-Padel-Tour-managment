@@ -55,7 +55,7 @@ export default function StandingsTable({
                   {!compact && (
                     <div className="flex -space-x-1.5">
                       {team?.players?.map((p) => (
-                        <Avatar key={p.id} name={p.full_name} photoUrl={p.photo_url} size={24} />
+                        <Avatar key={p.id} name={p.full_name} person={p} size={24} />
                       ))}
                     </div>
                   )}

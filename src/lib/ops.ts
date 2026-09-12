@@ -3,6 +3,7 @@ import { audit, slugify } from "./audit";
 import { roundRobin } from "./roundrobin";
 import { calculateStandings, applyQualification, isFinished, type MatchResultInput } from "./standings";
 import { scoringConfigForMatch } from "./scoring/rules";
+import { DEFAULT_FOCAL } from "./portrait";
 import { advanceTarget, buildBracketPlan, stageForRound, type Qualifier } from "./bracket";
 import {
   getBracket,
@@ -16,7 +17,7 @@ import {
   getTeams,
   getTournament,
 } from "./data";
-import type { Match, MatchSnapshot, Standing, Tournament } from "./types";
+import type { Match, MatchSnapshot, Standing, Team, Tournament } from "./types";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -490,7 +491,7 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
   const teamIdMap = new Map<string, string>();
   if (opts.copyTeams) {
     const { data: teams } = await db().from("teams").select("*, players(*)").eq("tournament_id", sourceId);
-    for (const t of teams ?? []) {
+    for (const t of (teams ?? []) as Team[]) {
       const { data: nt } = await db()
         .from("teams")
         .insert({
@@ -506,12 +507,18 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
         .single();
       if (!nt) continue;
       teamIdMap.set(t.id, nt.id);
-      const players = (t.players ?? []).map((p: { player_order: number; full_name: string; photo_url: string | null }) => ({
+      const players = (t.players ?? []).map((p) => ({
         tournament_id: newId,
         team_id: nt.id,
         player_order: p.player_order,
         full_name: p.full_name,
+        player_profile_id: p.player_profile_id ?? null,
+        // The framing travels with the photo, or a copied portrait would be
+        // re-cropped from the centre and lose the face it was aimed at.
         photo_url: opts.copyPhotos ? p.photo_url : null,
+        portrait_url: opts.copyPhotos ? p.portrait_url : null,
+        focal_x: opts.copyPhotos ? p.focal_x : DEFAULT_FOCAL[0],
+        focal_y: opts.copyPhotos ? p.focal_y : DEFAULT_FOCAL[1],
       }));
       if (players.length > 0) await db().from("players").insert(players);
     }

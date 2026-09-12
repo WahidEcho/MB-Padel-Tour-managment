@@ -4,12 +4,33 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { uploadImage } from "@/lib/upload";
 import { recalcStandings } from "@/lib/ops";
 import { getTournament } from "@/lib/data";
+import { DEFAULT_FOCAL } from "@/lib/portrait";
 
 function teamsPath(tournamentId: string) {
   return `/admin/tournaments/${tournamentId}/teams`;
+}
+
+/**
+ * Reads a PlayerPhotoField's hidden inputs.
+ *
+ * The field uploads on pick and puts the resulting URL here, so the action never
+ * handles bytes. An empty URL is an explicit "remove the photo" — something the
+ * old file input could not express at all.
+ */
+function photoPatch(formData: FormData, prefix: string) {
+  if (!formData.has(`${prefix}_photo_url`)) return null;
+  const url = String(formData.get(`${prefix}_photo_url`) ?? "").trim();
+  const focal = (axis: "x" | "y", fallback: number) => {
+    const raw = Number(formData.get(`${prefix}_focal_${axis}`));
+    return Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : fallback;
+  };
+  return {
+    photo_url: url || null,
+    focal_x: focal("x", DEFAULT_FOCAL[0]),
+    focal_y: focal("y", DEFAULT_FOCAL[1]),
+  };
 }
 
 export async function addTeam(formData: FormData) {
@@ -33,13 +54,14 @@ export async function addTeam(formData: FormData) {
       .select()
       .single();
     if (error) throw new Error(error.message);
-    let photoUrl: string | null = null;
-    const file = formData.get("player_1_photo");
-    if (file instanceof File && file.size > 0) {
-      photoUrl = await uploadImage(file, `players/${tournamentId}`);
-    }
     await db().from("players").insert([
-      { tournament_id: tournamentId, team_id: team.id, player_order: 1, full_name: playerName, photo_url: photoUrl },
+      {
+        tournament_id: tournamentId,
+        team_id: team.id,
+        player_order: 1,
+        full_name: playerName,
+        ...(photoPatch(formData, "player_1") ?? {}),
+      },
     ]);
     await audit({
       tournament_id: tournamentId,
@@ -71,21 +93,16 @@ export async function addTeam(formData: FormData) {
   if (error) throw new Error(error.message);
 
   const players = [];
-  for (const [order, name, fileKey] of [
-    [1, p1, "player_1_photo"],
-    [2, p2, "player_2_photo"],
+  for (const [order, name] of [
+    [1, p1],
+    [2, p2],
   ] as const) {
-    let photoUrl: string | null = null;
-    const file = formData.get(fileKey);
-    if (file instanceof File && file.size > 0) {
-      photoUrl = await uploadImage(file, `players/${tournamentId}`);
-    }
     players.push({
       tournament_id: tournamentId,
       team_id: team.id,
       player_order: order,
       full_name: name,
-      photo_url: photoUrl,
+      ...(photoPatch(formData, `player_${order}`) ?? {}),
     });
   }
   await db().from("players").insert(players);
@@ -127,12 +144,11 @@ export async function updateTeam(formData: FormData) {
         .eq("team_id", teamId)
         .eq("player_order", 1);
     }
-    const file = formData.get("player_1_photo");
-    if (file instanceof File && file.size > 0) {
-      const url = await uploadImage(file, `players/${tournamentId}`);
+    const photo = photoPatch(formData, "player_1");
+    if (photo) {
       await db()
         .from("players")
-        .update({ photo_url: url, updated_at: new Date().toISOString() })
+        .update({ ...photo, updated_at: new Date().toISOString() })
         .eq("team_id", teamId)
         .eq("player_order", 1);
     }
@@ -156,12 +172,11 @@ export async function updateTeam(formData: FormData) {
         .eq("team_id", teamId)
         .eq("player_order", order);
     }
-    const file = formData.get(`player_${order}_photo`);
-    if (file instanceof File && file.size > 0) {
-      const url = await uploadImage(file, `players/${tournamentId}`);
+    const photo = photoPatch(formData, `player_${order}`);
+    if (photo) {
       await db()
         .from("players")
-        .update({ photo_url: url, updated_at: new Date().toISOString() })
+        .update({ ...photo, updated_at: new Date().toISOString() })
         .eq("team_id", teamId)
         .eq("player_order", order);
     }

@@ -35,12 +35,12 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         teamA={{
           id: teamA.id,
           name: teamA.team_name,
-          players: teamA.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+          players: teamA.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         }}
         teamB={{
           id: teamB.id,
           name: teamB.team_name,
-          players: teamB.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+          players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         }}
         serverSnapshot={snapshot}
       />
@@ -59,13 +59,13 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       teamA={{
         id: teamA.id,
         name: teamA.team_name,
-        players: teamA.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+        players: teamA.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         checkedIn: teamA.check_in_status === "checked_in",
       }}
       teamB={{
         id: teamB.id,
         name: teamB.team_name,
-        players: teamB.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+        players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         checkedIn: teamB.check_in_status === "checked_in",
       }}
       serverSnapshot={snapshot}

@@ -38,7 +38,7 @@ function PodiumCard({
       <span className={big ? "text-6xl" : "text-4xl"}>{emoji}</span>
       <div className="flex -space-x-2">
         {team.players?.map((p) => (
-          <Avatar key={p.id} name={p.full_name} photoUrl={p.photo_url} size={big ? 80 : 48} />
+          <Avatar key={p.id} name={p.full_name} person={p} size={big ? 80 : 48} eager={big} />
         ))}
       </div>
       <p className={`font-bold ${big ? "text-4xl" : "text-xl"}`}>{team.team_name}</p>

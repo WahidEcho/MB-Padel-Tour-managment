@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTournamentBySlug } from "@/lib/data";
+import { sizedImageSrc } from "@/lib/portrait";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export default async function PublicLayout({
           <div className="flex items-center gap-3">
             {tournament.branding_config.eventLogoUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={tournament.branding_config.eventLogoUrl} alt="" className="h-9" />
+              <img src={sizedImageSrc(tournament.branding_config.eventLogoUrl, 160) ?? ""} alt="" className="h-9" />
             )}
             <div>
               <h1 className="font-bold leading-tight">{tournament.name}</h1>

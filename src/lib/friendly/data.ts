@@ -11,11 +11,13 @@ import type {
   FriendlyRankingSnapshot,
   FriendlySession,
   LedgerRow,
+  PhotoFields,
   PlayerProfile,
   PublicPlayer,
   RankingCategory,
   Season,
 } from "../types";
+import { DEFAULT_FOCAL } from "../portrait";
 
 /* ---------------- Sessions ---------------- */
 
@@ -110,18 +112,45 @@ export async function findProfileByMobile(
 }
 
 /** Strip a profile down to what public pages are allowed to see. */
-export function toPublicPlayer(p: Pick<PlayerProfile, "id" | "public_name">): PublicPlayer {
-  return { id: p.id, public_name: p.public_name };
+/**
+ * The columns a public page may see. Spelled out rather than selected with `*`,
+ * so a column added to `player_profiles` later cannot leak by default — the
+ * mobile number is the identity key here and must never reach a public page.
+ */
+export const PUBLIC_PLAYER_COLUMNS =
+  "id, public_name, approval_status, photo_url, portrait_url, focal_x, focal_y";
+
+type PublicPlayerRow = Pick<PlayerProfile, "id" | "public_name"> &
+  Partial<PhotoFields> & { approval_status?: PlayerProfile["approval_status"] };
+
+/**
+ * A photo only becomes public once an admin has approved the player.
+ *
+ * Players may upload their own photo when they register, and a registration is
+ * pending until someone approves it — so withholding the face here is what
+ * stops an unreviewed image reaching a public page or the venue wall. The name
+ * is unaffected: it was already reviewed the same way.
+ */
+export function toPublicPlayer(p: PublicPlayerRow): PublicPlayer {
+  const approved = p.approval_status === undefined || p.approval_status === "approved";
+  return {
+    id: p.id,
+    public_name: p.public_name,
+    photo_url: approved ? p.photo_url ?? null : null,
+    portrait_url: approved ? p.portrait_url ?? null : null,
+    focal_x: p.focal_x ?? DEFAULT_FOCAL[0],
+    focal_y: p.focal_y ?? DEFAULT_FOCAL[1],
+  };
 }
 
-/** Public-safe name lookup for a set of profile ids. */
+/** Public-safe lookup for a set of profile ids: names and faces, nothing else. */
 export async function listPublicPlayers(ids: string[]): Promise<Map<string, PublicPlayer>> {
   if (ids.length === 0) return new Map();
   const { data } = await db()
     .from("player_profiles")
-    .select("id, public_name")
+    .select(PUBLIC_PLAYER_COLUMNS)
     .in("id", ids);
-  const rows = (data ?? []) as Pick<PlayerProfile, "id" | "public_name">[];
+  const rows = (data ?? []) as unknown as PublicPlayerRow[];
   return new Map(rows.map((r) => [r.id, toPublicPlayer(r)]));
 }
 
