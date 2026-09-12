@@ -25,6 +25,13 @@ function winGames(state: ScoreState, team: TeamKey, games: number): ScoreState {
   return s;
 }
 
+/** One game to love, under the given rules. */
+function winOneGame(state: ScoreState, team: TeamKey, config: typeof cfg): ScoreState {
+  let s = state;
+  for (let i = 0; i < 4; i++) s = awardPoint(s, team, config);
+  return s;
+}
+
 describe("point progression", () => {
   it("progresses 0 → 15 → 30 → 40", () => {
     let s = initialScoreState();
@@ -178,6 +185,34 @@ describe("totals", () => {
     expect(scoreSummary(s)).toBe("3-2");
     s = winGames(s, "A", 3);
     expect(scoreSummary(s)).toBe("6-2");
+  });
+
+  it("an advantage set breaking at 12-12 runs past 6-6", () => {
+    // Confirms the rule Phase 1's validation deliberately allows: with the
+    // trigger above gamesToWinSet, winGame's two-game margin carries the set on.
+    const adv = { ...cfg, gamesToWinSet: 6, tiebreakAtGames: 12 };
+    let s = initialScoreState();
+    for (let i = 0; i < 7; i++) {
+      s = winOneGame(s, "A", adv);
+      s = winOneGame(s, "B", adv);
+    }
+    expect(s.teamA.games).toBe(7);
+    expect(s.teamB.games).toBe(7);
+    expect(s.isTiebreak).toBe(false);
+    expect(s.completedSets).toHaveLength(0);
+  });
+
+  it("a trigger below the set length ends the set early — the case validation rejects", () => {
+    const bad = { ...cfg, gamesToWinSet: 6, tiebreakAtGames: 3 };
+    let s = initialScoreState();
+    for (let i = 0; i < 3; i++) {
+      s = winOneGame(s, "A", bad);
+      s = winOneGame(s, "B", bad);
+    }
+    expect(s.isTiebreak).toBe(true);
+    for (let i = 0; i < 7; i++) s = awardPoint(s, "A", bad);
+    // 4-3 in a set the organiser configured as six games.
+    expect(s.completedSets[0]).toMatchObject({ teamAGames: 4, teamBGames: 3 });
   });
 
   it("best-of-3 plays multiple sets", () => {

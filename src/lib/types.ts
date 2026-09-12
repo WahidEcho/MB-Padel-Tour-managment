@@ -34,7 +34,12 @@ export type Stage =
  */
 export type TournamentKind = "tournament" | "friendly_session";
 
-export interface ScoringConfig {
+/**
+ * The rules a single match is played under. Every engine mutator takes these as
+ * its last argument, so a match can be scored under different rules from the
+ * tournament default without any change to the engine.
+ */
+export interface MatchRules {
   setsToWinMatch: number;
   gamesToWinSet: number;
   tiebreakEnabled: boolean;
@@ -42,6 +47,41 @@ export interface ScoringConfig {
   tiebreakTargetPoints: number;
   tiebreakWinByTwo: boolean;
   walkoverScore: string;
+}
+
+/**
+ * Which bucket of the tournament a match belongs to, for rule purposes.
+ *
+ * The quarter-finals, semi-finals and third-place match share one bucket: the
+ * third-place match is played just before the final and is shortened with the
+ * semis, not with it. `knockout` covers the rounds of 16 and earlier.
+ *
+ * The `plate_*` keys exist because the Plate bracket may be played under
+ * different rules from the Cup — a one-set Plate final alongside a best-of-three
+ * Cup final. A blank `plate_*` override inherits the Cup's.
+ */
+export type StageRuleKey =
+  | "group"
+  | "quarter_semi"
+  | "final"
+  | "bracket"
+  | "plate_quarter_semi"
+  | "plate_final"
+  | "plate_bracket";
+
+export interface ScoringConfig extends MatchRules {
+  /**
+   * Per-stage rule overrides. Absent keys inherit the tournament default, so an
+   * existing tournament with no overrides behaves exactly as it did before.
+   * Friendly-session matches never take an override.
+   */
+  stageOverrides?: Partial<Record<StageRuleKey, Partial<MatchRules>>>;
+  /**
+   * When true, the match-winning point no longer finalizes the match on its own:
+   * the referee sees the final score and must press Confirm result. Explicit end
+   * events (walkover, retirement, disqualification, force-end) always finalize.
+   */
+  requireResultConfirmation?: boolean;
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
@@ -61,6 +101,20 @@ export interface FormatConfig {
   thirdPlaceMatch?: boolean;
   // Chess knockout only: games per pairing (1 or 2). Defaults to 1.
   legs?: 1 | 2;
+  /**
+   * Per-bracket settings. `cup` is the main bracket (1st and 2nd per group);
+   * `plate` is the second bracket for the teams below them, off unless enabled.
+   * `cup.thirdPlaceMatch` falls back to the legacy `thirdPlaceMatch` above.
+   */
+  tiers?: {
+    cup?: { thirdPlaceMatch?: boolean; podiumDepth?: 1 | 2 | 3 | 4 };
+    plate?: {
+      enabled: boolean;
+      perGroup?: number;
+      thirdPlaceMatch?: boolean;
+      podiumDepth?: 1 | 2 | 3 | 4;
+    };
+  };
 }
 
 export const DEFAULT_CHESS_FORMAT: FormatConfig = {

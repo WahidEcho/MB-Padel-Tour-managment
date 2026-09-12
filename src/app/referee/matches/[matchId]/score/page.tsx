@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/guard";
 import { getCourts, getMatch, getSnapshot, getTeams, getTournament } from "@/lib/data";
-import { DEFAULT_SCORING_CONFIG } from "@/lib/types";
+import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 
@@ -52,7 +52,10 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       match={match}
       tournamentName={tournament.name}
       courtName={court?.court_name ?? "No court"}
-      scoringConfig={{ ...DEFAULT_SCORING_CONFIG, ...tournament.scoring_config }}
+      // The single place a match's rules are resolved. Stage overrides land here,
+      // so the referee screen obeys them without any engine change: every engine
+      // mutator already takes the config as its last argument.
+      scoringConfig={scoringConfigForMatch(tournament, match)}
       teamA={{
         id: teamA.id,
         name: teamA.team_name,

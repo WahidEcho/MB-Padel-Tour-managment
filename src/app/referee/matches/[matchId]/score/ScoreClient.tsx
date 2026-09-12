@@ -15,6 +15,7 @@ import {
 import type { MatchSnapshot, Match, ScoringConfig } from "@/lib/types";
 import { offlineDb, getDeviceId, type LocalScoreEvent } from "@/lib/offline/db";
 import Avatar from "@/components/Avatar";
+import { describeMatchRules } from "@/lib/scoring/rules";
 
 interface TeamInfo {
   id: string;
@@ -382,6 +383,9 @@ export default function ScoreClient({
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
           <p className="text-xs text-muted">{tournamentName} · {courtName} · {match.round_name}</p>
+          {/* The rules this match resolved to. Stage overrides mean two matches in
+              the same tournament can differ, so the referee is told which applies. */}
+          <p className="text-[11px] text-muted" data-testid="resolved-rules">{describeMatchRules(scoringConfig)}</p>
           <p className="text-xs font-semibold capitalize">
             {matchStatus.replace("_", " ")}
             {elapsed && !finished && <span className="ml-2 font-mono text-muted">⏱ {elapsed}</span>}

@@ -2,6 +2,7 @@ import { db } from "./supabase";
 import { audit, slugify } from "./audit";
 import { roundRobin } from "./roundrobin";
 import { calculateStandings, applyQualification, isFinished, type MatchResultInput } from "./standings";
+import { scoringConfigForMatch } from "./scoring/rules";
 import { advanceTarget, buildBracketPlan, stageForRound, type Qualifier } from "./bracket";
 import {
   getBracket,
@@ -103,7 +104,10 @@ export async function recalcStandings(tournamentId: string) {
   const overrides = new Map(
     existing.filter((s) => s.manual_status_override).map((s) => [`${s.group_id}|${s.team_id}`, s.status])
   );
-  const walkoverGames = parseInt(tournament.scoring_config?.walkoverScore?.split("-")[0] ?? "6", 10) || 6;
+  // Group matches may carry their own walkover score, so resolve the group
+  // stage's rules rather than reading the tournament default directly.
+  const groupRules = scoringConfigForMatch(tournament, { stage: "group" });
+  const walkoverGames = parseInt(groupRules.walkoverScore?.split("-")[0] ?? "6", 10) || 6;
   const qualifyPerGroup = tournament.format_config?.qualifyPerGroup ?? 2;
 
   const rows: Standing[] = [];

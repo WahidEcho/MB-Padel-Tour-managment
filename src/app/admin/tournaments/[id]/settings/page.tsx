@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { getCourts, getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
-import { addCourt, removeCourt, updateGeneral, updateScoring, uploadBranding } from "./actions";
+import { addCourt, removeCourt, updateGeneral, uploadBranding } from "./actions";
+import ScoringRulesForm from "./ScoringRulesForm";
 
 export const dynamic = "force-dynamic";
 
@@ -31,49 +32,12 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
         <button className="btn-primary">Save general settings</button>
       </form>
 
-      <form action={updateScoring} className="card space-y-3">
-        <h2 className="font-bold">Scoring &amp; format rules</h2>
-        <input type="hidden" name="tournament_id" value={id} />
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Sets to win match</label>
-            <input name="setsToWinMatch" type="number" min={1} max={3} defaultValue={s.setsToWinMatch} className="input" />
-          </div>
-          <div>
-            <label className="label">Games to win set</label>
-            <input name="gamesToWinSet" type="number" min={1} max={9} defaultValue={s.gamesToWinSet} className="input" />
-          </div>
-          <div>
-            <label className="label">Tie-break at games</label>
-            <input name="tiebreakAtGames" type="number" min={1} max={9} defaultValue={s.tiebreakAtGames} className="input" />
-          </div>
-          <div>
-            <label className="label">Tie-break target points</label>
-            <input name="tiebreakTargetPoints" type="number" min={5} max={15} defaultValue={s.tiebreakTargetPoints} className="input" />
-          </div>
-          <div>
-            <label className="label">Walkover score</label>
-            <input name="walkoverScore" defaultValue={s.walkoverScore} className="input" />
-          </div>
-          <div>
-            <label className="label">Qualify per group</label>
-            <input name="qualifyPerGroup" type="number" min={1} max={4} defaultValue={f.qualifyPerGroup} className="input" />
-          </div>
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="tiebreakEnabled" defaultChecked={s.tiebreakEnabled} className="h-4 w-4" />
-          Tie-break enabled
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="tiebreakWinByTwo" defaultChecked={s.tiebreakWinByTwo} className="h-4 w-4" />
-          Tie-break win by two
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="thirdPlaceMatch" defaultChecked={f.thirdPlaceMatch} className="h-4 w-4" />
-          Third-place match
-        </label>
-        <button className="btn-primary">Save scoring rules</button>
-      </form>
+      <ScoringRulesForm
+        tournamentId={id}
+        scoring={s}
+        format={f}
+        plateEnabled={Boolean(f.tiers?.plate?.enabled)}
+      />
 
       <div className="card space-y-3">
         <h2 className="font-bold">Courts ({courts.length}/20)</h2>
