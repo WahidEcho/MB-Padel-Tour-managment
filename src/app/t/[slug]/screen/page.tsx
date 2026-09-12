@@ -15,15 +15,24 @@ import {
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
 import LiveMatchCard from "@/components/LiveMatchCard";
+import ChessLiveCard from "@/components/ChessLiveCard";
 import LowerThird from "@/components/LowerThird";
 import SponsorRotator from "@/components/SponsorRotator";
+import SponsorMarquee from "@/components/SponsorMarquee";
 import StandingsTable from "@/components/StandingsTable";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
 
 export const dynamic = "force-dynamic";
 
-export default async function TvScreen({ params }: { params: Promise<{ slug: string }> }) {
+export default async function TvScreen({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ court?: string; mode?: string }>;
+}) {
   const { slug } = await params;
+  const overrides = await searchParams;
   const tournament = await getTournamentBySlug(slug);
   if (!tournament || !tournament.public_access_enabled) notFound();
   const id = tournament.id;
@@ -40,14 +49,26 @@ export default async function TvScreen({ params }: { params: Promise<{ slug: str
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const live = matches.filter((m) => ["live", "paused"].includes(m.status));
-  const mode = settings.display_mode;
+  // URL overrides give a court its own permanent scoreboard link, independent
+  // of whatever the operator has the main screen showing. Without params the
+  // operator's setting still wins, so existing screens are unaffected.
+  const VALID_MODES = ["leaderboard", "live_court", "all_live", "bracket", "winner", "sponsors"];
+  const mode = (
+    overrides.mode && VALID_MODES.includes(overrides.mode)
+      ? overrides.mode
+      : overrides.court
+        ? "live_court"
+        : settings.display_mode
+  ) as typeof settings.display_mode;
+  const focusCourtId = overrides.court ?? settings.focus_court_id;
+  const isChess = tournament.sport === "chess";
 
   const bracket = await getBracket(id);
   const slots = bracket && bracket.status === "published" ? await getBracketSlots(bracket.id) : [];
 
   const focusMatches =
-    mode === "live_court" && settings.focus_court_id
-      ? live.filter((m) => m.court_id === settings.focus_court_id)
+    mode === "live_court" && focusCourtId
+      ? live.filter((m) => m.court_id === focusCourtId)
       : live;
 
   return (
@@ -73,17 +94,20 @@ export default async function TvScreen({ params }: { params: Promise<{ slug: str
             {focusMatches.length === 0 ? (
               <p className="flex items-center justify-center text-3xl text-muted">No live matches right now</p>
             ) : (
-              focusMatches.map((m) => (
-                <LiveMatchCard
-                  key={m.id}
-                  match={m}
-                  snapshot={snapByMatch.get(m.id) ?? null}
-                  teamA={m.team_a_id ? tm.get(m.team_a_id) : undefined}
-                  teamB={m.team_b_id ? tm.get(m.team_b_id) : undefined}
-                  courtName={m.court_id ? courtName.get(m.court_id) : undefined}
-                  big={focusMatches.length <= 2}
-                />
-              ))
+              focusMatches.map((m) => {
+                const common = {
+                  match: m,
+                  snapshot: snapByMatch.get(m.id) ?? null,
+                  teamA: m.team_a_id ? tm.get(m.team_a_id) : undefined,
+                  teamB: m.team_b_id ? tm.get(m.team_b_id) : undefined,
+                  big: focusMatches.length <= 2,
+                };
+                return isChess ? (
+                  <ChessLiveCard key={m.id} {...common} boardName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                ) : (
+                  <LiveMatchCard key={m.id} {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                );
+              })
             )}
           </div>
         )}
@@ -130,6 +154,17 @@ export default async function TvScreen({ params }: { params: Promise<{ slug: str
           </div>
         )}
       </main>
+
+      {/* A continuous sponsor ribbon along the bottom of the venue screen.
+          The dedicated "sponsors" display mode still shows them full-screen;
+          this keeps them visible during live scoring too. */}
+      {mode !== "sponsors" && (
+        <SponsorMarquee
+          logos={tournament.branding_config.sponsorLogoUrls ?? []}
+          label=""
+          size="big"
+        />
+      )}
 
       <LowerThird tournament={tournament} big />
     </div>

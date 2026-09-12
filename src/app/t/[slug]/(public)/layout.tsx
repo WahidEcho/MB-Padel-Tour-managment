@@ -15,13 +15,22 @@ export default async function PublicLayout({
   const tournament = await getTournamentBySlug(slug);
   if (!tournament || !tournament.public_access_enabled) notFound();
 
-  const NAV = [
-    ["", "Overview"],
-    ["/leaderboard", "Leaderboard"],
-    ["/live", "Live"],
-    ["/bracket", "Bracket"],
-    ["/winner", "Winner"],
-  ] as const;
+  // Chess has no group stage, so no group leaderboard tab.
+  const NAV =
+    tournament.sport === "chess"
+      ? ([
+          ["", "Overview"],
+          ["/live", "Live"],
+          ["/bracket", "Bracket"],
+          ["/winner", "Winner"],
+        ] as const)
+      : ([
+          ["", "Overview"],
+          ["/leaderboard", "Leaderboard"],
+          ["/live", "Live"],
+          ["/bracket", "Bracket"],
+          ["/winner", "Winner"],
+        ] as const);
 
   return (
     <div className="flex min-h-screen flex-col">

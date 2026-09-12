@@ -4,13 +4,23 @@ import { getTournament } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-const TABS = [
+const PADEL_TABS = [
   ["", "Dashboard"],
   ["/teams", "Teams"],
   ["/groups", "Groups"],
   ["/matches", "Matches"],
   ["/leaderboard", "Leaderboard"],
   ["/bracket", "Bracket"],
+  ["/screens", "Screens"],
+  ["/settings", "Settings"],
+] as const;
+
+// Chess is a pure knockout — no group stage or group leaderboard.
+const CHESS_TABS = [
+  ["", "Dashboard"],
+  ["/teams", "Players"],
+  ["/bracket", "Bracket"],
+  ["/matches", "Games"],
   ["/screens", "Screens"],
   ["/settings", "Settings"],
 ] as const;
@@ -25,6 +35,7 @@ export default async function TournamentLayout({
   const { id } = await params;
   const tournament = await getTournament(id);
   if (!tournament) notFound();
+  const TABS = tournament.sport === "chess" ? CHESS_TABS : PADEL_TABS;
 
   return (
     <div className="space-y-4">

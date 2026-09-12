@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/guard";
 import { getCourts, getMatch, getSnapshot, getTeams, getTournament } from "@/lib/data";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/types";
 import ScoreClient from "./ScoreClient";
+import ChessScoreClient from "./ChessScoreClient";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,28 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
   const teamA = teams.find((t) => t.id === match.team_a_id)!;
   const teamB = teams.find((t) => t.id === match.team_b_id)!;
   const court = courts.find((c) => c.id === match.court_id);
+
+  if (tournament.sport === "chess") {
+    return (
+      <ChessScoreClient
+        match={match}
+        tournamentName={tournament.name}
+        boardName={court?.court_name ?? "No board"}
+        legs={tournament.format_config?.legs === 2 ? 2 : 1}
+        teamA={{
+          id: teamA.id,
+          name: teamA.team_name,
+          players: teamA.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+        }}
+        teamB={{
+          id: teamB.id,
+          name: teamB.team_name,
+          players: teamB.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+        }}
+        serverSnapshot={snapshot}
+      />
+    );
+  }
 
   return (
     <ScoreClient

@@ -168,10 +168,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       .from("matches")
       .update({ ...statusUpdate, updated_at: new Date().toISOString() })
       .eq("id", matchId);
-    // Reopening a finished group match changes the standings
-    if ("winner_team_id" in statusUpdate && match.stage === "group") {
-      const { recalcStandings } = await import("@/lib/ops");
-      await recalcStandings(match.tournament_id);
+    // Reopening a finished match un-does whatever it awarded.
+    if ("winner_team_id" in statusUpdate) {
+      if (match.stage === "group") {
+        const { recalcStandings } = await import("@/lib/ops");
+        await recalcStandings(match.tournament_id);
+      } else if (match.stage === "friendly") {
+        // Its ledger rows must go, or players keep points for a match that is
+        // no longer finished — and every affected player's fire streak has to
+        // be replayed, since removing a result changes the whole sequence.
+        const { revertFriendlyResult } = await import("@/lib/friendly/ops");
+        await revertFriendlyResult(matchId, "referee");
+      }
     }
   }
   if (finalize && finalize.winner) {

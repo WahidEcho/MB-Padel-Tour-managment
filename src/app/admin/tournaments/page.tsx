@@ -13,7 +13,12 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function TournamentsPage() {
-  const { data } = await db().from("tournaments").select("*").order("created_at", { ascending: false });
+  // `kind` filter hides the backing rows that friendly sessions own.
+  const { data } = await db()
+    .from("tournaments")
+    .select("*")
+    .eq("kind", "tournament")
+    .order("created_at", { ascending: false });
   const tournaments = (data ?? []) as Tournament[];
 
   return (

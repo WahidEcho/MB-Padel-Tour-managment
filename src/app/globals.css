@@ -91,3 +91,31 @@ body {
 .pulse-live {
   animation: pulse-live 1.6s ease-in-out infinite;
 }
+
+/* Sponsor marquee — the track holds two identical copies of the logo list, so
+   translating by exactly -50% lands on the start of the second copy and the
+   loop is seamless. */
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-track {
+  animation-name: marquee-scroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.marquee-viewport:hover .marquee-track {
+  animation-play-state: paused;
+}
+/* Fade the edges so logos enter and leave instead of being cut off. */
+.marquee-viewport {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+    /* Still reachable — the row scrolls by hand instead. */
+    overflow-x: auto;
+  }
+}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/guard";
+import AdminNav from "./AdminNav";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <a href="/logout" className="text-muted hover:text-foreground">Log out</a>
         </div>
       </header>
+      <AdminNav />
       <main className="mx-auto w-full max-w-6xl flex-1 p-4">{children}</main>
     </div>
   );
