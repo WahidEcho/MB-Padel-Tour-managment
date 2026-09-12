@@ -1,0 +1,41 @@
+-- ===================================================================
+-- 0007_presence_hot_updates
+--
+-- Drops the two indexes 0006 put on page_presence.last_seen.
+--
+-- They were costing every heartbeat its HOT-update eligibility and buying
+-- nothing. Measured on the dev database after the feature had been exercised:
+--
+--   table              n_tup_upd  n_tup_hot_upd  hot
+--   request_counters          39             39  100%
+--   page_presence             65              0    0%
+--
+-- Postgres can only update a row in place when no indexed column changes. Every
+-- beat rewrites last_seen with a fresh now(), and last_seen sat in both indexes,
+-- so no update could ever be HOT: each beat left a dead tuple and two index
+-- writes behind, and at one beat per visitor per 20 seconds that is continuous
+-- churn for autovacuum. request_counters is the control — it rewrites its
+-- indexed timestamp with the *same* value while a window is open, so it is 100%
+-- HOT.
+--
+-- The indexes were not earning it. With 800 rows under one key, the planner
+-- chooses page_presence_pkey and filters on last_seen:
+--
+--   Index Scan using page_presence_pkey  (actual time=0.017..0.371 rows=59)
+--     Index Cond: (page_key = $1)
+--     Filter: (last_seen > now() - '00:01:00')
+--   Execution Time: 0.425 ms
+--
+-- It never picked idx_page_presence_key_seen even when it existed, and the two
+-- indexes were 48 kB against an 8 kB heap — six times the table they indexed.
+--
+-- The primary key (page_key, visitor_id) stays, and neither of its columns
+-- changes on a beat, so every beat is now HOT-eligible. The count is a primary
+-- key range scan with a filter, and the sweep is a sequential scan over a table
+-- bounded by concurrent visitors — hundreds, not millions.
+--
+-- Fully idempotent: safe to run more than once.
+-- ===================================================================
+
+drop index if exists idx_page_presence_key_seen;
+drop index if exists idx_page_presence_seen;

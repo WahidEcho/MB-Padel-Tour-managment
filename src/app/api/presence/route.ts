@@ -18,8 +18,7 @@
  * a 20-second heartbeat would add more database work than it saves, and the
  * bounds above already cap the damage.
  */
-import { after } from "next/server";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { db } from "@/lib/supabase";
 import {
   LIVE_WINDOW_SECONDS,
@@ -28,8 +27,6 @@ import {
   isVisitorId,
   presenceKey,
 } from "@/lib/presence";
-
-export const dynamic = "force-dynamic";
 
 /** A beat carries four short fields; anything larger is not one of ours. */
 const MAX_BODY_BYTES = 512;
@@ -83,8 +80,14 @@ export async function POST(req: Request) {
     .gt("last_seen", since);
 
   // Housekeeping after the response is sent, so it never adds latency to a beat.
+  //
+  // The callback form matters. `after()` treats a thenable and a function
+  // differently (next/dist/server/after/after-context.js): a promise is handed
+  // straight to waitUntil — and calling sweep() to produce one has already
+  // started the query — while a function is queued and drained when the response
+  // closes. `after(sweep())` would have run the delete alongside the response.
   if (Math.random() < SWEEP_CHANCE) {
-    after(sweep());
+    after(() => sweep());
   }
 
   return NextResponse.json({ watching: count ?? 0 });

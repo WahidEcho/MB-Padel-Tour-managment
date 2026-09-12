@@ -53,7 +53,11 @@ begin
   end if;
 end $$;
 
--- Counting reads one key over a time window; the sweep reads by age alone.
+-- NOTE: 0007 drops both of these again. Measured after the feature ran, they
+-- cost every heartbeat its HOT-update eligibility (last_seen is rewritten on
+-- each beat, and an indexed column changing rules out an in-place update) while
+-- the planner never chose either one over the primary key. Left here because an
+-- applied migration is never edited.
 create index if not exists idx_page_presence_key_seen on page_presence (page_key, last_seen);
 create index if not exists idx_page_presence_seen on page_presence (last_seen);
 
