@@ -218,6 +218,39 @@ body {
 /* The operator's mute, and a personal device's reduced-motion preference: paint
    every final frame, move nothing. `animation: none` alone would leave elements
    at their first keyframe — invisible — so the fill forwards to the end state. */
+/* ---------- the sponsor band ---------- */
+/* Shifts by exactly one group's width, so the next copy lands where the first
+   began and the loop has no seam. */
+@keyframes bc-ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--bc-ticker-shift, -50%)); }
+}
+/* Sponsor artwork is drawn for white paper. On a dark wall a dark wordmark
+   disappears, so each logo gets a white chip there; on a light wall the chip is
+   invisible and only its padding remains. */
+.bc-logo-chip { border-radius: 14px; }
+.theme-dark .bc-logo-chip { background: #ffffff; }
+.bc-ticker-viewport {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+
+/* ---------- the main sponsor's glow ---------- */
+@keyframes bc-bloom {
+  0%, 100% { opacity: 0.72; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes bc-ring { to { transform: rotate(360deg); } }
+@keyframes bc-mark-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.025); }
+}
+/* A personal device that asks for less motion gets a still glow. The venue
+   stage does not read this: a TV's setting was chosen by nobody in the room. */
+@media (prefers-reduced-motion: reduce) {
+  .bc-watermark-page [data-ambient] { animation: none !important; }
+}
+
 .bc-still .bc-animate,
 .bc-still [data-ambient] {
   animation-duration: 0.001ms !important;

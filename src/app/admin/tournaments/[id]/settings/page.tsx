@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { getCourts, getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
-import { addCourt, removeCourt, updateGeneral, uploadBranding } from "./actions";
+import { addCourt, removeCourt, updateGeneral } from "./actions";
+import BrandingForm from "./BrandingForm";
 import ScoringRulesForm from "./ScoringRulesForm";
 
 export const dynamic = "force-dynamic";
@@ -63,47 +64,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
         </form>
       </div>
 
-      <form action={uploadBranding} className="card space-y-3">
-        <h2 className="font-bold">Branding</h2>
-        <input type="hidden" name="tournament_id" value={id} />
-        {(
-          [
-            ["move_beyond_logo", "Move Beyond logo", b.moveBeyondLogoUrl],
-            ["client_logo", "Client/place logo", b.clientLogoUrl],
-            ["event_logo", "Event logo", b.eventLogoUrl],
-            ["background", "Background image", b.backgroundUrl],
-          ] as const
-        ).map(([field, label, url]) => (
-          <div key={field} className="flex items-center gap-3">
-            {url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={url} alt={label} className="h-10 w-10 rounded-lg border border-border object-contain" />
-            ) : (
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted">—</span>
-            )}
-            <div className="flex-1">
-              <label className="label">{label}</label>
-              <input type="file" name={field} accept="image/*" className="input text-xs" />
-            </div>
-          </div>
-        ))}
-        <div>
-          <label className="label">Sponsor logos (multiple, rotate on TV)</label>
-          <input type="file" name="sponsor_logos" accept="image/*" multiple className="input text-xs" />
-          {(b.sponsorLogoUrls?.length ?? 0) > 0 && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {b.sponsorLogoUrls!.map((u) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={u} src={u} alt="sponsor" className="h-8 rounded border border-border object-contain" />
-              ))}
-              <label className="flex items-center gap-1 text-xs text-danger">
-                <input type="checkbox" name="clear_sponsors" /> clear all
-              </label>
-            </div>
-          )}
-        </div>
-        <button className="btn-primary">Save branding</button>
-      </form>
+      <BrandingForm tournamentId={id} branding={b} />
     </div>
   );
 }

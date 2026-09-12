@@ -20,12 +20,14 @@ import { normalizeDisplayMode, type Court, type DisplayMode, type Match } from "
 import BracketView from "@/components/BracketView";
 import ChessLiveCard from "@/components/ChessLiveCard";
 import SponsorRotator from "@/components/SponsorRotator";
-import SponsorMarquee from "@/components/SponsorMarquee";
 import StandingsTable from "@/components/StandingsTable";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
 import BroadcastStage from "@/components/broadcast/BroadcastStage";
 import LiveFeedProvider from "@/components/broadcast/LiveFeedProvider";
 import LiveCourts from "@/components/broadcast/LiveCourts";
+import SponsorTicker from "@/components/broadcast/SponsorTicker";
+import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
+import { resolveSponsors, surfaceForMode } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
@@ -167,9 +169,21 @@ export default async function TvScreen({
   const initialFeed = await buildLiveFeed(id, settings);
   const courtInfo = covered.map((c) => ({ id: c.id, name: c.court_name }));
   const logos = tournament.branding_config;
+  const { main: mainSponsor, footer: footerSponsors } = resolveSponsors(logos);
+  const dark = settings.theme === "dark";
+  // How loud the glow may be depends on what it sits behind: quiet under a full
+  // grid of scores, strongest on the holding slate and the ceremony.
+  const shownCount = isChess ? focusMatches.length : pinnedCourtId ? 1 : courtInfo.length;
+  const watermarkSurface = surfaceForMode(mode, shownCount);
+  const holding = {
+    title: logos.holding?.title?.trim() || tournament.name,
+    message: logos.holding?.message?.trim() || "Back shortly",
+    // The uploaded background finally has a use: the slate's default image.
+    imageUrl: logos.holding?.imageUrl || logos.backgroundUrl || null,
+  };
 
   return (
-    <BroadcastStage className={settings.theme === "dark" ? "theme-dark bg-background text-foreground" : "bg-background text-foreground"}>
+    <BroadcastStage className={dark ? "theme-dark bg-background text-foreground" : "bg-background text-foreground"}>
       <LiveFeedProvider
         slug={slug}
         screenKey={screenKey}
@@ -177,9 +191,26 @@ export default async function TvScreen({
         preview={Boolean(overrides.preview)}
         refreshOnScore={isChess}
       >
+        {mode === "holding" && holding.imageUrl && (
+          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ zIndex: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={sizedImageSrc(holding.imageUrl, 1920) ?? holding.imageUrl} alt="" loading="eager" className="h-full w-full object-cover opacity-40" />
+            {/* A scrim, so the title stays legible over any photograph. */}
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(to bottom, color-mix(in oklab, var(--background) 70%, transparent), color-mix(in oklab, var(--background) 30%, transparent) 45%, color-mix(in oklab, var(--background) 85%, transparent))",
+              }}
+            />
+          </div>
+        )}
+        {/* Inside the feed provider, so MUTE ANIMATIONS stills the glow too. */}
+        <SponsorWatermark sponsor={mainSponsor} surface={watermarkSurface} backgroundHex={dark ? "#0b0b0b" : "#ffffff"} />
+
         {/* Three pinned rows that fill the canvas exactly. Each clips its own
             content: a fixed row that overflows still paints into the next one. */}
-        <div className="grid h-full" style={{ gridTemplateRows: `${ROWS.header}px ${ROWS.content}px ${ROWS.ticker}px` }}>
+        <div className="relative grid h-full" style={{ zIndex: 10, gridTemplateRows: `${ROWS.header}px ${ROWS.content}px ${ROWS.ticker}px` }}>
           <header className="flex min-h-0 items-center justify-between gap-8 overflow-hidden px-10">
             <div className="min-w-0">
               <h1 className="truncate text-[44px] font-black leading-tight">{tournament.name}</h1>
@@ -281,20 +312,24 @@ export default async function TvScreen({
             )}
 
             {mode === "holding" && (
-              <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
-                <p className="text-[96px] font-black leading-none">{tournament.name}</p>
-                <p className="text-[48px] text-muted">Back shortly</p>
+              // With a sponsor glowing at the centre, the words sit below the mark
+              // rather than over it; without one they take the middle of the frame.
+              <div className={`flex h-full flex-col items-center gap-5 px-16 text-center ${mainSponsor ? "justify-end pb-24" : "justify-center"}`}>
+                <p className="max-w-[1600px] text-[96px] font-black leading-none">{holding.title}</p>
+                <p className="max-w-[1400px] text-[48px] text-muted">{holding.message}</p>
               </div>
             )}
 
             {mode === "sponsors" && (
               <div className="flex h-full flex-col items-center justify-center gap-8">
+                {/* The main sponsor already glows behind this scene, so the rotator
+                    shows everyone else — or the main sponsor, when it is alone. */}
                 <SponsorRotator
-                  logos={logos.sponsorLogoUrls ?? []}
+                  logos={(footerSponsors.length > 0 ? footerSponsors : mainSponsor ? [mainSponsor] : []).map((sp) => sp.logoUrl)}
                   seconds={settings.sponsor_rotation_seconds}
                   className="max-h-[480px] max-w-[1200px]"
                 />
-                {(logos.sponsorLogoUrls?.length ?? 0) === 0 && (
+                {footerSponsors.length === 0 && !mainSponsor && (
                   <p className="text-[40px] text-muted">Upload sponsor logos in branding settings</p>
                 )}
               </div>
@@ -304,7 +339,7 @@ export default async function TvScreen({
           {/* The during-play sponsor surface. The full-screen rotator above is the
               between-matches one; showing both at once doubled every logo. */}
           <footer className="min-h-0 overflow-hidden">
-            {mode !== "sponsors" && <SponsorMarquee logos={logos.sponsorLogoUrls ?? []} label="" size="big" />}
+            {mode !== "sponsors" && <SponsorTicker main={mainSponsor} sponsors={footerSponsors} />}
           </footer>
         </div>
       </LiveFeedProvider>

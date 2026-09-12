@@ -30,6 +30,57 @@ export function sniffImageType(bytes: Uint8Array): string | null {
   return null;
 }
 
+/**
+ * Width and height from an image's header, without decoding it.
+ *
+ * Used for sponsor logos, so the footer can lay a logo out at its real shape
+ * before it has loaded — otherwise the loop's width changes as logos arrive and
+ * the crawl jumps. Null when the format is unknown or the header is damaged.
+ */
+export function imageDimensions(bytes: Uint8Array, type?: string): { width: number; height: number } | null {
+  const u16be = (i: number) => (bytes[i] << 8) | bytes[i + 1];
+  const u16le = (i: number) => bytes[i] | (bytes[i + 1] << 8);
+  const u24le = (i: number) => bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16);
+  const u32be = (i: number) => ((bytes[i] << 24) >>> 0) + (bytes[i + 1] << 16) + (bytes[i + 2] << 8) + bytes[i + 3];
+  const ok = (d: { width: number; height: number }) => (d.width > 0 && d.height > 0 ? d : null);
+  const kind = sniffImageType(bytes.slice(0, 16));
+
+  if (kind === "image/png" && bytes.length >= 24) return ok({ width: u32be(16), height: u32be(20) });
+  if (kind === "image/gif" && bytes.length >= 10) return ok({ width: u16le(6), height: u16le(8) });
+  if (kind === "image/webp" && bytes.length >= 30) {
+    const chunk = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]);
+    if (chunk === "VP8X") return ok({ width: u24le(24) + 1, height: u24le(27) + 1 });
+    if (chunk === "VP8L") {
+      const b = bytes.slice(21, 25);
+      return ok({ width: 1 + (((b[1] & 0x3f) << 8) | b[0]), height: 1 + (((b[3] & 0x0f) << 10) | (b[2] << 2) | ((b[1] & 0xc0) >> 6)) });
+    }
+    if (chunk === "VP8 ") return ok({ width: u16le(26) & 0x3fff, height: u16le(28) & 0x3fff });
+    return null;
+  }
+  if (kind === "image/jpeg") {
+    let i = 2;
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 0xff) return null;
+      const marker = bytes[i + 1];
+      // SOF0..SOF15 carry the frame size, except DHT (C4), JPG (C8) and DAC (CC).
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return ok({ width: u16be(i + 7), height: u16be(i + 5) });
+      }
+      i += 2 + u16be(i + 2);
+    }
+    return null;
+  }
+  if (type === "image/svg+xml") {
+    const text = new TextDecoder().decode(bytes.slice(0, 4096));
+    const box = /viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(text);
+    if (box) return ok({ width: parseFloat(box[1]), height: parseFloat(box[2]) });
+    const w = /<svg[^>]*\swidth\s*=\s*["']([\d.]+)/i.exec(text);
+    const h = /<svg[^>]*\sheight\s*=\s*["']([\d.]+)/i.exec(text);
+    if (w && h) return ok({ width: parseFloat(w[1]), height: parseFloat(h[1]) });
+  }
+  return null;
+}
+
 export interface UploadOptions {
   /** Declared types to accept. Defaults to every image type, SVG included. */
   allow?: string[];
@@ -77,6 +128,14 @@ export async function uploadImage(file: File, prefix: string, opts: UploadOption
   });
   if (error) throw new Error(`Upload failed: ${error.message}`);
   return mediaPublicUrl(path);
+}
+
+/** A sponsor or brand logo: uploaded like any image, with its shape measured from the header. */
+export async function uploadLogo(file: File, prefix: string): Promise<{ url: string; aspect?: number }> {
+  const head = new Uint8Array(await file.slice(0, 262144).arrayBuffer());
+  const dims = imageDimensions(head, file.type);
+  const url = await uploadImage(file, prefix);
+  return { url, ...(dims ? { aspect: Math.round((dims.width / dims.height) * 1000) / 1000 } : {}) };
 }
 
 /** Deletes previously uploaded objects. Missing paths are not an error. */

@@ -123,12 +123,47 @@ export const DEFAULT_CHESS_FORMAT: FormatConfig = {
   thirdPlaceMatch: false,
 };
 
+export type SponsorIntensity = "subtle" | "standard" | "vivid";
+
+/** The one sponsor that glows behind the venue screen and the public dashboard. */
+export interface MainSponsor {
+  name: string;
+  logoUrl: string;
+  /** `#rrggbb`. Drives the bloom, the ring and the mark's glow. */
+  accentHex: string;
+  intensity?: SponsorIntensity;
+  /** Defaults to on: the dashboard is part of the sponsor's exposure. */
+  showOnDashboard?: boolean;
+  /** Width over height of the logo, measured on upload. */
+  aspect?: number;
+}
+
+/** Every other sponsor, in the order they loop along the footer. */
+export interface SponsorEntry {
+  name: string;
+  logoUrl: string;
+  tier?: string;
+  /** Width over height, measured on upload so the footer can be laid out before a logo loads. */
+  aspect?: number;
+}
+
+/** What the holding slate says between sessions of play. */
+export interface HoldingContent {
+  title?: string;
+  message?: string;
+  imageUrl?: string;
+}
+
 export interface BrandingConfig {
   moveBeyondLogoUrl?: string;
   clientLogoUrl?: string;
   eventLogoUrl?: string;
+  /** Legacy: bare URLs. Read through resolveSponsors, which also accepts `sponsors`. */
   sponsorLogoUrls?: string[];
   backgroundUrl?: string;
+  mainSponsor?: MainSponsor;
+  sponsors?: SponsorEntry[];
+  holding?: HoldingContent;
 }
 
 export interface Tournament {

@@ -78,6 +78,11 @@ describe("sizedImageSrc", () => {
     expect(sizedImageSrc(ORIGINAL, 800)).toContain("resize=contain");
   });
 
+  it("leaves a vector logo alone, since the render endpoint would rasterise it", () => {
+    const svg = `${SUPA}/storage/v1/object/public/media/branding/logo.svg`;
+    expect(sizedImageSrc(svg, 320)).toBe(svg);
+  });
+
   it("rounds the requested width", () => {
     expect(sizedImageSrc(ORIGINAL, 319.6)).toContain("width=320");
   });

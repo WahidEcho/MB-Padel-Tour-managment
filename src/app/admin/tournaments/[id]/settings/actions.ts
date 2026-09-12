@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { uploadImage } from "@/lib/upload";
+import { uploadImage, uploadLogo } from "@/lib/upload";
+import { isHex, resolveSponsors } from "@/lib/sponsors";
 import { getTournament } from "@/lib/data";
-import type { BrandingConfig, FormatConfig, MatchRules, ScoringConfig, Stage, StageRuleKey } from "@/lib/types";
+import type { BrandingConfig, SponsorEntry, FormatConfig, MatchRules, ScoringConfig, Stage, StageRuleKey } from "@/lib/types";
 import {
   STAGE_RULE_LABELS,
   scoringConfigForMatch,
@@ -200,32 +201,118 @@ export async function removeCourt(formData: FormData) {
   revalidatePath(settingsPath(id));
 }
 
-export async function uploadBranding(formData: FormData) {
+export type BrandingFormState = { ok: true; message: string } | { ok: false; problems: string[] } | null;
+
+const INTENSITIES = ["subtle", "standard", "vivid"] as const;
+
+function text(formData: FormData, key: string, max: number): string {
+  return String(formData.get(key) ?? "").trim().slice(0, max);
+}
+
+function fileFrom(formData: FormData, key: string): File | null {
+  const f = formData.get(key);
+  return f instanceof File && f.size > 0 ? f : null;
+}
+
+/**
+ * Logos, the main sponsor, the footer sponsors and the holding slate.
+ *
+ * Returns problems instead of throwing, so a bad colour or an oversized logo
+ * shows under the form rather than as the default error page. Used from the
+ * tournament settings page and from a friendly session's admin page, which edits
+ * its backing tournament's branding with the same form.
+ */
+export async function saveBranding(_prev: BrandingFormState, formData: FormData): Promise<BrandingFormState> {
   const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
   const t = await getTournament(id);
-  if (!t) throw new Error("Not found");
+  if (!t) return { ok: false, problems: ["Tournament not found."] };
   const branding: BrandingConfig = { ...t.branding_config };
+  const problems: string[] = [];
 
-  const single: [string, keyof BrandingConfig][] = [
-    ["move_beyond_logo", "moveBeyondLogoUrl"],
-    ["client_logo", "clientLogoUrl"],
-    ["event_logo", "eventLogoUrl"],
-    ["background", "backgroundUrl"],
-  ];
-  for (const [field, key] of single) {
-    const file = formData.get(field);
-    if (file instanceof File && file.size > 0) {
-      (branding[key] as string) = await uploadImage(file, `branding/${id}`);
+  try {
+    const single: [string, "moveBeyondLogoUrl" | "clientLogoUrl" | "eventLogoUrl" | "backgroundUrl"][] = [
+      ["move_beyond_logo", "moveBeyondLogoUrl"],
+      ["client_logo", "clientLogoUrl"],
+      ["event_logo", "eventLogoUrl"],
+      ["background", "backgroundUrl"],
+    ];
+    for (const [field, key] of single) {
+      const file = fileFrom(formData, field);
+      if (file) branding[key] = await uploadImage(file, `branding/${id}`);
     }
+
+    // ---------- main sponsor ----------
+    if (formData.get("main_remove") === "on") {
+      delete branding.mainSponsor;
+    } else {
+      const name = text(formData, "main_name", 60);
+      const accent = text(formData, "main_accent", 7);
+      const intensityRaw = text(formData, "main_intensity", 10);
+      const intensity = (INTENSITIES as readonly string[]).includes(intensityRaw)
+        ? (intensityRaw as (typeof INTENSITIES)[number])
+        : "standard";
+      const logo = fileFrom(formData, "main_logo");
+      // Checked before uploading, so a rejected save leaves no orphaned file.
+      const uploaded = logo && isHex(accent) ? await uploadLogo(logo, `branding/${id}/main`) : null;
+      const logoUrl = uploaded?.url ?? branding.mainSponsor?.logoUrl ?? (logo ? "pending" : "");
+      const touched = Boolean(name || logo || branding.mainSponsor);
+      if (touched) {
+        if (!logoUrl) problems.push("Upload the main sponsor's logo — the glow is the logo.");
+        if (!isHex(accent)) problems.push("The main sponsor's colour must be a hex colour like #00a651.");
+        if (logoUrl && isHex(accent)) {
+          branding.mainSponsor = {
+            name,
+            logoUrl,
+            accentHex: accent.toLowerCase(),
+            intensity,
+            showOnDashboard: formData.getAll("main_dashboard").includes("on"),
+            ...(uploaded ? (uploaded.aspect ? { aspect: uploaded.aspect } : {}) : branding.mainSponsor?.aspect ? { aspect: branding.mainSponsor.aspect } : {}),
+          };
+        }
+      }
+    }
+
+    // ---------- footer sponsors ----------
+    // The rows posted back are checked against what is stored, so a hand-edited
+    // form cannot slip an arbitrary URL onto a public wall.
+    const current = resolveSponsors(t.branding_config).footer;
+    const byUrl = new Map(current.map((sp) => [sp.logoUrl, sp]));
+    const count = Math.min(200, Number(formData.get("sponsor_count") ?? 0) || 0);
+    const kept: SponsorEntry[] = [];
+    for (let i = 0; i < count; i++) {
+      const url = String(formData.get(`sponsor_url_${i}`) ?? "");
+      const existing = byUrl.get(url);
+      if (!existing || formData.get(`sponsor_remove_${i}`) === "on") continue;
+      kept.push({ ...existing, name: text(formData, `sponsor_name_${i}`, 60) });
+    }
+    const added = formData.getAll("sponsor_logos").filter((f): f is File => f instanceof File && f.size > 0);
+    for (const f of added) {
+      const up = await uploadLogo(f, `branding/${id}/sponsors`);
+      kept.push({ name: "", logoUrl: up.url, ...(up.aspect ? { aspect: up.aspect } : {}) });
+    }
+    if (formData.get("clear_sponsors") === "on") kept.length = 0;
+    branding.sponsors = kept;
+    // Kept in step for anything still reading the old list (clones, exports).
+    branding.sponsorLogoUrls = kept.map((sp) => sp.logoUrl);
+
+    // ---------- holding slate ----------
+    const holdingImage = fileFrom(formData, "holding_image");
+    branding.holding = {
+      title: text(formData, "holding_title", 120),
+      message: text(formData, "holding_message", 200),
+      imageUrl:
+        formData.get("holding_clear_image") === "on"
+          ? ""
+          : holdingImage
+            ? await uploadImage(holdingImage, `branding/${id}/holding`)
+            : (branding.holding?.imageUrl ?? ""),
+    };
+  } catch (e) {
+    problems.push(e instanceof Error ? e.message : "Upload failed.");
   }
-  const sponsors = formData.getAll("sponsor_logos").filter((f): f is File => f instanceof File && f.size > 0);
-  if (sponsors.length > 0) {
-    const urls = branding.sponsorLogoUrls ?? [];
-    for (const f of sponsors) urls.push(await uploadImage(f, `branding/${id}/sponsors`));
-    branding.sponsorLogoUrls = urls;
-  }
-  if (formData.get("clear_sponsors") === "on") branding.sponsorLogoUrls = [];
+
+  if (problems.length > 0) return { ok: false, problems };
 
   await db()
     .from("tournaments")
@@ -233,4 +320,7 @@ export async function uploadBranding(formData: FormData) {
     .eq("id", id);
   await audit({ tournament_id: id, actor_role: role, action: "BRANDING_UPDATED" });
   revalidatePath(settingsPath(id));
+  const back = String(formData.get("return_path") ?? "");
+  if (back.startsWith("/admin/")) revalidatePath(back);
+  return { ok: true, message: "Branding saved." };
 }

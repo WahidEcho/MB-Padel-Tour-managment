@@ -85,6 +85,8 @@ export function sizedImageSrc(url: string | null | undefined, width: number): st
   if (!url) return null;
   if (!url.startsWith("http")) return url;
   if (url.includes("?")) return url;
+  // Vectors need no resizing, and the render endpoint would rasterise them.
+  if (/\.svg$/i.test(url)) return url;
   const at = url.indexOf(PUBLIC_OBJECT);
   if (at === -1) return url;
   const rendered = url.slice(0, at) + RENDER_IMAGE + url.slice(at + PUBLIC_OBJECT.length);

@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { getTournamentBySlug } from "@/lib/data";
 import { sizedImageSrc } from "@/lib/portrait";
 import PresenceBeatForPath from "@/components/PresenceBeatForPath";
+import SponsorMarquee from "@/components/SponsorMarquee";
+import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
+import { resolveSponsors } from "@/lib/sponsors";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +37,16 @@ export default async function PublicLayout({
           ["/winner", "Winner"],
         ] as const);
 
+  const { main, footer } = resolveSponsors(tournament.branding_config);
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-border px-4 py-3">
+    <div className="relative isolate flex min-h-screen flex-col">
+      {/* The main sponsor glows behind the public pages too, fixed to the
+          viewport so it stays put while the standings scroll. */}
+      {main?.showOnDashboard !== false && (
+        <SponsorWatermark sponsor={main} surface="dashboard" backgroundHex="#ffffff" variant="page" />
+      )}
+      <header className="relative z-10 border-b border-border px-4 py-3">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between">
           <div className="flex items-center gap-3">
             {tournament.branding_config.eventLogoUrl && (
@@ -62,7 +72,12 @@ export default async function PublicLayout({
           </nav>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 p-4">{children}</main>
+      <main className="relative z-10 mx-auto w-full max-w-5xl flex-1 p-4">{children}</main>
+      {footer.length > 0 && (
+        <footer className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-4">
+          <SponsorMarquee logos={footer.map((sp) => sp.logoUrl)} />
+        </footer>
+      )}
     </div>
   );
 }
