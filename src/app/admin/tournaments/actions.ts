@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/guard";
 import { audit, slugify } from "@/lib/audit";
 import { cloneTournament as cloneOp, type CloneOptions } from "@/lib/ops";
 import { DEFAULT_CHESS_FORMAT, DEFAULT_SCORING_CONFIG, type FormatConfig } from "@/lib/types";
+import { ensureMainScreen } from "@/lib/screens";
 
 export async function createTournament(formData: FormData) {
   const role = await requirePermission("manage_tournament");
@@ -48,7 +49,7 @@ export async function createTournament(formData: FormData) {
     court_order: i + 1,
   }));
   await db().from("courts").insert(courts);
-  await db().from("screen_settings").insert({ tournament_id: tournament.id, screen_key: "main" });
+  await ensureMainScreen(tournament.id);
   await audit({
     tournament_id: tournament.id,
     actor_role: role,

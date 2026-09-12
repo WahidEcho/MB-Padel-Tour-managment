@@ -33,6 +33,7 @@ import {
   type ScheduledRound,
 } from "./scheduler";
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
+import { ensureMainScreen } from "../screens";
 
 /* ------------------------------------------------------------------ */
 /* Session creation                                                    */
@@ -106,7 +107,7 @@ export async function createFriendlySession(input: CreateSessionInput) {
         court_order: i + 1,
       }))
     );
-  await db().from("screen_settings").insert({ tournament_id: backing.id, screen_key: "main" });
+  await ensureMainScreen(backing.id);
 
   // 3. The session itself.
   const { data: session, error: sErr } = await db()

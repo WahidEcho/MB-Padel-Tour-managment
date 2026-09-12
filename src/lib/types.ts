@@ -298,14 +298,63 @@ export interface BracketSlot {
   is_bye: boolean;
 }
 
+/**
+ * What a screen is showing.
+ *
+ * `live_court` and `all_live` are the two pre-existing modes and stay valid so
+ * saved screens keep working; both are read as `live`. One live mode is enough,
+ * because a screen's coverage (`court_ids`) and its pin decide what it shows —
+ * a separate mode saying the same thing is a third field that can disagree with
+ * the other two.
+ */
+export type DisplayMode =
+  | "live"
+  | "leaderboard"
+  | "bracket"
+  | "winner"
+  | "ceremony"
+  | "sponsors"
+  | "holding"
+  | "live_court"
+  | "all_live";
+
+export type BracketTier = "cup" | "plate";
+
 export interface ScreenSettings {
   id: string;
   tournament_id: string;
+  /** Immutable once created: a TV may already be open on this URL. */
   screen_key: string;
-  display_mode: "leaderboard" | "live_court" | "all_live" | "bracket" | "winner" | "sponsors";
+  /** What the operator calls it. Renaming never changes the key. */
+  screen_name: string | null;
+  display_mode: DisplayMode;
+  /** Courts this screen covers. Empty means every court. */
+  court_ids: string[];
+  /** Legacy single-court pin, still honoured as a fallback. */
   focus_court_id: string | null;
+  /**
+   * Pins the screen to one match. Together with `focus_court_id`, the absence
+   * of both is what "follow live" means — there is no separate flag.
+   */
+  focus_match_id: string | null;
+  /** Which bracket the bracket, winner and ceremony scenes show. */
+  bracket_tier: BracketTier | "both";
   theme: "dark" | "light";
   sponsor_rotation_seconds: number;
+  /** Bumped by every write; every writer checks it. */
+  revision: number;
+  break_started_at: string | null;
+  break_ends_at: string | null;
+  mute_animations: boolean;
+  ceremony_step: number;
+  ceremony_step_at: string | null;
+  entrance_replay: { match_id: string; at: string } | null;
+  updated_at?: string;
+}
+
+/** The live modes collapse to one; everything else is itself. */
+export function normalizeDisplayMode(mode: DisplayMode): Exclude<DisplayMode, "live_court" | "all_live"> {
+  return mode === "live_court" || mode === "all_live" ? "live" : mode;
 }
 
 /* ------------------------------------------------------------------ */

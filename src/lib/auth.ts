@@ -79,6 +79,10 @@ const PERMISSIONS: Record<string, Role[]> = {
   score_match: ["admin", "manager", "referee"],
   edit_bracket: ["admin", "manager", "referee"],
   control_screen: ["admin", "manager", "operator"],
+  // Adding a wall on the night is the operator's job; removing one, which can
+  // blank a TV somebody is watching, is not.
+  manage_screens: ["admin", "manager", "operator"],
+  delete_screen: ["admin", "manager"],
   export: ["admin", "manager"],
   // Friendly sessions. Referees may check players in on arrival, matching the
   // existing `check_in` permission, but cannot alter sessions or profiles.

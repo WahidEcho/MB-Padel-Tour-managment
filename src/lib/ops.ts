@@ -18,6 +18,7 @@ import {
   getTournament,
 } from "./data";
 import type { Match, MatchSnapshot, Standing, Team, Tournament } from "./types";
+import { ensureMainScreen } from "./screens";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -571,7 +572,7 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
     if (rows.length > 0) await db().from("matches").insert(rows);
   }
 
-  await db().from("screen_settings").insert({ tournament_id: newId, screen_key: "main" });
+  await ensureMainScreen(newId);
   await db().from("clone_logs").insert({
     source_tournament_id: sourceId,
     new_tournament_id: newId,

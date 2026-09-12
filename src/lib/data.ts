@@ -153,20 +153,78 @@ export async function getBracketSlots(bracketId: string): Promise<BracketSlot[]>
   return (data ?? []) as BracketSlot[];
 }
 
-export async function getScreenSettings(tournamentId: string): Promise<ScreenSettings> {
+/** The shape of a screen that has no row yet. Never written by a reader. */
+export function defaultScreenSettings(tournamentId: string, screenKey = "main"): ScreenSettings {
+  return {
+    id: "",
+    tournament_id: tournamentId,
+    screen_key: screenKey,
+    screen_name: null,
+    display_mode: "leaderboard",
+    court_ids: [],
+    focus_court_id: null,
+    focus_match_id: null,
+    bracket_tier: "cup",
+    theme: "dark",
+    sponsor_rotation_seconds: 10,
+    revision: 0,
+    break_started_at: null,
+    break_ends_at: null,
+    mute_animations: false,
+    ceremony_step: 0,
+    ceremony_step_at: null,
+    entrance_replay: null,
+  };
+}
+
+/**
+ * One screen's settings, or null when there is no such screen.
+ *
+ * A pure read. It used to create the row on a miss, which was harmless while
+ * only the operator console called it — but the TV route is public and now
+ * carries the key in its URL, so creating on read would let any visitor make
+ * rows, and a screen an admin deleted would be resurrected by the next poll of
+ * a TV still open on it. Creation lives in `createScreen`, behind a permission.
+ */
+export async function getScreenSettings(
+  tournamentId: string,
+  screenKey = "main",
+): Promise<ScreenSettings | null> {
   const { data } = await db()
     .from("screen_settings")
     .select("*")
     .eq("tournament_id", tournamentId)
-    .eq("screen_key", "main")
+    .eq("screen_key", screenKey)
     .maybeSingle();
-  if (data) return data as ScreenSettings;
-  const { data: created } = await db()
+  return (data as ScreenSettings | null) ?? null;
+}
+
+/** Every screen configured for a tournament, `main` first then by name. */
+export async function listScreens(tournamentId: string): Promise<ScreenSettings[]> {
+  const { data } = await db()
     .from("screen_settings")
-    .insert({ tournament_id: tournamentId, screen_key: "main" })
-    .select()
-    .single();
-  return created as ScreenSettings;
+    .select("*")
+    .eq("tournament_id", tournamentId);
+  const rows = (data ?? []) as ScreenSettings[];
+  return rows.sort((a, b) => {
+    if (a.screen_key === "main") return -1;
+    if (b.screen_key === "main") return 1;
+    return (a.screen_name ?? a.screen_key).localeCompare(b.screen_name ?? b.screen_key);
+  });
+}
+
+/**
+ * The courts a screen covers, in court order.
+ *
+ * Intersected with the courts that still exist, because `court_ids` is a plain
+ * array with no foreign key: deleting a court would otherwise leave every
+ * screen pointing at something gone. An empty list means every court, which is
+ * what keeps screens that predate multi-court coverage working unchanged.
+ */
+export function courtsForScreen(settings: Pick<ScreenSettings, "court_ids">, courts: Court[]): Court[] {
+  if (!settings.court_ids?.length) return courts;
+  const wanted = new Set(settings.court_ids);
+  return courts.filter((c) => wanted.has(c.id));
 }
 
 export function teamMap(teams: Team[]): Map<string, Team> {
