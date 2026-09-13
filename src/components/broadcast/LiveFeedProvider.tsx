@@ -12,9 +12,15 @@ interface LiveContext {
   motion: boolean;
   /** Milliseconds between the two most recent successful polls. */
   pollGapMs: number;
+  /**
+   * Whether this screen has completed a poll, so `now` is corrected against the
+   * server rather than assumed from when the page was built. A timeline that is
+   * frozen once at mount waits for this.
+   */
+  anchored: boolean;
 }
 
-const Ctx = createContext<LiveContext>({ feed: null, anchor: null, now: 0, motion: true, pollGapMs: 2_000 });
+const Ctx = createContext<LiveContext>({ feed: null, anchor: null, now: 0, motion: true, pollGapMs: 2_000, anchored: false });
 
 export function useLive(): LiveContext {
   return useContext(Ctx);
@@ -45,7 +51,7 @@ export default function LiveFeedProvider({
   refreshOnScore?: boolean;
   children: React.ReactNode;
 }) {
-  const { feed, anchor, pollGapMs } = useLiveFeed(slug, screenKey, {
+  const { feed, anchor, pollGapMs, lastOkAt } = useLiveFeed(slug, screenKey, {
     intervalMs: preview ? 5_000 : 2_000,
     initial,
     refreshOnScore,
@@ -56,7 +62,7 @@ export default function LiveFeedProvider({
   const motion = useMotionAllowed(current.screen.mute_animations || preview, true);
 
   return (
-    <Ctx.Provider value={{ feed: current, anchor, now, motion, pollGapMs }}>
+    <Ctx.Provider value={{ feed: current, anchor, now, motion, pollGapMs, anchored: lastOkAt !== null }}>
       <div className={motion ? "contents" : "bc-still contents"}>{children}</div>
     </Ctx.Provider>
   );

@@ -83,6 +83,7 @@ export default function LiveCourts({
               motion={motion}
               pollGapMs={pollGapMs}
               entranceReplayAt={replay && match && replay.match_id === match.id ? replay.at : null}
+              entranceReplayEvent={replay && match && replay.match_id === match.id ? (replay.event_number ?? null) : null}
             />
           </div>
         );

@@ -21,6 +21,7 @@ import {
   promoteWaitlistAction,
   releaseEntryAction,
   reopenSessionAction,
+  setSessionPodiumDepthAction,
   setStatusAction,
 } from "../actions";
 
@@ -505,6 +506,26 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               Main TV screen ↗
             </Link>
           </div>
+          <form action={setSessionPodiumDepthAction} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="session_id" value={session.id} />
+            <div>
+              <label className="label">Closing ceremony podium</label>
+              <select
+                name="podium_depth"
+                defaultValue={String(backing.format_config?.tiers?.cup?.podiumDepth ?? 3)}
+                className="input w-auto"
+              >
+                <option value="1">Champion only</option>
+                <option value="2">Top 2</option>
+                <option value="3">Top 3</option>
+                <option value="4">Top 4</option>
+              </select>
+            </div>
+            <button className="btn-secondary text-xs">Save</button>
+            <p className="w-full text-xs text-muted">
+              Revealed place by place from the session ranking. Tied players share a step.
+            </p>
+          </form>
           <BrandingForm
             tournamentId={backing.id}
             branding={backing.branding_config}

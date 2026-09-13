@@ -4,7 +4,9 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import type { Court, ScreenSettings } from "@/lib/types";
 import ScreenModePicker, { isLiveMode } from "@/components/ScreenModePicker";
-import { addScreen, applyToScreens, type ScreenFormState } from "./actions";
+import ScreenCommandBar from "@/components/ScreenCommandBar";
+import PreviewFrame from "./PreviewFrame";
+import { addScreen, applyToScreens, commandToScreens, type ScreenFormState } from "./actions";
 
 function screenLabel(s: ScreenSettings) {
   return s.screen_name ?? (s.screen_key === "main" ? "Main screen" : s.screen_key);
@@ -74,6 +76,58 @@ export default function ControlRoom({
           hidden={{ tournament_id: tournamentId, screen_key: targets }}
           disabled={screens.length === 0}
         />
+
+        <div className="grid gap-3 border-t border-border pt-3 md:grid-cols-3" data-testid="push-live-controls">
+          <div className="space-y-1">
+            <p className="label">Break</p>
+            <p className="text-xs text-muted">Every chosen wall counts down to the same moment.</p>
+            <ScreenCommandBar
+              action={commandToScreens}
+              hidden={{ tournament_id: tournamentId, screen_key: targets }}
+              buttons={[
+                { command: "break_start", label: "5 min", fields: { break_minutes: "5" } },
+                { command: "break_start", label: "10 min", fields: { break_minutes: "10" } },
+                { command: "break_start", label: "15 min", fields: { break_minutes: "15" } },
+                { command: "break_end", label: "End break", tone: "primary" },
+              ]}
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="label">Animations</p>
+            <p className="text-xs text-muted">Stops or restarts every animation on the chosen walls.</p>
+            <ScreenCommandBar
+              action={commandToScreens}
+              hidden={{ tournament_id: tournamentId, screen_key: targets }}
+              buttons={[
+                { command: "mute_on", label: "Mute", tone: "danger" },
+                { command: "mute_off", label: "Unmute" },
+              ]}
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="label">Ceremony</p>
+            <p className="text-xs text-muted">
+              Moves the walls showing the ceremony, each from the step shown here; a wall moved by someone
+              else meanwhile is left alone and reported.
+            </p>
+            <ScreenCommandBar
+              action={commandToScreens}
+              hidden={{
+                tournament_id: tournamentId,
+                screen_key: targets,
+                // What this page showed for each wall, so a second press from a
+                // stale view cannot skip a reveal.
+                ...Object.fromEntries(screens.map((s) => [`expect_step:${s.screen_key}`, String(s.ceremony_step ?? 0)])),
+              }}
+              buttons={[
+                { command: "ceremony_next", label: "Next place ▶", tone: "primary" },
+                { command: "ceremony_back", label: "◀ Back" },
+                { command: "ceremony_replay", label: "Replay" },
+                { command: "ceremony_restart", label: "Restart", confirm: "Send every chosen wall back to the opening slate?" },
+              ]}
+            />
+          </div>
+        </div>
       </div>
 
       {/* ---------------- The wall of walls ---------------- */}
@@ -96,6 +150,9 @@ export default function ControlRoom({
                   <p className="truncate text-xs text-muted">
                     {coverageLabel(s, courts)} ·{" "}
                     {isLiveMode(s.display_mode) ? "live" : s.display_mode}
+                    {s.display_mode === "ceremony" ? ` (step ${s.ceremony_step + 1})` : ""}
+                    {s.break_ends_at ? " · on break" : ""}
+                    {s.mute_animations ? " · muted" : ""}
                     {s.focus_court_id
                       ? ` · pinned to ${courts.find((c) => c.id === s.focus_court_id)?.court_name ?? "a removed court"}`
                       : " · following live"}
@@ -118,24 +175,11 @@ export default function ControlRoom({
 
               <div className="relative overflow-hidden rounded-xl border border-border bg-black">
                 {publicAccess ? (
-                  <div className="h-[270px] w-full overflow-hidden">
-                    <iframe
-                      // Keyed by the screen, with a src that never changes, so
-                      // the frame is not reloaded on every render of this page.
-                      // `allow-same-origin` is required: without it the framed
-                      // app cannot refresh itself and the thumbnail silently
-                      // freezes while still looking live.
-                      key={s.id}
-                      src={`${url}?preview=1`}
-                      title={`${screenLabel(s)} preview`}
-                      sandbox="allow-scripts allow-same-origin"
-                      tabIndex={-1}
-                      className="pointer-events-none block origin-top-left border-0"
-                      style={{ width: 1280, height: 720, transform: "scale(0.375)" }}
-                    />
-                  </div>
+                  // Keyed by the screen, so the frame is not reloaded on every
+                  // render of this page.
+                  <PreviewFrame key={s.id} src={`${url}?preview=1`} title={`${screenLabel(s)} preview`} />
                 ) : (
-                  <div className="flex h-[270px] items-center justify-center px-4 text-center text-xs text-muted">
+                  <div className="flex aspect-video items-center justify-center px-4 text-center text-xs text-muted">
                     Preview unavailable while public access is off.
                   </div>
                 )}

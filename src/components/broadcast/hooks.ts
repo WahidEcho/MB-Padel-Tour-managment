@@ -112,7 +112,13 @@ function scoreSignature(feed: LiveFeed): string {
 
 /** A clock corrected to the server, ticking at the given rate. */
 export function useAnchoredNow(anchor: ClockAnchor | null, tickMs = 250): number {
-  const [now, setNow] = useState(() => anchoredNow(anchor, Date.now()));
+  // The first value is the moment the server built the page, on the server and in
+  // the browser alike. Reading each machine's own clock here made every
+  // time-derived text and seek differ between the server render and hydration — a
+  // break countdown a second apart, an animation delay off by the page's load time
+  // or by a venue PC's clock skew. The first tick, a quarter of a second later,
+  // moves to the live anchored clock.
+  const [now, setNow] = useState(() => anchor?.serverMs ?? 0);
   useEffect(() => {
     // No synchronous set here: the initialiser covers mount, and a new anchor is
     // picked up on the next tick, a quarter of a second later.

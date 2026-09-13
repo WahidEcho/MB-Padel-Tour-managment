@@ -30,6 +30,8 @@ export interface CourtCardProps {
   pollGapMs?: number;
   /** An operator-requested replay of this court's entrance. */
   entranceReplayAt?: string | null;
+  /** The match's last scoring event when the replay was requested; only a later one ends it. */
+  entranceReplayEvent?: number | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -137,6 +139,8 @@ interface Seen {
   frame: ScoreFrame | null;
   at: number;
   beat: (Exclude<Beat, { kind: "none" }> & { startedAt: number }) | null;
+  /** When the score last changed while this card watched. Null until it does. */
+  changedAt: number | null;
 }
 
 function LiveCard(props: CourtCardProps) {
@@ -147,7 +151,12 @@ function LiveCard(props: CourtCardProps) {
   // Classify each new observation during render, not in an effect: the beat has
   // to be decided from the frame that arrived with this render, and an effect
   // would run it one render late — long enough for a second poll to slip in.
-  const [seen, setSeen] = useState<Seen>({ frame: snapshot ? frameFrom(snapshot) : null, at: now, beat: null });
+  const [seen, setSeen] = useState<Seen>({
+    frame: snapshot ? frameFrom(snapshot) : null,
+    at: now,
+    beat: null,
+    changedAt: null,
+  });
   if (snapshot && snapshot.last_event_number !== seen.frame?.eventNumber) {
     const next = frameFrom(snapshot);
     // Measured between polls, not since the score last moved. A match can go
@@ -158,6 +167,7 @@ function LiveCard(props: CourtCardProps) {
       frame: next,
       at: now,
       beat: beat.kind === "none" ? null : { ...beat, startedAt: now },
+      changedAt: now,
     });
   }
   const beat = seen.beat && now - seen.beat.startedAt < BEAT_MS[seen.beat.kind] ? seen.beat : null;
@@ -168,12 +178,27 @@ function LiveCard(props: CourtCardProps) {
     snapshot &&
       (snapshot.sets.some(Boolean) || snapshot.games.some(Boolean) || snapshot.points.some((p) => p !== "0")),
   );
-  const entranceFrom = props.entranceReplayAt ?? match?.started_at ?? null;
+  // An operator's replay is a deliberate request, usually because the wall was
+  // showing something else when the match began — so it plays over a board that
+  // has already started. A point scored after the replay was requested still
+  // ends it, for the same reason the first point ends the original. "After" is
+  // judged by the match's event number recorded with the replay, not by when this
+  // wall happened to see a point: one scored just before the press often arrives
+  // in the same poll as the replay itself.
+  const replayAtMs = props.entranceReplayAt ? Date.parse(props.entranceReplayAt) : null;
+  const isReplay = replayAtMs !== null && Number.isFinite(replayAtMs);
+  const entranceFrom = isReplay ? props.entranceReplayAt! : (match?.started_at ?? null);
   const entrance = useSeekedStage(ENTRANCE.marks, entranceFrom, now, { skipAfterMs: ENTRANCE.skipAfterMs });
+  const replayEvent = props.entranceReplayEvent;
+  const interrupted = isReplay
+    ? replayEvent !== null && replayEvent !== undefined
+      ? (snapshot?.last_event_number ?? 0) > replayEvent
+      : seen.changedAt !== null && seen.changedAt >= replayAtMs!
+    : boardStarted;
   const showEntrance =
     shows.entrance &&
     motion &&
-    !boardStarted &&
+    !interrupted &&
     entrance.elapsedMs !== null &&
     entrance.elapsedMs < ENTRANCE.durationMs;
 
@@ -368,7 +393,9 @@ function EntranceOverlay({
 
   return (
     <div
-      className="bc-animate absolute inset-0 z-20 flex flex-col bg-background/95"
+      // Fully opaque: an operator can replay an entrance over a match already in
+      // play, and at 95% the running score ghosted through the player cards.
+      className="bc-animate absolute inset-0 z-20 flex flex-col bg-background"
       // Scheduled from the start, not switched on when the exit stage arrives: a
       // style added mid-way would start its animation then, not at 8.2s. Fill
       // mode holds it fully opaque until its delay has run out.

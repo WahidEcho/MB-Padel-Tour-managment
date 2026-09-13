@@ -404,7 +404,11 @@ export interface ScreenSettings {
   mute_animations: boolean;
   ceremony_step: number;
   ceremony_step_at: string | null;
-  entrance_replay: { match_id: string; at: string } | null;
+  /**
+   * An operator's replay of one match's entrance: when it was pressed, and the
+   * match's last scoring event at that moment, so only a later point ends it.
+   */
+  entrance_replay: { match_id: string; at: string; event_number?: number } | null;
   updated_at?: string;
 }
 

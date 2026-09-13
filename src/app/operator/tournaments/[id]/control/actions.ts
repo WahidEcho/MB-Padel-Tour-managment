@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/guard";
-import { getCourts, getScreenSettings, listScreens } from "@/lib/data";
+import { getBrackets, getCourts, getScreenSettings, listScreens } from "@/lib/data";
 import {
   createScreen,
   deleteScreen,
@@ -12,6 +12,8 @@ import {
   type ScreenPatch,
 } from "@/lib/screens";
 import type { DisplayMode, ScreenSettings } from "@/lib/types";
+import { modeChangeEffects, parseScreenCommand } from "@/lib/tv/commands";
+import { applyCommandToScreens, applyScreenCommand } from "@/lib/tv/commandsServer";
 
 export type ScreenFormState =
   | { ok: true; message: string }
@@ -35,6 +37,11 @@ function paths(tournamentId: string, screenKey?: string) {
  */
 function revalidateAll(tournamentId: string, screenKey?: string) {
   for (const p of paths(tournamentId, screenKey)) revalidatePath(p);
+}
+
+/** Whether a ceremony put on air should honour the Plate before the Cup. */
+async function plateBracketPublished(tournamentId: string): Promise<boolean> {
+  return (await getBrackets(tournamentId)).some((b) => b.tier === "plate" && b.status === "published");
 }
 
 /** Reads the patch a form is asking for. Absent fields are left untouched. */
@@ -77,9 +84,12 @@ export async function saveScreen(_prev: ScreenFormState, formData: FormData): Pr
   const screenKey = String(formData.get("screen_key") || "main");
   const expected = parseInt(String(formData.get("revision") ?? "0"), 10) || 0;
 
-  const courts = await getCourts(tournamentId);
-  const patch = patchFrom(formData, courts);
-  if (Object.keys(patch).length === 0) return { ok: false, message: "Nothing to change." };
+  const [courts, current] = await Promise.all([getCourts(tournamentId), getScreenSettings(tournamentId, screenKey)]);
+  const asked = patchFrom(formData, courts);
+  if (Object.keys(asked).length === 0) return { ok: false, message: "Nothing to change." };
+  const patch = current
+    ? modeChangeEffects(asked, current, Date.now(), { plateBracketPublished: await plateBracketPublished(tournamentId) })
+    : asked;
 
   const result = await updateScreen(tournamentId, screenKey, expected, patch, role);
   revalidateAll(tournamentId, screenKey);
@@ -120,8 +130,16 @@ export async function applyToScreens(_prev: ScreenFormState, formData: FormData)
 
   const updated: string[] = [];
   const conflicted: string[] = [];
+  const nowMs = Date.now();
+  const plate = await plateBracketPublished(tournamentId);
   for (const { screen, patch: own } of plan) {
-    const result = await updateScreen(tournamentId, screen.screen_key, screen.revision, own, role);
+    const result = await updateScreen(
+      tournamentId,
+      screen.screen_key,
+      screen.revision,
+      modeChangeEffects(own, screen, nowMs, { plateBracketPublished: plate }),
+      role,
+    );
     if (result.ok) updated.push(screen.screen_name ?? screen.screen_key);
     else if ("conflict" in result && result.conflict) conflicted.push(screen.screen_name ?? screen.screen_key);
   }
@@ -166,6 +184,54 @@ export async function removeScreen(formData: FormData) {
   const result = await deleteScreen(tournamentId, screenKey, role);
   if (!result.ok) throw new Error(result.message ?? "Could not delete that screen.");
   revalidateAll(tournamentId);
+}
+
+/** One live control — mute, break, replay entrance, a ceremony move — on one screen. */
+export async function screenCommand(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
+  const role = await requirePermission("control_screen");
+  const tournamentId = String(formData.get("tournament_id"));
+  const screenKey = String(formData.get("screen_key") || "main");
+  const expected = parseInt(String(formData.get("revision") ?? "0"), 10) || 0;
+  const command = parseScreenCommand((name) => (formData.has(name) ? String(formData.get(name)) : null));
+  if (!command) return { ok: false, message: "That control is not recognised." };
+
+  const result = await applyScreenCommand(tournamentId, screenKey, expected, command, role);
+  revalidateAll(tournamentId, screenKey);
+  if (result.ok) return { ok: true, message: "On air." };
+  if ("conflict" in result && result.conflict) {
+    return {
+      ok: false,
+      conflict: true,
+      message: "Someone else changed this screen a moment ago. It has been reloaded — check it and press again.",
+    };
+  }
+  return { ok: false, message: result.message };
+}
+
+/** One live control pushed to the selected screens, or to every screen. */
+export async function commandToScreens(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
+  const role = await requirePermission("control_screen");
+  const tournamentId = String(formData.get("tournament_id"));
+  const command = parseScreenCommand((name) => (formData.has(name) ? String(formData.get(name)) : null));
+  if (!command) return { ok: false, message: "That control is not recognised." };
+
+  // The ceremony step each wall showed in the control room, as `expect_step:<key>`.
+  const expectedSteps = new Map<string, number>();
+  for (const [name, value] of formData.entries()) {
+    if (!name.startsWith("expect_step:")) continue;
+    const step = Number(value);
+    if (Number.isInteger(step)) expectedSteps.set(name.slice("expect_step:".length), step);
+  }
+  const out = await applyCommandToScreens(tournamentId, formData.getAll("screen_key").map(String), command, role, {
+    expectedSteps,
+  });
+  revalidateAll(tournamentId);
+  if (out.targets === 0) return { ok: false, message: "Pick at least one screen." };
+  const parts = [`${out.updated.length} of ${out.targets} updated`];
+  if (out.conflicted.length > 0) parts.push(`${out.conflicted.join(", ")} was changed by someone else`);
+  if (out.skipped.length > 0) parts.push(out.skipped.map((s) => `${s.screen} skipped — ${s.reason}`).join(", "));
+  const message = parts.join(" · ");
+  return out.conflicted.length === 0 && out.updated.length > 0 ? { ok: true, message } : { ok: false, message };
 }
 
 /** Used by the per-screen page to reload after a conflict. */

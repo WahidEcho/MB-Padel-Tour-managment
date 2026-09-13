@@ -207,17 +207,16 @@ body {
 @keyframes bc-chip   { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
 @keyframes bc-set-in { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
 
-/* ---------- main-sponsor watermark ---------- */
-@keyframes bc-bloom  { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.07); opacity: 1; } }
-@keyframes bc-breathe { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 45% { transform: translate(-50%, -50%) scale(1.03); } }
-@keyframes bc-ring   { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
+/* ---------- the closing ceremony ---------- */
+@keyframes bc-slate-in { from { transform: scale(0.94); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-rise { from { transform: translateY(90px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-flood { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0.6; } }
+@keyframes bc-confetti {
+  0% { transform: translateY(-80px) rotate(0deg); opacity: 0; }
+  8% { opacity: 1; }
+  100% { transform: translateY(940px) rotate(560deg); opacity: 0; }
+}
 
-/* ---------- sponsor ticker ---------- */
-@keyframes bc-ticker { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(calc(-1 * var(--bc-ticker-shift, 50%)), 0, 0); } }
-
-/* The operator's mute, and a personal device's reduced-motion preference: paint
-   every final frame, move nothing. `animation: none` alone would leave elements
-   at their first keyframe — invisible — so the fill forwards to the end state. */
 /* ---------- the sponsor band ---------- */
 /* Shifts by exactly one group's width, so the next copy lands where the first
    began and the loop has no seam. */
@@ -251,6 +250,9 @@ body {
   .bc-watermark-page [data-ambient] { animation: none !important; }
 }
 
+/* The operator's mute, and a personal device's reduced-motion preference: paint
+   every final frame, move nothing. `animation: none` alone would leave elements
+   at their first keyframe — invisible — so the fill forwards to the end state. */
 .bc-still .bc-animate,
 .bc-still [data-ambient] {
   animation-duration: 0.001ms !important;

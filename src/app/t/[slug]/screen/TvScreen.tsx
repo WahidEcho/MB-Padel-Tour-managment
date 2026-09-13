@@ -26,6 +26,11 @@ import BroadcastStage from "@/components/broadcast/BroadcastStage";
 import LiveFeedProvider from "@/components/broadcast/LiveFeedProvider";
 import LiveCourts from "@/components/broadcast/LiveCourts";
 import SponsorTicker from "@/components/broadcast/SponsorTicker";
+import BreakOverlay from "@/components/broadcast/BreakOverlay";
+import CeremonyStage from "@/components/broadcast/CeremonyStage";
+import RankingScene, { type RankingRow } from "@/components/broadcast/RankingScene";
+import { buildCeremony } from "@/lib/tv/ceremonyServer";
+import { getRankingSnapshot, getSessionByTournament, listPublicPlayers } from "@/lib/friendly/data";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import { resolveSponsors, surfaceForMode } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
@@ -175,8 +180,39 @@ export default async function TvScreen({
   // grid of scores, strongest on the holding slate and the ceremony.
   const shownCount = isChess ? focusMatches.length : pinnedCourtId ? 1 : courtInfo.length;
   const watermarkSurface = surfaceForMode(mode, shownCount);
+  // A friendly session has no groups and no bracket: its leaderboard is its
+  // ranking, and its podium comes from that ranking.
+  const isSession = tournament.kind === "friendly_session";
+  // The backing row is named "[Session] …" so it never passes for a tournament in
+  // admin lists; the wall shows the session's own name.
+  const session = isSession ? await getSessionByTournament(id) : null;
+  const displayName = session?.name ?? tournament.name;
+  const ceremonyTiers =
+    mode === "ceremony" || (mode === "winner" && isSession) ? await buildCeremony(tournament, settings) : [];
+  let rankingRows: RankingRow[] = [];
+  const rankingTitle = displayName;
+  if (mode === "leaderboard" && isSession) {
+    if (session) {
+      const ranking = await getRankingSnapshot("session", session.id);
+      const players = await listPublicPlayers(ranking.map((r) => r.player_profile_id));
+      rankingRows = ranking.flatMap((r) => {
+        const p = players.get(r.player_profile_id);
+        return p
+          ? [{
+              rank: r.rank,
+              points: r.points,
+              played: r.matches_played,
+              wins: r.wins,
+              gameDiff: r.game_diff,
+              person: { id: p.id, name: p.public_name, photo_url: p.photo_url, portrait_url: p.portrait_url, focal_x: p.focal_x, focal_y: p.focal_y },
+            }]
+          : [];
+      });
+    }
+  }
+
   const holding = {
-    title: logos.holding?.title?.trim() || tournament.name,
+    title: logos.holding?.title?.trim() || displayName,
     message: logos.holding?.message?.trim() || "Back shortly",
     // The uploaded background finally has a use: the slate's default image.
     imageUrl: logos.holding?.imageUrl || logos.backgroundUrl || null,
@@ -213,7 +249,7 @@ export default async function TvScreen({
         <div className="relative grid h-full" style={{ zIndex: 10, gridTemplateRows: `${ROWS.header}px ${ROWS.content}px ${ROWS.ticker}px` }}>
           <header className="flex min-h-0 items-center justify-between gap-8 overflow-hidden px-10">
             <div className="min-w-0">
-              <h1 className="truncate text-[44px] font-black leading-tight">{tournament.name}</h1>
+              <h1 className="truncate text-[44px] font-black leading-tight">{displayName}</h1>
               <p className="truncate text-[24px] uppercase tracking-widest text-muted">
                 {[settings.screen_name, tournament.lower_third_text].filter(Boolean).join(" · ")}
               </p>
@@ -255,7 +291,9 @@ export default async function TvScreen({
               </div>
             )}
 
-            {mode === "leaderboard" && (
+            {mode === "leaderboard" && isSession && <RankingScene title={rankingTitle} rows={rankingRows} />}
+
+            {mode === "leaderboard" && !isSession && (
               <div className="grid h-full content-start gap-5 overflow-hidden px-5 pb-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 {groups.map((g) => (
                   <div key={g.id} className="bc-card p-5">
@@ -294,7 +332,11 @@ export default async function TvScreen({
                 <p className="flex h-full items-center justify-center text-[40px] text-muted">Bracket coming soon</p>
               ))}
 
-            {(mode === "winner" || mode === "ceremony") && (
+            {mode === "ceremony" && <CeremonyStage tiers={ceremonyTiers} />}
+
+            {mode === "winner" && isSession && <CeremonyStage tiers={ceremonyTiers} finale />}
+
+            {mode === "winner" && !isSession && (
               <div className="flex h-full flex-col items-center justify-center gap-6 overflow-hidden px-10">
                 {(brackets.length > 0 ? brackets : [null]).map((bracket) => (
                   <WinnerDisplay
@@ -310,6 +352,9 @@ export default async function TvScreen({
                 ))}
               </div>
             )}
+
+            {/* Over whatever the screen is showing, until the operator ends it. */}
+            <BreakOverlay title={holding.title} />
 
             {mode === "holding" && (
               // With a sponsor glowing at the centre, the words sit below the mark

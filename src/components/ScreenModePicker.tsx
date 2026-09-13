@@ -8,7 +8,9 @@ export const MODES: { mode: DisplayMode; label: string; hint: string }[] = [
   { mode: "live", label: "🎾 Live courts", hint: "The courts this screen covers" },
   { mode: "leaderboard", label: "📊 Leaderboard", hint: "Group standings" },
   { mode: "bracket", label: "🏆 Bracket", hint: "Knockout tree" },
-  { mode: "winner", label: "🥇 Winner", hint: "Champion and podium" },
+  // The ceremony supersedes the static winner scene; screens saved on "winner"
+  // still render it, and read as the ceremony here.
+  { mode: "ceremony", label: "🥇 Ceremony", hint: "Podium, revealed place by place" },
   { mode: "sponsors", label: "🤝 Sponsors", hint: "Full-screen sponsor logos" },
   { mode: "holding", label: "⏸ Holding", hint: "Between matches" },
 ];
@@ -52,7 +54,9 @@ export default function ScreenModePicker({
       {label && <p className="label">{label}</p>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {MODES.map(({ mode, label: modeLabel, hint }) => {
-          const active = current !== undefined && (mode === "live" ? isLiveMode(current) : current === mode);
+          const active =
+            current !== undefined &&
+            (mode === "live" ? isLiveMode(current) : mode === "ceremony" ? current === "ceremony" || current === "winner" : current === mode);
           return (
             <form key={mode} action={submit}>
               {Object.entries(hidden).flatMap(([name, value]) =>
