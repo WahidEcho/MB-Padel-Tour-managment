@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { normalizeMobile } from "@/lib/friendly/mobile";
 import { mergePlayerProfiles } from "@/lib/friendly/ops";
+import { DEFAULT_FOCAL } from "@/lib/portrait";
 
 /**
  * Optional player details, shared by create and update.
@@ -37,6 +38,26 @@ function detailFields(formData: FormData) {
     skill_level: text("skill_level"),
     gender,
     notes: text("notes"),
+    ...photoFields(formData),
+  };
+}
+
+/**
+ * Reads a PlayerPhotoField's hidden inputs. The field uploads on pick, so the
+ * action only stores the resulting URL and its framing; an empty URL means the
+ * photo was removed.
+ */
+function photoFields(formData: FormData) {
+  if (!formData.has("player_photo_url")) return {};
+  const url = String(formData.get("player_photo_url") ?? "").trim();
+  const focal = (axis: "x" | "y", fallback: number) => {
+    const raw = Number(formData.get(`player_focal_${axis}`));
+    return Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : fallback;
+  };
+  return {
+    photo_url: url || null,
+    focal_x: focal("x", DEFAULT_FOCAL[0]),
+    focal_y: focal("y", DEFAULT_FOCAL[1]),
   };
 }
 

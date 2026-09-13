@@ -1,11 +1,13 @@
-import { getTeams } from "@/lib/data";
+import { getTeams, getTournament } from "@/lib/data";
 import ImportClient from "./ImportClient";
+import SessionRowNotice from "../../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const teams = await getTeams(id);
+  const [teams, tournament] = await Promise.all([getTeams(id), getTournament(id)]);
+  if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Players and pairs" />;
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <h2 className="text-lg font-bold">Import teams from CSV</h2>

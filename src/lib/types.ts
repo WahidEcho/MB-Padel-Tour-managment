@@ -34,7 +34,12 @@ export type Stage =
  */
 export type TournamentKind = "tournament" | "friendly_session";
 
-export interface ScoringConfig {
+/**
+ * The rules a single match is played under. Every engine mutator takes these as
+ * its last argument, so a match can be scored under different rules from the
+ * tournament default without any change to the engine.
+ */
+export interface MatchRules {
   setsToWinMatch: number;
   gamesToWinSet: number;
   tiebreakEnabled: boolean;
@@ -42,6 +47,41 @@ export interface ScoringConfig {
   tiebreakTargetPoints: number;
   tiebreakWinByTwo: boolean;
   walkoverScore: string;
+}
+
+/**
+ * Which bucket of the tournament a match belongs to, for rule purposes.
+ *
+ * The quarter-finals, semi-finals and third-place match share one bucket: the
+ * third-place match is played just before the final and is shortened with the
+ * semis, not with it. `knockout` covers the rounds of 16 and earlier.
+ *
+ * The `plate_*` keys exist because the Plate bracket may be played under
+ * different rules from the Cup — a one-set Plate final alongside a best-of-three
+ * Cup final. A blank `plate_*` override inherits the Cup's.
+ */
+export type StageRuleKey =
+  | "group"
+  | "quarter_semi"
+  | "final"
+  | "bracket"
+  | "plate_quarter_semi"
+  | "plate_final"
+  | "plate_bracket";
+
+export interface ScoringConfig extends MatchRules {
+  /**
+   * Per-stage rule overrides. Absent keys inherit the tournament default, so an
+   * existing tournament with no overrides behaves exactly as it did before.
+   * Friendly-session matches never take an override.
+   */
+  stageOverrides?: Partial<Record<StageRuleKey, Partial<MatchRules>>>;
+  /**
+   * When true, the match-winning point no longer finalizes the match on its own:
+   * the referee sees the final score and must press Confirm result. Explicit end
+   * events (walkover, retirement, disqualification, force-end) always finalize.
+   */
+  requireResultConfirmation?: boolean;
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
@@ -61,6 +101,20 @@ export interface FormatConfig {
   thirdPlaceMatch?: boolean;
   // Chess knockout only: games per pairing (1 or 2). Defaults to 1.
   legs?: 1 | 2;
+  /**
+   * Per-bracket settings. `cup` is the main bracket (1st and 2nd per group);
+   * `plate` is the second bracket for the teams below them, off unless enabled.
+   * `cup.thirdPlaceMatch` falls back to the legacy `thirdPlaceMatch` above.
+   */
+  tiers?: {
+    cup?: { thirdPlaceMatch?: boolean; podiumDepth?: 1 | 2 | 3 | 4 };
+    plate?: {
+      enabled: boolean;
+      perGroup?: number;
+      thirdPlaceMatch?: boolean;
+      podiumDepth?: 1 | 2 | 3 | 4;
+    };
+  };
 }
 
 export const DEFAULT_CHESS_FORMAT: FormatConfig = {
@@ -69,12 +123,47 @@ export const DEFAULT_CHESS_FORMAT: FormatConfig = {
   thirdPlaceMatch: false,
 };
 
+export type SponsorIntensity = "subtle" | "standard" | "vivid";
+
+/** The one sponsor that glows behind the venue screen and the public dashboard. */
+export interface MainSponsor {
+  name: string;
+  logoUrl: string;
+  /** `#rrggbb`. Drives the bloom, the ring and the mark's glow. */
+  accentHex: string;
+  intensity?: SponsorIntensity;
+  /** Defaults to on: the dashboard is part of the sponsor's exposure. */
+  showOnDashboard?: boolean;
+  /** Width over height of the logo, measured on upload. */
+  aspect?: number;
+}
+
+/** Every other sponsor, in the order they loop along the footer. */
+export interface SponsorEntry {
+  name: string;
+  logoUrl: string;
+  tier?: string;
+  /** Width over height, measured on upload so the footer can be laid out before a logo loads. */
+  aspect?: number;
+}
+
+/** What the holding slate says between sessions of play. */
+export interface HoldingContent {
+  title?: string;
+  message?: string;
+  imageUrl?: string;
+}
+
 export interface BrandingConfig {
   moveBeyondLogoUrl?: string;
   clientLogoUrl?: string;
   eventLogoUrl?: string;
+  /** Legacy: bare URLs. Read through resolveSponsors, which also accepts `sponsors`. */
   sponsorLogoUrls?: string[];
   backgroundUrl?: string;
+  mainSponsor?: MainSponsor;
+  sponsors?: SponsorEntry[];
+  holding?: HoldingContent;
 }
 
 export interface Tournament {
@@ -108,13 +197,23 @@ export interface Team {
   players?: Player[];
 }
 
-export interface Player {
+/** The photo fields every person-shaped row carries. See src/lib/portrait.ts. */
+export interface PhotoFields {
+  /** The original photo. */
+  photo_url: string | null;
+  /** A transparent cut-out, preferred on the big broadcast cards. */
+  portrait_url: string | null;
+  /** 0-1 point that keeps the face in frame at any crop. */
+  focal_x: number;
+  focal_y: number;
+}
+
+export interface Player extends PhotoFields {
   id: string;
   tournament_id: string;
   team_id: string;
   player_order: number;
   full_name: string;
-  photo_url: string | null;
   /** Link to a persistent profile. Null for tournament players not yet matched. */
   player_profile_id?: string | null;
 }
@@ -148,6 +247,12 @@ export interface Match {
   id: string;
   tournament_id: string;
   stage: Stage;
+  /**
+   * Which bracket a knockout match belongs to. Null for group and friendly
+   * matches. Both tiers produce a 'final', so this is what tells them apart
+   * everywhere a match is labelled, scoped or scored. See migration 0008.
+   */
+  bracket_id: string | null;
   group_id: string | null;
   round_name: string | null;
   match_order: number;
@@ -186,6 +291,14 @@ export interface MatchSnapshot {
   tiebreak_team_b_points: number;
   serving_team_id: string | null;
   last_event_number: number;
+  /** The type of the final event in the most recent batch. */
+  last_event_type?: string | null;
+  last_event_team_id?: string | null;
+  /**
+   * The number of the most recent UNDO, 0 if none. Needed because events are
+   * append-only: an undo's number is higher than the point it cancels.
+   */
+  last_undo_event_number?: number;
   completed_sets: CompletedSet[];
   snapshot_json: unknown;
   updated_at: string;
@@ -207,13 +320,20 @@ export interface Standing {
   games_won: number;
   games_lost: number;
   game_diff: number;
-  status: "pending" | "qualified" | "eliminated" | "disqualified";
+  /**
+   * `plate` is the Plate bracket's equivalent of `qualified`: placed below the
+   * Cup places but still playing. Without it, half the field reads as knocked
+   * out on the public leaderboard the moment the group stage finishes.
+   */
+  status: "pending" | "qualified" | "plate" | "eliminated" | "disqualified";
   manual_status_override: boolean;
 }
 
 export interface Bracket {
   id: string;
   tournament_id: string;
+  /** Which of the two knockouts this is. See supabase/migrations/0008. */
+  tier: BracketTier;
   bracket_name: string;
   status: "draft" | "approved" | "published";
   approved_by: string | null;
@@ -234,14 +354,67 @@ export interface BracketSlot {
   is_bye: boolean;
 }
 
+/**
+ * What a screen is showing.
+ *
+ * `live_court` and `all_live` are the two pre-existing modes and stay valid so
+ * saved screens keep working; both are read as `live`. One live mode is enough,
+ * because a screen's coverage (`court_ids`) and its pin decide what it shows —
+ * a separate mode saying the same thing is a third field that can disagree with
+ * the other two.
+ */
+export type DisplayMode =
+  | "live"
+  | "leaderboard"
+  | "bracket"
+  | "winner"
+  | "ceremony"
+  | "sponsors"
+  | "holding"
+  | "live_court"
+  | "all_live";
+
+export type BracketTier = "cup" | "plate";
+
 export interface ScreenSettings {
   id: string;
   tournament_id: string;
+  /** Immutable once created: a TV may already be open on this URL. */
   screen_key: string;
-  display_mode: "leaderboard" | "live_court" | "all_live" | "bracket" | "winner" | "sponsors";
+  /** What the operator calls it. Renaming never changes the key. */
+  screen_name: string | null;
+  display_mode: DisplayMode;
+  /** Courts this screen covers. Empty means every court. */
+  court_ids: string[];
+  /** Legacy single-court pin, still honoured as a fallback. */
   focus_court_id: string | null;
+  /**
+   * Pins the screen to one match. Together with `focus_court_id`, the absence
+   * of both is what "follow live" means — there is no separate flag.
+   */
+  focus_match_id: string | null;
+  /** Which bracket the bracket, winner and ceremony scenes show. */
+  bracket_tier: BracketTier | "both";
   theme: "dark" | "light";
   sponsor_rotation_seconds: number;
+  /** Bumped by every write; every writer checks it. */
+  revision: number;
+  break_started_at: string | null;
+  break_ends_at: string | null;
+  mute_animations: boolean;
+  ceremony_step: number;
+  ceremony_step_at: string | null;
+  /**
+   * An operator's replay of one match's entrance: when it was pressed, and the
+   * match's last scoring event at that moment, so only a later point ends it.
+   */
+  entrance_replay: { match_id: string; at: string; event_number?: number } | null;
+  updated_at?: string;
+}
+
+/** The live modes collapse to one; everything else is itself. */
+export function normalizeDisplayMode(mode: DisplayMode): Exclude<DisplayMode, "live_court" | "all_live"> {
+  return mode === "live_court" || mode === "all_live" ? "live" : mode;
 }
 
 /* ------------------------------------------------------------------ */
@@ -317,7 +490,7 @@ export interface PlayerConsent {
   source: "registration" | "admin" | "player";
 }
 
-export interface PlayerProfile {
+export interface PlayerProfile extends PhotoFields {
   id: string;
   public_name: string;
   /** Canonical form. Server-side and admin-only — never sent to public pages. */
@@ -342,7 +515,11 @@ export interface PlayerProfile {
 }
 
 /** Public projection of a profile — safe to send to unauthenticated pages. */
-export interface PublicPlayer {
+/**
+ * What a public page is allowed to know about a person: a name and a face.
+ * Never gains a mobile number, an email, or anything else admin-only.
+ */
+export interface PublicPlayer extends PhotoFields {
   id: string;
   public_name: string;
 }

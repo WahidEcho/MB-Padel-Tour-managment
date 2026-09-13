@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCourts, getGroups, getMatches, getTeams, getTournament } from "@/lib/data";
 import { resetTournamentData, setTournamentStatus, deleteTournament } from "../actions";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import SessionRowNotice from "./SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const tournament = await getTournament(id);
   if (!tournament) notFound();
+  if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Status, reset and deletion" />;
   const [teams, groups, matches, courts] = await Promise.all([
     getTeams(id),
     getGroups(id),
@@ -83,15 +85,25 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
       <div className="card space-y-3 border-danger/30">
         <h2 className="label text-danger">Danger zone</h2>
         <div className="flex flex-wrap gap-2">
-          <form action={resetTournamentData}>
-            <input type="hidden" name="id" value={id} />
-            <ConfirmSubmit
-              className="btn-secondary"
-              message="Reset ALL scores, matches, leaderboard, bracket, and check-in for this tournament? Setup (teams, groups, courts, branding) is kept."
-            >
-              Reset scores &amp; live data
-            </ConfirmSubmit>
-          </form>
+          {tournament.kind === "tournament" ? (
+            <form action={resetTournamentData}>
+              <input type="hidden" name="id" value={id} />
+              <ConfirmSubmit
+                className="btn-secondary"
+                message="Reset ALL scores, matches, leaderboard, bracket, and check-in for this tournament? Setup (teams, groups, courts, branding) is kept."
+              >
+                Reset scores &amp; live data
+              </ConfirmSubmit>
+            </form>
+          ) : (
+            // A friendly session's history lives here as its matches; this reset
+            // would delete them and the points players earned from them.
+            <p className="text-sm text-muted" data-testid="reset-unavailable">
+              This is a friendly session&apos;s hidden tournament, so the reset is not available here. Manage the
+              session from{" "}
+              <Link href="/admin/friendly-sessions" className="font-semibold text-accent">Friendly sessions</Link>.
+            </p>
+          )}
           <form action={deleteTournament}>
             <input type="hidden" name="id" value={id} />
             <ConfirmSubmit message={`Delete tournament "${tournament.name}" permanently? This cannot be undone.`}>

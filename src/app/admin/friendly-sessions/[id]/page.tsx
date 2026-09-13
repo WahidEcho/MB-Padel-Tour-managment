@@ -10,6 +10,8 @@ import { checkFinalizeReady } from "@/lib/friendly/ops";
 import PairsClient, { type PlayerLite } from "./PairsClient";
 import AddPlayersDialog from "./AddPlayersDialog";
 import ActionButton from "@/components/ActionButton";
+import BrandingForm from "@/app/admin/tournaments/[id]/settings/BrandingForm";
+import { getTournament } from "@/lib/data";
 import {
   approveEntryAction,
   autoPairAction,
@@ -19,6 +21,7 @@ import {
   promoteWaitlistAction,
   releaseEntryAction,
   reopenSessionAction,
+  setSessionPodiumDepthAction,
   setStatusAction,
 } from "../actions";
 
@@ -168,7 +171,10 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   );
 
   const rounds = [...new Set(matches.map((m) => m.round_name ?? "—"))];
-  const finalizeCheck = await checkFinalizeReady(session.id);
+  const [finalizeCheck, backing] = await Promise.all([
+    checkFinalizeReady(session.id),
+    getTournament(session.tournament_id),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -482,6 +488,50 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             </div>
           </div>
         </div>
+      )}
+
+      {/* A session's wall is its backing tournament's wall: same screens, same
+          control room, same sponsors. */}
+      {backing && (
+        <details className="card space-y-3">
+          <summary className="cursor-pointer font-bold">TV screens &amp; sponsors</summary>
+          <div className="flex flex-wrap gap-2 pt-2 text-sm">
+            <Link href={`/admin/tournaments/${backing.id}/screens`} className="btn-secondary text-xs">
+              Manage screens
+            </Link>
+            <Link href={`/operator/tournaments/${backing.id}/control`} className="btn-secondary text-xs">
+              Open control room
+            </Link>
+            <Link href={`/t/${backing.slug}/screen`} target="_blank" className="btn-secondary text-xs">
+              Main TV screen ↗
+            </Link>
+          </div>
+          <form action={setSessionPodiumDepthAction} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="session_id" value={session.id} />
+            <div>
+              <label className="label">Closing ceremony podium</label>
+              <select
+                name="podium_depth"
+                defaultValue={String(backing.format_config?.tiers?.cup?.podiumDepth ?? 3)}
+                className="input w-auto"
+              >
+                <option value="1">Champion only</option>
+                <option value="2">Top 2</option>
+                <option value="3">Top 3</option>
+                <option value="4">Top 4</option>
+              </select>
+            </div>
+            <button className="btn-secondary text-xs">Save</button>
+            <p className="w-full text-xs text-muted">
+              Revealed place by place from the session ranking. Tied players share a step.
+            </p>
+          </form>
+          <BrandingForm
+            tournamentId={backing.id}
+            branding={backing.branding_config}
+            returnPath={`/admin/friendly-sessions/${session.id}`}
+          />
+        </details>
       )}
 
       <div className="card flex flex-wrap items-center justify-between gap-2">

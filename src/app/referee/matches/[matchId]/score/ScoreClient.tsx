@@ -12,14 +12,15 @@ import {
   type ScoreState,
   type TeamKey,
 } from "@/lib/scoring/engine";
-import type { MatchSnapshot, Match, ScoringConfig } from "@/lib/types";
+import type { MatchSnapshot, Match, PhotoFields, ScoringConfig } from "@/lib/types";
 import { offlineDb, getDeviceId, type LocalScoreEvent } from "@/lib/offline/db";
 import Avatar from "@/components/Avatar";
+import { describeMatchRules } from "@/lib/scoring/rules";
 
 interface TeamInfo {
   id: string;
   name: string;
-  players: { name: string; photo: string | null }[];
+  players: { name: string; photo: PhotoFields }[];
   checkedIn: boolean;
 }
 
@@ -44,6 +45,7 @@ export default function ScoreClient({
   teamA,
   teamB,
   serverSnapshot,
+  reopenState = null,
 }: {
   match: Match;
   tournamentName: string;
@@ -52,6 +54,8 @@ export default function ScoreClient({
   teamA: TeamInfo;
   teamB: TeamInfo;
   serverSnapshot: MatchSnapshot | null;
+  /** The score before the winning point of a completed match, so this device can reopen it. */
+  reopenState?: ScoreState | null;
 }) {
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
@@ -69,6 +73,10 @@ export default function ScoreClient({
   const eventNumberRef = useRef(serverSnapshot?.last_event_number ?? 0);
   const startedAtRef = useRef<string | null>(match.started_at);
   const syncingRef = useRef(false);
+  // Set when a sync is requested while one is already running, so the queue is
+  // drained the moment that request returns instead of on the next timer.
+  const resyncRef = useRef(false);
+  const trySyncRef = useRef<(() => Promise<void>) | null>(null);
   const deviceIdRef = useRef<string>("");
   // Live mirrors of state/history so rapid taps never read stale React state
   const stateRef = useRef<ScoreState | null>(null);
@@ -82,11 +90,22 @@ export default function ScoreClient({
   }, []);
 
   const finished = FINISHED.includes(matchStatus);
+  const confirmFirst = scoringConfig.requireResultConfirmation === true;
+  // The score says the match is over, but nobody has confirmed it yet.
+  const awaitingConfirmation = confirmFirst && Boolean(state?.matchOver) && !finished;
   const team = useCallback((k: TeamKey) => (k === "A" ? teamA : teamB), [teamA, teamB]);
 
   /* ---------------- sync loop ---------------- */
   const trySync = useCallback(async () => {
-    if (syncingRef.current || !navigator.onLine) return;
+    if (!navigator.onLine) return;
+    if (syncingRef.current) {
+      // A tap landed while a sync was already in flight. Before this, that tap
+      // simply waited for the next six-second timer, so during a rally the venue
+      // screen saw one point every six seconds however fast the referee scored.
+      // Remember it, and drain as soon as the current request finishes.
+      resyncRef.current = true;
+      return;
+    }
     const pending = await offlineDb.events
       .where("match_id").equals(match.id)
       .and((e) => e.sync_status === "pending")
@@ -131,8 +150,18 @@ export default function ScoreClient({
       setSyncStatus("pending");
     } finally {
       syncingRef.current = false;
+      if (resyncRef.current) {
+        resyncRef.current = false;
+        // Queued, not awaited: the drain runs as its own request, in order,
+        // and cannot overlap this one because the flag has just been released.
+        queueMicrotask(() => void trySyncRef.current?.());
+      }
     }
   }, [match.id]);
+
+  useEffect(() => {
+    trySyncRef.current = trySync;
+  }, [trySync]);
 
   useEffect(() => {
     const id = setInterval(() => void trySync(), 6000);
@@ -165,8 +194,14 @@ export default function ScoreClient({
       if (pend > 0) setSyncStatus("pending");
 
       if (FINISHED.includes(match.status)) {
-        setController(false);
-        return;
+        // A finished match is read-only unless it can be reopened. Finalising
+        // releases the lock, so any referee device may take it to undo the
+        // winning point — the confirming tablet may be flat, or reloaded.
+        if (!reopenState || match.status === "cancelled") {
+          setController(false);
+          return;
+        }
+        if (historyRef.current.length === 0) commit(stateRef.current, [reopenState]);
       }
       try {
         const res = await fetch(`/api/matches/${match.id}/claim`, {
@@ -268,6 +303,9 @@ export default function ScoreClient({
     const cur = stateRef.current;
     if (!cur || finished || matchStatus === "paused") return;
     const outcome = pointOutcome(cur, teamKey, scoringConfig);
+    // With result confirmation on, match point is not asked about twice: the
+    // point lands, and the Confirm result card that follows is the check.
+    if (outcome.winsMatch && confirmFirst) return applyPoint(teamKey);
     if (outcome.winsGame || outcome.winsSet || outcome.winsMatch) {
       const what = outcome.winsMatch ? "the MATCH" : outcome.winsSet ? "the set" : "this game";
       setModal({
@@ -284,12 +322,26 @@ export default function ScoreClient({
     const cur = stateRef.current;
     if (!cur) return;
     const next = awardPoint(cur, teamKey, scoringConfig);
-    const ended = next.matchOver;
+    // With confirmation on, the winning point records the score but does not end
+    // the match: the referee confirms it first, so a mis-tap on match point is
+    // caught before it reaches the standings, the bracket and the venue screen.
+    const ended = next.matchOver && !confirmFirst;
     void pushEvent("POINT_AWARDED", next, {
       teamId: team(teamKey).id,
       newStatus: ended ? (navigator.onLine ? "completed" : "pending_sync") : undefined,
     });
     setModal(null);
+  }
+
+  /** Makes a finished score official. Sends the same MATCH_ENDED the route already finalises. */
+  function confirmResult() {
+    const cur = stateRef.current;
+    if (!cur?.matchOver || !cur.winner) return;
+    void pushEvent("MATCH_ENDED", cur, {
+      teamId: team(cur.winner).id,
+      payload: { winner_team_id: team(cur.winner).id },
+      newStatus: navigator.onLine ? "completed" : "pending_sync",
+    });
   }
 
   function doUndo() {
@@ -323,7 +375,7 @@ export default function ScoreClient({
     const next = manualEndSet(cur, winnerKey, scoringConfig);
     void pushEvent("MANUAL_SET_END", next, {
       teamId: team(winnerKey).id,
-      newStatus: next.matchOver ? (navigator.onLine ? "completed" : "pending_sync") : undefined,
+      newStatus: next.matchOver && !confirmFirst ? (navigator.onLine ? "completed" : "pending_sync") : undefined,
     });
     setModal(null);
   }
@@ -382,6 +434,9 @@ export default function ScoreClient({
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
           <p className="text-xs text-muted">{tournamentName} · {courtName} · {match.round_name}</p>
+          {/* The rules this match resolved to. Stage overrides mean two matches in
+              the same tournament can differ, so the referee is told which applies. */}
+          <p className="text-[11px] text-muted" data-testid="resolved-rules">{describeMatchRules(scoringConfig)}</p>
           <p className="text-xs font-semibold capitalize">
             {matchStatus.replace("_", " ")}
             {elapsed && !finished && <span className="ml-2 font-mono text-muted">⏱ {elapsed}</span>}
@@ -460,7 +515,7 @@ export default function ScoreClient({
                 <div key={k} className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}>
                   <div className="flex items-center justify-center gap-1">
                     {info.players.map((p) => (
-                      <Avatar key={p.name} name={p.name} photoUrl={p.photo} size={28} />
+                      <Avatar key={p.name} name={p.name} person={p.photo} size={28} />
                     ))}
                   </div>
                   <p className="truncate text-sm font-bold">
@@ -488,8 +543,31 @@ export default function ScoreClient({
             </p>
           )}
 
+          {/* Awaiting confirmation: the score is final, the result is not yet. */}
+          {awaitingConfirmation && (
+            <div className="card mt-3 space-y-3 border-warning/60 text-center">
+              <p className="text-lg font-bold">
+                {state.winner ? team(state.winner).name : "Match"} wins {scoreSummary(state) || ""}
+              </p>
+              <p className="text-sm text-muted">
+                Check the score before it goes official. Confirming updates the standings, advances the
+                bracket and plays the result on the venue screens.
+              </p>
+              {!readOnly && (
+                <div className="flex gap-2">
+                  <button className="btn-secondary flex-1 justify-center" onClick={() => setModal({ kind: "confirm-undo" })}>
+                    Undo last point
+                  </button>
+                  <button className="btn-primary flex-1 justify-center" onClick={confirmResult}>
+                    Confirm result
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Finished banner */}
-          {(finished || state.matchOver) && (
+          {!awaitingConfirmation && (finished || state.matchOver) && (
             <div className="card mt-3 border-success/50 text-center">
               <p className="text-lg font-bold text-success">
                 🏆 {state.winner ? team(state.winner).name : "Match ended"} wins

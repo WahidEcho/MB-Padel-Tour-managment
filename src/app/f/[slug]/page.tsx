@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AutoRefresh from "@/components/AutoRefresh";
 import SponsorMarquee from "@/components/SponsorMarquee";
+import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
+import { resolveSponsors } from "@/lib/sponsors";
+import PresenceBeat from "@/components/PresenceBeat";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
 
@@ -24,7 +27,8 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
     getRankingSnapshot("session", session.id),
     getTournament(session.tournament_id),
   ]);
-  const sponsors = tournament?.branding_config?.sponsorLogoUrls ?? [];
+  const { main: mainSponsor, footer } = resolveSponsors(tournament?.branding_config);
+  const sponsors = footer.map((sp) => sp.logoUrl);
 
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
@@ -38,12 +42,18 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const modelLabel = session.ranking_model === "games_won" ? "games won" : "points per win";
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-5 p-4">
+    <main className="relative isolate mx-auto w-full max-w-3xl space-y-5 p-4">
       <AutoRefresh seconds={8} />
+      {mainSponsor?.showOnDashboard !== false && (
+        <SponsorWatermark sponsor={mainSponsor} surface="dashboard" backgroundHex="#ffffff" variant="page" />
+      )}
 
       <header className="space-y-1 text-center">
         <p className="text-xs font-bold uppercase tracking-widest text-accent">Move Beyond</p>
-        <h1 className="text-3xl font-bold">{session.name}</h1>
+        <h1 className="flex items-center justify-center gap-2 text-3xl font-bold">
+          {session.name}
+          <PresenceBeat slug={slug} page="session" kind="session" />
+        </h1>
         <p className="text-sm text-muted">
           {session.pairing_mode} · scored on {modelLabel}
           {session.starts_at

@@ -1,19 +1,76 @@
 import Link from "next/link";
-import { getCourts, getGroups, getMatches, getTeams, teamMap } from "@/lib/data";
+import { notFound } from "next/navigation";
+import { getCourts, getGroups, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import { createManualMatch, deleteMatch, regenerateMatches, releaseScoringLock, updateMatchSchedule } from "./actions";
+import GroupStageRegenerateForm from "../GroupStageRegenerateForm";
+import { summarizeBrackets } from "@/lib/ops";
+import SessionRowNotice from "../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
 export default async function MatchesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [matches, teams, courts, groups] = await Promise.all([
+  const [tournament, matches, teams, courts, groups, brackets] = await Promise.all([
+    getTournament(id),
     getMatches(id),
     getTeams(id),
     getCourts(id),
     getGroups(id),
+    summarizeBrackets(id),
   ]);
+  if (!tournament) notFound();
+  // A session's matches are its schedule and its points; they are managed from the
+  // session page, whose rules revert points when a result is undone. The one tool
+  // shared with sessions stays: a referee tablet that died holding a match's
+  // scoring lock is the same problem on a session, and only an admin can release it.
+  if (tournament.kind !== "tournament") {
+    const tmSession = teamMap(teams);
+    const locked = matches.filter((m) => m.active_scoring_device_id);
+    return (
+      <div className="space-y-4">
+        <SessionRowNotice tournamentId={id} tool="Matches" />
+        <div className="card space-y-2" data-testid="session-scoring-locks">
+          <h2 className="font-bold">Scoring locks</h2>
+          <p className="text-xs text-muted">
+            A match is scored from one device at a time. If that device is gone — a flat battery, a cleared browser —
+            release its lock here so another referee can take over.
+          </p>
+          {locked.length === 0 ? (
+            <p className="text-sm text-muted">No match is locked to a scoring device right now.</p>
+          ) : (
+            <ul className="space-y-1">
+              {locked.map((m) => (
+                <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
+                  <span>
+                    <span className="font-semibold">{m.round_name ?? "Match"}</span>{" "}
+                    {m.team_a_id ? tmSession.get(m.team_a_id)?.team_name ?? "?" : "TBD"}{" "}
+                    <span className="text-muted">vs</span>{" "}
+                    {m.team_b_id ? tmSession.get(m.team_b_id)?.team_name ?? "?" : "TBD"}{" "}
+                    <MatchStatusBadge status={m.status} />
+                  </span>
+                  <form action={releaseScoringLock}>
+                    <input type="hidden" name="tournament_id" value={id} />
+                    <input type="hidden" name="match_id" value={m.id} />
+                    <ConfirmSubmit
+                      className="btn-secondary px-2 py-1 text-xs"
+                      message="Release the scoring lock? Only do this if the original scoring device is gone."
+                    >
+                      Unlock
+                    </ConfirmSubmit>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    );
+  }
+  // Regenerating only means something where there is a group stage to rebuild.
+  // A chess knockout is seeded from the player list and has no groups.
+  const hasGroupStage = tournament.sport !== "chess" && groups.length > 0;
   const tm = teamMap(teams);
   const liveCount = matches.filter((m) => ["live", "paused"].includes(m.status)).length;
 
@@ -23,15 +80,16 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
         <h2 className="text-lg font-bold">
           Matches ({matches.length}) {liveCount > 0 && <span className="text-success">· {liveCount} live</span>}
         </h2>
-        <form action={regenerateMatches}>
-          <input type="hidden" name="tournament_id" value={id} />
-          <ConfirmSubmit
-            className="btn-secondary"
-            message="Regenerate ALL group matches? Existing group match scores will be deleted."
-          >
-            Regenerate group matches
-          </ConfirmSubmit>
-        </form>
+        {hasGroupStage && (
+          <GroupStageRegenerateForm
+            tournamentId={id}
+            action={regenerateMatches}
+            brackets={brackets}
+            label="Regenerate group matches"
+            confirmMessage="Regenerate ALL group matches? Existing group match scores will be deleted."
+          />
+        )}
+
       </div>
 
       <div className="overflow-x-auto">

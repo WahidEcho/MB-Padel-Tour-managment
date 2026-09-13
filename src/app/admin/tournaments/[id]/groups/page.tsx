@@ -1,4 +1,9 @@
-import { getGroups, getGroupTeams, getMatches, getTeams } from "@/lib/data";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { getGroups, getGroupTeams, getMatches, getTeams, getTournament } from "@/lib/data";
+import { bracketsPhrase } from "@/lib/bracket";
+import { summarizeBrackets } from "@/lib/ops";
+import SessionRowNotice from "../SessionRowNotice";
 import { createGroups } from "./actions";
 import GroupsClient from "./GroupsClient";
 
@@ -6,12 +11,19 @@ export const dynamic = "force-dynamic";
 
 export default async function GroupsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [teams, groups, groupTeams, matches] = await Promise.all([
+  const [tournament, teams, groups, groupTeams, matches, brackets] = await Promise.all([
+    getTournament(id),
     getTeams(id),
     getGroups(id),
     getGroupTeams(id),
     getMatches(id),
+    summarizeBrackets(id),
   ]);
+  if (!tournament) notFound();
+  // A friendly session's groups belong to the session's own format tools, and its
+  // knockout is seeded from pairs, not from these groups.
+  if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Groups" />;
+  const locked = brackets.length > 0;
   const groupMatchCount = matches.filter((m) => m.stage === "group").length;
   const finishedCount = matches.filter(
     (m) => m.stage === "group" && !["scheduled", "ready"].includes(m.status)
@@ -19,6 +31,19 @@ export default async function GroupsPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="space-y-4">
+      {locked ? (
+        // Recreating groups deletes their standings through the database's cascade,
+        // so the draw stays fixed while a knockout seeded from it exists.
+        <div className="card space-y-1 border-warning/50" data-testid="group-draw-locked">
+          <p className="font-semibold">The group draw is locked.</p>
+          <p className="text-sm text-muted">
+            {bracketsPhrase(brackets).replace(/^./, (c) => c.toUpperCase())} {brackets.length === 1 ? "was" : "were"} drawn
+            from these groups. Reset {brackets.length === 1 ? "it" : "them"} on the{" "}
+            <Link href={`/admin/tournaments/${id}/bracket`} className="font-semibold text-accent">Bracket page</Link>{" "}
+            before recreating groups or changing the draw.
+          </p>
+        </div>
+      ) : (
       <div className="card flex flex-wrap items-end gap-3">
         <form action={createGroups} className="flex items-end gap-2">
           <input type="hidden" name="tournament_id" value={id} />
@@ -46,15 +71,21 @@ export default async function GroupsPage({ params }: { params: Promise<{ id: str
           {teams.length} teams. Teams are distributed as evenly as possible (e.g. 10 teams in 3 groups → 4/3/3).
           {groups.length > 0 && groupMatchCount > 0 && (
             <span className="block font-semibold text-warning">
-              ⚠ Recreating or re-drawing groups will regenerate group matches.
-              {finishedCount > 0 && ` ${finishedCount} match(es) already played will be lost.`}
+              ⚠ Recreating or re-drawing groups does not change the schedule until you publish again, which
+              regenerates every group match.
+              {finishedCount > 0 && ` ${finishedCount} match(es) already played will lose their scores then.`}
             </span>
           )}
         </p>
       </div>
 
+      )}
+
       {groups.length > 0 && (
         <GroupsClient
+          // Remounted when the lock changes, so an unsaved arrangement made before
+          // a bracket was drawn is thrown away rather than stranded on screen.
+          key={locked ? "locked" : "open"}
           tournamentId={id}
           groups={groups}
           groupTeams={groupTeams}
@@ -65,6 +96,11 @@ export default async function GroupsPage({ params }: { params: Promise<{ id: str
           }))}
           published={groups.every((g) => g.status === "published")}
           hasMatches={groupMatchCount > 0}
+          brackets={brackets}
+          lockedReason={
+            locked ? "The draw is locked while a knockout bracket exists, because the bracket was seeded from these groups." : null
+          }
+          canRegenerate
         />
       )}
     </div>

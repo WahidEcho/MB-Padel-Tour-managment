@@ -5,7 +5,7 @@
  */
 import { db } from "../supabase";
 import { audit, slugify } from "../audit";
-import { getCourts } from "../data";
+import { getBrackets, getCourts } from "../data";
 import { generateDraw, groupName } from "../draws";
 import {
   DEFAULT_SCORING_CONFIG,
@@ -33,6 +33,7 @@ import {
   type ScheduledRound,
 } from "./scheduler";
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
+import { ensureMainScreen } from "../screens";
 
 /* ------------------------------------------------------------------ */
 /* Session creation                                                    */
@@ -74,6 +75,9 @@ export async function createFriendlySession(input: CreateSessionInput) {
     ...DEFAULT_SCORING_CONFIG,
     setsToWinMatch: Math.min(3, Math.max(1, input.setsToWinMatch)),
     gamesToWinSet: Math.min(9, Math.max(1, input.gamesToWinSet)),
+    // Points and fire streaks are written when a match finalises, so the referee
+    // confirms the result first rather than the last tap committing it.
+    requireResultConfirmation: true,
   };
 
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -106,7 +110,7 @@ export async function createFriendlySession(input: CreateSessionInput) {
         court_order: i + 1,
       }))
     );
-  await db().from("screen_settings").insert({ tournament_id: backing.id, screen_key: "main" });
+  await ensureMainScreen(backing.id);
 
   // 3. The session itself.
   const { data: session, error: sErr } = await db()
@@ -163,6 +167,12 @@ export interface RegistrationInput {
   /** Present when a pair registers together in one submission. */
   partner?: { publicName: string; mobile: string } | null;
   teamName?: string | null;
+  /**
+   * A photo the player uploaded through /api/f/[slug]/photo. Stored on the
+   * profile but withheld from every public page until an admin approves the
+   * registration, so an unreviewed face never reaches the wall.
+   */
+  photo?: { url: string; focalX: number; focalY: number } | null;
 }
 
 export type RegistrationOutcome =
@@ -285,6 +295,24 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
 
   const profileId = await findOrCreateProfile(publicName, mobile);
   const partnerId = partnerMobile ? await findOrCreateProfile(partnerName, partnerMobile) : null;
+
+  // Only ever fills an empty slot: a returning player's existing photo is never
+  // overwritten by a fresh sign-up, and the partner they entered did not upload
+  // anything themselves so they get nothing.
+  if (input.photo?.url) {
+    const clamp = (n: number, fallback: number) =>
+      Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+    await db()
+      .from("player_profiles")
+      .update({
+        photo_url: input.photo.url,
+        focal_x: clamp(input.photo.focalX, 0.5),
+        focal_y: clamp(input.photo.focalY, 0.35),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", profileId)
+      .is("photo_url", null);
+  }
 
   // Consent is per-player and only ever recorded on an explicit tick. Never
   // flip an existing grant without the player asking. The tick covers whoever
@@ -1024,10 +1052,19 @@ export async function setFixedPairs(
 
   for (const p of obsolete) {
     // Only remove a team that nothing points at; otherwise leave it in place.
-    const { count: used } = await db()
-      .from("matches")
-      .select("id", { count: "exact", head: true })
-      .or(`team_a_id.eq.${p.team_id},team_b_id.eq.${p.team_id}`);
+    // bracket_slots counts as well as matches: a drawn-but-unpublished bracket
+    // has slots carrying team_id with match_id still null, so checking matches
+    // alone would delete a team that is in the draw. bracket_slots.team_id is
+    // ON DELETE SET NULL, so the slot would blank and the draw would quietly
+    // lose an entrant with no error anywhere.
+    const [{ count: inMatches }, { count: inDraw }] = await Promise.all([
+      db()
+        .from("matches")
+        .select("id", { count: "exact", head: true })
+        .or(`team_a_id.eq.${p.team_id},team_b_id.eq.${p.team_id}`),
+      db().from("bracket_slots").select("id", { count: "exact", head: true }).eq("team_id", p.team_id),
+    ]);
+    const used = (inMatches ?? 0) + (inDraw ?? 0);
 
     await db().from("friendly_pairs").delete().eq("id", p.id);
     if ((used ?? 0) === 0) {
@@ -1658,6 +1695,27 @@ export async function generateSessionGroupStage(
   }
 
   const count = Math.max(1, Math.min(teamIds.length, groupCount));
+
+  // A session that was drawn as a knockout still has that bracket. The group
+  // stage cannot be generated on top of it (generateGroupMatches refuses while
+  // any bracket exists), and that refusal would otherwise land after the
+  // unstarted fixtures and the old groups had already been deleted below,
+  // leaving the session with no schedule at all. So it is settled here, before
+  // anything is touched: an untouched knockout is torn down, and one with a
+  // played match is refused, because tearing it down would delete that match
+  // and the points it banked.
+  const { deleteBracketCascade, summarizeBrackets } = await import("../ops");
+  const brackets = await getBrackets(session.tournament_id);
+  if (brackets.length > 0) {
+    const summaries = await summarizeBrackets(session.tournament_id);
+    if (summaries.some((b) => b.played > 0)) {
+      throw new Error(
+        "This session's knockout has matches that were already played, so it cannot be switched to a group stage — the results and the points they earned would be deleted. Undo those results first, or finish the session and start a new one.",
+      );
+    }
+    for (const b of brackets) await deleteBracketCascade(b.id);
+  }
+
   const removedUnstarted = await clearUnstartedMatches(session.tournament_id);
 
   // Redraw from scratch: groups are cheap and a partial draw is confusing.
@@ -1729,6 +1787,22 @@ export async function generateSessionKnockout(
     .is("retired_after_round", null);
   if ((pairs ?? []).length < 2) {
     throw new Error("Create at least 2 pairs before drawing a knockout");
+  }
+
+  // Re-drawing tears the old bracket down, and that cascade takes the matches
+  // it owns with it — including their player_score_ledger rows and fire
+  // streaks. clearUnstartedMatches one line below is careful to touch only
+  // scheduled matches; without this guard the teardown would undo that care and
+  // silently delete banked points. Refuse instead, and say what to do.
+  const { count: playedCount } = await db()
+    .from("matches")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", session.tournament_id)
+    .not("status", "in", "(scheduled,ready)");
+  if ((playedCount ?? 0) > 0) {
+    throw new Error(
+      "Some matches in this session have already been played, so the knockout cannot be redrawn — the results would be deleted with it. Undo those results first, or finish the session and start a new one.",
+    );
   }
 
   const removedUnstarted = await clearUnstartedMatches(session.tournament_id);
@@ -2037,9 +2111,10 @@ export async function mergePlayerProfiles(
 ): Promise<{ sessionsRecalculated: number }> {
   if (survivorId === absorbedId) throw new Error("Cannot merge a player into themselves");
 
+  const photoCols = "id, public_name, photo_url, portrait_url, focal_x, focal_y";
   const [{ data: survivor }, { data: absorbed }] = await Promise.all([
-    db().from("player_profiles").select("id, public_name").eq("id", survivorId).maybeSingle(),
-    db().from("player_profiles").select("id, public_name").eq("id", absorbedId).maybeSingle(),
+    db().from("player_profiles").select(photoCols).eq("id", survivorId).maybeSingle(),
+    db().from("player_profiles").select(photoCols).eq("id", absorbedId).maybeSingle(),
   ]);
   if (!survivor || !absorbed) throw new Error("Both players must exist");
 
@@ -2081,6 +2156,22 @@ export async function mergePlayerProfiles(
     .update({ player_profile_id: survivorId })
     .eq("player_profile_id", absorbedId);
   await db().from("players").update({ player_profile_id: survivorId }).eq("player_profile_id", absorbedId);
+
+  // A photoless survivor inherits the absorbed profile's face and framing —
+  // otherwise merging two registrations of one person can lose the only photo
+  // anyone ever uploaded of them.
+  if (!survivor.photo_url && !survivor.portrait_url && (absorbed.photo_url || absorbed.portrait_url)) {
+    await db()
+      .from("player_profiles")
+      .update({
+        photo_url: absorbed.photo_url,
+        portrait_url: absorbed.portrait_url,
+        focal_x: absorbed.focal_x,
+        focal_y: absorbed.focal_y,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", survivorId);
+  }
 
   await db()
     .from("player_profiles")

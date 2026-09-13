@@ -14,7 +14,9 @@ import {
 } from "@dnd-kit/core";
 import type { Group, GroupTeam } from "@/lib/types";
 import type { DrawOption } from "@/lib/draws";
+import type { BracketSummary } from "@/lib/bracket";
 import { drawOptions, saveAssignment, toggleLock, publishGroups } from "./actions";
+import GroupStageRegenerateForm from "../GroupStageRegenerateForm";
 
 interface TeamLite {
   id: string;
@@ -107,6 +109,9 @@ export default function GroupsClient({
   teams,
   published,
   hasMatches,
+  brackets,
+  lockedReason,
+  canRegenerate,
 }: {
   tournamentId: string;
   groups: Group[];
@@ -114,7 +119,14 @@ export default function GroupsClient({
   teams: TeamLite[];
   published: boolean;
   hasMatches: boolean;
+  /** A drawn knockout locks the draw: its seeding comes from these groups. */
+  brackets: BracketSummary[];
+  /** Why the draw cannot be edited, or null when it can. */
+  lockedReason: string | null;
+  /** False on a friendly session's backing row, whose schedule the session owns. */
+  canRegenerate: boolean;
 }) {
+  const locked = lockedReason !== null;
   const teamById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
   const initial = useMemo(
     () =>
@@ -131,6 +143,7 @@ export default function GroupsClient({
   const [options, setOptions] = useState<DrawOption[] | null>(null);
   const [optionCount, setOptionCount] = useState(5);
   const [pending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
   const router = useRouter();
 
   const gtByTeam = useMemo(() => new Map(groupTeams.map((gt) => [gt.team_id, gt])), [groupTeams]);
@@ -140,6 +153,7 @@ export default function GroupsClient({
   );
 
   function onDragEnd(e: DragEndEvent) {
+    if (locked) return;
     const teamId = String(e.active.id);
     const targetGroupId = e.over?.id ? String(e.over.id) : null;
     if (!targetGroupId) return;
@@ -154,6 +168,7 @@ export default function GroupsClient({
   }
 
   function moveWithin(groupIndex: number, teamId: string, dir: -1 | 1) {
+    if (locked) return;
     setAssignment((prev) => {
       const next = prev.map((g) => [...g]);
       const list = next[groupIndex];
@@ -174,7 +189,17 @@ export default function GroupsClient({
 
   function save(next?: string[][]) {
     startTransition(async () => {
-      await saveAssignment(tournamentId, next ?? assignment);
+      const result = await saveAssignment(tournamentId, next ?? assignment);
+      if (!result.ok) {
+        // Refused (a bracket was drawn meanwhile): put the saved draw back on screen.
+        setSaveError(result.message);
+        setAssignment(initial);
+        setDirty(false);
+        setOptions(null);
+        router.refresh();
+        return;
+      }
+      setSaveError(null);
       setDirty(false);
       setOptions(null);
       router.refresh();
@@ -193,33 +218,29 @@ export default function GroupsClient({
             <option key={n} value={n}>{n} options</option>
           ))}
         </select>
-        <button className="btn-secondary" onClick={loadOptions} disabled={pending}>
+        <button className="btn-secondary" onClick={loadOptions} disabled={pending || locked}>
           🎲 Generate Draw Options
         </button>
-        {dirty && (
+        {dirty && !locked && (
           <button className="btn-primary" onClick={() => save()} disabled={pending}>
             Save draw
           </button>
         )}
-        <form
-          action={publishGroups}
-          onSubmit={(e) => {
-            const msg = hasMatches
-              ? "Changing groups after publishing will regenerate group matches and may affect the schedule. Continue?"
-              : "Publish groups and generate the group-stage matches?";
-            if (dirty) {
-              e.preventDefault();
-              alert("Save the draw first.");
-              return;
+        {canRegenerate && (
+          <GroupStageRegenerateForm
+            tournamentId={tournamentId}
+            action={publishGroups}
+            brackets={brackets}
+            label={published ? "Republish + regenerate matches" : "Publish groups + generate matches"}
+            confirmMessage={
+              hasMatches
+                ? "Republish the groups and regenerate every group match? Scores of group matches already played will be deleted."
+                : "Publish groups and generate the group-stage matches?"
             }
-            if (!window.confirm(msg)) e.preventDefault();
-          }}
-        >
-          <input type="hidden" name="tournament_id" value={tournamentId} />
-          <button className={published ? "btn-secondary" : "btn-primary"} disabled={pending}>
-            {published ? "Republish + regenerate matches" : "Publish groups + generate matches"}
-          </button>
-        </form>
+            blockedReason={dirty && !locked ? "Save the draw first." : null}
+            primary={!published}
+          />
+        )}
       </div>
 
       {options && (
@@ -237,7 +258,7 @@ export default function GroupsClient({
                 ))}
                 <button
                   className="btn-primary mt-2 w-full py-1 text-xs"
-                  disabled={pending}
+                  disabled={pending || locked}
                   onClick={() => {
                     setAssignment(opt.groups);
                     save(opt.groups);
@@ -252,7 +273,13 @@ export default function GroupsClient({
         </div>
       )}
 
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      {saveError && (
+        <p role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">{saveError}</p>
+      )}
+
+      {/* A fixed id: dnd-kit otherwise numbers its accessibility ids from a module
+          counter that differs between the server render and hydration. */}
+      <DndContext id="group-draw" sensors={sensors} onDragEnd={onDragEnd}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {groups.map((group, gi) => (
             <GroupColumn key={group.id} group={group}>
@@ -279,8 +306,10 @@ export default function GroupsClient({
         </div>
       </DndContext>
       <p className="text-xs text-muted">
-        Drag teams between groups (or use ↑/↓ to reorder). 🔒 locks a team so the randomizer keeps it in
-        its group. Remember to <b>Save draw</b>, then <b>Publish</b> to generate matches.
+        {locked
+          ? lockedReason
+          : <>Drag teams between groups (or use ↑/↓ to reorder). 🔒 locks a team so the randomizer keeps it in
+            its group. Remember to <b>Save draw</b>, then <b>Publish</b> to generate matches.</>}
       </p>
     </div>
   );

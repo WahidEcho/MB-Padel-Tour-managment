@@ -1,4 +1,6 @@
+import Avatar from "@/components/Avatar";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import PlayerPhotoField from "@/components/PlayerPhotoField";
 import type { ConsentChannel, PlayerProfile } from "@/lib/types";
 import { setPlayerApproval, setPlayerConsent, updatePlayerProfile } from "./actions";
 
@@ -42,16 +44,22 @@ export default function PlayerCard({
   return (
     <div className="card flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="truncate font-bold">
-            {player.public_name}
-            {player.active_streak >= 2 && (
-              <span className="badge ml-1 bg-accent/15 text-accent">🔥 {player.active_streak}</span>
-            )}
-          </h3>
-          <p className="font-mono text-xs text-muted">
-            {player.mobile_normalized ?? "no mobile on file"}
-          </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <Avatar name={player.public_name} person={player} size={40} />
+          <div className="min-w-0">
+            <h3 className="truncate font-bold">
+              {player.public_name}
+              {player.active_streak >= 2 && (
+                <span className="badge ml-1 bg-accent/15 text-accent">🔥 {player.active_streak}</span>
+              )}
+            </h3>
+            <p className="font-mono text-xs text-muted">
+              {player.mobile_normalized ?? "no mobile on file"}
+            </p>
+            <p className="text-[11px] text-muted">
+              {player.photo_url || player.portrait_url ? "Photo set" : "No photo"}
+            </p>
+          </div>
         </div>
         <span className={`badge shrink-0 ${APPROVAL_BADGE[player.approval_status] ?? "bg-border text-muted"}`}>
           {player.approval_status}
@@ -119,6 +127,17 @@ export default function PlayerCard({
           <summary className="cursor-pointer text-xs font-semibold text-muted">Edit details</summary>
           <form action={updatePlayerProfile} className="mt-2 grid gap-2 sm:grid-cols-2">
             <input type="hidden" name="profile_id" value={player.id} />
+            <div className="sm:col-span-2">
+              <PlayerPhotoField
+                name="player"
+                folder="profile-player"
+                label="Photo"
+                photoUrl={player.photo_url}
+                focalX={player.focal_x}
+                focalY={player.focal_y}
+                size={96}
+              />
+            </div>
             <div className="sm:col-span-2">
               <label className="label">Name</label>
               <input name="public_name" defaultValue={player.public_name} className="input text-sm" required />

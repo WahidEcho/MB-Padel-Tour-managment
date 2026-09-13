@@ -5,6 +5,8 @@
  * winner of match m advances to slot m of the next round. Semi-final losers
  * feed the third-place match.
  */
+import type { BracketTier, FormatConfig } from "./types";
+
 export interface Qualifier {
   teamId: string;
   groupOrder: number; // 0-based group index (A=0)
@@ -50,6 +52,41 @@ export function stageForRound(roundName: string): string {
     default:
       return "knockout";
   }
+}
+
+/**
+ * How early a round is played, lowest first: R32, R16, QF, SF, TP, F.
+ *
+ * `getBracketSlots` orders slots by `slot_order` alone, and every round has a
+ * slot 0 — so the order rounds come out of a query is the order the rows happen
+ * to sit in, not the order they are played. Anything that walks rounds in
+ * sequence (assigning courts, numbering matches) has to sort them itself.
+ *
+ * The third-place match sits between the semis and the final, which is when it
+ * is actually played.
+ */
+export function roundSequence(roundName: string): number {
+  switch (roundName) {
+    case "TP":
+      return 997;
+    case "F":
+      return 998;
+    case "SF":
+      return 996;
+    case "QF":
+      return 992;
+    default: {
+      const size = parseInt(roundName.slice(1), 10);
+      // A bigger round is played earlier. Unrecognised names sort first, so a
+      // future round name cannot silently end up after the final.
+      return Number.isFinite(size) && size > 0 ? 1000 - size : -1;
+    }
+  }
+}
+
+/** Round names in the order they are played. */
+export function orderedRoundNames(roundNames: string[]): string[] {
+  return [...new Set(roundNames)].sort((a, b) => roundSequence(a) - roundSequence(b));
 }
 
 export function roundLabel(roundName: string): string {
@@ -105,8 +142,13 @@ function crossGroupEntrants(qualifiers: Qualifier[]): string[] | null {
     const qs = groups.get(g)!;
     if (qs.length !== 2) return null;
   }
-  const first = (g: number) => groups.get(g)!.find((q) => q.rank === 1)?.teamId;
-  const second = (g: number) => groups.get(g)!.find((q) => q.rank === 2)?.teamId;
+  // Rank-relative, not literally ranks 1 and 2. The Plate bracket is drawn from
+  // the teams placed 3rd and 4th, and it wants the same cross-group draw — each
+  // group's better-placed team meeting the other group's worse-placed one. For a
+  // Cup of ranks 1 and 2 this is identical to matching on the rank numbers.
+  const byRank = (g: number) => [...groups.get(g)!].sort((a, b) => a.rank - b.rank);
+  const first = (g: number) => byRank(g)[0]?.teamId;
+  const second = (g: number) => byRank(g)[1]?.teamId;
 
   const pairings: [string, string][] = [];
   for (let i = 0; i < groupOrders.length; i += 2) {
@@ -209,4 +251,341 @@ export function advanceTarget(
   const size = roundName === "SF" ? 4 : roundName === "QF" ? 8 : parseInt(roundName.slice(1), 10);
   if (!size || size < 4) return null;
   return { roundName: roundNameForSize(size / 2), slotOrder: matchIndex };
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Two tiers from one group stage                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How many places per group each tier takes.
+ *
+ * `platePerGroup` is 0 unless the Plate has been turned on, so a tournament
+ * that never touches it behaves exactly as it did with one bracket.
+ */
+export function tierSizes(format: FormatConfig | null | undefined): {
+  qualifyPerGroup: number;
+  platePerGroup: number;
+} {
+  const qualifyPerGroup = Math.max(1, format?.qualifyPerGroup ?? 2);
+  const plate = format?.tiers?.plate;
+  return {
+    qualifyPerGroup,
+    platePerGroup: plate?.enabled ? Math.max(1, plate.perGroup ?? 2) : 0,
+  };
+}
+
+/**
+ * Whether a tier plays a third-place match.
+ *
+ * The Cup falls back to the legacy top-level flag, so existing tournaments keep
+ * their setting. The Plate falls back to the Cup's, so enabling the Plate does
+ * not silently change how it finishes.
+ */
+export function thirdPlaceFor(format: FormatConfig | null | undefined, tier: BracketTier): boolean {
+  const cup = format?.tiers?.cup?.thirdPlaceMatch ?? format?.thirdPlaceMatch ?? true;
+  if (tier === "cup") return cup;
+  return format?.tiers?.plate?.thirdPlaceMatch ?? cup;
+}
+
+/**
+ * How many places a tier's podium shows.
+ *
+ * Capped at what the bracket can actually produce: third and fourth place only
+ * exist when a third-place match was played, so a deeper setting is reported
+ * rather than rendering blank cards on a venue screen.
+ */
+export function podiumDepthFor(format: FormatConfig | null | undefined, tier: BracketTier): 1 | 2 | 3 | 4 {
+  const configured = (tier === "plate" ? format?.tiers?.plate?.podiumDepth : format?.tiers?.cup?.podiumDepth) ?? 3;
+  const cap = thirdPlaceFor(format, tier) ? 4 : 2;
+  return Math.min(configured, cap) as 1 | 2 | 3 | 4;
+}
+
+export interface PodiumProblem {
+  tier: BracketTier;
+  message: string;
+}
+
+/** Refuses a podium depth the bracket cannot fill. Used on save, before it airs. */
+export function validatePodiumSettings(format: FormatConfig | null | undefined): PodiumProblem[] {
+  const problems: PodiumProblem[] = [];
+  const tiers: BracketTier[] = format?.tiers?.plate?.enabled ? ["cup", "plate"] : ["cup"];
+  for (const tier of tiers) {
+    const configured = (tier === "plate" ? format?.tiers?.plate?.podiumDepth : format?.tiers?.cup?.podiumDepth) ?? 3;
+    if (configured >= 3 && !thirdPlaceFor(format, tier)) {
+      problems.push({
+        tier,
+        message: `A ${configured}-place ${tier === "plate" ? "Plate" : "Cup"} podium needs a third-place match — without one the losing semi-finalists are tied and there is no honest 3rd and 4th.`,
+      });
+    }
+  }
+  return problems;
+}
+
+
+/** How the two tiers share the court pool once both are drawn. */
+export type CourtStrategy = "parallel" | "sequential";
+
+export interface PlannedMatch {
+  tier: BracketTier;
+  roundName: string;
+  /** 0-based position of the match within its round. */
+  matchIndex: number;
+}
+
+export interface ScheduledMatch extends PlannedMatch {
+  /** Index into the court list, or null when the tournament has no courts. */
+  courtIndex: number | null;
+  /** 0-based play order across the whole knockout. */
+  order: number;
+}
+
+/**
+ * Puts every knockout match of both tiers in play order and on a court.
+ *
+ * Grouped by round level first, because a semi-final cannot be played before the
+ * quarter-finals that feed it however the tiers are arranged. Within a level the
+ * strategy decides:
+ *
+ *   parallel   — the tiers are interleaved and spread across the whole court
+ *                pool, so Cup and Plate matches of the same round run side by
+ *                side. This is what "both brackets at once" means, and it can
+ *                only be done by ordering both tiers together; publishing one
+ *                tier and then the other can never produce it, because the first
+ *                tier would already hold every court and every low order number.
+ *   sequential — the Cup plays its whole round first, then the Plate plays the
+ *                same round on the same courts. Court indexes repeat across the
+ *                two tiers on purpose: they are separated in time, not in space.
+ */
+export function orderKnockoutMatches(
+  matches: PlannedMatch[],
+  courtCount: number,
+  strategy: CourtStrategy,
+): ScheduledMatch[] {
+  const levels = orderedRoundNames(matches.map((m) => m.roundName));
+  const out: ScheduledMatch[] = [];
+  let order = 0;
+
+  for (const roundName of levels) {
+    const inRound = matches.filter((m) => m.roundName === roundName);
+    const cup = inRound.filter((m) => m.tier === "cup").sort((a, b) => a.matchIndex - b.matchIndex);
+    const plate = inRound.filter((m) => m.tier === "plate").sort((a, b) => a.matchIndex - b.matchIndex);
+
+    if (strategy === "sequential") {
+      for (const group of [cup, plate]) {
+        group.forEach((m, i) => {
+          out.push({ ...m, courtIndex: courtCount > 0 ? i % courtCount : null, order: order++ });
+        });
+      }
+      continue;
+    }
+
+    // Interleave, so neither tier waits for the other to finish the round.
+    const woven: PlannedMatch[] = [];
+    for (let i = 0; i < Math.max(cup.length, plate.length); i++) {
+      if (cup[i]) woven.push(cup[i]);
+      if (plate[i]) woven.push(plate[i]);
+    }
+    woven.forEach((m, i) => {
+      out.push({ ...m, courtIndex: courtCount > 0 ? i % courtCount : null, order: order++ });
+    });
+  }
+
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Regenerating the group stage under a drawn knockout                 */
+/* ------------------------------------------------------------------ */
+
+/** One bracket as the organiser needs to see it before agreeing to delete it. */
+export interface BracketSummary {
+  id: string;
+  tier: BracketTier;
+  status: "draft" | "approved" | "published";
+  /** Knockout matches the bracket owns. */
+  matches: number;
+  /** Of those, how many have started or finished. */
+  played: number;
+}
+
+/** What the organiser was shown about one bracket when they agreed to delete it. */
+export type BracketFingerprint = Pick<BracketSummary, "id" | "status" | "matches" | "played">;
+
+export type GroupRegenerationPlan =
+  /** No bracket exists: the group stage is free to regenerate. */
+  | { kind: "proceed" }
+  /** Brackets exist and nobody has agreed to delete them. */
+  | { kind: "refuse" }
+  /** The organiser agreed to delete exactly the brackets that exist now, as they are now. */
+  | { kind: "replace"; bracketIds: string[] }
+  /**
+   * The organiser agreed to something else: a bracket was drawn, redrawn or reset
+   * since, or one they saw as an untouched draft has been published or played.
+   */
+  | { kind: "changed" };
+
+/** `id|status|matches|played`, the form field a confirmation posts per bracket. */
+export function encodeBracketFingerprint(b: BracketFingerprint): string {
+  return [b.id, b.status, b.matches, b.played].join("|");
+}
+
+export function decodeBracketFingerprint(value: string): BracketFingerprint | null {
+  const [id, status, matches, played] = value.split("|");
+  if (!id || !["draft", "approved", "published"].includes(status)) return null;
+  const m = Number(matches);
+  const p = Number(played);
+  if (!Number.isInteger(m) || !Number.isInteger(p) || m < 0 || p < 0) return null;
+  return { id, status: status as BracketFingerprint["status"], matches: m, played: p };
+}
+
+/**
+ * Whether regenerating the group stage may go ahead.
+ *
+ * Both tiers of the knockout are drawn from group standings, so regenerating the
+ * group stage while either exists would leave it seeded from results that no
+ * longer exist. The only ways through are no bracket at all, or an explicit
+ * confirmation that matches the brackets exactly as they are at the moment of
+ * writing — the same compare-before-write idea as a screen's revision. The ids
+ * alone are not enough: publishing a draft or playing a knockout match keeps its
+ * id, and a confirmation given when the organiser was told "0 played" must not
+ * delete matches played since.
+ */
+export function planGroupRegeneration(
+  current: BracketFingerprint[],
+  confirmed: BracketFingerprint[] | null | undefined,
+): GroupRegenerationPlan {
+  if (current.length === 0) {
+    // Confirming the deletion of brackets that are already gone is harmless: the
+    // organiser wanted a fresh group stage, and there is nothing left to lose.
+    return { kind: "proceed" };
+  }
+  const agreed = (confirmed ?? []).filter((b) => b && b.id);
+  if (agreed.length === 0) return { kind: "refuse" };
+  const byId = new Map(agreed.map((b) => [b.id, b]));
+  const same =
+    byId.size === agreed.length &&
+    byId.size === current.length &&
+    current.every((b) => {
+      const seen = byId.get(b.id);
+      return Boolean(seen) && seen!.status === b.status && seen!.matches === b.matches && seen!.played === b.played;
+    });
+  return same ? { kind: "replace", bracketIds: current.map((b) => b.id).sort() } : { kind: "changed" };
+}
+
+const TIER_NAME: Record<BracketTier, string> = { cup: "Cup", plate: "Plate" };
+
+/** "the Cup bracket", "both brackets (Cup and Plate)". */
+export function bracketsPhrase(brackets: { tier: BracketTier }[]): string {
+  const names = brackets.map((b) => TIER_NAME[b.tier]);
+  if (names.length === 0) return "no brackets";
+  if (names.length === 1) return `the ${names[0]} bracket`;
+  if (names.length === 2) return `both brackets (${names[0]} and ${names[1]})`;
+  return `all ${names.length} brackets (${names.join(", ")})`;
+}
+
+/** "Cup — published, 7 knockout matches, 2 played". */
+export function describeBracket(b: BracketSummary): string {
+  const played = b.played > 0 ? `, ${b.played} played` : "";
+  return `${TIER_NAME[b.tier]} — ${b.status}, ${b.matches} knockout match${b.matches === 1 ? "" : "es"}${played}`;
+}
+
+/** The refusal an organiser reads when a bracket blocks regenerating the group stage. */
+export function groupStageLockedMessage(brackets: { tier: BracketTier }[]): string {
+  const subject = bracketsPhrase(brackets);
+  const verb = brackets.length === 1 ? "was" : "were";
+  return (
+    `The knockout is drawn from these group results: ${subject} ${verb} seeded from the current standings. ` +
+    `Reset ${brackets.length === 1 ? "the bracket" : "the brackets"} on the Bracket page first, ` +
+    `or confirm deleting ${subject} to regenerate the group stage.`
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Redrawing or resetting one bracket                                  */
+/* ------------------------------------------------------------------ */
+
+export type BracketTeardown = "redraw" | "reset";
+
+export type BracketTeardownPlan =
+  /** No bracket to tear down: a redraw simply draws, a reset has nothing to do. */
+  | { kind: "none" }
+  /** Go ahead, deleting at most `allowPlayed` matches that have been played. */
+  | { kind: "proceed"; allowPlayed: number }
+  /** Matches have been played and nobody confirmed deleting them. */
+  | { kind: "refuse_played" }
+  /** The confirmation described the bracket differently from how it is now. */
+  | { kind: "changed" };
+
+/**
+ * Whether one tier's bracket may be redrawn or reset.
+ *
+ * Tearing a bracket down deletes every knockout match it owns, scores included.
+ * With nothing played that is the ordinary redraw the button already confirms
+ * in the browser. Once a match has started or finished, the server insists on a
+ * confirmation that matches the bracket exactly as it is now — so a page loaded
+ * before a quarter-final was played cannot delete it on a confirmation that said
+ * "0 played".
+ */
+export function planBracketTeardown(
+  current: BracketFingerprint | null,
+  confirmed: BracketFingerprint | null | undefined,
+): BracketTeardownPlan {
+  if (!current) return { kind: "none" };
+  if (confirmed) {
+    const same =
+      confirmed.id === current.id &&
+      confirmed.status === current.status &&
+      confirmed.matches === current.matches &&
+      confirmed.played === current.played;
+    return same ? { kind: "proceed", allowPlayed: current.played } : { kind: "changed" };
+  }
+  return current.played > 0 ? { kind: "refuse_played" } : { kind: "proceed", allowPlayed: 0 };
+}
+
+/** The browser confirmation for a redraw or reset, naming what is lost. */
+export function teardownConfirmMessage(
+  action: BracketTeardown,
+  bracket: BracketSummary,
+  opts: { otherTierDrawn?: boolean } = {},
+): string {
+  const name = TIER_NAME[bracket.tier];
+  const subject = action === "redraw" ? `Redraw the ${name}?` : `Delete the ${name} bracket?`;
+  const matches =
+    bracket.matches === 0
+      ? "It has no knockout matches yet."
+      : bracket.played > 0
+        ? `This deletes all ${bracket.matches} of its knockout matches, including ${bracket.played} already played — their scores are lost and cannot be recovered.`
+        : `This deletes its ${bracket.matches} knockout match${bracket.matches === 1 ? "" : "es"}; none has been played.`;
+  const other = opts.otherTierDrawn ? ` The ${bracket.tier === "cup" ? "Plate" : "Cup"} is untouched.` : "";
+  return `${subject} ${matches}${other}`;
+}
+
+/** The refusal when played matches would be deleted without a confirmation. */
+export function playedRefusalMessage(action: BracketTeardown, bracket: BracketSummary): string {
+  const name = TIER_NAME[bracket.tier];
+  const one = bracket.played === 1;
+  return (
+    `The ${name} has ${bracket.played} knockout match${one ? "" : "es"} already played or in progress. ` +
+    `${action === "redraw" ? "Redrawing" : "Resetting"} would delete ${one ? "it and its score" : "them and their scores"}, ` +
+    `so it needs a confirmation that names ${one ? "it" : "them"}.`
+  );
+}
+
+/**
+ * A short description of which bracket a tier holds and in what state, or of
+ * every tier at once. A result message on the Bracket page is shown only while
+ * the stamp it was produced under still matches the page, so "Approved the Cup"
+ * does not linger under the Approve button of a Cup redrawn since.
+ */
+export function bracketStamp(
+  brackets: { id: string; tier: BracketTier; status: string }[],
+  scope: BracketTier | "all",
+): string {
+  const inScope = brackets
+    .filter((b) => scope === "all" || b.tier === scope)
+    .map((b) => `${b.tier}:${b.id}:${b.status}`)
+    .sort();
+  return inScope.length > 0 ? inScope.join(",") : `none:${scope}`;
 }

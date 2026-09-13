@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/guard";
-import { getCourts, getMatch, getSnapshot, getTeams, getTournament } from "@/lib/data";
-import { DEFAULT_SCORING_CONFIG } from "@/lib/types";
+import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "@/lib/data";
+import type { ScoreState } from "@/lib/scoring/engine";
+import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 
@@ -13,11 +14,13 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
 
   const match = await getMatch(matchId);
   if (!match || !match.team_a_id || !match.team_b_id) notFound();
-  const [tournament, teams, courts, snapshot] = await Promise.all([
+  const [tournament, teams, courts, snapshot, tier, reopenState] = await Promise.all([
     getTournament(match.tournament_id),
     getTeams(match.tournament_id),
     getCourts(match.tournament_id),
     getSnapshot(matchId),
+    tierForMatch(match),
+    match.status === "completed" ? getReopenState(matchId) : Promise.resolve(null),
   ]);
   if (!tournament) notFound();
 
@@ -35,12 +38,12 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         teamA={{
           id: teamA.id,
           name: teamA.team_name,
-          players: teamA.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+          players: teamA.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         }}
         teamB={{
           id: teamB.id,
           name: teamB.team_name,
-          players: teamB.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+          players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         }}
         serverSnapshot={snapshot}
       />
@@ -52,20 +55,24 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       match={match}
       tournamentName={tournament.name}
       courtName={court?.court_name ?? "No court"}
-      scoringConfig={{ ...DEFAULT_SCORING_CONFIG, ...tournament.scoring_config }}
+      // The single place a match's rules are resolved. Stage overrides land here,
+      // so the referee screen obeys them without any engine change: every engine
+      // mutator already takes the config as its last argument.
+      scoringConfig={scoringConfigForMatch(tournament, match, tier)}
       teamA={{
         id: teamA.id,
         name: teamA.team_name,
-        players: teamA.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+        players: teamA.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         checkedIn: teamA.check_in_status === "checked_in",
       }}
       teamB={{
         id: teamB.id,
         name: teamB.team_name,
-        players: teamB.players?.map((p) => ({ name: p.full_name, photo: p.photo_url })) ?? [],
+        players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         checkedIn: teamB.check_in_status === "checked_in",
       }}
       serverSnapshot={snapshot}
+      reopenState={reopenState as ScoreState | null}
     />
   );
 }

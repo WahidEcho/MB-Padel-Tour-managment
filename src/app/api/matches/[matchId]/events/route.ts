@@ -54,6 +54,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   const snapshot = await getSnapshot(matchId);
   let lastApplied = snapshot?.last_event_number ?? 0;
+  // Read once per request. Only `true` turns confirmation on, so a tournament
+  // that has never set it keeps finishing on the final point as before. Chess has
+  // no confirm step on its board, so the flag never applies to it — otherwise a
+  // chess match would sit finished-but-live forever.
+  const { data: owner } = await db()
+    .from("tournaments")
+    .select("sport, scoring_config")
+    .eq("id", match.tournament_id)
+    .maybeSingle();
+  const ownerRow = owner as { sport?: string; scoring_config?: { requireResultConfirmation?: boolean } } | null;
+  const requiresConfirmation =
+    ownerRow?.sport !== "chess" && ownerRow?.scoring_config?.requireResultConfirmation === true;
+  // Carried into the snapshot so the venue screen can tell a scored point from a
+  // correction. Events are append-only, so an UNDO has a higher number than the
+  // point it cancels — without this watermark nothing downstream can see it.
+  let lastUndo = snapshot?.last_undo_event_number ?? 0;
+  let lastEventType: string | null = null;
+  let lastEventTeamId: string | null = null;
 
   const { data: existingRows } = await db()
     .from("score_events")
@@ -102,6 +120,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     lastApplied = e.event_number;
     applied.push(e.client_event_id);
     finalState = e.new_state;
+    lastEventType = e.event_type;
+    lastEventTeamId = e.team_id ?? null;
+    if (e.event_type === "UNDO") lastUndo = e.event_number;
 
     switch (e.event_type) {
       case "MATCH_STARTED":
@@ -146,8 +167,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
         finalize = { status: "retired", winner: (e.payload?.winner_team_id as string) ?? "" };
         break;
     }
-    // A point that ends the match naturally also completes it
-    if (!finalize && e.new_state.matchOver && e.new_state.winner) {
+    // A point that ends the match naturally also completes it — unless the
+    // tournament asks the referee to confirm. Then the snapshot records the final
+    // score (so every screen shows it at once) but the match waits for an
+    // explicit MATCH_ENDED. Explicit end events above always finalise.
+    if (!finalize && e.new_state.matchOver && e.new_state.winner && !requiresConfirmation) {
       finalize = { status: "completed", winner: winnerTeamId(match, e.new_state) ?? "" };
     }
     // Undo past the end reopens the match (spec §4.5 "Match reopened")
@@ -155,13 +179,38 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       finalize = null;
       const wasFinished = ["completed", "walkover", "disqualified", "retired"].includes(match.status);
       if (wasFinished) {
+        // Reopening a knockout match has to take the winner back out of the next
+        // round. Without this the bracket kept the retracted team and the next
+        // match kept it as a side, so a wall showing the bracket showed a
+        // pairing that was no longer true. Refused outright once that next match
+        // has started, because silently rewriting a match in progress is worse
+        // than making the referee resolve it.
+        if (match.stage !== "group" && match.stage !== "friendly") {
+          const { retractKnockout } = await import("@/lib/ops");
+          const retraction = await retractKnockout(match);
+          if (!retraction.ok) {
+            return NextResponse.json(
+              {
+                error:
+                  "The next round has already started, so this result cannot be undone. Correct the later match first.",
+                conflict: retraction.reason,
+                applied,
+              },
+              { status: 409 },
+            );
+          }
+        }
         statusUpdate = { ...statusUpdate, status: "live", winner_team_id: null, ended_at: null };
       }
     }
   }
 
   if (finalState) {
-    await upsertSnapshotFromState(match, finalState, lastApplied);
+    await upsertSnapshotFromState(match, finalState, lastApplied, {
+      lastEventType,
+      lastEventTeamId,
+      lastUndoEventNumber: lastUndo,
+    });
   }
   if (Object.keys(statusUpdate).length > 0 && !finalize) {
     await db()

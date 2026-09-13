@@ -4,30 +4,75 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { generateBracket, generateKnockoutFromTeams, publishBracket } from "@/lib/ops";
-import { getBracket, getBracketSlots, getTournament } from "@/lib/data";
+import { approveBracket, publishBracket, redrawBracket, resetBracketTier, type BracketOpResult } from "@/lib/ops";
+import { getBracket, getBrackets, getBracketSlots } from "@/lib/data";
+import type { BracketTier } from "@/lib/types";
+import { bracketStamp, decodeBracketFingerprint, type CourtStrategy } from "@/lib/bracket";
+import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
+
+/**
+ * What a Bracket page form shows after a submit. Returned, never thrown: a thrown
+ * server-action message is replaced by a generic one in production, and these
+ * refusals are ones the organiser has to read.
+ */
+export type BracketFormState =
+  | ((BracketOpResult | { ok: false; reason: "error"; message: string }) & {
+      /** The bracket state this message was produced under; see bracketStamp. */
+      stamp: string;
+    })
+  | null;
+
+/** Which tier a form is acting on. Defaults to the Cup, the only tier most
+ *  tournaments have. */
+function tierFrom(formData: FormData): BracketTier {
+  return String(formData.get("tier") ?? "cup") === "plate" ? "plate" : "cup";
+}
 
 function path(id: string) {
   return `/admin/tournaments/${id}/bracket`;
 }
 
-export async function generateAction(formData: FormData) {
+/** The fingerprint a Redraw or Reset confirmation posts: what the organiser was shown. */
+function confirmationFrom(formData: FormData) {
+  const raw = formData.get("confirm_bracket");
+  return raw ? decodeBracketFingerprint(String(raw)) : null;
+}
+
+/**
+ * Runs one bracket operation as form state, re-rendering the pages it affects
+ * whatever happens, and stamps the result with the bracket state it left behind.
+ */
+async function asFormState(
+  id: string,
+  scope: BracketTier | "all",
+  run: () => Promise<BracketOpResult>,
+): Promise<BracketFormState> {
+  let result: BracketOpResult | { ok: false; reason: "error"; message: string };
+  try {
+    result = await run();
+  } catch (e) {
+    result = { ok: false, reason: "error", message: e instanceof Error ? e.message : "Something went wrong." };
+  } finally {
+    revalidatePath(path(id));
+    revalidatePath(`/admin/tournaments/${id}/matches`);
+  }
+  return { ...result, stamp: bracketStamp(await getBrackets(id), scope) };
+}
+
+/** Draw, or Redraw, one tier. Played matches go only on a matching confirmation. */
+export async function generateAction(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  const tournament = await getTournament(id);
-  if (tournament?.sport === "chess") {
-    await generateKnockoutFromTeams(id, role);
-  } else {
-    await generateBracket(id, role);
-  }
-  revalidatePath(path(id));
+  const tier = tierFrom(formData);
+  return asFormState(id, tier, () => redrawBracket(id, role, tier, { confirm: confirmationFrom(formData) }));
 }
 
 /** Edit who-faces-who before publishing: reassign first-round slot teams. */
 export async function saveSlots(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  const bracket = await getBracket(id);
+  refuse(await tournamentRowRefusal(id));
+  const bracket = await getBracket(id, tierFrom(formData));
   if (!bracket || bracket.status === "published") throw new Error("Bracket not editable");
 
   const slots = await getBracketSlots(bracket.id);
@@ -47,6 +92,10 @@ export async function saveSlots(formData: FormData) {
       updates.push({ slotId: slot.id, teamId: value, isBye: false });
     }
   }
+  // The slots come from this bracket; the teams placed in them are posted, so they
+  // must be checked to be this tournament's.
+  const placed = updates.map((u) => u.teamId).filter((t): t is string => Boolean(t));
+  if (placed.length > 0) refuse(await ownershipRefusal(id, "teams", placed));
   for (const u of updates) {
     await db()
       .from("bracket_slots")
@@ -57,32 +106,54 @@ export async function saveSlots(formData: FormData) {
   revalidatePath(path(id));
 }
 
-export async function approveAction(formData: FormData) {
+export async function approveAction(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  const bracket = await getBracket(id);
-  if (!bracket) throw new Error("No bracket");
-  await db()
-    .from("brackets")
-    .update({ status: "approved", approved_by: role, approved_at: new Date().toISOString() })
-    .eq("id", bracket.id);
-  await audit({ tournament_id: id, actor_role: role, action: "BRACKET_APPROVED", entity_type: "bracket", entity_id: bracket.id });
-  revalidatePath(path(id));
+  const tier = tierFrom(formData);
+  return asFormState(id, tier, () => approveBracket(id, role, tier));
 }
 
-export async function publishAction(formData: FormData) {
+/**
+ * Publishes every drawn tier at once.
+ *
+ * Not per tier, because the court strategy cannot be honoured one bracket at a
+ * time: whichever went first would already hold every court and every low order
+ * number, so "both at once" would quietly become "one after another".
+ */
+export async function publishAction(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  await publishBracket(id, role);
-  revalidatePath(path(id));
-  revalidatePath(`/admin/tournaments/${id}/matches`);
+  const strategy = (String(formData.get("court_strategy") ?? "parallel") === "sequential"
+    ? "sequential"
+    : "parallel") as CourtStrategy;
+  return asFormState(id, "all", async () => {
+    // publishBracket itself is shared with the session code, which publishes a
+    // session's knockout; publishing from this page is tournament-only.
+    const refusal = await tournamentRowRefusal(id);
+    if (refusal) {
+      return { ok: false, reason: refusal === NOT_A_TOURNAMENT_MESSAGE ? "not_a_tournament" : "not_found", message: refusal };
+    }
+    await publishBracket(id, role, { courtStrategy: strategy });
+    return { ok: true, message: "Published. The knockout matches are on the Matches page." };
+  });
 }
 
-export async function resetBracket(formData: FormData) {
+/**
+ * Deletes one tier and only its matches.
+ *
+ * It used to delete every match in the tournament that was not a group match,
+ * which with two brackets would take the other tier's live draw with it. Played
+ * matches go only on a confirmation naming them.
+ */
+export async function resetBracket(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
-  await db().from("matches").delete().eq("tournament_id", id).neq("stage", "group");
-  await db().from("brackets").delete().eq("tournament_id", id);
-  await audit({ tournament_id: id, actor_role: role, action: "BRACKET_RESET" });
-  revalidatePath(path(id));
+  const tier = tierFrom(formData);
+  return asFormState(id, tier, () => resetBracketTier(id, role, tier, { confirm: confirmationFrom(formData) }));
+}
+
+/** Every tier a tournament has drawn, for the page to render one section each. */
+export async function listBrackets(tournamentId: string) {
+  await requirePermission("edit_bracket");
+  return getBrackets(tournamentId);
 }

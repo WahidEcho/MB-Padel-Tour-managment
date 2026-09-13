@@ -1,4 +1,5 @@
-import { getGroups, getStandings, getTeams, teamMap } from "@/lib/data";
+import { getGroups, getStandings, getTeams, getTournament, teamMap } from "@/lib/data";
+import SessionRowNotice from "../SessionRowNotice";
 import AutoRefresh from "@/components/AutoRefresh";
 import StandingsTable from "@/components/StandingsTable";
 import { overrideQualification, recalcAction } from "./actions";
@@ -7,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 export default async function LeaderboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [groups, standings, teams] = await Promise.all([getGroups(id), getStandings(id), getTeams(id)]);
+  const [groups, standings, teams, tournament] = await Promise.all([getGroups(id), getStandings(id), getTeams(id), getTournament(id)]);
+  if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Standings" />;
   const tm = teamMap(teams);
 
   return (

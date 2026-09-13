@@ -94,6 +94,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const partnerMobile = str(body.partner_mobile, 40);
   const wantsTeam = Boolean(partnerName || partnerMobile);
 
+  // The photo, if any, was already uploaded through /api/f/[slug]/photo, which
+  // did the size, type and rate checks. Only accept a URL this app issued, so a
+  // crafted body cannot point a profile at someone else's image.
+  const photoUrl = str(body.photo_url, 400);
+  const mediaPrefix = `${process.env.SUPABASE_URL}/storage/v1/object/public/media/pending/`;
+  const photo = photoUrl.startsWith(mediaPrefix)
+    ? { url: photoUrl, focalX: Number(body.focal_x), focalY: Number(body.focal_y) }
+    : null;
+
   const result = await registerForSession({
     sessionId: session.id,
     publicName,
@@ -101,6 +110,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     consentWhatsapp,
     partner: wantsTeam ? { publicName: partnerName, mobile: partnerMobile } : null,
     teamName: str(body.team_name) || null,
+    photo,
   });
 
   if (!result.ok) {

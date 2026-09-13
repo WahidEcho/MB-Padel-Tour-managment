@@ -63,7 +63,7 @@ export default function LiveMatchCard({
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex shrink-0 -space-x-1.5">
               {r.team?.players?.map((p) => (
-                <Avatar key={p.id} name={p.full_name} photoUrl={p.photo_url} size={big ? 40 : 26} />
+                <Avatar key={p.id} name={p.full_name} person={p} size={big ? 40 : 26} eager={big} />
               ))}
             </div>
             <div className="min-w-0">

@@ -119,3 +119,151 @@ body {
     overflow-x: auto;
   }
 }
+
+/* ====================================================================
+   Broadcast layer — the venue screen.
+
+   Every animation here animates transform and opacity only. The screen polls,
+   and a frame can drop mid-animation; on the compositor that is invisible, on an
+   animated height or width it is a visible jolt. Every timeline is seeked with a
+   negative animation-delay from a server timestamp (src/lib/tv/timeline.ts), so a
+   re-render lands on the same frame instead of starting over.
+   ==================================================================== */
+
+:root {
+  /* Legibility floor at 6m on a 65" 1920x1080 panel (0.75mm per CSS pixel). */
+  --bc-min-text: 22px;
+  --bc-accent: var(--accent);
+}
+
+/* The stage is authored in canvas pixels and scaled once. */
+.bc-stage-host {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  cursor: none;
+}
+.bc-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: 0 0;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Numerals that never change width as they count. */
+.bc-num,
+.bc-stage output,
+.bc-stage time,
+.bc-stage [data-numeral] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Translucent, so the sponsor glow reads through the cards rather than only in
+   the gutters between them. */
+.bc-card {
+  /* Resolved here, on the card, not pre-computed into a variable at :root. A
+     custom property that references another is resolved where it is declared,
+     so --bc-card defined on :root baked in the LIGHT --card and inherited that
+     colour into a .theme-dark stage — every card rendered light on a dark wall. */
+  background: color-mix(in oklab, var(--card) 86%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 20px;
+}
+
+.bc-animate { animation-fill-mode: both; animation-play-state: running; }
+
+/* ---------- entrance (9s) ---------- */
+@keyframes bc-strip-in { from { transform: translateX(-12%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-in-left  { from { transform: translateX(-48px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-in-right { from { transform: translateX(48px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-rank-in  { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* ---------- a scored point, inside its own card ---------- */
+@keyframes bc-swap-out { from { transform: none; opacity: 1; } to { transform: translateY(-40%); opacity: 0; } }
+@keyframes bc-swap-in  { from { transform: translateY(40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-row-pulse {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes bc-burst {
+  0% { transform: scale(0.4); opacity: 0; }
+  35% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* ---------- result (5s) ---------- */
+@keyframes bc-recede { from { opacity: 1; } to { opacity: 0.45; } }
+@keyframes bc-lift   { from { transform: none; } to { transform: scale(1.03); } }
+@keyframes bc-chip   { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes bc-set-in { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- the closing ceremony ---------- */
+@keyframes bc-slate-in { from { transform: scale(0.94); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-rise { from { transform: translateY(90px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bc-flood { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0.6; } }
+@keyframes bc-confetti {
+  0% { transform: translateY(-80px) rotate(0deg); opacity: 0; }
+  8% { opacity: 1; }
+  100% { transform: translateY(940px) rotate(560deg); opacity: 0; }
+}
+
+/* ---------- the sponsor band ---------- */
+/* Shifts by exactly one group's width, so the next copy lands where the first
+   began and the loop has no seam. */
+@keyframes bc-ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--bc-ticker-shift, -50%)); }
+}
+/* Sponsor artwork is drawn for white paper. On a dark wall a dark wordmark
+   disappears, so each logo gets a white chip there; on a light wall the chip is
+   invisible and only its padding remains. */
+.bc-logo-chip { border-radius: 14px; }
+.theme-dark .bc-logo-chip { background: #ffffff; }
+.bc-ticker-viewport {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+
+/* ---------- the main sponsor's glow ---------- */
+@keyframes bc-bloom {
+  0%, 100% { opacity: 0.72; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes bc-ring { to { transform: rotate(360deg); } }
+@keyframes bc-mark-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.025); }
+}
+/* A personal device that asks for less motion gets a still glow. The venue
+   stage does not read this: a TV's setting was chosen by nobody in the room. */
+@media (prefers-reduced-motion: reduce) {
+  .bc-watermark-page [data-ambient] { animation: none !important; }
+}
+
+/* The operator's mute, and a personal device's reduced-motion preference: paint
+   every final frame, move nothing. `animation: none` alone would leave elements
+   at their first keyframe — invisible — so the fill forwards to the end state. */
+.bc-still .bc-animate,
+.bc-still [data-ambient] {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bc-respect-motion .bc-animate,
+  .bc-respect-motion [data-ambient] {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

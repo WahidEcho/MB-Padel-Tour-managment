@@ -6,7 +6,9 @@ import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { generateDraw, generateDrawOptions, groupName, type DrawOption } from "@/lib/draws";
 import { getGroups, getGroupTeams, getTeams } from "@/lib/data";
-import { generateGroupMatches } from "@/lib/ops";
+import { groupDrawLock } from "@/lib/ops";
+import { entityRefusal, ownershipRefusal, refuse } from "@/lib/rowGuards";
+import { runGroupStageRegeneration, type GroupStageFormState } from "../groupStage";
 
 function path(id: string) {
   return `/admin/tournaments/${id}/groups`;
@@ -17,6 +19,12 @@ export async function createGroups(formData: FormData) {
   const role = await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
   const count = Math.max(1, Math.min(26, parseInt(String(formData.get("group_count") ?? "2"), 10) || 2));
+
+  // Recreating groups deletes their standings through the database's cascade, so
+  // a drawn knockout would be left seeded from standings that no longer exist.
+  // The page hides this form while a bracket exists; this is the backstop.
+  const lock = await groupDrawLock(tournamentId);
+  if (lock) throw new Error(lock);
 
   const teams = await getTeams(tournamentId);
   if (teams.length < count) throw new Error("More groups than teams");
@@ -67,10 +75,23 @@ export async function drawOptions(tournamentId: string, optionCount: number): Pr
 }
 
 /** Saves a full assignment: groups[i] = ordered team ids. Keeps lock flags. */
-export async function saveAssignment(tournamentId: string, assignment: string[][]) {
+export async function saveAssignment(
+  tournamentId: string,
+  assignment: string[][],
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const role = await requirePermission("manage_groups");
+  // Moving a team between groups rewrites the standings a drawn knockout was
+  // seeded from, the next time they are recalculated.
+  const lock = await groupDrawLock(tournamentId);
+  if (lock) return { ok: false, message: lock };
   const [groups, existing] = await Promise.all([getGroups(tournamentId), getGroupTeams(tournamentId)]);
   if (assignment.length !== groups.length) throw new Error("Assignment shape mismatch");
+  // Every team placed must be one of this tournament's.
+  const placed = assignment.flat();
+  if (placed.length > 0) {
+    const notOurs = await ownershipRefusal(tournamentId, "teams", placed);
+    if (notOurs) return { ok: false, message: notOurs };
+  }
   const lockedTeams = new Set(existing.filter((gt) => gt.is_locked).map((gt) => gt.team_id));
 
   await db().from("group_teams").delete().eq("tournament_id", tournamentId);
@@ -89,30 +110,34 @@ export async function saveAssignment(tournamentId: string, assignment: string[][
   }
   await audit({ tournament_id: tournamentId, actor_role: role, action: "GROUP_DRAW_SAVED" });
   revalidatePath(path(tournamentId));
+  return { ok: true };
 }
 
 export async function toggleLock(formData: FormData) {
   await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
   const groupTeamId = String(formData.get("group_team_id"));
+  refuse(await entityRefusal(tournamentId, "group_teams", groupTeamId));
   const { data: gt } = await db().from("group_teams").select("is_locked").eq("id", groupTeamId).single();
   if (gt) {
-    await db().from("group_teams").update({ is_locked: !gt.is_locked }).eq("id", groupTeamId);
+    await db().from("group_teams").update({ is_locked: !gt.is_locked }).eq("id", groupTeamId).eq("tournament_id", tournamentId);
   }
   revalidatePath(path(tournamentId));
 }
 
-export async function publishGroups(formData: FormData) {
+export async function publishGroups(_prev: GroupStageFormState, formData: FormData): Promise<GroupStageFormState> {
   const role = await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
-  await db().from("groups").update({ status: "published" }).eq("tournament_id", tournamentId);
-  const count = await generateGroupMatches(tournamentId, role);
-  await audit({
-    tournament_id: tournamentId,
-    actor_role: role,
-    action: "GROUPS_PUBLISHED",
-    new_value: { matches: count },
-  });
-  revalidatePath(path(tournamentId));
-  revalidatePath(`/admin/tournaments/${tournamentId}/matches`);
+  // Groups are marked published only once the guard has let regeneration through,
+  // so a refusal leaves the draw exactly as it was.
+  const state = await runGroupStageRegeneration(tournamentId, role, formData, { publishGroups: true });
+  if (state?.ok) {
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: role,
+      action: "GROUPS_PUBLISHED",
+      new_value: { message: state.message },
+    });
+  }
+  return state;
 }

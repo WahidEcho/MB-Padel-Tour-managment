@@ -7,6 +7,7 @@ import { audit, slugify } from "@/lib/audit";
 import { generateDraw, groupName } from "@/lib/draws";
 import { generateGroupMatches, recalcStandings } from "@/lib/ops";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/types";
+import { ensureMainScreen } from "@/lib/screens";
 
 const DEMO_TEAMS: [string, string, string][] = [
   ["Team Alpha", "Ahmed Ali", "Omar Khaled"],
@@ -36,7 +37,7 @@ export async function seedDemoTournament() {
       slug,
       is_demo: true,
       status: "active",
-      scoring_config: DEFAULT_SCORING_CONFIG,
+      scoring_config: { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: true },
       created_by: role,
     })
     .select()
@@ -48,7 +49,7 @@ export async function seedDemoTournament() {
     { tournament_id: id, court_name: "Court 1", court_order: 1 },
     { tournament_id: id, court_name: "Court 2", court_order: 2 },
   ]);
-  await db().from("screen_settings").insert({ tournament_id: id, screen_key: "main" });
+  await ensureMainScreen(id);
 
   const teamIds: string[] = [];
   for (const [teamName, p1, p2] of DEMO_TEAMS) {

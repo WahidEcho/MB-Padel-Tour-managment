@@ -5,8 +5,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit, slugify } from "@/lib/audit";
-import { cloneTournament as cloneOp, type CloneOptions } from "@/lib/ops";
+import { cloneTournament as cloneOp, deleteTournamentRow, resetTournamentLiveData, type CloneOptions } from "@/lib/ops";
+import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { DEFAULT_CHESS_FORMAT, DEFAULT_SCORING_CONFIG, type FormatConfig } from "@/lib/types";
+import { ensureMainScreen } from "@/lib/screens";
 
 export async function createTournament(formData: FormData) {
   const role = await requirePermission("manage_tournament");
@@ -33,7 +35,11 @@ export async function createTournament(formData: FormData) {
       slug,
       sport,
       is_demo: isDemo,
-      scoring_config: DEFAULT_SCORING_CONFIG,
+      // A new padel tournament confirms results by default: the match-winning
+      // point shows the score and waits, so a mis-tap on match point is caught
+      // before it reaches the standings and the bracket. Existing tournaments
+      // are left as they were, so no referee finds the flow changed mid-event.
+      scoring_config: { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: !isChess },
       ...(formatConfig ? { format_config: formatConfig } : {}),
       created_by: role,
     })
@@ -48,7 +54,7 @@ export async function createTournament(formData: FormData) {
     court_order: i + 1,
   }));
   await db().from("courts").insert(courts);
-  await db().from("screen_settings").insert({ tournament_id: tournament.id, screen_key: "main" });
+  await ensureMainScreen(tournament.id);
   await audit({
     tournament_id: tournament.id,
     actor_role: role,
@@ -63,6 +69,8 @@ export async function createTournament(formData: FormData) {
 export async function cloneTournamentAction(formData: FormData) {
   const role = await requirePermission("clone_tournament");
   const sourceId = String(formData.get("source_id"));
+  // Cloning a session's hidden row would make a tournament out of a session.
+  refuse(await tournamentRowRefusal(sourceId));
   const opts: CloneOptions = {
     newName: String(formData.get("name") ?? "").trim() || "Cloned Tournament",
     copyTeams: formData.get("copy_teams") === "on",
@@ -82,6 +90,9 @@ export async function setTournamentStatus(formData: FormData) {
   const id = String(formData.get("id"));
   const status = String(formData.get("status"));
   if (!["draft", "active", "completed", "archived"].includes(status)) throw new Error("Bad status");
+  // A session's status (open, scheduled, finalized…) is its own; its hidden row's
+  // is kept in step by the session code.
+  refuse(await tournamentRowRefusal(id));
   await db().from("tournaments").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
   await audit({
     tournament_id: id,
@@ -98,46 +109,19 @@ export async function setTournamentStatus(formData: FormData) {
 export async function deleteTournament(formData: FormData) {
   const role = await requirePermission("manage_tournament");
   const id = String(formData.get("id"));
-  const { data: t } = await db().from("tournaments").select("name, is_demo").eq("id", id).single();
-  await db().from("tournaments").delete().eq("id", id);
-  await audit({
-    actor_role: role,
-    action: "TOURNAMENT_DELETED",
-    entity_type: "tournament",
-    entity_id: id,
-    old_value: t,
-  });
+  // Refuses a session's hidden row: the delete would cascade into the session.
+  const result = await deleteTournamentRow(id, role);
+  if (!result.ok) throw new Error(result.message);
   revalidatePath("/admin/tournaments");
 }
 
-/** Demo/training reset (spec §24): wipes live data, keeps setup. */
+/** Demo/training reset (spec §24): wipes live data, keeps setup. Tournaments only. */
 export async function resetTournamentData(formData: FormData) {
   const role = await requirePermission("manage_tournament");
   const id = String(formData.get("id"));
-  await db().from("matches").delete().eq("tournament_id", id).neq("stage", "group");
-  await db()
-    .from("matches")
-    .update({
-      status: "scheduled",
-      winner_team_id: null,
-      serving_team_id: null,
-      active_scoring_device_id: null,
-      is_pending_sync: false,
-      started_at: null,
-      ended_at: null,
-    })
-    .eq("tournament_id", id);
-  await db().from("match_score_snapshots").delete().eq("tournament_id", id);
-  await db().from("score_events").delete().eq("tournament_id", id);
-  await db().from("standings_snapshots").delete().eq("tournament_id", id);
-  await db().from("brackets").delete().eq("tournament_id", id);
-  await db().from("teams").update({ check_in_status: "not_arrived", team_status: "active" }).eq("tournament_id", id);
-  await audit({
-    tournament_id: id,
-    actor_role: role,
-    action: "TOURNAMENT_DATA_RESET",
-    entity_type: "tournament",
-    entity_id: id,
-  });
+  const result = await resetTournamentLiveData(id, role);
+  // The dashboard does not offer this for a friendly session's backing row; a
+  // request that arrives anyway is refused before anything is deleted.
+  if (!result.ok) throw new Error(result.message);
   revalidatePath(`/admin/tournaments/${id}`);
 }

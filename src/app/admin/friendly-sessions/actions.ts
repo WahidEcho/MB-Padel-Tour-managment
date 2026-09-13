@@ -19,7 +19,10 @@ import {
   setFixedPairs,
   setSessionStatus,
 } from "@/lib/friendly/ops";
-import { listActivePairs } from "@/lib/friendly/data";
+import { getSession, listActivePairs } from "@/lib/friendly/data";
+import { getTournament } from "@/lib/data";
+import { db } from "@/lib/supabase";
+import { audit } from "@/lib/audit";
 import type { PairingMode, RankingModel } from "@/lib/types";
 
 const PAIRING_MODES: PairingMode[] = ["fixed", "americano", "mexicano"];
@@ -233,5 +236,27 @@ export async function addPlayerAction(formData: FormData) {
   if (!sessionId || !profileId) throw new Error("Session and player are required");
 
   await addEntryForProfile(sessionId, profileId, role);
+  revalidatePath(`/admin/friendly-sessions/${sessionId}`);
+}
+
+/**
+ * How many places a session's closing ceremony reveals on the wall. Stored on
+ * the backing tournament's format, where the ceremony reads a tournament's Cup
+ * depth, so one ceremony serves both.
+ */
+export async function setSessionPodiumDepthAction(formData: FormData) {
+  const role = await requirePermission("manage_sessions");
+  const sessionId = String(formData.get("session_id") ?? "");
+  const depth = Math.min(4, Math.max(1, parseInt(String(formData.get("podium_depth") ?? "3"), 10) || 3)) as 1 | 2 | 3 | 4;
+  const session = await getSession(sessionId);
+  if (!session) throw new Error("Session not found");
+  const backing = await getTournament(session.tournament_id);
+  if (!backing) throw new Error("Session has no backing tournament");
+  const format = backing.format_config ?? {};
+  await db()
+    .from("tournaments")
+    .update({ format_config: { ...format, tiers: { ...(format.tiers ?? {}), cup: { ...(format.tiers?.cup ?? {}), podiumDepth: depth } } } })
+    .eq("id", backing.id);
+  await audit({ tournament_id: backing.id, actor_role: role, action: "SESSION_PODIUM_DEPTH_SET", new_value: { depth } });
   revalidatePath(`/admin/friendly-sessions/${sessionId}`);
 }
