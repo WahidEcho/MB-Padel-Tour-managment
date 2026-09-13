@@ -1,19 +1,29 @@
 import Link from "next/link";
-import { getCourts, getGroups, getMatches, getTeams, teamMap } from "@/lib/data";
+import { notFound } from "next/navigation";
+import { getCourts, getGroups, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import { createManualMatch, deleteMatch, regenerateMatches, releaseScoringLock, updateMatchSchedule } from "./actions";
+import GroupStageRegenerateForm from "../GroupStageRegenerateForm";
+import { NOT_A_TOURNAMENT_MESSAGE, summarizeBrackets } from "@/lib/ops";
 
 export const dynamic = "force-dynamic";
 
 export default async function MatchesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [matches, teams, courts, groups] = await Promise.all([
+  const [tournament, matches, teams, courts, groups, brackets] = await Promise.all([
+    getTournament(id),
     getMatches(id),
     getTeams(id),
     getCourts(id),
     getGroups(id),
+    summarizeBrackets(id),
   ]);
+  if (!tournament) notFound();
+  const isSession = tournament.kind !== "tournament";
+  // Regenerating only means something where there is a group stage to rebuild.
+  // A chess knockout is seeded from the player list and has no groups.
+  const hasGroupStage = !isSession && tournament.sport !== "chess" && groups.length > 0;
   const tm = teamMap(teams);
   const liveCount = matches.filter((m) => ["live", "paused"].includes(m.status)).length;
 
@@ -23,15 +33,20 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
         <h2 className="text-lg font-bold">
           Matches ({matches.length}) {liveCount > 0 && <span className="text-success">· {liveCount} live</span>}
         </h2>
-        <form action={regenerateMatches}>
-          <input type="hidden" name="tournament_id" value={id} />
-          <ConfirmSubmit
-            className="btn-secondary"
-            message="Regenerate ALL group matches? Existing group match scores will be deleted."
-          >
-            Regenerate group matches
-          </ConfirmSubmit>
-        </form>
+        {hasGroupStage && (
+          <GroupStageRegenerateForm
+            tournamentId={id}
+            action={regenerateMatches}
+            brackets={brackets}
+            label="Regenerate group matches"
+            confirmMessage="Regenerate ALL group matches? Existing group match scores will be deleted."
+          />
+        )}
+        {isSession && (
+          <p className="max-w-md text-sm text-muted" data-testid="regenerate-session">
+            {NOT_A_TOURNAMENT_MESSAGE}
+          </p>
+        )}
       </div>
 
       <div className="overflow-x-auto">

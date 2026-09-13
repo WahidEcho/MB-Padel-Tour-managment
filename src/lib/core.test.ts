@@ -12,6 +12,12 @@ import {
   thirdPlaceFor,
   tierSizes,
   validatePodiumSettings,
+  planGroupRegeneration,
+  encodeBracketFingerprint,
+  decodeBracketFingerprint,
+  bracketsPhrase,
+  describeBracket,
+  groupStageLockedMessage,
   type Qualifier,
 } from "./bracket";
 import { parseTeamsCsv, CSV_TEMPLATE } from "./csv";
@@ -344,5 +350,80 @@ describe("tier configuration", () => {
     expect(
       validatePodiumSettings({ type: "group_knockout", thirdPlaceMatch: false, tiers: { cup: { podiumDepth: 2 } } }),
     ).toEqual([]);
+  });
+});
+
+describe("regenerating the group stage under a drawn knockout", () => {
+  const cup = { id: "cup-1", tier: "cup" as const, status: "published" as const, matches: 7, played: 2 };
+  const plate = { id: "plate-1", tier: "plate" as const, status: "draft" as const, matches: 0, played: 0 };
+
+  it("goes ahead when no bracket exists", () => {
+    expect(planGroupRegeneration([], null)).toEqual({ kind: "proceed" });
+  });
+
+  it("still goes ahead when a confirmation names brackets that are already gone", () => {
+    expect(planGroupRegeneration([], [cup, plate])).toEqual({ kind: "proceed" });
+  });
+
+  it("refuses while any bracket exists and nobody confirmed", () => {
+    expect(planGroupRegeneration([cup], null)).toEqual({ kind: "refuse" });
+    expect(planGroupRegeneration([cup, plate], [])).toEqual({ kind: "refuse" });
+  });
+
+  it("replaces exactly the brackets the organiser agreed to delete, in any order", () => {
+    expect(planGroupRegeneration([cup, plate], [plate, cup])).toEqual({
+      kind: "replace",
+      bracketIds: ["cup-1", "plate-1"],
+    });
+  });
+
+  it("refuses a confirmation given before another bracket was drawn", () => {
+    // Agreed to delete the Cup; someone drew the Plate since. The Plate is not
+    // deleted on a confirmation that never mentioned it.
+    expect(planGroupRegeneration([cup, plate], [cup])).toEqual({ kind: "changed" });
+  });
+
+  it("refuses a confirmation for a bracket that has since been redrawn under a new id", () => {
+    expect(planGroupRegeneration([{ ...cup, id: "cup-2" }], [cup])).toEqual({ kind: "changed" });
+  });
+
+  it("refuses a confirmation for a draft that has since been published, though its id is the same", () => {
+    const seen = { ...plate };
+    const now = { ...plate, status: "published" as const, matches: 7 };
+    expect(planGroupRegeneration([now], [seen])).toEqual({ kind: "changed" });
+  });
+
+  it("refuses a confirmation given before a knockout match was played", () => {
+    expect(planGroupRegeneration([{ ...cup, played: 3 }], [cup])).toEqual({ kind: "changed" });
+  });
+
+  it("refuses a confirmation that lists the same bracket twice instead of both", () => {
+    expect(planGroupRegeneration([cup, plate], [cup, cup])).toEqual({ kind: "changed" });
+  });
+
+  it("round-trips the fingerprint a form posts, and rejects a mangled one", () => {
+    expect(decodeBracketFingerprint(encodeBracketFingerprint(cup))).toEqual({
+      id: "cup-1",
+      status: "published",
+      matches: 7,
+      played: 2,
+    });
+    expect(decodeBracketFingerprint("cup-1|finished|7|2")).toBeNull();
+    expect(decodeBracketFingerprint("cup-1|draft|-1|0")).toBeNull();
+    expect(decodeBracketFingerprint("")).toBeNull();
+  });
+
+  it("names the brackets the way the organiser sees them", () => {
+    expect(bracketsPhrase([cup])).toBe("the Cup bracket");
+    expect(bracketsPhrase([cup, plate])).toBe("both brackets (Cup and Plate)");
+    expect(describeBracket(plate)).toBe("Plate — draft, 0 knockout matches");
+    expect(describeBracket(cup)).toBe("Cup — published, 7 knockout matches, 2 played");
+  });
+
+  it("tells the organiser to reset the brackets first", () => {
+    const msg = groupStageLockedMessage([cup, plate]);
+    expect(msg).toContain("Reset the brackets on the Bracket page first");
+    expect(msg).toContain("both brackets (Cup and Plate)");
+    expect(groupStageLockedMessage([cup])).toContain("Reset the bracket on the Bracket page first");
   });
 });

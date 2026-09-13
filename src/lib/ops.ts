@@ -7,6 +7,10 @@ import { DEFAULT_FOCAL } from "./portrait";
 import {
   advanceTarget,
   buildBracketPlan,
+  groupStageLockedMessage,
+  planGroupRegeneration,
+  type BracketFingerprint,
+  type BracketSummary,
   orderKnockoutMatches,
   orderedRoundNames,
   stageForRound,
@@ -45,16 +49,64 @@ import { ensureMainScreen } from "./screens";
 /* Group match generation                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Every bracket of a tournament, with what deleting it would take.
+ *
+ * Matches are counted the same two ways deleteBracketCascade finds them, so the
+ * numbers an organiser confirms are the numbers that get deleted.
+ */
+export async function summarizeBrackets(tournamentId: string): Promise<BracketSummary[]> {
+  const brackets = await getBrackets(tournamentId);
+  if (brackets.length === 0) return [];
+  const ids = brackets.map((b) => b.id);
+  const [{ data: slots }, { data: owned }] = await Promise.all([
+    db().from("bracket_slots").select("bracket_id, match_id").in("bracket_id", ids),
+    db().from("matches").select("id, bracket_id, status").eq("tournament_id", tournamentId),
+  ]);
+  const statusById = new Map(((owned ?? []) as { id: string; status: string }[]).map((m) => [m.id, m.status]));
+  return brackets.map((b) => {
+    const matchIds = new Set<string>([
+      ...((slots ?? []) as { bracket_id: string; match_id: string | null }[])
+        .filter((r) => r.bracket_id === b.id && r.match_id)
+        .map((r) => r.match_id as string),
+      ...((owned ?? []) as { id: string; bracket_id: string | null }[]).filter((m) => m.bracket_id === b.id).map((m) => m.id),
+    ]);
+    const played = [...matchIds].filter((id) => {
+      const status = statusById.get(id);
+      return status !== undefined && status !== "scheduled" && status !== "ready";
+    }).length;
+    return { id: b.id, tier: b.tier, status: b.status, matches: matchIds.size, played };
+  });
+}
+
+/**
+ * Regenerates the round-robin fixtures for every group.
+ *
+ * Refuses while any knockout bracket exists. Both the Cup and the Plate are drawn
+ * from group standings, so replacing the group matches underneath them leaves a
+ * bracket seeded from results that no longer exist, with nothing on any page to
+ * say so. The check runs before anything is deleted, so a refusal changes
+ * nothing. Callers that mean to replace the brackets tear them down first —
+ * `regenerateGroupStage` behind an explicit confirmation, or a friendly
+ * session's own preflight — and this stays the backstop for every other path.
+ */
 export async function generateGroupMatches(tournamentId: string, actorRole: string) {
-  const [groups, groupTeams, courts] = await Promise.all([
+  const [groups, groupTeams, courts, brackets] = await Promise.all([
     getGroups(tournamentId),
     getGroupTeams(tournamentId),
     getCourts(tournamentId),
+    getBrackets(tournamentId),
   ]);
   if (groups.length === 0) throw new Error("No groups created yet");
+  if (brackets.length > 0) throw new Error(groupStageLockedMessage(brackets));
 
   // Regenerating replaces all existing group-stage matches (and their events)
-  await db().from("matches").delete().eq("tournament_id", tournamentId).eq("stage", "group");
+  const { error: deleteError } = await db()
+    .from("matches")
+    .delete()
+    .eq("tournament_id", tournamentId)
+    .eq("stage", "group");
+  if (deleteError) throw new Error(deleteError.message);
 
   type Pending = {
     group_id: string;
@@ -102,6 +154,154 @@ export async function generateGroupMatches(tournamentId: string, actorRole: stri
     new_value: { count: rows.length },
   });
   return rows.length;
+}
+
+export type GroupStageResult =
+  | { ok: true; matchesCreated: number; bracketsDeleted: number; knockoutMatchesDeleted: number }
+  /** A bracket exists and nobody confirmed deleting it. Nothing was changed. */
+  | { ok: false; reason: "brackets_exist"; message: string; brackets: BracketSummary[] }
+  /** The confirmation named different brackets from the ones that exist now. Nothing was changed. */
+  | { ok: false; reason: "brackets_changed"; message: string; brackets: BracketSummary[] }
+  /** A friendly session's hidden backing row; its format is changed from the session page. */
+  | { ok: false; reason: "not_a_tournament"; message: string };
+
+export const NOT_A_TOURNAMENT_MESSAGE =
+  "This is a friendly session's hidden tournament. Change its format, schedule and results from the session's own page — the tournament tools would delete its players' points.";
+
+/**
+ * Regenerates a tournament's group stage from the tournament admin pages.
+ *
+ * Returns a refusal rather than throwing, because a thrown server-action message
+ * is replaced by a generic one in production and the organiser would never learn
+ * why nothing happened. With `confirmBrackets` matching the brackets exactly as
+ * they are now, both are deleted (with every knockout match they own) and the group
+ * stage is regenerated; standings are then recomputed so neither the leaderboard
+ * nor a later draw reads qualification from the deleted results.
+ */
+export async function regenerateGroupStage(
+  tournamentId: string,
+  actorRole: string,
+  opts: { confirmBrackets?: BracketFingerprint[] | null; publishGroups?: boolean } = {},
+): Promise<GroupStageResult> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) throw new Error("Tournament not found");
+  if (tournament.kind !== "tournament") {
+    return { ok: false, reason: "not_a_tournament", message: NOT_A_TOURNAMENT_MESSAGE };
+  }
+
+  const brackets = await summarizeBrackets(tournamentId);
+  const plan = planGroupRegeneration(brackets, opts.confirmBrackets);
+  if (plan.kind === "refuse") {
+    return { ok: false, reason: "brackets_exist", message: groupStageLockedMessage(brackets), brackets };
+  }
+  if (plan.kind === "changed") {
+    return {
+      ok: false,
+      reason: "brackets_changed",
+      message:
+        "The brackets changed since this page was loaded — one was drawn, redrawn, reset, published or played. Nothing was deleted. Check the list and confirm again.",
+      brackets,
+    };
+  }
+
+  // Checked before any bracket is deleted, so a tournament with no groups is not
+  // left with its knockout gone and nothing to replace it.
+  if ((await getGroups(tournamentId)).length === 0) throw new Error("No groups created yet");
+
+  let knockoutMatchesDeleted = 0;
+  if (plan.kind === "replace") {
+    for (const id of plan.bracketIds) {
+      knockoutMatchesDeleted += (await deleteBracketCascade(id)).matchesDeleted;
+    }
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: actorRole,
+      action: "BRACKETS_DELETED_FOR_GROUP_REGENERATION",
+      entity_type: "tournament",
+      entity_id: tournamentId,
+      old_value: { brackets },
+      new_value: { knockout_matches_deleted: knockoutMatchesDeleted },
+    });
+  }
+
+  if (opts.publishGroups) {
+    await db().from("groups").update({ status: "published" }).eq("tournament_id", tournamentId);
+  }
+  const matchesCreated = await generateGroupMatches(tournamentId, actorRole);
+  // The old standings describe results that were just deleted. Left in place,
+  // the leaderboard keeps showing them and a fresh draw would seed from them.
+  await recalcStandings(tournamentId);
+
+  return {
+    ok: true,
+    matchesCreated,
+    bracketsDeleted: plan.kind === "replace" ? plan.bracketIds.length : 0,
+    knockoutMatchesDeleted,
+  };
+}
+
+/**
+ * Whether the group draw may be changed right now: creating or recreating
+ * groups, or saving a new assignment of teams to groups.
+ *
+ * Recreating groups deletes their standings through the database's cascade, and
+ * moving a team between groups rewrites them on the next recalculation — either
+ * way a drawn knockout ends up seeded from standings that no longer exist. Null
+ * when the draw is free to change.
+ */
+export async function groupDrawLock(tournamentId: string): Promise<string | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return "Tournament not found.";
+  if (tournament.kind !== "tournament") return NOT_A_TOURNAMENT_MESSAGE;
+  const brackets = await getBrackets(tournamentId);
+  return brackets.length > 0 ? groupStageLockedMessage(brackets) : null;
+}
+
+/**
+ * Demo and training reset (spec §24): wipes live data, keeps setup.
+ *
+ * Tournaments only. A friendly session's backing row keeps its whole history as
+ * `stage = 'friendly'` matches, which this reset's non-group delete would match —
+ * taking every played match's ledger rows with it through the cascade, while fire
+ * streaks and ranking snapshots are left counting points that no longer exist.
+ */
+export async function resetTournamentLiveData(
+  tournamentId: string,
+  actorRole: string,
+): Promise<{ ok: true } | { ok: false; reason: "not_a_tournament" | "not_found"; message: string }> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return { ok: false, reason: "not_found", message: "Tournament not found." };
+  if (tournament.kind !== "tournament") {
+    return { ok: false, reason: "not_a_tournament", message: NOT_A_TOURNAMENT_MESSAGE };
+  }
+
+  const id = tournamentId;
+  await db().from("matches").delete().eq("tournament_id", id).neq("stage", "group");
+  await db()
+    .from("matches")
+    .update({
+      status: "scheduled",
+      winner_team_id: null,
+      serving_team_id: null,
+      active_scoring_device_id: null,
+      is_pending_sync: false,
+      started_at: null,
+      ended_at: null,
+    })
+    .eq("tournament_id", id);
+  await db().from("match_score_snapshots").delete().eq("tournament_id", id);
+  await db().from("score_events").delete().eq("tournament_id", id);
+  await db().from("standings_snapshots").delete().eq("tournament_id", id);
+  await db().from("brackets").delete().eq("tournament_id", id);
+  await db().from("teams").update({ check_in_status: "not_arrived", team_status: "active" }).eq("tournament_id", id);
+  await audit({
+    tournament_id: id,
+    actor_role: actorRole,
+    action: "TOURNAMENT_DATA_RESET",
+    entity_type: "tournament",
+    entity_id: id,
+  });
+  return { ok: true };
 }
 
 /* ------------------------------------------------------------------ */

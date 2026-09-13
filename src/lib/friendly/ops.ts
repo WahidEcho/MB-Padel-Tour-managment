@@ -5,7 +5,7 @@
  */
 import { db } from "../supabase";
 import { audit, slugify } from "../audit";
-import { getCourts } from "../data";
+import { getBrackets, getCourts } from "../data";
 import { generateDraw, groupName } from "../draws";
 import {
   DEFAULT_SCORING_CONFIG,
@@ -1695,6 +1695,27 @@ export async function generateSessionGroupStage(
   }
 
   const count = Math.max(1, Math.min(teamIds.length, groupCount));
+
+  // A session that was drawn as a knockout still has that bracket. The group
+  // stage cannot be generated on top of it (generateGroupMatches refuses while
+  // any bracket exists), and that refusal would otherwise land after the
+  // unstarted fixtures and the old groups had already been deleted below,
+  // leaving the session with no schedule at all. So it is settled here, before
+  // anything is touched: an untouched knockout is torn down, and one with a
+  // played match is refused, because tearing it down would delete that match
+  // and the points it banked.
+  const { deleteBracketCascade, summarizeBrackets } = await import("../ops");
+  const brackets = await getBrackets(session.tournament_id);
+  if (brackets.length > 0) {
+    const summaries = await summarizeBrackets(session.tournament_id);
+    if (summaries.some((b) => b.played > 0)) {
+      throw new Error(
+        "This session's knockout has matches that were already played, so it cannot be switched to a group stage — the results and the points they earned would be deleted. Undo those results first, or finish the session and start a new one.",
+      );
+    }
+    for (const b of brackets) await deleteBracketCascade(b.id);
+  }
+
   const removedUnstarted = await clearUnstartedMatches(session.tournament_id);
 
   // Redraw from scratch: groups are cheap and a partial draw is confusing.

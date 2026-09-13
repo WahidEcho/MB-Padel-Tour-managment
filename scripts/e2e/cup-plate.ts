@@ -18,10 +18,23 @@ import {
   finalizeMatch,
   generateBracket,
   generateGroupMatches,
+  groupDrawLock,
+  NOT_A_TOURNAMENT_MESSAGE,
   publishBracket,
+  regenerateGroupStage,
+  resetTournamentLiveData,
   retractKnockout,
+  summarizeBrackets,
   upsertSnapshotFromState,
 } from "../../src/lib/ops";
+import {
+  addEntryForProfile,
+  createFriendlySession,
+  generateSessionGroupStage,
+  generateSessionKnockout,
+  setFixedPairs,
+} from "../../src/lib/friendly/ops";
+import { getTournament } from "../../src/lib/data";
 import { getBrackets, getBracketSlots, getMatches, getStandings, getTeams } from "../../src/lib/data";
 import { podiumFromMatches } from "../../src/components/WinnerDisplay";
 import { DEFAULT_SCORING_CONFIG, type Match, type Team } from "../../src/lib/types";
@@ -44,6 +57,173 @@ async function play(match: Match, winner: "A" | "B") {
     winnerTeamId: winner === "A" ? match.team_a_id! : match.team_b_id!,
     actorRole: "e2e",
   });
+}
+
+interface GroupStageFingerprint {
+  groupMatchIds: string[];
+  knockoutMatchIds: string[];
+  statuses: string;
+  bracketIds: string;
+  slots: number;
+  standings: string;
+  snapshots: number;
+}
+
+/** Everything a refused regeneration must leave exactly as it was. */
+async function groupStageFingerprint(tid: string): Promise<GroupStageFingerprint> {
+  const matches = await getMatches(tid);
+  const brackets = await getBrackets(tid);
+  const { count: slots } = await db()
+    .from("bracket_slots")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", tid);
+  const { count: snapshots } = await db()
+    .from("match_score_snapshots")
+    .select("match_id", { count: "exact", head: true })
+    .eq("tournament_id", tid);
+  const standings = await getStandings(tid);
+  return {
+    groupMatchIds: matches.filter((m) => m.stage === "group").map((m) => m.id).sort(),
+    knockoutMatchIds: matches.filter((m) => m.stage !== "group").map((m) => m.id).sort(),
+    statuses: matches.map((m) => `${m.id}:${m.status}:${m.winner_team_id ?? ""}`).sort().join("|"),
+    bracketIds: brackets.map((b) => b.id).sort().join(","),
+    slots: slots ?? 0,
+    standings: standings.map((st) => `${st.team_id}:${st.status}:${st.played}:${st.points}`).sort().join("|"),
+    snapshots: snapshots ?? 0,
+  };
+}
+
+function sameFingerprint(a: GroupStageFingerprint, b: GroupStageFingerprint): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * A friendly session runs on a hidden tournament row. The group-stage guard must
+ * not dead-end a session switching from knockout to groups, must never delete a
+ * played session match, and the tournament tools must refuse that row.
+ */
+async function sessionGuards() {
+  const suffix = Date.now();
+  const { data: profiles, error } = await db()
+    .from("player_profiles")
+    .insert([1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ public_name: `E2E Guard ${suffix} P${n}`, approval_status: "approved" })))
+    .select("id");
+  if (error || !profiles) throw new Error(error?.message ?? "no profiles");
+  const profileIds = profiles.map((p) => p.id as string);
+  let backingId: string | null = null;
+
+  try {
+    const session = await createFriendlySession({
+      name: `E2E Guard ${suffix}`,
+      seasonId: null,
+      startsAt: null,
+      durationMinutes: null,
+      courtCount: 2,
+      pairingMode: "fixed",
+      rankingModel: "win_points",
+      setsToWinMatch: 1,
+      gamesToWinSet: 6,
+      maxPlayers: null,
+      registrationDeadline: null,
+      actorRole: "e2e",
+    });
+    backingId = session.tournament_id as string;
+    for (const id of profileIds) await addEntryForProfile(session.id, id, "e2e");
+    await setFixedPairs(
+      session.id,
+      [
+        [profileIds[0], profileIds[1]],
+        [profileIds[2], profileIds[3]],
+        [profileIds[4], profileIds[5]],
+        [profileIds[6], profileIds[7]],
+      ],
+      "e2e",
+    );
+    check("session setup: the backing row is not a tournament", (await getTournament(backingId))?.kind === "friendly_session");
+
+    // Knockout first, untouched, then switch to a group stage.
+    await generateSessionKnockout(session.id, "e2e");
+    check("session setup: a knockout bracket exists", (await getBrackets(backingId)).length === 1);
+    await generateSessionGroupStage(session.id, 1, "e2e");
+    const switched = (await getMatches(backingId)).filter((m) => m.stage === "friendly");
+    check("an untouched session knockout can still be switched to a group stage", (await getBrackets(backingId)).length === 0);
+    check(
+      "…and the session gets its group fixtures",
+      switched.length === 6 && switched.every((m) => Boolean(m.group_id) && !m.bracket_id),
+      `${switched.length} matches`,
+    );
+    // With no bracket left, only the kind check can lock the draw here.
+    check(
+      "a session's group draw is locked from the tournament tools even with no bracket",
+      (await groupDrawLock(backingId)) === NOT_A_TOURNAMENT_MESSAGE,
+    );
+
+    // Knockout again; one semi-final played, the rest not yet. Then try to switch.
+    await generateSessionKnockout(session.id, "e2e");
+    const final = (await getMatches(backingId)).find(
+      (m) => m.stage === "friendly" && m.bracket_id && m.team_a_id && m.team_b_id,
+    )!;
+    await play(final, "A");
+    const ledgerCount = async () =>
+      (await db().from("player_score_ledger").select("id", { count: "exact", head: true }).eq("session_id", session.id)).count ?? 0;
+    const ledgerBefore = await ledgerCount();
+    check("session setup: the played knockout banked points", ledgerBefore > 0, String(ledgerBefore));
+    const unstarted = (await getMatches(backingId)).filter((m) => m.status === "scheduled").map((m) => m.id);
+    check("setup: the knockout also has matches not yet played", unstarted.length > 0, String(unstarted.length));
+    const ids = async (table: "groups" | "group_teams") =>
+      ((await db().from(table).select("id").eq("tournament_id", backingId!)).data ?? []).map((r) => r.id as string).sort().join(",");
+    const matchIdsBefore = (await getMatches(backingId)).map((m) => m.id).sort().join(",");
+    const bracketsBefore = (await getBrackets(backingId)).map((b) => b.id).join(",");
+    const groupsBefore = await ids("groups");
+    const groupTeamsBefore = await ids("group_teams");
+
+    let refusal = "";
+    try {
+      await generateSessionGroupStage(session.id, 1, "e2e");
+    } catch (e) {
+      refusal = e instanceof Error ? e.message : String(e);
+    }
+    check(
+      "a session knockout with a played match cannot be switched to groups",
+      refusal.includes("knockout has matches that were already played"),
+      refusal || "no refusal",
+    );
+    check(
+      "…and the refusal comes before anything is deleted",
+      (await getMatches(backingId)).map((m) => m.id).sort().join(",") === matchIdsBefore &&
+        (await getBrackets(backingId)).map((b) => b.id).join(",") === bracketsBefore &&
+        (await ids("groups")) === groupsBefore &&
+        (await ids("group_teams")) === groupTeamsBefore,
+    );
+    const stillThere = new Set((await getMatches(backingId)).map((m) => m.id));
+    check("…including the knockout matches not yet played", unstarted.every((id) => stillThere.has(id)));
+    check("…and the points it banked are still there", (await ledgerCount()) === ledgerBefore);
+
+    // The tournament tools refuse the backing row outright.
+    const resetSession = await resetTournamentLiveData(backingId, "e2e");
+    check(
+      "resetting live data is refused on a friendly session's backing tournament",
+      !resetSession.ok && resetSession.reason === "not_a_tournament",
+      resetSession.ok ? "went ahead" : resetSession.reason,
+    );
+    const regenSession = await regenerateGroupStage(backingId, "e2e");
+    check("regenerating the group stage from the tournament tools is refused there too", !regenSession.ok && regenSession.reason === "not_a_tournament");
+    check("…and so is changing the group draw", (await groupDrawLock(backingId)) === NOT_A_TOURNAMENT_MESSAGE);
+    const final2 = (await getMatches(backingId)).find((m) => m.id === final.id);
+    check(
+      "…leaving the session's played match and its points untouched",
+      final2?.status === "completed" && (await ledgerCount()) === ledgerBefore &&
+        (await getMatches(backingId)).map((m) => m.id).sort().join(",") === matchIdsBefore,
+    );
+  } finally {
+    if (backingId) await db().from("tournaments").delete().eq("id", backingId);
+    await db().from("player_profiles").delete().in("id", profileIds);
+    const { count: leftoverLedger } = await db()
+      .from("player_score_ledger")
+      .select("id", { count: "exact", head: true })
+      .in("player_profile_id", profileIds);
+    check("session cleanup removed its ledger rows", (leftoverLedger ?? 0) === 0, String(leftoverLedger));
+  }
 }
 
 async function main() {
@@ -320,6 +500,126 @@ async function main() {
     check("resetting the Plate removes only its matches", leftover.every((m) => m.bracket_id !== plateNow.id), `${matchesDeleted} deleted`);
     check("the Cup survives the Plate being reset", leftover.some((m) => m.bracket_id === cup2.id));
     check("the Plate's slots are gone with it", (await getBracketSlots(plateNow.id)).length === 0);
+
+    // ---------- regenerating the group stage under a drawn knockout ----------
+    // Both tiers exist again: the Cup published with a played match, the Plate a draft.
+    await generateBracket(tid, "e2e", "plate");
+    const before = await groupStageFingerprint(tid);
+    const beforeBrackets = await summarizeBrackets(tid);
+    check(
+      "setup: both tiers exist, the Cup with a played knockout match",
+      beforeBrackets.map((b) => b.tier).join(",") === "cup,plate" && beforeBrackets[0].played > 0,
+      beforeBrackets.map((b) => `${b.tier}:${b.status}:${b.played}/${b.matches}`).join(" "),
+    );
+
+    const refused = await regenerateGroupStage(tid, "e2e");
+    check(
+      "regenerating the group stage is refused while brackets exist",
+      !refused.ok && refused.reason === "brackets_exist",
+      refused.ok ? "went ahead" : refused.reason,
+    );
+    check(
+      "the refusal tells the organiser to reset the brackets first, naming both",
+      !refused.ok && refused.message.includes("Reset the brackets on the Bracket page first") && refused.message.includes("both brackets (Cup and Plate)"),
+      refused.ok ? "" : refused.message,
+    );
+    check("a refusal changes nothing", sameFingerprint(before, await groupStageFingerprint(tid)));
+
+    let backstopThrew = false;
+    try {
+      await generateGroupMatches(tid, "e2e");
+    } catch {
+      backstopThrew = true;
+    }
+    check("the low-level generator refuses too, for every other caller", backstopThrew);
+    check("…and that refusal changes nothing either", sameFingerprint(before, await groupStageFingerprint(tid)));
+
+    check("the group draw is locked while a bracket exists", Boolean(await groupDrawLock(tid)));
+
+    const stale = await regenerateGroupStage(tid, "e2e", { confirmBrackets: [beforeBrackets[0]] });
+    check(
+      "a confirmation that names only the Cup cannot delete the Plate",
+      !stale.ok && stale.reason === "brackets_changed",
+      stale.ok ? "went ahead" : stale.reason,
+    );
+    check("a stale confirmation changes nothing", sameFingerprint(before, await groupStageFingerprint(tid)));
+
+    // The organiser confirms while the Plate is an untouched draft; before the
+    // submit lands, someone publishes it. Same bracket ids, but it now owns
+    // matches — the confirmation described something that no longer exists.
+    const plateId = beforeBrackets.find((b) => b.tier === "plate")!.id;
+    await db().from("brackets").update({ status: "approved" }).eq("id", plateId);
+    await publishBracket(tid, "e2e", { courtStrategy: "parallel" });
+    const published = await summarizeBrackets(tid);
+    check(
+      "setup: the Plate is now published under the same id",
+      published.find((b) => b.id === plateId)?.status === "published" && (published.find((b) => b.id === plateId)?.matches ?? 0) > 0,
+    );
+    const afterPublish = await groupStageFingerprint(tid);
+    const outdated = await regenerateGroupStage(tid, "e2e", { confirmBrackets: beforeBrackets });
+    check(
+      "a confirmation given while the Plate was a draft cannot delete it once published",
+      !outdated.ok && outdated.reason === "brackets_changed",
+      outdated.ok ? "went ahead" : outdated.reason,
+    );
+    check("…and that refusal changes nothing", sameFingerprint(afterPublish, await groupStageFingerprint(tid)));
+
+    // Confirmed against the brackets exactly as they are now.
+    const current = await summarizeBrackets(tid);
+    const knockoutBefore = current.reduce((n, b) => n + b.matches, 0);
+    const replaced = await regenerateGroupStage(tid, "e2e", { confirmBrackets: current });
+    check(
+      "a confirmed regeneration deletes both brackets and their knockout matches",
+      replaced.ok && replaced.bracketsDeleted === 2 && replaced.knockoutMatchesDeleted === knockoutBefore,
+      replaced.ok ? `${replaced.bracketsDeleted} brackets, ${replaced.knockoutMatchesDeleted}/${knockoutBefore} matches` : replaced.reason,
+    );
+    const afterMatches = await getMatches(tid);
+    check("no bracket is left", (await getBrackets(tid)).length === 0);
+    check(
+      "no knockout match is left",
+      afterMatches.every((m) => m.stage === "group" && !m.bracket_id),
+      `${afterMatches.filter((m) => m.stage !== "group").length} knockout`,
+    );
+    check(
+      "the group stage is regenerated from scratch",
+      afterMatches.length === 24 &&
+        afterMatches.every((m) => m.status === "scheduled" && !m.winner_team_id) &&
+        afterMatches.every((m) => !afterPublish.groupMatchIds.includes(m.id)),
+      `${afterMatches.length} matches`,
+    );
+    const { count: oldSnapshots } = await db()
+      .from("match_score_snapshots")
+      .select("match_id", { count: "exact", head: true })
+      .in("match_id", [...afterPublish.groupMatchIds, ...afterPublish.knockoutMatchIds]);
+    check("the deleted matches' scores went with them", (oldSnapshots ?? 0) === 0, String(oldSnapshots));
+    const freshStandings = await getStandings(tid);
+    check(
+      "standings are recalculated, so no team still reads as qualified from deleted results",
+      freshStandings.length === 16 && freshStandings.every((st) => st.played === 0 && st.status === "pending"),
+      [...new Set(freshStandings.map((st) => `${st.status}/${st.played}`))].join(" "),
+    );
+    const { count: auditRows } = await db()
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("tournament_id", tid)
+      .eq("action", "BRACKETS_DELETED_FOR_GROUP_REGENERATION");
+    check("deleting the brackets is audited", (auditRows ?? 0) === 1, String(auditRows));
+    check("with no bracket left, the draw is unlocked", (await groupDrawLock(tid)) === null);
+    const again = await regenerateGroupStage(tid, "e2e");
+    check("with no bracket left, regenerating needs no confirmation", again.ok);
+
+    // ---------- the live-data reset still works on a real tournament ----------
+    const toPlay = (await getMatches(tid))[0];
+    await play(toPlay, "A");
+    const reset = await resetTournamentLiveData(tid, "e2e");
+    const afterReset = await getMatches(tid);
+    check(
+      "resetting a tournament's live data still works",
+      reset.ok && afterReset.every((m) => m.status === "scheduled" && !m.winner_team_id),
+      reset.ok ? `${afterReset.filter((m) => m.status !== "scheduled").length} not scheduled` : reset.reason,
+    );
+
+    await sessionGuards();
   } finally {
     await db().from("tournaments").delete().eq("id", tid);
     const { count: leftoverMatches } = await db()

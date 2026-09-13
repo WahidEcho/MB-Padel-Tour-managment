@@ -394,3 +394,110 @@ export function orderKnockoutMatches(
 
   return out;
 }
+
+/* ------------------------------------------------------------------ */
+/* Regenerating the group stage under a drawn knockout                 */
+/* ------------------------------------------------------------------ */
+
+/** One bracket as the organiser needs to see it before agreeing to delete it. */
+export interface BracketSummary {
+  id: string;
+  tier: BracketTier;
+  status: "draft" | "approved" | "published";
+  /** Knockout matches the bracket owns. */
+  matches: number;
+  /** Of those, how many have started or finished. */
+  played: number;
+}
+
+/** What the organiser was shown about one bracket when they agreed to delete it. */
+export type BracketFingerprint = Pick<BracketSummary, "id" | "status" | "matches" | "played">;
+
+export type GroupRegenerationPlan =
+  /** No bracket exists: the group stage is free to regenerate. */
+  | { kind: "proceed" }
+  /** Brackets exist and nobody has agreed to delete them. */
+  | { kind: "refuse" }
+  /** The organiser agreed to delete exactly the brackets that exist now, as they are now. */
+  | { kind: "replace"; bracketIds: string[] }
+  /**
+   * The organiser agreed to something else: a bracket was drawn, redrawn or reset
+   * since, or one they saw as an untouched draft has been published or played.
+   */
+  | { kind: "changed" };
+
+/** `id|status|matches|played`, the form field a confirmation posts per bracket. */
+export function encodeBracketFingerprint(b: BracketFingerprint): string {
+  return [b.id, b.status, b.matches, b.played].join("|");
+}
+
+export function decodeBracketFingerprint(value: string): BracketFingerprint | null {
+  const [id, status, matches, played] = value.split("|");
+  if (!id || !["draft", "approved", "published"].includes(status)) return null;
+  const m = Number(matches);
+  const p = Number(played);
+  if (!Number.isInteger(m) || !Number.isInteger(p) || m < 0 || p < 0) return null;
+  return { id, status: status as BracketFingerprint["status"], matches: m, played: p };
+}
+
+/**
+ * Whether regenerating the group stage may go ahead.
+ *
+ * Both tiers of the knockout are drawn from group standings, so regenerating the
+ * group stage while either exists would leave it seeded from results that no
+ * longer exist. The only ways through are no bracket at all, or an explicit
+ * confirmation that matches the brackets exactly as they are at the moment of
+ * writing — the same compare-before-write idea as a screen's revision. The ids
+ * alone are not enough: publishing a draft or playing a knockout match keeps its
+ * id, and a confirmation given when the organiser was told "0 played" must not
+ * delete matches played since.
+ */
+export function planGroupRegeneration(
+  current: BracketFingerprint[],
+  confirmed: BracketFingerprint[] | null | undefined,
+): GroupRegenerationPlan {
+  if (current.length === 0) {
+    // Confirming the deletion of brackets that are already gone is harmless: the
+    // organiser wanted a fresh group stage, and there is nothing left to lose.
+    return { kind: "proceed" };
+  }
+  const agreed = (confirmed ?? []).filter((b) => b && b.id);
+  if (agreed.length === 0) return { kind: "refuse" };
+  const byId = new Map(agreed.map((b) => [b.id, b]));
+  const same =
+    byId.size === agreed.length &&
+    byId.size === current.length &&
+    current.every((b) => {
+      const seen = byId.get(b.id);
+      return Boolean(seen) && seen!.status === b.status && seen!.matches === b.matches && seen!.played === b.played;
+    });
+  return same ? { kind: "replace", bracketIds: current.map((b) => b.id).sort() } : { kind: "changed" };
+}
+
+const TIER_NAME: Record<BracketTier, string> = { cup: "Cup", plate: "Plate" };
+
+/** "the Cup bracket", "both brackets (Cup and Plate)". */
+export function bracketsPhrase(brackets: { tier: BracketTier }[]): string {
+  const names = brackets.map((b) => TIER_NAME[b.tier]);
+  if (names.length === 0) return "no brackets";
+  if (names.length === 1) return `the ${names[0]} bracket`;
+  if (names.length === 2) return `both brackets (${names[0]} and ${names[1]})`;
+  return `all ${names.length} brackets (${names.join(", ")})`;
+}
+
+/** "Cup — published, 7 knockout matches, 2 played". */
+export function describeBracket(b: BracketSummary): string {
+  const played = b.played > 0 ? `, ${b.played} played` : "";
+  return `${TIER_NAME[b.tier]} — ${b.status}, ${b.matches} knockout match${b.matches === 1 ? "" : "es"}${played}`;
+}
+
+/** The refusal an organiser reads when a bracket blocks regenerating the group stage. */
+export function groupStageLockedMessage(brackets: { tier: BracketTier }[]): string {
+  const subject = bracketsPhrase(brackets);
+  const verb = brackets.length === 1 ? "was" : "were";
+  return (
+    `The knockout is drawn from these group results: ${subject} ${verb} seeded from the current standings. ` +
+    `Reset ${brackets.length === 1 ? "the bracket" : "the brackets"} on the Bracket page first, ` +
+    `or confirm deleting ${subject} to regenerate the group stage.`
+  );
+}

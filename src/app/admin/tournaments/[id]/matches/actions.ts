@@ -4,17 +4,16 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { generateGroupMatches } from "@/lib/ops";
+import { runGroupStageRegeneration, type GroupStageFormState } from "../groupStage";
 
 function path(id: string) {
   return `/admin/tournaments/${id}/matches`;
 }
 
-export async function regenerateMatches(formData: FormData) {
+export async function regenerateMatches(_prev: GroupStageFormState, formData: FormData): Promise<GroupStageFormState> {
   const role = await requirePermission("generate_matches");
   const tournamentId = String(formData.get("tournament_id"));
-  await generateGroupMatches(tournamentId, role);
-  revalidatePath(path(tournamentId));
+  return runGroupStageRegeneration(tournamentId, role, formData);
 }
 
 export async function updateMatchSchedule(formData: FormData) {
