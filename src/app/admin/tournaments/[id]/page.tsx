@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCourts, getGroups, getMatches, getTeams, getTournament } from "@/lib/data";
 import { resetTournamentData, setTournamentStatus, deleteTournament } from "../actions";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import SessionRowNotice from "./SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const tournament = await getTournament(id);
   if (!tournament) notFound();
+  if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Status, reset and deletion" />;
   const [teams, groups, matches, courts] = await Promise.all([
     getTeams(id),
     getGroups(id),

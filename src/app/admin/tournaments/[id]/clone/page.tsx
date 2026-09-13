@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getTournament } from "@/lib/data";
 import { cloneTournamentAction } from "../../actions";
+import SessionRowNotice from "../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export default async function ClonePage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const tournament = await getTournament(id);
   if (!tournament) notFound();
+  if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Clones" title="A friendly session cannot be cloned as a tournament." />;
 
   return (
     <div className="mx-auto max-w-lg space-y-4">

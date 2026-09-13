@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { getTeams, getTournament } from "@/lib/data";
 import TeamsClient from "./TeamsClient";
+import SessionRowNotice from "../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [teams, tournament] = await Promise.all([getTeams(id), getTournament(id)]);
+  if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Players and pairs" />;
   const isChess = tournament?.sport === "chess";
 
   return (

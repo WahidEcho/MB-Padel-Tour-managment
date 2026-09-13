@@ -14,6 +14,7 @@ import {
   validateMatchRules,
 } from "@/lib/scoring/rules";
 import { validatePodiumSettings } from "@/lib/bracket";
+import { entityRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 
 /** A representative stage for each rule bucket, so the bucket can be resolved. */
 const STAGE_FOR_KEY: Record<StageRuleKey, Stage> = {
@@ -36,6 +37,8 @@ export async function updateGeneral(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const lowerThird = String(formData.get("lower_third_text") ?? "").trim();
   if (!name) throw new Error("Name required");
+  // A session's hidden row is renamed with the session, never from here.
+  refuse(await tournamentRowRefusal(id));
   await db()
     .from("tournaments")
     .update({ name, lower_third_text: lowerThird, updated_at: new Date().toISOString() })
@@ -96,6 +99,10 @@ export async function updateScoring(
 ): Promise<ScoringFormState> {
   const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  // A session's match rules are set when it is created; its scoring and the
+  // ledger it feeds are not the tournament rules form's to change.
+  const refusal = await tournamentRowRefusal(id);
+  if (refusal) return { ok: false, problems: [refusal] };
   const t = await getTournament(id);
   if (!t) return { ok: false, problems: ["Tournament not found."] };
   const num = (key: string, fallback: number) =>
@@ -197,7 +204,10 @@ export async function removeCourt(formData: FormData) {
   await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
   const courtId = String(formData.get("court_id"));
-  await db().from("courts").delete().eq("id", courtId);
+  // A session's scheduler assigns rounds to its courts. Adding one is shared with
+  // sessions; removing one from here is not, and never another tournament's.
+  refuse(await entityRefusal(id, "courts", courtId));
+  await db().from("courts").delete().eq("id", courtId).eq("tournament_id", id);
   revalidatePath(settingsPath(id));
 }
 

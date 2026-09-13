@@ -25,6 +25,14 @@ const CHESS_TABS = [
   ["/settings", "Settings"],
 ] as const;
 
+// What a friendly session shares with the tournament tools: its walls, its
+// branding and courts, and releasing a dead tablet's scoring lock.
+const SESSION_TABS = [
+  ["/screens", "Screens"],
+  ["/settings", "Courts & branding"],
+  ["/matches", "Scoring locks"],
+] as const;
+
 export default async function TournamentLayout({
   children,
   params,
@@ -35,7 +43,11 @@ export default async function TournamentLayout({
   const { id } = await params;
   const tournament = await getTournament(id);
   if (!tournament) notFound();
-  const TABS = tournament.sport === "chess" ? CHESS_TABS : PADEL_TABS;
+  // A friendly session's hidden row shares only a few tools with the tournament
+  // pages. A layout cannot see which tab is open, so each other tab's page shows
+  // a notice too; this just stops offering them.
+  const isSessionRow = tournament.kind !== "tournament";
+  const TABS = isSessionRow ? SESSION_TABS : tournament.sport === "chess" ? CHESS_TABS : PADEL_TABS;
 
   return (
     <div className="space-y-4">
@@ -51,9 +63,11 @@ export default async function TournamentLayout({
           <a href={`/api/tournaments/${id}/export`} className="btn-secondary text-xs">
             ⬇ Export Excel
           </a>
-          <Link href={`/admin/tournaments/${id}/clone`} className="btn-secondary text-xs">
-            Clone
-          </Link>
+          {!isSessionRow && (
+            <Link href={`/admin/tournaments/${id}/clone`} className="btn-secondary text-xs">
+              Clone
+            </Link>
+          )}
           <Link href={`/t/${tournament.slug}`} target="_blank" className="btn-secondary text-xs">
             Public page ↗
           </Link>

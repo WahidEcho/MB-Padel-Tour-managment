@@ -4,6 +4,7 @@ import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { addCourt, removeCourt, updateGeneral } from "./actions";
 import BrandingForm from "./BrandingForm";
 import ScoringRulesForm from "./ScoringRulesForm";
+import SessionRowNotice from "../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,34 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
   const s = tournament.scoring_config;
   const f = tournament.format_config;
   const b = tournament.branding_config;
+
+  if (tournament.kind !== "tournament") {
+    // A session shares its wall's branding and its courts with these tools; its
+    // name, match rules and court removals are the session's own.
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="lg:col-span-2">
+          <SessionRowNotice tournamentId={id} tool="Name and match rules" />
+        </div>
+        <div className="card space-y-3">
+          <h2 className="font-bold">Courts ({courts.length}/20)</h2>
+          <ul className="space-y-1">
+            {courts.map((c) => (
+              <li key={c.id} className="rounded-lg bg-background px-3 py-1.5 text-sm font-semibold">
+                {c.court_name}
+              </li>
+            ))}
+          </ul>
+          <form action={addCourt} className="flex gap-2">
+            <input type="hidden" name="tournament_id" value={id} />
+            <input name="court_name" className="input" placeholder={`Court ${courts.length + 1}`} required />
+            <button className="btn-secondary whitespace-nowrap">Add court</button>
+          </form>
+        </div>
+        <BrandingForm tournamentId={id} branding={b} />
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">

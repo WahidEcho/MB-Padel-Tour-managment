@@ -47,6 +47,7 @@ import type {
 } from "./types";
 import { DEFAULT_SCORING_CONFIG } from "./types";
 import { ensureMainScreen } from "./screens";
+import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, tournamentRowRefusal } from "./rowGuards";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -168,8 +169,8 @@ export type GroupStageResult =
   /** A friendly session's hidden backing row; its format is changed from the session page. */
   | { ok: false; reason: "not_a_tournament"; message: string };
 
-export const NOT_A_TOURNAMENT_MESSAGE =
-  "This is a friendly session's hidden tournament. Change its format, schedule and results from the session's own page — the tournament tools would delete its players' points.";
+// Defined with the other admin-tool refusals; re-exported for existing importers.
+export { NOT_A_TOURNAMENT_MESSAGE };
 
 /**
  * Regenerates a tournament's group stage from the tournament admin pages.
@@ -258,6 +259,60 @@ export async function groupDrawLock(tournamentId: string): Promise<string | null
   if (tournament.kind !== "tournament") return NOT_A_TOURNAMENT_MESSAGE;
   const brackets = await getBrackets(tournamentId);
   return brackets.length > 0 ? groupStageLockedMessage(brackets) : null;
+}
+
+export type AdminOpResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Deletes a tournament and, through the database's cascades, everything in it.
+ *
+ * Tournaments only. `friendly_sessions.tournament_id` cascades, so deleting a
+ * session's hidden row from the tournament tools would delete the whole session —
+ * its entries, pairs, matches and the points its players earned.
+ */
+export async function deleteTournamentRow(tournamentId: string, actorRole: string): Promise<AdminOpResult> {
+  const refusal = await tournamentRowRefusal(tournamentId);
+  if (refusal) return { ok: false, message: refusal };
+  const { data: t } = await db().from("tournaments").select("name, is_demo").eq("id", tournamentId).single();
+  const { error } = await db().from("tournaments").delete().eq("id", tournamentId).eq("kind", "tournament");
+  if (error) return { ok: false, message: error.message };
+  await audit({
+    actor_role: actorRole,
+    action: "TOURNAMENT_DELETED",
+    entity_type: "tournament",
+    entity_id: tournamentId,
+    old_value: t,
+  });
+  return { ok: true };
+}
+
+/**
+ * Deletes a manually created match of a tournament.
+ *
+ * Refuses a session's row, a match of a different tournament than the one named,
+ * and a match that belongs to a bracket: `bracket_slots.match_id` is ON DELETE SET
+ * NULL, so deleting one leaves the draw looking intact while advancement is
+ * silently dead. Resetting that tier is the supported way.
+ */
+export async function deleteManualMatch(tournamentId: string, matchId: string, actorRole: string): Promise<AdminOpResult> {
+  const refusal = (await tournamentRowRefusal(tournamentId)) ?? (await ownershipRefusal(tournamentId, "matches", matchId));
+  if (refusal) return { ok: false, message: refusal };
+
+  const [{ data: match }, { count: slotRefs }] = await Promise.all([
+    db().from("matches").select("bracket_id").eq("id", matchId).maybeSingle(),
+    db().from("bracket_slots").select("id", { count: "exact", head: true }).eq("match_id", matchId),
+  ]);
+  if ((match as { bracket_id: string | null } | null)?.bracket_id || (slotRefs ?? 0) > 0) {
+    return {
+      ok: false,
+      message: "That match is part of a knockout bracket. Deleting it would break advancement — reset that bracket instead.",
+    };
+  }
+
+  const { error } = await db().from("matches").delete().eq("id", matchId).eq("tournament_id", tournamentId);
+  if (error) return { ok: false, message: error.message };
+  await audit({ tournament_id: tournamentId, actor_role: actorRole, action: "MATCH_DELETED", entity_type: "match", entity_id: matchId });
+  return { ok: true };
 }
 
 /**
@@ -547,11 +602,27 @@ export type BracketOpResult =
   | { ok: true; message: string }
   | {
       ok: false;
-      reason: "played" | "changed" | "published" | "not_found";
+      reason: "played" | "changed" | "published" | "not_found" | "not_a_tournament";
       message: string;
     };
 
 const TIER_TITLE: Record<BracketTier, string> = { cup: "Cup", plate: "Plate" };
+
+/**
+ * The Bracket page's tools are tournament-only. A friendly session's knockout is
+ * drawn and redrawn from the session page, which checks for played matches with
+ * the session's own rules; from here a reset would delete its played matches and
+ * the points they banked.
+ */
+async function bracketToolRefusal(tournamentId: string): Promise<BracketOpResult | null> {
+  const refusal = await tournamentRowRefusal(tournamentId);
+  if (!refusal) return null;
+  return {
+    ok: false,
+    reason: refusal === NOT_A_TOURNAMENT_MESSAGE ? "not_a_tournament" : "not_found",
+    message: refusal,
+  };
+}
 
 function changedMessage(tier: BracketTier): string {
   return `The ${TIER_TITLE[tier]} changed since this page was loaded — it was redrawn, published, or a match was played. Nothing was deleted. Check it and confirm again.`;
@@ -571,6 +642,8 @@ export async function redrawBracket(
   tier: BracketTier,
   opts: { confirm?: BracketFingerprint | null } = {},
 ): Promise<BracketOpResult> {
+  const refused = await bracketToolRefusal(tournamentId);
+  if (refused) return refused;
   const tournament = await getTournament(tournamentId);
   if (!tournament) return { ok: false, reason: "not_found", message: "Tournament not found." };
   // Chess has no group stage, so no Plate: its one knockout is always the Cup.
@@ -611,6 +684,10 @@ export async function resetBracketTier(
   tier: BracketTier,
   opts: { confirm?: BracketFingerprint | null } = {},
 ): Promise<BracketOpResult> {
+  // Refused before the confirmation is even read: on a session's row no
+  // confirmation makes a reset from here acceptable.
+  const refused = await bracketToolRefusal(tournamentId);
+  if (refused) return refused;
   const current = (await summarizeBrackets(tournamentId)).find((b) => b.tier === tier) ?? null;
   const plan = planBracketTeardown(current, opts.confirm);
   if (plan.kind === "none") {
@@ -642,6 +719,8 @@ export async function resetBracketTier(
  * new, so an approved-again bracket would get a second set of matches.
  */
 export async function approveBracket(tournamentId: string, actorRole: string, tier: BracketTier): Promise<BracketOpResult> {
+  const refused = await bracketToolRefusal(tournamentId);
+  if (refused) return refused;
   const bracket = await getBracket(tournamentId, tier);
   if (!bracket) return { ok: false, reason: "not_found", message: `There is no ${TIER_TITLE[tier]} bracket to approve.` };
   if (bracket.status === "published") {

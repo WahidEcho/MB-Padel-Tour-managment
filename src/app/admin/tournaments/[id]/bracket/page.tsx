@@ -18,6 +18,7 @@ import {
 } from "@/lib/bracket";
 import { summarizeBrackets } from "@/lib/ops";
 import BracketActionForm from "./BracketActionForm";
+import SessionRowNotice from "../SessionRowNotice";
 import BracketView, { orderedRounds } from "@/components/BracketView";
 import BracketSlotsEditor from "@/components/BracketSlotsEditor";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
@@ -38,6 +39,9 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
     getTournament(id),
     summarizeBrackets(id),
   ]);
+  // A session's knockout is drawn, redrawn and published from the session page,
+  // whose rules protect played matches and the points they banked.
+  if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Knockout brackets" />;
   const tm = teamMap(teams);
   const matchMap = new Map(matches.map((m) => [m.id, m]));
   const isChess = tournament?.sport === "chess";

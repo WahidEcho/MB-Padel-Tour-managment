@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getGroups, getGroupTeams, getMatches, getTeams, getTournament } from "@/lib/data";
 import { bracketsPhrase } from "@/lib/bracket";
-import { NOT_A_TOURNAMENT_MESSAGE, summarizeBrackets } from "@/lib/ops";
+import { summarizeBrackets } from "@/lib/ops";
+import SessionRowNotice from "../SessionRowNotice";
 import { createGroups } from "./actions";
 import GroupsClient from "./GroupsClient";
 
@@ -19,10 +20,10 @@ export default async function GroupsPage({ params }: { params: Promise<{ id: str
     summarizeBrackets(id),
   ]);
   if (!tournament) notFound();
-  // A friendly session's hidden tournament: its groups belong to the session's own
-  // format tools, and its knockout is seeded from pairs, not from these groups.
-  const isSession = tournament.kind !== "tournament";
-  const locked = isSession || brackets.length > 0;
+  // A friendly session's groups belong to the session's own format tools, and its
+  // knockout is seeded from pairs, not from these groups.
+  if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Groups" />;
+  const locked = brackets.length > 0;
   const groupMatchCount = matches.filter((m) => m.stage === "group").length;
   const finishedCount = matches.filter(
     (m) => m.stage === "group" && !["scheduled", "ready"].includes(m.status)
@@ -30,15 +31,7 @@ export default async function GroupsPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="space-y-4">
-      {isSession ? (
-        <div className="card space-y-1 border-warning/50" data-testid="group-draw-session">
-          <p className="font-semibold">Groups are managed from the session.</p>
-          <p className="text-sm text-muted">
-            {NOT_A_TOURNAMENT_MESSAGE}{" "}
-            <Link href="/admin/friendly-sessions" className="font-semibold text-accent">Friendly sessions</Link>
-          </p>
-        </div>
-      ) : locked ? (
+      {locked ? (
         // Recreating groups deletes their standings through the database's cascade,
         // so the draw stays fixed while a knockout seeded from it exists.
         <div className="card space-y-1 border-warning/50" data-testid="group-draw-locked">
@@ -105,13 +98,9 @@ export default async function GroupsPage({ params }: { params: Promise<{ id: str
           hasMatches={groupMatchCount > 0}
           brackets={brackets}
           lockedReason={
-            isSession
-              ? "The draw belongs to the friendly session and is changed from the session's page."
-              : locked
-                ? "The draw is locked while a knockout bracket exists, because the bracket was seeded from these groups."
-                : null
+            locked ? "The draw is locked while a knockout bracket exists, because the bracket was seeded from these groups." : null
           }
-          canRegenerate={!isSession}
+          canRegenerate
         />
       )}
     </div>

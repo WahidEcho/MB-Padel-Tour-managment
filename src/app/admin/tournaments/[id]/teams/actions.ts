@@ -7,6 +7,7 @@ import { audit } from "@/lib/audit";
 import { recalcStandings } from "@/lib/ops";
 import { getTournament } from "@/lib/data";
 import { DEFAULT_FOCAL } from "@/lib/portrait";
+import { entityRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 
 function teamsPath(tournamentId: string) {
   return `/admin/tournaments/${tournamentId}/teams`;
@@ -36,6 +37,8 @@ function photoPatch(formData: FormData, prefix: string) {
 export async function addTeam(formData: FormData) {
   const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  // A session's pairs are its teams; they are built from its players, not typed here.
+  refuse(await tournamentRowRefusal(tournamentId));
   const tournament = await getTournament(tournamentId);
   const isChess = tournament?.sport === "chess";
 
@@ -121,6 +124,7 @@ export async function updateTeam(formData: FormData) {
   const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
   const teamId = String(formData.get("team_id"));
+  refuse(await entityRefusal(tournamentId, "teams", teamId));
   const tournament = await getTournament(tournamentId);
   const isChess = tournament?.sport === "chess";
 
@@ -195,8 +199,10 @@ export async function deleteTeam(formData: FormData) {
   const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
   const teamId = String(formData.get("team_id"));
+  // A session's pair team carries its matches and, through them, its points.
+  refuse(await entityRefusal(tournamentId, "teams", teamId));
   const { data: team } = await db().from("teams").select("team_name").eq("id", teamId).single();
-  await db().from("teams").delete().eq("id", teamId);
+  await db().from("teams").delete().eq("id", teamId).eq("tournament_id", tournamentId);
   await audit({
     tournament_id: tournamentId,
     actor_role: role,
@@ -216,6 +222,7 @@ export async function setCheckIn(formData: FormData) {
   if (!["not_arrived", "checked_in", "no_show", "disqualified"].includes(status)) {
     throw new Error("Bad status");
   }
+  refuse(await entityRefusal(tournamentId, "teams", teamId));
   const { data: team } = await db().from("teams").select("check_in_status").eq("id", teamId).single();
   await db()
     .from("teams")
@@ -238,6 +245,7 @@ export async function setTeamStatus(formData: FormData) {
   const teamId = String(formData.get("team_id"));
   const status = String(formData.get("status"));
   if (!["active", "disqualified", "withdrawn"].includes(status)) throw new Error("Bad status");
+  refuse(await entityRefusal(tournamentId, "teams", teamId));
   await db()
     .from("teams")
     .update({
@@ -269,6 +277,7 @@ export interface ImportRow {
 
 export async function importTeams(tournamentId: string, rows: ImportRow[]) {
   const role = await requirePermission("manage_teams");
+  refuse(await tournamentRowRefusal(tournamentId));
   let imported = 0;
   for (const row of rows) {
     if (!row.team_name || !row.player_1_name || !row.player_2_name) continue;

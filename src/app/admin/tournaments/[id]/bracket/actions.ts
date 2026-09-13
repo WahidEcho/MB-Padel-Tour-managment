@@ -8,6 +8,7 @@ import { approveBracket, publishBracket, redrawBracket, resetBracketTier, type B
 import { getBracket, getBrackets, getBracketSlots } from "@/lib/data";
 import type { BracketTier } from "@/lib/types";
 import { bracketStamp, decodeBracketFingerprint, type CourtStrategy } from "@/lib/bracket";
+import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 
 /**
  * What a Bracket page form shows after a submit. Returned, never thrown: a thrown
@@ -70,6 +71,7 @@ export async function generateAction(_prev: BracketFormState, formData: FormData
 export async function saveSlots(formData: FormData) {
   const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
+  refuse(await tournamentRowRefusal(id));
   const bracket = await getBracket(id, tierFrom(formData));
   if (!bracket || bracket.status === "published") throw new Error("Bracket not editable");
 
@@ -90,6 +92,10 @@ export async function saveSlots(formData: FormData) {
       updates.push({ slotId: slot.id, teamId: value, isBye: false });
     }
   }
+  // The slots come from this bracket; the teams placed in them are posted, so they
+  // must be checked to be this tournament's.
+  const placed = updates.map((u) => u.teamId).filter((t): t is string => Boolean(t));
+  if (placed.length > 0) refuse(await ownershipRefusal(id, "teams", placed));
   for (const u of updates) {
     await db()
       .from("bracket_slots")
@@ -121,6 +127,12 @@ export async function publishAction(_prev: BracketFormState, formData: FormData)
     ? "sequential"
     : "parallel") as CourtStrategy;
   return asFormState(id, "all", async () => {
+    // publishBracket itself is shared with the session code, which publishes a
+    // session's knockout; publishing from this page is tournament-only.
+    const refusal = await tournamentRowRefusal(id);
+    if (refusal) {
+      return { ok: false, reason: refusal === NOT_A_TOURNAMENT_MESSAGE ? "not_a_tournament" : "not_found", message: refusal };
+    }
     await publishBracket(id, role, { courtStrategy: strategy });
     return { ok: true, message: "Published. The knockout matches are on the Matches page." };
   });

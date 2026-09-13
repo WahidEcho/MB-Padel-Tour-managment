@@ -17,6 +17,8 @@ import {
   approveBracket,
   assertTeardownAllowed,
   deleteBracketCascade,
+  deleteManualMatch,
+  deleteTournamentRow,
   finalizeMatch,
   generateBracket,
   generateGroupMatches,
@@ -40,6 +42,7 @@ import {
   setFixedPairs,
 } from "../../src/lib/friendly/ops";
 import { getTournament } from "../../src/lib/data";
+import { entityRefusal, ownershipRefusal, tournamentRowRefusal } from "../../src/lib/rowGuards";
 import { getBrackets, getBracketSlots, getMatches, getStandings, getTeams } from "../../src/lib/data";
 import { podiumFromMatches } from "../../src/components/WinnerDisplay";
 import { DEFAULT_SCORING_CONFIG, type Match, type Team } from "../../src/lib/types";
@@ -155,7 +158,7 @@ async function chessRedrawGuard() {
  * not dead-end a session switching from knockout to groups, must never delete a
  * played session match, and the tournament tools must refuse that row.
  */
-async function sessionGuards() {
+async function sessionGuards(tid: string) {
   const suffix = Date.now();
   const { data: profiles, error } = await db()
     .from("player_profiles")
@@ -262,6 +265,59 @@ async function sessionGuards() {
     const regenSession = await regenerateGroupStage(backingId, "e2e");
     check("regenerating the group stage from the tournament tools is refused there too", !regenSession.ok && regenSession.reason === "not_a_tournament");
     check("…and so is changing the group draw", (await groupDrawLock(backingId)) === NOT_A_TOURNAMENT_MESSAGE);
+
+    // ---------- every other tournament tool refuses the row ----------
+    check("the row guard names a session's row", (await tournamentRowRefusal(backingId)) === NOT_A_TOURNAMENT_MESSAGE);
+    check("…and lets a real tournament through", (await tournamentRowRefusal(tid)) === null);
+
+    const deletedSession = await deleteTournamentRow(backingId, "e2e");
+    const { count: sessionRows } = await db().from("friendly_sessions").select("id", { count: "exact", head: true }).eq("id", session.id);
+    check(
+      "deleting the tournament is refused on a session's row, so the session survives",
+      !deletedSession.ok && deletedSession.message === NOT_A_TOURNAMENT_MESSAGE && sessionRows === 1 && Boolean(await getTournament(backingId)),
+    );
+
+    const current = (await summarizeBrackets(backingId)).find((b) => b.tier === "cup")!;
+    const bracketRedraw = await redrawBracket(backingId, "e2e", "cup");
+    const bracketReset = await resetBracketTier(backingId, "e2e", "cup", { confirm: current });
+    const bracketApprove = await approveBracket(backingId, "e2e", "cup");
+    check(
+      "the Bracket page's redraw, reset and approve refuse a session's row — even a reset confirmed with the played count",
+      [bracketRedraw, bracketReset, bracketApprove].every((r) => !r.ok && r.reason === "not_a_tournament"),
+      [bracketRedraw, bracketReset, bracketApprove].map((r) => (r.ok ? "ok" : r.reason)).join(", "),
+    );
+
+    const deleteSessionMatch = await deleteManualMatch(backingId, unstarted[0], "e2e");
+    check("deleting a session's match from the Matches page is refused", !deleteSessionMatch.ok && deleteSessionMatch.message === NOT_A_TOURNAMENT_MESSAGE);
+
+    // A forged request: a real tournament's id with the session's match or team.
+    const sessionTeam = final.team_a_id!;
+    const forgedMatch = await deleteManualMatch(tid, unstarted[0], "e2e");
+    check(
+      "naming a real tournament does not unlock a session's match",
+      !forgedMatch.ok && forgedMatch.message.includes("belongs to a different tournament"),
+      forgedMatch.ok ? "deleted" : forgedMatch.message,
+    );
+    check(
+      "…nor a session's team",
+      (await entityRefusal(tid, "teams", sessionTeam))?.includes("belongs to a different tournament") === true,
+    );
+    const sessionCourt = ((await db().from("courts").select("id").eq("tournament_id", backingId).limit(1)).data ?? [])[0]?.id as string;
+    const sessionPlacement = ((await db().from("group_teams").select("id").eq("tournament_id", backingId).limit(1)).data ?? [])[0]?.id as string;
+    check(
+      "team, court and group-placement tools refuse a session's row",
+      (await entityRefusal(backingId, "teams", sessionTeam)) === NOT_A_TOURNAMENT_MESSAGE &&
+        (await entityRefusal(backingId, "courts", sessionCourt)) === NOT_A_TOURNAMENT_MESSAGE &&
+        (!sessionPlacement || (await entityRefusal(backingId, "group_teams", sessionPlacement)) === NOT_A_TOURNAMENT_MESSAGE),
+    );
+    check(
+      "the shared scoring-lock release still works on a session's own match",
+      (await ownershipRefusal(backingId, "matches", final.id)) === null,
+    );
+    const ownTeam = (await getTeams(tid))[0];
+    check("a real tournament's own team passes the guard", (await entityRefusal(tid, "teams", ownTeam.id)) === null);
+    check("a row that does not exist is refused, not ignored", (await entityRefusal(tid, "teams", "00000000-0000-0000-0000-000000000000")) !== null);
+
     const final2 = (await getMatches(backingId)).find((m) => m.id === final.id);
     check(
       "…leaving the session's played match and its points untouched",
@@ -811,7 +867,27 @@ async function main() {
       reset.ok ? `${afterReset.filter((m) => m.status !== "scheduled").length} not scheduled` : reset.reason,
     );
 
-    await sessionGuards();
+    await sessionGuards(tid);
+
+    // ---------- the guarded tools still work on a real tournament ----------
+    const [teamX, teamY] = await getTeams(tid);
+    const { data: manual } = await db()
+      .from("matches")
+      .insert({ tournament_id: tid, stage: "knockout", round_name: "Manual match", match_order: 9999, team_a_id: teamX.id, team_b_id: teamY.id, status: "scheduled" })
+      .select("id")
+      .single();
+    const deletedManual = await deleteManualMatch(tid, manual!.id, "e2e");
+    check(
+      "a real tournament's manual match can still be deleted",
+      deletedManual.ok && !(await getMatches(tid)).some((m) => m.id === manual!.id),
+    );
+    const { data: throwaway } = await db()
+      .from("tournaments")
+      .insert({ name: "E2E throwaway", slug: `e2e-throwaway-${Date.now()}`, sport: "padel", status: "draft", is_demo: true })
+      .select("id")
+      .single();
+    const deletedThrowaway = await deleteTournamentRow(throwaway!.id, "e2e");
+    check("a real tournament can still be deleted", deletedThrowaway.ok && !(await getTournament(throwaway!.id)));
   } finally {
     await db().from("tournaments").delete().eq("id", tid);
     const { count: leftoverMatches } = await db()

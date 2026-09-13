@@ -7,6 +7,7 @@ import { audit } from "@/lib/audit";
 import { generateDraw, generateDrawOptions, groupName, type DrawOption } from "@/lib/draws";
 import { getGroups, getGroupTeams, getTeams } from "@/lib/data";
 import { groupDrawLock } from "@/lib/ops";
+import { entityRefusal, ownershipRefusal, refuse } from "@/lib/rowGuards";
 import { runGroupStageRegeneration, type GroupStageFormState } from "../groupStage";
 
 function path(id: string) {
@@ -85,6 +86,12 @@ export async function saveAssignment(
   if (lock) return { ok: false, message: lock };
   const [groups, existing] = await Promise.all([getGroups(tournamentId), getGroupTeams(tournamentId)]);
   if (assignment.length !== groups.length) throw new Error("Assignment shape mismatch");
+  // Every team placed must be one of this tournament's.
+  const placed = assignment.flat();
+  if (placed.length > 0) {
+    const notOurs = await ownershipRefusal(tournamentId, "teams", placed);
+    if (notOurs) return { ok: false, message: notOurs };
+  }
   const lockedTeams = new Set(existing.filter((gt) => gt.is_locked).map((gt) => gt.team_id));
 
   await db().from("group_teams").delete().eq("tournament_id", tournamentId);
@@ -110,9 +117,10 @@ export async function toggleLock(formData: FormData) {
   await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
   const groupTeamId = String(formData.get("group_team_id"));
+  refuse(await entityRefusal(tournamentId, "group_teams", groupTeamId));
   const { data: gt } = await db().from("group_teams").select("is_locked").eq("id", groupTeamId).single();
   if (gt) {
-    await db().from("group_teams").update({ is_locked: !gt.is_locked }).eq("id", groupTeamId);
+    await db().from("group_teams").update({ is_locked: !gt.is_locked }).eq("id", groupTeamId).eq("tournament_id", tournamentId);
   }
   revalidatePath(path(tournamentId));
 }
