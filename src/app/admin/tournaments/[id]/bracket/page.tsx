@@ -8,10 +8,18 @@ import {
   getTournament,
   teamMap,
 } from "@/lib/data";
-import { podiumDepthFor, tierSizes } from "@/lib/bracket";
+import {
+  bracketStamp,
+  encodeBracketFingerprint,
+  podiumDepthFor,
+  teardownConfirmMessage,
+  tierSizes,
+  type BracketSummary,
+} from "@/lib/bracket";
+import { summarizeBrackets } from "@/lib/ops";
+import BracketActionForm from "./BracketActionForm";
 import BracketView, { orderedRounds } from "@/components/BracketView";
 import BracketSlotsEditor from "@/components/BracketSlotsEditor";
-import ConfirmSubmit from "@/components/ConfirmSubmit";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
 import type { Bracket, BracketTier, Match, Team } from "@/lib/types";
 import { approveAction, generateAction, publishAction, resetBracket, saveSlots } from "./actions";
@@ -22,12 +30,13 @@ const TIER_LABEL: Record<BracketTier, string> = { cup: "Cup", plate: "Plate" };
 
 export default async function BracketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [brackets, teams, standings, matches, tournament] = await Promise.all([
+  const [brackets, teams, standings, matches, tournament, summaries] = await Promise.all([
     getBrackets(id),
     getTeams(id),
     getStandings(id),
     getMatches(id),
     getTournament(id),
+    summarizeBrackets(id),
   ]);
   const tm = teamMap(teams);
   const matchMap = new Map(matches.map((m) => [m.id, m]));
@@ -62,9 +71,18 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
           )}
         </div>
 
-        {anyPublishable && (
-          <form action={publishAction} className="card space-y-2 p-3">
-            <input type="hidden" name="tournament_id" value={id} />
+        {anyDrawn && (
+          <div className={anyPublishable ? "card p-3" : ""}>
+          <BracketActionForm
+            hidden={!anyPublishable}
+            stamp={bracketStamp(brackets, "all")}
+            action={publishAction}
+            fields={{ tournament_id: id }}
+            label="Publish + create matches"
+            className="btn-primary text-xs"
+            confirmMessage="Publish every approved bracket and create its matches? Lucky teams (byes) advance automatically."
+            testId="publish-knockout"
+          >
             <p className="label">Publish knockout</p>
             {tiers.length > 1 ? (
               <>
@@ -86,13 +104,8 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
             ) : (
               <input type="hidden" name="court_strategy" value="parallel" />
             )}
-            <ConfirmSubmit
-              className="btn-primary text-xs"
-              message="Publish every approved bracket and create its matches? Lucky teams (byes) advance automatically."
-            >
-              Publish + create matches
-            </ConfirmSubmit>
-          </form>
+          </BracketActionForm>
+          </div>
         )}
       </div>
 
@@ -104,6 +117,9 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
             tournamentId={id}
             tier={tier}
             bracket={bracket}
+            stamp={bracketStamp(brackets, tier)}
+            summary={bracket ? (summaries.find((b) => b.id === bracket.id) ?? null) : null}
+            otherTierDrawn={brackets.some((b) => b.tier !== tier)}
             slots={bracket ? (slotsByBracket.get(bracket.id) ?? []) : []}
             teams={teams}
             tm={tm}
@@ -136,6 +152,9 @@ function TierSection({
   tournamentId,
   tier,
   bracket,
+  stamp,
+  summary,
+  otherTierDrawn,
   slots,
   teams,
   tm,
@@ -149,6 +168,11 @@ function TierSection({
   tournamentId: string;
   tier: BracketTier;
   bracket: Bracket | null;
+  /** This tier's bracket state, which a result message must match to stay visible. */
+  stamp: string;
+  /** Its knockout matches and how many have been played, for the Redraw and Reset confirmations. */
+  summary: BracketSummary | null;
+  otherTierDrawn: boolean;
   slots: Awaited<ReturnType<typeof getBracketSlots>>;
   teams: Team[];
   tm: Map<string, Team>;
@@ -183,42 +207,55 @@ function TierSection({
             </span>
           )}
         </h3>
-        <div className="flex flex-wrap gap-2">
-          <form action={generateAction}>
-            <input type="hidden" name="tournament_id" value={tournamentId} />
-            <input type="hidden" name="tier" value={tier} />
-            <ConfirmSubmit
-              className="btn-secondary text-xs"
-              message={
-                bracket
-                  ? `Redraw the ${TIER_LABEL[tier]}? Its matches are deleted. The other bracket is untouched.`
-                  : isChess
-                    ? "Generate the knockout from the player list (seeded by seed number)?"
-                    : `Draw the ${TIER_LABEL[tier]} from current group standings?`
-              }
-            >
-              {bracket ? `Redraw ${showLabel ? TIER_LABEL[tier] : "bracket"}` : `Draw ${showLabel ? TIER_LABEL[tier] : "bracket"}`}
-            </ConfirmSubmit>
-          </form>
-          {bracket?.status === "draft" && (
-            <form action={approveAction}>
-              <input type="hidden" name="tournament_id" value={tournamentId} />
-              <input type="hidden" name="tier" value={tier} />
-              <button className="btn-secondary text-xs">Approve</button>
-            </form>
-          )}
-          {bracket && (
-            <form action={resetBracket}>
-              <input type="hidden" name="tournament_id" value={tournamentId} />
-              <input type="hidden" name="tier" value={tier} />
-              <ConfirmSubmit
-                className="btn-secondary text-xs text-danger"
-                message={`Delete the ${TIER_LABEL[tier]} and its knockout matches? The other bracket is untouched.`}
-              >
-                Reset
-              </ConfirmSubmit>
-            </form>
-          )}
+        <div className="flex flex-wrap items-start gap-2">
+          <BracketActionForm
+            stamp={stamp}
+            action={generateAction}
+            fields={{
+              tournament_id: tournamentId,
+              tier,
+              // The bracket as this page shows it. If a match is played before the
+              // click lands, the server refuses rather than delete it.
+              ...(summary ? { confirm_bracket: encodeBracketFingerprint(summary) } : {}),
+            }}
+            label={
+              bracket
+                ? `Redraw ${showLabel ? TIER_LABEL[tier] : "bracket"}${summary && summary.played > 0 ? ` (deletes ${summary.played} played)` : ""}`
+                : `Draw ${showLabel ? TIER_LABEL[tier] : "bracket"}`
+            }
+            className={`btn-secondary text-xs ${summary && summary.played > 0 ? "text-danger" : ""}`}
+            confirmMessage={
+              summary
+                ? teardownConfirmMessage("redraw", summary, { otherTierDrawn })
+                : isChess
+                  ? "Generate the knockout from the player list (seeded by seed number)?"
+                  : `Draw the ${TIER_LABEL[tier]} from current group standings?`
+            }
+            testId={`redraw-${tier}`}
+          />
+          <BracketActionForm
+            stamp={stamp}
+            hidden={bracket?.status !== "draft"}
+            action={approveAction}
+            fields={{ tournament_id: tournamentId, tier }}
+            label="Approve"
+            className="btn-secondary text-xs"
+            testId={`approve-${tier}`}
+          />
+          <BracketActionForm
+            stamp={stamp}
+            hidden={!bracket || !summary}
+            action={resetBracket}
+            fields={{
+              tournament_id: tournamentId,
+              tier,
+              ...(summary ? { confirm_bracket: encodeBracketFingerprint(summary) } : {}),
+            }}
+            label={summary && summary.played > 0 ? `Reset (deletes ${summary.played} played)` : "Reset"}
+            className="btn-secondary text-xs text-danger"
+            confirmMessage={summary ? teardownConfirmMessage("reset", summary, { otherTierDrawn }) : null}
+            testId={`reset-${tier}`}
+          />
         </div>
       </div>
 

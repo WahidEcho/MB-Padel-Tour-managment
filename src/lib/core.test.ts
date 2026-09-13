@@ -13,6 +13,10 @@ import {
   tierSizes,
   validatePodiumSettings,
   planGroupRegeneration,
+  planBracketTeardown,
+  bracketStamp,
+  teardownConfirmMessage,
+  playedRefusalMessage,
   encodeBracketFingerprint,
   decodeBracketFingerprint,
   bracketsPhrase,
@@ -425,5 +429,65 @@ describe("regenerating the group stage under a drawn knockout", () => {
     expect(msg).toContain("Reset the brackets on the Bracket page first");
     expect(msg).toContain("both brackets (Cup and Plate)");
     expect(groupStageLockedMessage([cup])).toContain("Reset the bracket on the Bracket page first");
+  });
+});
+
+describe("redrawing or resetting one bracket", () => {
+  const untouched = { id: "cup-1", tier: "cup" as const, status: "published" as const, matches: 7, played: 0 };
+  const played = { ...untouched, played: 2 };
+
+  it("has nothing to tear down when the tier was never drawn", () => {
+    expect(planBracketTeardown(null, null)).toEqual({ kind: "none" });
+    expect(planBracketTeardown(null, untouched)).toEqual({ kind: "none" });
+  });
+
+  it("goes ahead on an untouched bracket, deleting no played match", () => {
+    expect(planBracketTeardown(untouched, null)).toEqual({ kind: "proceed", allowPlayed: 0 });
+    expect(planBracketTeardown(untouched, untouched)).toEqual({ kind: "proceed", allowPlayed: 0 });
+  });
+
+  it("refuses to delete played matches without a confirmation", () => {
+    expect(planBracketTeardown(played, null)).toEqual({ kind: "refuse_played" });
+  });
+
+  it("goes ahead when the confirmation names exactly the matches played now", () => {
+    expect(planBracketTeardown(played, played)).toEqual({ kind: "proceed", allowPlayed: 2 });
+  });
+
+  it("refuses a confirmation given before another match was played", () => {
+    expect(planBracketTeardown({ ...played, played: 3 }, played)).toEqual({ kind: "changed" });
+    expect(planBracketTeardown(played, untouched)).toEqual({ kind: "changed" });
+  });
+
+  it("refuses a confirmation for a bracket that was redrawn, or published, since", () => {
+    expect(planBracketTeardown({ ...untouched, id: "cup-2" }, untouched)).toEqual({ kind: "changed" });
+    const draft = { ...untouched, status: "draft" as const, matches: 0 };
+    expect(planBracketTeardown(untouched, draft)).toEqual({ kind: "changed" });
+  });
+
+  it("refuses when only the status, or only the match count, differs from the confirmation", () => {
+    expect(planBracketTeardown({ ...played, status: "approved" }, played)).toEqual({ kind: "changed" });
+    expect(planBracketTeardown({ ...played, matches: 8 }, played)).toEqual({ kind: "changed" });
+  });
+
+  it("stamps a tier, or every tier, so a message can tell when its bracket changed", () => {
+    const cupDraft = { id: "c1", tier: "cup" as const, status: "draft" };
+    const plateDraft = { id: "p1", tier: "plate" as const, status: "draft" };
+    expect(bracketStamp([cupDraft, plateDraft], "cup")).toBe("cup:c1:draft");
+    expect(bracketStamp([plateDraft], "cup")).toBe("none:cup");
+    expect(bracketStamp([plateDraft, cupDraft], "all")).toBe("cup:c1:draft,plate:p1:draft");
+    expect(bracketStamp([{ ...cupDraft, status: "published" }], "cup")).not.toBe(bracketStamp([cupDraft], "cup"));
+    expect(bracketStamp([{ ...cupDraft, id: "c2" }], "cup")).not.toBe(bracketStamp([cupDraft], "cup"));
+  });
+
+  it("names the played count in the confirmation and the refusal", () => {
+    expect(teardownConfirmMessage("redraw", played, { otherTierDrawn: true })).toBe(
+      "Redraw the Cup? This deletes all 7 of its knockout matches, including 2 already played — their scores are lost and cannot be recovered. The Plate is untouched.",
+    );
+    expect(teardownConfirmMessage("reset", { ...untouched, tier: "plate", matches: 0, status: "draft" })).toBe(
+      "Delete the Plate bracket? It has no knockout matches yet.",
+    );
+    expect(teardownConfirmMessage("redraw", untouched)).toContain("none has been played");
+    expect(playedRefusalMessage("reset", played)).toContain("2 knockout matches already played or in progress");
   });
 });

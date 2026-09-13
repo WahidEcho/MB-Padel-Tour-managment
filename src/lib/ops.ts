@@ -8,7 +8,10 @@ import {
   advanceTarget,
   buildBracketPlan,
   groupStageLockedMessage,
+  planBracketTeardown,
   planGroupRegeneration,
+  playedRefusalMessage,
+  type BracketTeardown,
   type BracketFingerprint,
   type BracketSummary,
   orderKnockoutMatches,
@@ -433,6 +436,12 @@ export async function generateBracket(
   tournamentId: string,
   actorRole: string,
   tier: BracketTier = "cup",
+  /**
+   * How many played knockout matches a redraw may delete. Zero by default, so a
+   * redraw can never take a played match's score with it unless the caller has
+   * an explicit confirmation naming that count (see redrawBracket).
+   */
+  opts: { allowPlayed?: number } = {},
 ) {
   const tournament = await getTournament(tournamentId);
   if (!tournament) throw new Error("Tournament not found");
@@ -474,7 +483,10 @@ export async function generateBracket(
 
   // Replace this tier's bracket only. The other tier may be mid-play.
   const existing = await getBracket(tournamentId, tier);
-  if (existing) await deleteBracketCascade(existing.id);
+  if (existing) {
+    await assertTeardownAllowed(tournamentId, existing.id, "redraw", opts.allowPlayed ?? 0);
+    await deleteBracketCascade(existing.id);
+  }
 
   const plan = buildBracketPlan(qualifiers, thirdPlaceFor(tournament.format_config, tier));
   const { data: bracket, error } = await db()
@@ -516,11 +528,160 @@ export async function generateBracket(
 }
 
 /**
+ * Refuses to tear a bracket down if more of its matches have been played than the
+ * caller was allowed to delete. The backstop under every redraw and reset: the
+ * count is read again immediately before the delete, so a match played between a
+ * confirmation and the write is never deleted on that confirmation.
+ */
+export async function assertTeardownAllowed(
+  tournamentId: string,
+  bracketId: string,
+  action: BracketTeardown,
+  allowPlayed: number,
+): Promise<void> {
+  const summary = (await summarizeBrackets(tournamentId)).find((b) => b.id === bracketId);
+  if (summary && summary.played > allowPlayed) throw new Error(playedRefusalMessage(action, summary));
+}
+
+export type BracketOpResult =
+  | { ok: true; message: string }
+  | {
+      ok: false;
+      reason: "played" | "changed" | "published" | "not_found";
+      message: string;
+    };
+
+const TIER_TITLE: Record<BracketTier, string> = { cup: "Cup", plate: "Plate" };
+
+function changedMessage(tier: BracketTier): string {
+  return `The ${TIER_TITLE[tier]} changed since this page was loaded — it was redrawn, published, or a match was played. Nothing was deleted. Check it and confirm again.`;
+}
+
+/**
+ * Redraws one tier from the Bracket page (or draws it for the first time).
+ *
+ * Returns a refusal rather than throwing, so the organiser reads why — a thrown
+ * server-action message is replaced by a generic one in production. Played
+ * matches are deleted only on a confirmation matching the bracket exactly as it
+ * is now.
+ */
+export async function redrawBracket(
+  tournamentId: string,
+  actorRole: string,
+  tier: BracketTier,
+  opts: { confirm?: BracketFingerprint | null } = {},
+): Promise<BracketOpResult> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return { ok: false, reason: "not_found", message: "Tournament not found." };
+  // Chess has no group stage, so no Plate: its one knockout is always the Cup.
+  const chess = tournament.sport === "chess";
+  const target: BracketTier = chess ? "cup" : tier;
+  const current = (await summarizeBrackets(tournamentId)).find((b) => b.tier === target) ?? null;
+  const plan = planBracketTeardown(current, opts.confirm);
+  if (plan.kind === "refuse_played") return { ok: false, reason: "played", message: playedRefusalMessage("redraw", current!) };
+  if (plan.kind === "changed") return { ok: false, reason: "changed", message: changedMessage(target) };
+
+  const allowPlayed = plan.kind === "proceed" ? plan.allowPlayed : 0;
+  if (chess) await generateKnockoutFromTeams(tournamentId, actorRole, { allowPlayed });
+  else await generateBracket(tournamentId, actorRole, target, { allowPlayed });
+
+  if (current) {
+    await audit({
+      tournament_id: tournamentId,
+      actor_role: actorRole,
+      action: current.played > 0 ? "BRACKET_REDRAWN_DELETING_PLAYED" : "BRACKET_REDRAWN",
+      entity_type: "bracket",
+      entity_id: current.id,
+      old_value: { bracket: current },
+    });
+  }
+  const name = TIER_TITLE[target];
+  if (!current) return { ok: true, message: `Drew the ${name}.` };
+  const deleted =
+    current.matches === 0
+      ? ""
+      : ` Deleted ${current.matches} knockout match${current.matches === 1 ? "" : "es"}${current.played > 0 ? `, ${current.played} of them played` : ""}.`;
+  return { ok: true, message: `Redrew the ${name} as a new draft.${deleted}` };
+}
+
+/** Deletes one tier and only its matches, from the Bracket page's Reset. */
+export async function resetBracketTier(
+  tournamentId: string,
+  actorRole: string,
+  tier: BracketTier,
+  opts: { confirm?: BracketFingerprint | null } = {},
+): Promise<BracketOpResult> {
+  const current = (await summarizeBrackets(tournamentId)).find((b) => b.tier === tier) ?? null;
+  const plan = planBracketTeardown(current, opts.confirm);
+  if (plan.kind === "none") {
+    return { ok: false, reason: "not_found", message: `There is no ${TIER_TITLE[tier]} bracket to reset — it was already reset.` };
+  }
+  if (plan.kind === "refuse_played") return { ok: false, reason: "played", message: playedRefusalMessage("reset", current!) };
+  if (plan.kind === "changed") return { ok: false, reason: "changed", message: changedMessage(tier) };
+
+  await assertTeardownAllowed(tournamentId, current!.id, "reset", plan.allowPlayed);
+  const { matchesDeleted } = await deleteBracketCascade(current!.id);
+  await audit({
+    tournament_id: tournamentId,
+    actor_role: actorRole,
+    action: "BRACKET_RESET",
+    entity_type: "bracket",
+    entity_id: current!.id,
+    old_value: { tier, matchesDeleted, bracket: current },
+  });
+  return {
+    ok: true,
+    message: `Deleted the ${TIER_TITLE[tier]} bracket and ${matchesDeleted} knockout match${matchesDeleted === 1 ? "" : "es"}${current!.played > 0 ? `, ${current!.played} of them played` : ""}.`,
+  };
+}
+
+/**
+ * Approves a drawn bracket for publishing.
+ *
+ * Refuses a published one: publishing treats anything not marked published as
+ * new, so an approved-again bracket would get a second set of matches.
+ */
+export async function approveBracket(tournamentId: string, actorRole: string, tier: BracketTier): Promise<BracketOpResult> {
+  const bracket = await getBracket(tournamentId, tier);
+  if (!bracket) return { ok: false, reason: "not_found", message: `There is no ${TIER_TITLE[tier]} bracket to approve.` };
+  if (bracket.status === "published") {
+    return {
+      ok: false,
+      reason: "published",
+      message: `The ${TIER_TITLE[tier]} is already published, so it cannot be approved again. Redraw it to change the draw.`,
+    };
+  }
+  // Conditional on the status, so a publish landing between the read and this
+  // write is not overwritten back to 'approved'.
+  const { data: updated, error } = await db()
+    .from("brackets")
+    .update({ status: "approved", approved_by: actorRole, approved_at: new Date().toISOString() })
+    .eq("id", bracket.id)
+    .neq("status", "published")
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!updated || updated.length === 0) {
+    return {
+      ok: false,
+      reason: "published",
+      message: `The ${TIER_TITLE[tier]} was published a moment ago, so it cannot be approved again.`,
+    };
+  }
+  await audit({ tournament_id: tournamentId, actor_role: actorRole, action: "BRACKET_APPROVED", entity_type: "bracket", entity_id: bracket.id });
+  return { ok: true, message: `Approved the ${TIER_TITLE[tier]}. Publish it to create its matches.` };
+}
+
+/**
  * Chess (and other group-less sports): seed a knockout bracket directly from the
  * team/player list — no group stage. Reuses the same bracket plan + slots so the
  * editor, publish, and auto-advance paths all work unchanged.
  */
-export async function generateKnockoutFromTeams(tournamentId: string, actorRole: string) {
+export async function generateKnockoutFromTeams(
+  tournamentId: string,
+  actorRole: string,
+  /** As generateBracket: how many played knockout matches a redraw may delete. */
+  opts: { allowPlayed?: number } = {},
+) {
   const tournament = await getTournament(tournamentId);
   if (!tournament) throw new Error("Tournament not found");
   const teams = await getTeams(tournamentId);
@@ -537,7 +698,10 @@ export async function generateKnockoutFromTeams(tournamentId: string, actorRole:
   }));
 
   const existing = await getBracket(tournamentId, "cup");
-  if (existing) await deleteBracketCascade(existing.id);
+  if (existing) {
+    await assertTeardownAllowed(tournamentId, existing.id, "redraw", opts.allowPlayed ?? 0);
+    await deleteBracketCascade(existing.id);
+  }
 
   const plan = buildBracketPlan(qualifiers, tournament.format_config?.thirdPlaceMatch ?? false);
   const { data: bracket, error } = await db()
@@ -590,6 +754,18 @@ export async function publishBracket(
 ) {
   const brackets = (await getBrackets(tournamentId)).filter((b) => b.status !== "published");
   if (brackets.length === 0) throw new Error("No bracket to publish");
+  // A bracket that already owns matches has been published before, whatever its
+  // status says now. Publishing it again inserts a second set of matches for the
+  // same slots and re-points the slots at them, leaving the first set orphaned
+  // on the schedule — so refuse before anything is written.
+  const owned = (await summarizeBrackets(tournamentId)).filter(
+    (b) => brackets.some((c) => c.id === b.id) && b.matches > 0,
+  );
+  if (owned.length > 0) {
+    throw new Error(
+      `${owned.map((b) => (b.tier === "plate" ? "The Plate" : "The Cup")).join(" and ")} already ${owned.length === 1 ? "has" : "have"} knockout matches, so ${owned.length === 1 ? "it was" : "they were"} published before. Redraw or reset ${owned.length === 1 ? "it" : "them"} instead of publishing again.`,
+    );
+  }
   const courts = await getCourts(tournamentId);
   const strategy = opts.courtStrategy ?? "parallel";
 

@@ -501,3 +501,91 @@ export function groupStageLockedMessage(brackets: { tier: BracketTier }[]): stri
     `or confirm deleting ${subject} to regenerate the group stage.`
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Redrawing or resetting one bracket                                  */
+/* ------------------------------------------------------------------ */
+
+export type BracketTeardown = "redraw" | "reset";
+
+export type BracketTeardownPlan =
+  /** No bracket to tear down: a redraw simply draws, a reset has nothing to do. */
+  | { kind: "none" }
+  /** Go ahead, deleting at most `allowPlayed` matches that have been played. */
+  | { kind: "proceed"; allowPlayed: number }
+  /** Matches have been played and nobody confirmed deleting them. */
+  | { kind: "refuse_played" }
+  /** The confirmation described the bracket differently from how it is now. */
+  | { kind: "changed" };
+
+/**
+ * Whether one tier's bracket may be redrawn or reset.
+ *
+ * Tearing a bracket down deletes every knockout match it owns, scores included.
+ * With nothing played that is the ordinary redraw the button already confirms
+ * in the browser. Once a match has started or finished, the server insists on a
+ * confirmation that matches the bracket exactly as it is now — so a page loaded
+ * before a quarter-final was played cannot delete it on a confirmation that said
+ * "0 played".
+ */
+export function planBracketTeardown(
+  current: BracketFingerprint | null,
+  confirmed: BracketFingerprint | null | undefined,
+): BracketTeardownPlan {
+  if (!current) return { kind: "none" };
+  if (confirmed) {
+    const same =
+      confirmed.id === current.id &&
+      confirmed.status === current.status &&
+      confirmed.matches === current.matches &&
+      confirmed.played === current.played;
+    return same ? { kind: "proceed", allowPlayed: current.played } : { kind: "changed" };
+  }
+  return current.played > 0 ? { kind: "refuse_played" } : { kind: "proceed", allowPlayed: 0 };
+}
+
+/** The browser confirmation for a redraw or reset, naming what is lost. */
+export function teardownConfirmMessage(
+  action: BracketTeardown,
+  bracket: BracketSummary,
+  opts: { otherTierDrawn?: boolean } = {},
+): string {
+  const name = TIER_NAME[bracket.tier];
+  const subject = action === "redraw" ? `Redraw the ${name}?` : `Delete the ${name} bracket?`;
+  const matches =
+    bracket.matches === 0
+      ? "It has no knockout matches yet."
+      : bracket.played > 0
+        ? `This deletes all ${bracket.matches} of its knockout matches, including ${bracket.played} already played — their scores are lost and cannot be recovered.`
+        : `This deletes its ${bracket.matches} knockout match${bracket.matches === 1 ? "" : "es"}; none has been played.`;
+  const other = opts.otherTierDrawn ? ` The ${bracket.tier === "cup" ? "Plate" : "Cup"} is untouched.` : "";
+  return `${subject} ${matches}${other}`;
+}
+
+/** The refusal when played matches would be deleted without a confirmation. */
+export function playedRefusalMessage(action: BracketTeardown, bracket: BracketSummary): string {
+  const name = TIER_NAME[bracket.tier];
+  const one = bracket.played === 1;
+  return (
+    `The ${name} has ${bracket.played} knockout match${one ? "" : "es"} already played or in progress. ` +
+    `${action === "redraw" ? "Redrawing" : "Resetting"} would delete ${one ? "it and its score" : "them and their scores"}, ` +
+    `so it needs a confirmation that names ${one ? "it" : "them"}.`
+  );
+}
+
+/**
+ * A short description of which bracket a tier holds and in what state, or of
+ * every tier at once. A result message on the Bracket page is shown only while
+ * the stamp it was produced under still matches the page, so "Approved the Cup"
+ * does not linger under the Approve button of a Cup redrawn since.
+ */
+export function bracketStamp(
+  brackets: { id: string; tier: BracketTier; status: string }[],
+  scope: BracketTier | "all",
+): string {
+  const inScope = brackets
+    .filter((b) => scope === "all" || b.tier === scope)
+    .map((b) => `${b.tier}:${b.id}:${b.status}`)
+    .sort();
+  return inScope.length > 0 ? inScope.join(",") : `none:${scope}`;
+}

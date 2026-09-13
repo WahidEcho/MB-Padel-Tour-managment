@@ -14,14 +14,19 @@
 import { db } from "../../src/lib/supabase";
 import { awardPoint, initialScoreState } from "../../src/lib/scoring/engine";
 import {
+  approveBracket,
+  assertTeardownAllowed,
   deleteBracketCascade,
   finalizeMatch,
   generateBracket,
   generateGroupMatches,
+  generateKnockoutFromTeams,
   groupDrawLock,
   NOT_A_TOURNAMENT_MESSAGE,
   publishBracket,
+  redrawBracket,
   regenerateGroupStage,
+  resetBracketTier,
   resetTournamentLiveData,
   retractKnockout,
   summarizeBrackets,
@@ -95,6 +100,54 @@ async function groupStageFingerprint(tid: string): Promise<GroupStageFingerprint
 
 function sameFingerprint(a: GroupStageFingerprint, b: GroupStageFingerprint): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Chess draws its knockout from the player list; its redraw must be guarded the same way. */
+async function chessRedrawGuard() {
+  const { data: chess, error } = await db()
+    .from("tournaments")
+    .insert({ name: "E2E Chess redraw", slug: `e2e-chess-redraw-${Date.now()}`, sport: "chess", status: "active", is_demo: true })
+    .select()
+    .single();
+  if (error || !chess) throw new Error(error?.message ?? "no chess tournament");
+  const cid = chess.id as string;
+  try {
+    await db().from("teams").insert([1, 2, 3, 4].map((n) => ({ tournament_id: cid, team_name: `E2E Chess ${n}`, seed_number: n })));
+    const drawn = await redrawBracket(cid, "e2e", "cup");
+    check("chess: drawing the knockout from the player list works", drawn.ok, drawn.ok ? drawn.message : drawn.message);
+    await approveBracket(cid, "e2e", "cup");
+    await publishBracket(cid, "e2e");
+    const [semi, otherSemi] = (await getMatches(cid)).filter((m) => m.team_a_id && m.team_b_id);
+    await play(semi, "A");
+    await play(otherSemi, "A");
+    const before = await groupStageFingerprint(cid);
+    let chessOver = false;
+    try {
+      await generateKnockoutFromTeams(cid, "e2e", { allowPlayed: 1 });
+    } catch {
+      chessOver = true;
+    }
+    check("chess: a draw allowed to delete 1 played match refuses when 2 have been played", chessOver);
+    const refused = await redrawBracket(cid, "e2e", "cup");
+    check("chess: a redraw with a played match is refused without a confirmation", !refused.ok && refused.reason === "played");
+    let threw = false;
+    try {
+      await generateKnockoutFromTeams(cid, "e2e");
+    } catch {
+      threw = true;
+    }
+    check("chess: the low-level draw from the player list refuses too", threw);
+    check("chess: …and nothing is deleted", sameFingerprint(before, await groupStageFingerprint(cid)));
+    const current = (await summarizeBrackets(cid))[0];
+    const confirmed = await redrawBracket(cid, "e2e", "cup", { confirm: current });
+    check(
+      "chess: a confirmed redraw goes ahead",
+      confirmed.ok && !(await getMatches(cid)).some((m) => m.id === semi.id),
+      confirmed.ok ? confirmed.message : confirmed.message,
+    );
+  } finally {
+    await db().from("tournaments").delete().eq("id", cid);
+  }
 }
 
 /**
@@ -501,6 +554,75 @@ async function main() {
     check("the Cup survives the Plate being reset", leftover.some((m) => m.bracket_id === cup2.id));
     check("the Plate's slots are gone with it", (await getBracketSlots(plateNow.id)).length === 0);
 
+    // ---------- redraw, reset and approve never lose a played knockout result ----------
+    const cupPlayed = (await summarizeBrackets(tid)).find((b) => b.tier === "cup")!;
+    check("setup: the published Cup has a played quarter-final", cupPlayed.status === "published" && cupPlayed.played > 0, `${cupPlayed.played}/${cupPlayed.matches}`);
+    const untouched = await groupStageFingerprint(tid);
+
+    const redrawNoConfirm = await redrawBracket(tid, "e2e", "cup");
+    check(
+      "redrawing a Cup with a played match is refused without a confirmation",
+      !redrawNoConfirm.ok && redrawNoConfirm.reason === "played",
+      redrawNoConfirm.ok ? "went ahead" : redrawNoConfirm.message,
+    );
+    check(
+      "…and the refusal names the played count",
+      !redrawNoConfirm.ok && redrawNoConfirm.message.includes(`${cupPlayed.played} knockout match`),
+    );
+    check("…and deletes nothing", sameFingerprint(untouched, await groupStageFingerprint(tid)));
+
+    let drawThrew = "";
+    try {
+      await generateBracket(tid, "e2e", "cup");
+    } catch (e) {
+      drawThrew = e instanceof Error ? e.message : String(e);
+    }
+    check("the low-level redraw refuses too, for every other caller", drawThrew.includes("already played"), drawThrew || "no refusal");
+    check("…and deletes nothing", sameFingerprint(untouched, await groupStageFingerprint(tid)));
+
+    const resetNoConfirm = await resetBracketTier(tid, "e2e", "cup");
+    check(
+      "resetting a Cup with a played match is refused without a confirmation",
+      !resetNoConfirm.ok && resetNoConfirm.reason === "played",
+      resetNoConfirm.ok ? "went ahead" : resetNoConfirm.reason,
+    );
+    check("…and deletes nothing", sameFingerprint(untouched, await groupStageFingerprint(tid)));
+
+    // A page loaded before the quarter-final was played confirms "0 played".
+    const beforePlay = { ...cupPlayed, played: cupPlayed.played - 1 };
+    const staleRedraw = await redrawBracket(tid, "e2e", "cup", { confirm: beforePlay });
+    const staleReset = await resetBracketTier(tid, "e2e", "cup", { confirm: beforePlay });
+    check(
+      "a confirmation given before a match was played cannot redraw or reset",
+      !staleRedraw.ok && staleRedraw.reason === "changed" && !staleReset.ok && staleReset.reason === "changed",
+      `${staleRedraw.ok ? "ok" : staleRedraw.reason} / ${staleReset.ok ? "ok" : staleReset.reason}`,
+    );
+    check("…and deletes nothing", sameFingerprint(untouched, await groupStageFingerprint(tid)));
+
+    const approvePublished = await approveBracket(tid, "e2e", "cup");
+    check(
+      "approving an already published bracket is refused",
+      !approvePublished.ok && approvePublished.reason === "published",
+      approvePublished.ok ? "approved" : approvePublished.reason,
+    );
+    check(
+      "…and it stays published",
+      (await getBrackets(tid)).find((b) => b.id === cupPlayed.id)?.status === "published",
+    );
+
+    // Even if a published bracket's status is knocked back (a failed publish, a
+    // hand edit), publishing again must not create a second set of matches.
+    await db().from("brackets").update({ status: "approved" }).eq("id", cupPlayed.id);
+    let publishThrew = "";
+    try {
+      await publishBracket(tid, "e2e", { courtStrategy: "parallel" });
+    } catch (e) {
+      publishThrew = e instanceof Error ? e.message : String(e);
+    }
+    check("publishing a bracket that already has matches is refused", publishThrew.includes("published before"), publishThrew || "no refusal");
+    check("…and creates no duplicate matches", sameFingerprint(untouched, await groupStageFingerprint(tid)));
+    await db().from("brackets").update({ status: "published" }).eq("id", cupPlayed.id);
+
     // ---------- regenerating the group stage under a drawn knockout ----------
     // Both tiers exist again: the Cup published with a played match, the Plate a draft.
     await generateBracket(tid, "e2e", "plate");
@@ -607,6 +729,76 @@ async function main() {
     check("with no bracket left, the draw is unlocked", (await groupDrawLock(tid)) === null);
     const again = await regenerateGroupStage(tid, "e2e");
     check("with no bracket left, regenerating needs no confirmation", again.ok);
+
+    // ---------- a confirmed redraw or reset does delete played matches ----------
+    await generateBracket(tid, "e2e", "cup");
+    const approved = await approveBracket(tid, "e2e", "cup");
+    check("approving a draft still works", approved.ok, approved.ok ? "" : approved.message);
+    await publishBracket(tid, "e2e", { courtStrategy: "parallel" });
+    const [qf1, qfOther] = (await getMatches(tid)).filter((m) => m.stage === "quarter_final").sort((a, b) => a.match_order - b.match_order);
+    await play(qf1, "A");
+    await play(qfOther, "B");
+    const twoPlayed = (await summarizeBrackets(tid)).find((b) => b.tier === "cup")!;
+    check("setup: two quarter-finals played", twoPlayed.played === 2, String(twoPlayed.played));
+    // The re-read before deleting honours the exact allowance: permission for one
+    // played match does not cover two.
+    const beforeAllowance = await groupStageFingerprint(tid);
+    let overAllowance = "";
+    try {
+      await generateBracket(tid, "e2e", "cup", { allowPlayed: 1 });
+    } catch (e) {
+      overAllowance = e instanceof Error ? e.message : String(e);
+    }
+    check("a redraw allowed to delete 1 played match refuses when 2 have been played", overAllowance.includes("2 knockout matches already played"), overAllowance || "no refusal");
+    check("…and deletes nothing", sameFingerprint(beforeAllowance, await groupStageFingerprint(tid)));
+    let resetOver = "";
+    try {
+      await assertTeardownAllowed(tid, twoPlayed.id, "reset", 1);
+    } catch (e) {
+      resetOver = e instanceof Error ? e.message : String(e);
+    }
+    let resetExact = true;
+    try {
+      await assertTeardownAllowed(tid, twoPlayed.id, "reset", 2);
+    } catch {
+      resetExact = false;
+    }
+    check("the reset's re-read refuses one played match more than allowed, and allows the exact count", resetOver.includes("Resetting would delete") && resetExact);
+    const redrawThis = twoPlayed;
+    const redrawn = await redrawBracket(tid, "e2e", "cup", { confirm: redrawThis });
+    const afterConfirmedRedraw = await getMatches(tid);
+    const newCup = (await getBrackets(tid)).find((b) => b.tier === "cup");
+    check(
+      "a redraw confirmed with the played count goes ahead",
+      redrawn.ok && Boolean(newCup) && newCup!.id !== redrawThis.id && newCup!.status === "draft",
+      redrawn.ok ? redrawn.message : redrawn.message,
+    );
+    check(
+      "…deleting the played match and its score",
+      !afterConfirmedRedraw.some((m) => m.id === qf1.id) && !afterConfirmedRedraw.some((m) => m.bracket_id === redrawThis.id),
+    );
+    const { count: playedAudit } = await db()
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("tournament_id", tid)
+      .eq("action", "BRACKET_REDRAWN_DELETING_PLAYED");
+    check("…and the deletion of played matches is audited", (playedAudit ?? 0) === 1, String(playedAudit));
+
+    await approveBracket(tid, "e2e", "cup");
+    await publishBracket(tid, "e2e", { courtStrategy: "parallel" });
+    const qf2 = (await getMatches(tid)).filter((m) => m.stage === "quarter_final").sort((a, b) => a.match_order - b.match_order)[0];
+    await play(qf2, "B");
+    const resetThis = (await summarizeBrackets(tid)).find((b) => b.tier === "cup")!;
+    const resetDone = await resetBracketTier(tid, "e2e", "cup", { confirm: resetThis });
+    check(
+      "a reset confirmed with the played count goes ahead",
+      resetDone.ok && (await getBrackets(tid)).length === 0 && !(await getMatches(tid)).some((m) => m.id === qf2.id),
+      resetDone.ok ? resetDone.message : resetDone.message,
+    );
+    const resetAgain = await resetBracketTier(tid, "e2e", "cup", { confirm: resetThis });
+    check("resetting a bracket that is already gone says so", !resetAgain.ok && resetAgain.reason === "not_found");
+
+    await chessRedrawGuard();
 
     // ---------- the live-data reset still works on a real tournament ----------
     const toPlay = (await getMatches(tid))[0];
