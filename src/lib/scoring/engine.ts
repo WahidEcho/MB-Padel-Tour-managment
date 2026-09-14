@@ -16,8 +16,16 @@ export interface ScoreState {
   teamB: TeamScore;
   isTiebreak: boolean;
   completedSets: CompletedSet[];
-  // 'A' | 'B' | null. Hidden (null) during tie-break per spec §12.11.
+  // 'A' | 'B' | null. Null during a tie-break, where service rotates every two
+  // points: the venue screens draw their serve dot from this field, so it stays
+  // null there and `currentServer` answers who is serving instead.
   servingTeam: TeamKey | null;
+  /**
+   * Who served the first point of the tie-break in progress. Captured when the
+   * tie-break starts; absent on states saved before it existed, in which case the
+   * tie-break server is unknown rather than guessed.
+   */
+  tiebreakFirstServer?: TeamKey | null;
   winner: TeamKey | null;
   matchOver: boolean;
 }
@@ -97,7 +105,9 @@ function winGame(state: ScoreState, winningTeam: TeamKey, config: ScoringConfig)
     state.teamB.games === config.tiebreakAtGames
   ) {
     state.isTiebreak = true;
-    state.servingTeam = null; // V1: hide serve indicator during tie-break
+    // The team due to serve the next game serves the tie-break's first point.
+    state.tiebreakFirstServer = state.servingTeam;
+    state.servingTeam = null;
     return state;
   }
 
@@ -124,6 +134,7 @@ function awardTiebreakPoint(state: ScoreState, scoringTeam: TeamKey, config: Sco
 }
 
 function winSet(state: ScoreState, winningTeam: TeamKey, config: ScoringConfig): ScoreState {
+  const tiebreakFirstServer = state.isTiebreak ? state.tiebreakFirstServer ?? null : null;
   teamScore(state, winningTeam).sets += 1;
   const set: CompletedSet = { teamAGames: state.teamA.games, teamBGames: state.teamB.games };
   if (state.isTiebreak) {
@@ -142,7 +153,10 @@ function winSet(state: ScoreState, winningTeam: TeamKey, config: ScoringConfig):
   state.teamA = { ...state.teamA, points: "0", games: 0, tiebreakPoints: 0 };
   state.teamB = { ...state.teamB, points: "0", games: 0, tiebreakPoints: 0 };
   state.isTiebreak = false;
-  if (!state.servingTeam) state.servingTeam = "A";
+  // The team that served first in a tie-break receives first in the next set.
+  if (tiebreakFirstServer) state.servingTeam = opponent(tiebreakFirstServer);
+  else if (!state.servingTeam) state.servingTeam = "A";
+  delete state.tiebreakFirstServer;
   return state;
 }
 
@@ -175,9 +189,35 @@ export function pointOutcome(state: ScoreState, team: TeamKey, config: ScoringCo
   };
 }
 
+/** Whether the tie-break's next point is served by its first server. */
+function tiebreakFirstServes(state: ScoreState): boolean {
+  const played = state.teamA.tiebreakPoints + state.teamB.tiebreakPoints;
+  // One point, then two each: first, other, other, first, first, other, other…
+  return Math.floor((played + 1) / 2) % 2 === 0;
+}
+
+/**
+ * Who serves the next point. In a normal game that is `servingTeam`; in a
+ * tie-break it rotates from `tiebreakFirstServer`. Null once the match is over or
+ * when the server is unknown.
+ */
+export function currentServer(state: ScoreState): TeamKey | null {
+  if (state.matchOver) return null;
+  if (!state.isTiebreak) return state.servingTeam;
+  const first = state.tiebreakFirstServer;
+  if (!first) return null;
+  return tiebreakFirstServes(state) ? first : opponent(first);
+}
+
 export function changeServer(prev: ScoreState, server: TeamKey): ScoreState {
   const state = clone(prev);
-  if (!state.isTiebreak) state.servingTeam = server;
+  if (!state.isTiebreak) {
+    state.servingTeam = server;
+    return state;
+  }
+  // In a tie-break the referee corrects who is serving now; the rotation is kept
+  // by re-deriving who must have served first.
+  state.tiebreakFirstServer = tiebreakFirstServes(state) ? server : opponent(server);
   return state;
 }
 

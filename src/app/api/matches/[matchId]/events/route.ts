@@ -147,7 +147,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       case "SERVER_CHANGED":
         statusUpdate = {
           ...statusUpdate,
-          serving_team_id: e.new_state.servingTeam === "A" ? match.team_a_id : match.team_b_id,
+          // Null in a tie-break, where the serve rotates by point: never team B by default.
+          serving_team_id:
+            e.new_state.servingTeam === "A"
+              ? match.team_a_id
+              : e.new_state.servingTeam === "B"
+                ? match.team_b_id
+                : null,
         };
         break;
       case "FORCE_END":

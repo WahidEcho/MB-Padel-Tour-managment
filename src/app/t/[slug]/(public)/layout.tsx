@@ -5,6 +5,8 @@ import { sizedImageSrc } from "@/lib/portrait";
 import PresenceBeatForPath from "@/components/PresenceBeatForPath";
 import SponsorMarquee from "@/components/SponsorMarquee";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
+import EventBackdrop from "@/components/broadcast/EventBackdrop";
+import { backgroundFor } from "@/lib/background";
 import { resolveSponsors } from "@/lib/sponsors";
 
 export const dynamic = "force-dynamic";
@@ -38,15 +40,18 @@ export default async function PublicLayout({
         ] as const);
 
   const { main, footer } = resolveSponsors(tournament.branding_config);
+  const backdrop = backgroundFor(tournament.branding_config, "public");
 
   return (
-    <div className="relative isolate flex min-h-screen flex-col">
+    <div className={`relative isolate flex min-h-screen flex-col${backdrop ? " bc-page-backdrop" : ""}`}>
       {/* The main sponsor glows behind the public pages too, fixed to the
           viewport so it stays put while the standings scroll. */}
+      {/* The event background, only when the organiser chose it for these pages. */}
+      {backdrop && <EventBackdrop background={backdrop} variant="page" />}
       {main?.showOnDashboard !== false && (
         <SponsorWatermark sponsor={main} surface="dashboard" backgroundHex="#ffffff" variant="page" />
       )}
-      <header className="relative z-10 border-b border-border px-4 py-3">
+      <header className={`relative z-10 border-b border-border px-4 py-3${backdrop ? " bg-background/85" : ""}`}>
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between">
           <div className="flex items-center gap-3">
             {tournament.branding_config.eventLogoUrl && (

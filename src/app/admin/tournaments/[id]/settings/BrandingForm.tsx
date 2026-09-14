@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { resolveSponsors } from "@/lib/sponsors";
 import type { BrandingConfig } from "@/lib/types";
 import { saveBranding, type BrandingFormState } from "./actions";
+import BackgroundUploader from "./BackgroundUploader";
 
 /**
  * Logos, the main sponsor's glow, the footer sponsors and the holding slate.
@@ -36,7 +37,7 @@ export default function BrandingForm({
           ["move_beyond_logo", "Move Beyond logo", branding.moveBeyondLogoUrl],
           ["client_logo", "Client/place logo", branding.clientLogoUrl],
           ["event_logo", "Event logo", branding.eventLogoUrl],
-          ["background", "Background image (default holding slate picture)", branding.backgroundUrl],
+          ["background", "Still picture for the holding slate", branding.backgroundUrl],
         ] as const
       ).map(([field, label, url]) => (
         <div key={field} className="flex items-center gap-3">
@@ -52,6 +53,8 @@ export default function BrandingForm({
           </div>
         </div>
       ))}
+
+      <BackgroundUploader tournamentId={tournamentId} background={branding.background} returnPath={returnPath} />
 
       <fieldset className="space-y-3 rounded-xl border border-border p-3">
         <legend className="px-1 text-sm font-bold">Main sponsor — glows behind the TV and the public page</legend>
@@ -153,7 +156,7 @@ export default function BrandingForm({
             <img src={branding.holding.imageUrl} alt="" className="h-10 w-16 rounded border border-border object-cover" />
           )}
           <div className="flex-1">
-            <label className="label">Picture (defaults to the background image)</label>
+            <label className="label">Picture (defaults to the still picture above)</label>
             <input type="file" name="holding_image" accept="image/*" className="input text-xs" />
           </div>
           {branding.holding?.imageUrl && (

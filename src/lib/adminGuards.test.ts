@@ -34,6 +34,8 @@ const ALLOWED_UNGUARDED: Record<string, string> = {
   seedDemoTournament: "creates a new demo tournament row",
   addCourt: "shared with sessions: a session's wall needs its courts",
   saveBranding: "shared with sessions: a session's wall uses its branding",
+  prepareBackgroundUpload: "shared with sessions: part of the branding a session's wall uses",
+  finishBackgroundUpload: "shared with sessions: part of the branding a session's wall uses",
   drawOptions: "read-only: proposes draws without saving",
   listBrackets: "read-only",
 };

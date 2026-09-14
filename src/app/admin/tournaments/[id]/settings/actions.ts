@@ -4,10 +4,19 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { uploadImage, uploadLogo } from "@/lib/upload";
+import { deleteUploads, uploadImage, uploadLogo } from "@/lib/upload";
 import { isHex, resolveSponsors } from "@/lib/sponsors";
 import { getTournament } from "@/lib/data";
-import type { BrandingConfig, SponsorEntry, FormatConfig, MatchRules, ScoringConfig, Stage, StageRuleKey } from "@/lib/types";
+import type {
+  BrandingConfig,
+  EventBackground,
+  SponsorEntry,
+  FormatConfig,
+  MatchRules,
+  ScoringConfig,
+  Stage,
+  StageRuleKey,
+} from "@/lib/types";
 import {
   STAGE_RULE_LABELS,
   scoringConfigForMatch,
@@ -15,6 +24,14 @@ import {
 } from "@/lib/scoring/rules";
 import { validatePodiumSettings } from "@/lib/bracket";
 import { entityRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
+import { DEFAULT_DIM, isBackgroundDim } from "@/lib/background";
+import {
+  acceptBackgroundUpload,
+  createBackgroundUpload,
+  removeBackgroundIfUnused,
+  updateBranding,
+  withBackground,
+} from "@/lib/backgroundStorage";
 
 /** A representative stage for each rule bucket, so the bucket can be resolved. */
 const STAGE_FOR_KEY: Record<StageRuleKey, Stage> = {
@@ -324,13 +341,91 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
 
   if (problems.length > 0) return { ok: false, problems };
 
-  await db()
-    .from("tournaments")
-    .update({ branding_config: branding, updated_at: new Date().toISOString() })
-    .eq("id", id);
+  // ---------- event background ----------
+  // The file is uploaded on its own (see finishBackgroundUpload); this form only
+  // sets how it is shown, or removes it — and only for the background it was
+  // showing. If another upload replaced it meanwhile, that one is left alone.
+  const formBackground = String(formData.get("background_url") ?? "");
+  const removeBackground = formData.get("background_remove") === "on";
+  const dimRaw = text(formData, "background_dim", 10);
+  const adjustBackground = (stored: EventBackground | undefined): EventBackground | undefined => {
+    if (!stored || !formBackground || stored.url !== formBackground) return stored;
+    if (removeBackground) return undefined;
+    if (!formData.has("background_dim")) return stored;
+    return {
+      ...stored,
+      dim: isBackgroundDim(dimRaw) ? dimRaw : DEFAULT_DIM,
+      showOnPublic: formData.getAll("background_public").includes("on"),
+    };
+  };
+
+  // Built from the row as it is at the moment of writing: the form's own fields
+  // win, but the background is whatever is stored then, adjusted as above.
+  const written = await updateBranding(id, (current) => withBackground(branding, adjustBackground(current.background)));
+  if (!written.ok) return { ok: false, problems: ["Could not save the branding. Try again."] };
   await audit({ tournament_id: id, actor_role: role, action: "BRANDING_UPDATED" });
+  const removed = written.before.background?.url;
+  if (removed && removed !== written.after.background?.url) await removeBackgroundIfUnused(removed);
   revalidatePath(settingsPath(id));
   const back = String(formData.get("return_path") ?? "");
   if (back.startsWith("/admin/")) revalidatePath(back);
   return { ok: true, message: "Branding saved." };
+}
+
+export type BackgroundTicket = { ok: true; path: string; signedUrl: string } | { ok: false; message: string };
+
+/**
+ * Step one of uploading an event background: checks the file's type and size and
+ * returns a one-time link the browser uploads it to directly. A GIF or a video
+ * loop is far larger than a server action accepts. Shared with sessions, like the
+ * rest of the branding.
+ */
+export async function prepareBackgroundUpload(
+  tournamentId: string,
+  file: { type: string; size: number },
+): Promise<BackgroundTicket> {
+  await requirePermission("manage_tournament");
+  const t = await getTournament(String(tournamentId));
+  if (!t) return { ok: false, message: "Tournament not found." };
+  return createBackgroundUpload(t.id, { type: String(file?.type ?? ""), size: Number(file?.size ?? 0) });
+}
+
+export type BackgroundResult =
+  | { ok: true; message: string; background: EventBackground }
+  | { ok: false; message: string };
+
+/**
+ * Step two: checks what actually arrived and makes it the event's background,
+ * replacing the previous one. Returns a refusal as state, never throws.
+ */
+export async function finishBackgroundUpload(
+  tournamentId: string,
+  path: string,
+  returnPath?: string,
+): Promise<BackgroundResult> {
+  const role = await requirePermission("manage_tournament");
+  const t = await getTournament(String(tournamentId));
+  if (!t) return { ok: false, message: "Tournament not found." };
+  const previous = t.branding_config.background;
+  const accepted = await acceptBackgroundUpload(t.id, String(path), previous);
+  if (!accepted.ok) return accepted;
+
+  // Built from the row as it is at the moment of writing, so a branding save made
+  // during a long upload is kept, and the file deleted is the one actually replaced.
+  const written = await updateBranding(t.id, (current) => withBackground(current, accepted.background));
+  if (!written.ok) {
+    await deleteUploads([accepted.background.url]);
+    return { ok: false, message: "Could not save the new background. Try again." };
+  }
+  await audit({ tournament_id: t.id, actor_role: role, action: "BRANDING_UPDATED" });
+  const replaced = written.before.background?.url;
+  if (replaced && replaced !== accepted.background.url) await removeBackgroundIfUnused(replaced);
+
+  revalidatePath(settingsPath(t.id));
+  if (returnPath && String(returnPath).startsWith("/admin/")) revalidatePath(String(returnPath));
+  const note =
+    accepted.removed.length > 0
+      ? ` Removed from the SVG: ${accepted.removed.join(", ")}. Animation made with CSS or SMIL still plays; script-driven animation never runs in a background.`
+      : "";
+  return { ok: true, message: `Background uploaded — it is on the screens now.${note}`, background: accepted.background };
 }

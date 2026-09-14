@@ -25,15 +25,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
 
   const { data: tournament } = await db()
     .from("tournaments")
-    .select("id, public_access_enabled")
+    .select("id, public_access_enabled, updated_at")
     .eq("slug", slug)
     .maybeSingle();
-  const t = tournament as { id: string; public_access_enabled: boolean } | null;
+  const t = tournament as { id: string; public_access_enabled: boolean; updated_at: string | null } | null;
   if (!t || !t.public_access_enabled) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const screen = await getScreenSettings(t.id, screenKey);
   if (!screen && screenKey !== MAIN_SCREEN) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const feed = await buildLiveFeed(t.id, screen ?? defaultScreenSettings(t.id, screenKey));
+  const feed = await buildLiveFeed(t.id, screen ?? defaultScreenSettings(t.id, screenKey), t.updated_at ?? null);
 
   return NextResponse.json(feed, {
     // Never cached: a stale feed is the one thing this endpoint must not serve.

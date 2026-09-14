@@ -178,6 +178,34 @@ body {
   border-radius: 20px;
 }
 
+/* Over an event background, cards are near-solid and unblurred. A blur over a
+   moving GIF or video has to be recomputed on every frame of it, under every card,
+   which a TV stick cannot keep up with; and busy artwork needs the solid ground
+   for the scores to stay readable anyway. */
+.bc-has-backdrop .bc-card {
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Text that sits straight on the artwork — round names, the ceremony slate, empty
+   states — gets a soft halo in the page colour. It is painted with the text, so
+   unlike a blur it costs nothing per frame of the moving background. */
+.bc-has-backdrop,
+.bc-page-backdrop {
+  text-shadow: 0 0 3px var(--background), 0 0 14px var(--background);
+}
+.bc-has-backdrop .bc-card,
+.bc-page-backdrop .card {
+  text-shadow: none;
+}
+/* A background video never shows the browser's own play button, even for the
+   moment before a refused autoplay is noticed. */
+.bc-backdrop-video::-webkit-media-controls,
+.bc-backdrop-video::-webkit-media-controls-start-playback-button {
+  display: none !important;
+  -webkit-appearance: none;
+}
+
 .bc-animate { animation-fill-mode: both; animation-play-state: running; }
 
 /* ---------- entrance (9s) ---------- */

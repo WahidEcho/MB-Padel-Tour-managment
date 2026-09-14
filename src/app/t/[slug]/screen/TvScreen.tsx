@@ -32,6 +32,8 @@ import RankingScene, { type RankingRow } from "@/components/broadcast/RankingSce
 import { buildCeremony } from "@/lib/tv/ceremonyServer";
 import { getRankingSnapshot, getSessionByTournament, listPublicPlayers } from "@/lib/friendly/data";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
+import EventBackdrop from "@/components/broadcast/EventBackdrop";
+import { backgroundFor } from "@/lib/background";
 import { resolveSponsors, surfaceForMode } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
@@ -171,10 +173,11 @@ export default async function TvScreen({
         { a: entranceRankFor(m, m.team_a_id!, rankCtx), b: entranceRankFor(m, m.team_b_id!, rankCtx) },
       ]),
   );
-  const initialFeed = await buildLiveFeed(id, settings);
+  const initialFeed = await buildLiveFeed(id, settings, tournament.updated_at);
   const courtInfo = covered.map((c) => ({ id: c.id, name: c.court_name }));
   const logos = tournament.branding_config;
   const { main: mainSponsor, footer: footerSponsors } = resolveSponsors(logos);
+  const backdrop = backgroundFor(logos, "screen");
   const dark = settings.theme === "dark";
   // How loud the glow may be depends on what it sits behind: quiet under a full
   // grid of scores, strongest on the holding slate and the ceremony.
@@ -219,7 +222,9 @@ export default async function TvScreen({
   };
 
   return (
-    <BroadcastStage className={dark ? "theme-dark bg-background text-foreground" : "bg-background text-foreground"}>
+    <BroadcastStage
+      className={`${dark ? "theme-dark " : ""}bg-background text-foreground${backdrop ? " bc-has-backdrop" : ""}`}
+    >
       <LiveFeedProvider
         slug={slug}
         screenKey={screenKey}
@@ -227,8 +232,12 @@ export default async function TvScreen({
         preview={Boolean(overrides.preview)}
         refreshOnScore={isChess}
       >
+        {/* The event's own background, at the very back. */}
+        {backdrop && <EventBackdrop background={backdrop} variant="stage" />}
         {mode === "holding" && holding.imageUrl && (
-          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ zIndex: 0 }}>
+          // A solid ground, so the slate's photo covers the event background rather
+          // than blending with it.
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-background" style={{ zIndex: 0 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={sizedImageSrc(holding.imageUrl, 1920) ?? holding.imageUrl} alt="" loading="eager" className="h-full w-full object-cover opacity-40" />
             {/* A scrim, so the title stays legible over any photograph. */}
