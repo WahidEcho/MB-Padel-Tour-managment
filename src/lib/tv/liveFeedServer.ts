@@ -7,7 +7,12 @@ import { toLiveMatch, toLiveSnapshot, type LiveFeed } from "./liveFeed";
  * screen's first server render, so the first frame and every poll after it are
  * the same shape from the same code.
  */
-export async function buildLiveFeed(tournamentId: string, screen: ScreenSettings): Promise<LiveFeed> {
+export async function buildLiveFeed(
+  tournamentId: string,
+  screen: ScreenSettings,
+  /** The tournament row's updated_at: a branding change re-renders the wall. */
+  brandingStamp: string | null = null,
+): Promise<LiveFeed> {
   const [{ data: matches }, { data: snapshots }] = await Promise.all([
     db().from("matches").select("*").eq("tournament_id", tournamentId),
     db().from("match_score_snapshots").select("*").eq("tournament_id", tournamentId),
@@ -16,6 +21,7 @@ export async function buildLiveFeed(tournamentId: string, screen: ScreenSettings
     // Stamped after the queries return, so the clock anchor is not early by the
     // query latency — which is about the length of a point beat.
     fetchedAt: Date.now(),
+    brandingStamp,
     screen: {
       revision: screen.revision,
       display_mode: screen.display_mode,

@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import AutoRefresh from "@/components/AutoRefresh";
 import SponsorMarquee from "@/components/SponsorMarquee";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
+import EventBackdrop from "@/components/broadcast/EventBackdrop";
+import { backgroundFor } from "@/lib/background";
 import { resolveSponsors } from "@/lib/sponsors";
 import PresenceBeat from "@/components/PresenceBeat";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
@@ -28,6 +30,7 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
     getTournament(session.tournament_id),
   ]);
   const { main: mainSponsor, footer } = resolveSponsors(tournament?.branding_config);
+  const backdrop = backgroundFor(tournament?.branding_config, "public");
   const sponsors = footer.map((sp) => sp.logoUrl);
 
   const tm = teamMap(teams);
@@ -42,8 +45,9 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const modelLabel = session.ranking_model === "games_won" ? "games won" : "points per win";
 
   return (
-    <main className="relative isolate mx-auto w-full max-w-3xl space-y-5 p-4">
+    <main className={`relative isolate mx-auto w-full max-w-3xl space-y-5 p-4${backdrop ? " bc-page-backdrop" : ""}`}>
       <AutoRefresh seconds={8} />
+      {backdrop && <EventBackdrop background={backdrop} variant="page" />}
       {mainSponsor?.showOnDashboard !== false && (
         <SponsorWatermark sponsor={mainSponsor} surface="dashboard" backgroundHex="#ffffff" variant="page" />
       )}

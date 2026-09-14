@@ -58,6 +58,11 @@ export type LiveScreen = Pick<
 export interface LiveFeed {
   /** Server epoch ms when this was produced. Anchors every timeline on the wall. */
   fetchedAt: number;
+  /**
+   * When the tournament row last changed. A new background, logo or sponsor is
+   * part of the server render, so a change here re-renders the wall.
+   */
+  brandingStamp?: string | null;
   screen: LiveScreen;
   matches: LiveMatch[];
   snapshots: LiveSnapshot[];
@@ -123,6 +128,7 @@ export function frameFrom(s: LiveSnapshot): ScoreFrame {
 export function needsStructuralRefresh(prev: LiveFeed | null, next: LiveFeed): boolean {
   if (!prev) return false;
   if (prev.screen.revision !== next.screen.revision) return true;
+  if ((prev.brandingStamp ?? null) !== (next.brandingStamp ?? null)) return true;
   if (prev.matches.length !== next.matches.length) return true;
   const before = new Map(prev.matches.map((m) => [m.id, m]));
   for (const m of next.matches) {

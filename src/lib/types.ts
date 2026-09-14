@@ -154,6 +154,23 @@ export interface HoldingContent {
   imageUrl?: string;
 }
 
+/** How strongly the event background is darkened (or lightened, on a light page) under the content. */
+export type BackgroundDim = "none" | "light" | "medium" | "strong";
+
+/**
+ * A moving (or still) picture behind the event's screens: a GIF, an animated SVG,
+ * an animated WebP or PNG, a still photo, or a short muted video loop.
+ */
+export interface EventBackground {
+  url: string;
+  kind: "image" | "svg" | "video";
+  mime: string;
+  bytes: number;
+  dim: BackgroundDim;
+  /** Also behind the public dashboard pages. Off by default: a video costs phones data. */
+  showOnPublic: boolean;
+}
+
 export interface BrandingConfig {
   moveBeyondLogoUrl?: string;
   clientLogoUrl?: string;
@@ -164,6 +181,7 @@ export interface BrandingConfig {
   mainSponsor?: MainSponsor;
   sponsors?: SponsorEntry[];
   holding?: HoldingContent;
+  background?: EventBackground;
 }
 
 export interface Tournament {
