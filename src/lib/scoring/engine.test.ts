@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   awardPoint,
+  changeServer,
+  currentServer,
   initialScoreState,
   manualEndSet,
   pointOutcome,
@@ -143,6 +145,101 @@ describe("serving", () => {
     expect(s.servingTeam).toBe("B");
     s = score(s, "B", 4);
     expect(s.servingTeam).toBe("A");
+  });
+});
+
+describe("serving in a tie-break", () => {
+  const bestOf3 = { ...cfg, setsToWinMatch: 2 };
+
+  function scoreWith(state: ScoreState, team: TeamKey, times: number, config = bestOf3): ScoreState {
+    let s = state;
+    for (let i = 0; i < times; i++) s = awardPoint(s, team, config);
+    return s;
+  }
+
+  /** 6-6 in the first set, with `first` serving the opening game. */
+  function atSixAll(first: TeamKey, config = bestOf3): ScoreState {
+    let s = initialScoreState(first);
+    for (let i = 0; i < 6; i++) {
+      s = winOneGame(s, "A", config);
+      s = winOneGame(s, "B", config);
+    }
+    return s;
+  }
+
+  it("captures the team due to serve as the tie-break's first server", () => {
+    const s = atSixAll("B");
+    expect(s.isTiebreak).toBe(true);
+    // Twelve games flip the server twelve times: back to the opening server.
+    expect(s.tiebreakFirstServer).toBe("B");
+    // The venue screens read servingTeam, so it stays hidden.
+    expect(s.servingTeam).toBeNull();
+    expect(currentServer(s)).toBe("B");
+  });
+
+  it("rotates one point, then two each", () => {
+    let s = atSixAll("A");
+    const order: (TeamKey | null)[] = [];
+    // Alternate winners so nobody reaches the target.
+    for (let i = 0; i < 7; i++) {
+      order.push(currentServer(s));
+      s = awardPoint(s, i % 2 === 0 ? "A" : "B", bestOf3);
+    }
+    expect(order).toEqual(["A", "B", "B", "A", "A", "B", "B"]);
+  });
+
+  it("gives the next set's first serve to the team that received first in the tie-break", () => {
+    let s = atSixAll("A");
+    s = scoreWith(s, "B", 7);
+    expect(s.currentSet).toBe(2);
+    expect(s.isTiebreak).toBe(false);
+    expect(s.servingTeam).toBe("B");
+    expect(s.tiebreakFirstServer).toBeUndefined();
+
+    let t = atSixAll("B");
+    t = scoreWith(t, "A", 7);
+    expect(t.servingTeam).toBe("A");
+  });
+
+  it("uses the same rule when a tie-break set is ended by hand", () => {
+    const s = manualEndSet(awardPoint(atSixAll("A"), "A", bestOf3), "A", bestOf3);
+    expect(s.currentSet).toBe(2);
+    expect(s.servingTeam).toBe("B");
+  });
+
+  it("keeps the old behaviour for a tie-break saved before the first server was stored", () => {
+    const legacy = { ...atSixAll("B") };
+    delete legacy.tiebreakFirstServer;
+    expect(currentServer(legacy)).toBeNull();
+    const next = scoreWith(legacy, "A", 7);
+    expect(next.servingTeam).toBe("A");
+  });
+
+  it("lets the referee correct who is serving mid tie-break", () => {
+    let s = atSixAll("A");
+    s = awardPoint(s, "A", bestOf3); // B serves points 2 and 3
+    expect(currentServer(s)).toBe("B");
+    s = changeServer(s, "A");
+    expect(currentServer(s)).toBe("A");
+    expect(s.servingTeam).toBeNull();
+    // A now serves points 2 and 3, then the rotation carries on from the correction.
+    s = awardPoint(s, "B", bestOf3);
+    expect(currentServer(s)).toBe("A");
+    s = awardPoint(s, "B", bestOf3);
+    expect(currentServer(s)).toBe("B");
+  });
+
+  it("recovers a legacy tie-break's rotation from one correction", () => {
+    const legacy = { ...atSixAll("A") };
+    delete legacy.tiebreakFirstServer;
+    const fixed = changeServer(legacy, "B");
+    expect(currentServer(fixed)).toBe("B");
+  });
+
+  it("has no server once the match is over", () => {
+    const s = scoreWith(atSixAll("A", cfg), "A", 7, cfg);
+    expect(s.matchOver).toBe(true);
+    expect(currentServer(s)).toBeNull();
   });
 });
 

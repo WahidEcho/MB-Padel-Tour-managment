@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   awardPoint,
   changeServer,
+  currentServer,
   initialScoreState,
   manualEndSet,
   pointOutcome,
@@ -16,6 +17,8 @@ import type { MatchSnapshot, Match, PhotoFields, ScoringConfig } from "@/lib/typ
 import { offlineDb, getDeviceId, type LocalScoreEvent } from "@/lib/offline/db";
 import Avatar from "@/components/Avatar";
 import { describeMatchRules } from "@/lib/scoring/rules";
+import VoicePanel from "./VoicePanel";
+import { useUmpireVoice } from "./useUmpireVoice";
 
 interface TeamInfo {
   id: string;
@@ -33,6 +36,7 @@ type Modal =
   | { kind: "disqualify"; team: TeamKey | null }
   | { kind: "retire"; team: TeamKey | null }
   | { kind: "end-set"; team: TeamKey | null }
+  | { kind: "voice" }
   | null;
 
 const FINISHED = ["completed", "walkover", "disqualified", "retired", "cancelled"];
@@ -69,6 +73,9 @@ export default function ScoreClient({
   const [elapsed, setElapsed] = useState("");
   const [startWarningAck, setStartWarningAck] = useState(false);
   const [popKey, setPopKey] = useState(0);
+  // Only the device holding the match speaks; a read-only page stays quiet.
+  const voice = useUmpireVoice(scoringConfig, controller === true);
+  const onVoiceEvent = voice.onEvent;
 
   const eventNumberRef = useRef(serverSnapshot?.last_event_number ?? 0);
   const startedAtRef = useRef<string | null>(match.started_at);
@@ -249,6 +256,8 @@ export default function ScoreClient({
       opts: { teamId?: string | null; payload?: Record<string, unknown>; newStatus?: string } = {}
     ) => {
       const prev = stateRef.current;
+      // Still inside the referee's tap, which is what lets the call play later.
+      onVoiceEvent(eventType, prev, newState);
       const n = ++eventNumberRef.current;
       const event: LocalScoreEvent = {
         client_event_id: crypto.randomUUID(),
@@ -286,7 +295,7 @@ export default function ScoreClient({
       });
       void trySync();
     },
-    [match.id, matchStatus, trySync, commit]
+    [match.id, matchStatus, trySync, commit, onVoiceEvent]
   );
 
   /* ---------------- actions ---------------- */
@@ -364,8 +373,9 @@ export default function ScoreClient({
 
   function switchServer() {
     const cur = stateRef.current;
-    if (!cur || cur.isTiebreak || !cur.servingTeam) return;
-    const next = changeServer(cur, cur.servingTeam === "A" ? "B" : "A");
+    if (!cur || cur.matchOver) return;
+    // In a tie-break this corrects who serves now; the rotation follows from it.
+    const next = changeServer(cur, currentServer(cur) === "A" ? "B" : "A");
     void pushEvent("SERVER_CHANGED", next);
   }
 
@@ -443,6 +453,29 @@ export default function ScoreClient({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => setModal({ kind: "voice" })}
+              className={`badge ${voice.status === "off" ? "bg-card text-muted" : voice.status === "ready" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
+              data-testid="voice-button"
+              aria-label="Voice umpire"
+            >
+              {voice.status === "off" ? "🔈 Voice off" : "🔊 Voice"}
+            </button>
+          )}
+          {!readOnly && voice.status !== "off" && (
+            <button
+              type="button"
+              onClick={() => voice.setSettings({ muted: !voice.settings.muted })}
+              className={`badge ${voice.settings.muted ? "bg-danger/15 text-danger" : "bg-card text-foreground"}`}
+              aria-pressed={voice.settings.muted}
+              aria-label={voice.settings.muted ? "Unmute the voice" : "Mute the voice"}
+              data-testid="voice-mute"
+            >
+              {voice.settings.muted ? "🔇 Muted" : "🔇 Mute"}
+            </button>
+          )}
           <span className={`badge ${statusBadge[1]}`}>{statusBadge[0]}</span>
           <Link href={`/referee/tournaments/${match.tournament_id}/matches`} className="text-xs text-muted hover:text-foreground">
             ← Matches
@@ -509,7 +542,7 @@ export default function ScoreClient({
             {(["A", "B"] as TeamKey[]).map((k) => {
               const info = team(k);
               const ts = k === "A" ? state.teamA : state.teamB;
-              const serving = state.servingTeam === k && !state.isTiebreak;
+              const serving = currentServer(state) === k;
               const isWinner = state.winner === k;
               return (
                 <div key={k} className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}>
@@ -618,15 +651,28 @@ export default function ScoreClient({
                 <button
                   className="btn-secondary py-3"
                   onClick={switchServer}
-                  disabled={state.isTiebreak}
-                  title={state.isTiebreak ? "Server hidden during tie-break" : "Change serving team"}
+                  title={state.isTiebreak ? "Correct who is serving this tie-break point" : "Change serving team"}
                 >
                   🎾 Server
                 </button>
                 <button className="btn-secondary py-3" onClick={() => setModal({ kind: "end-set", team: null })}>
                   End set
                 </button>
-                <button className="btn-danger col-span-2 py-3" onClick={() => setModal({ kind: "end-menu" })}>
+                {/* Within thumb's reach during play, whenever the voice is on. */}
+                {voice.status !== "off" && (
+                  <button
+                    className={`py-3 ${voice.settings.muted ? "btn-danger" : "btn-secondary"}`}
+                    onClick={() => voice.setSettings({ muted: !voice.settings.muted })}
+                    aria-pressed={voice.settings.muted}
+                    data-testid="voice-mute-control"
+                  >
+                    {voice.settings.muted ? "🔊 Unmute" : "🔇 Mute voice"}
+                  </button>
+                )}
+                <button
+                  className={`btn-danger py-3 ${voice.status !== "off" ? "" : "col-span-2"}`}
+                  onClick={() => setModal({ kind: "end-menu" })}
+                >
                   End match…
                 </button>
               </div>
@@ -653,6 +699,9 @@ export default function ScoreClient({
                   <button className="btn-primary flex-1" onClick={() => applyPoint(modal.team)}>Confirm</button>
                 </div>
               </>
+            )}
+            {modal.kind === "voice" && (
+              <VoicePanel voice={voice} onClose={() => setModal(null)} />
             )}
             {modal.kind === "confirm-undo" && (
               <>

@@ -212,3 +212,54 @@ they exist precisely so these stay out of scope without costing a future migrati
   new numbered file.
 - After applying, verify with a read-only query before writing code against the
   new shape.
+
+---
+
+## 7. Voice umpire (referee scoring page)
+
+The referee's phone can call the score out loud through a speaker, about two
+seconds after each point. Source of truth: `src/lib/voice/*` and its tests.
+
+- **Pre-recorded clips, never the browser's speech engine**, so every phone says
+  the same words in the same voice. The pack is one 16 kHz, 16-bit mono WAV plus an
+  index (`public/voice/<pack>/`), generated once by `npm run voice` from the
+  inventory in `src/lib/voice/phrases.ts`. A released pack never changes: new
+  recordings ship under a new version folder (`en-v2`, …).
+- **The Mac's built-in voices are for development only** (`en-dev`, gitignored).
+  Apple licenses them for personal use; a test refuses a committed pack built from
+  them. Released packs come from a voice licensed for commercial use: Kokoro,
+  ElevenLabs on a paid plan, or human recordings.
+- **Sides are "server" and "receiver", never team names**, and every call reads
+  the server's score first: "Thirty fifteen" means the server has thirty. Games
+  and sets tallies are relative to the side serving the next point.
+- **What is called:** points, deuce and advantage; "Game" with the games tally;
+  "Game and set" with the sets tally; "Game, set and match" on the winning point
+  (before any result confirmation); tie-break start and tie-break points; "Break
+  point", "Set point" or "Match point" (the biggest one only, no break point in a
+  tie-break); "Correction" and the standing score after an undo. A manual set end is
+  called "Set". Walkovers, retirements, disqualifications and forced ends are silent.
+- **A call describes the net change over its waiting window**, not the last tap:
+  a point and its undo cancel out, quick taps are called as the score they leave,
+  and confirming, pausing or fixing the server never cuts a pending call.
+- **The voice stays silent whenever the server is unknown** rather than read a
+  score backwards.
+- **The voice is Kokoro "am_michael"** (Kokoro-82M v1.0, Apache-2.0, free for
+  commercial use), chosen by the product owner after ElevenLabs' free tier was
+  withdrawn. It is generated on a Mac with no account or key
+  (`npm install --no-save kokoro-js@1.2.1`, then `npm run voice -- --provider kokoro`),
+  unhurried: speed 0.9, whole phrases with a comma where the pause goes
+  ("Fifteen, love."), and 300 ms / 600 ms gaps between the parts of a call. The
+  generator still supports ElevenLabs (paid plan) and human recordings.
+- **Referees can mute** the calls from the scoring page (a header button and a
+  "Mute voice" control next to End match) without turning the voice off.
+
+### Serving in a tie-break — supersedes spec §12.11 "hide the serving team"
+
+- The engine records who serves a tie-break's first point
+  (`ScoreState.tiebreakFirstServer`); `currentServer()` derives the rotation (one
+  point, then two each). `servingTeam` itself stays null during a tie-break,
+  because the venue screens draw their serve dot from it.
+- The referee page shows the tie-break server, and its Server button corrects it.
+- **The team that served first in a tie-break receives first in the next set**
+  (ITF rule 5(b), followed by padel). Previously the next set always started with
+  team A serving. States saved before this change keep the old behaviour.
