@@ -229,9 +229,11 @@ seconds after each point. Source of truth: `src/lib/voice/*` and its tests.
   Apple licenses them for personal use; a test refuses a committed pack built from
   them. Released packs come from a voice licensed for commercial use: Kokoro,
   ElevenLabs on a paid plan, or human recordings.
-- **Sides are "server" and "receiver", never team names**, and every call reads
-  the server's score first: "Thirty fifteen" means the server has thirty. Games
-  and sets tallies are relative to the side serving the next point.
+- **Sides are "server" and "receiver", never team names** — unless red and blue
+  teams are on (below) — and every point call reads the server's score first:
+  "Thirty fifteen" means the server has thirty. Unnamed games and sets tallies are
+  relative to the side serving the next point; with red and blue teams they are
+  leader-first and end in the leader's colour.
 - **What is called:** points, deuce and advantage; "Game" with the games tally;
   "Game and set" with the sets tally; "Game, set and match" on the winning point
   (before any result confirmation); tie-break start and tie-break points; "Break
@@ -250,6 +252,16 @@ seconds after each point. Source of truth: `src/lib/voice/*` and its tests.
   unhurried: speed 0.9, whole phrases with a comma where the pause goes
   ("Fifteen, love."), and 300 ms / 600 ms gaps between the parts of a call. The
   generator still supports ElevenLabs (paid plan) and human recordings.
+- **Red and blue teams** (`branding_config.redBlueTeams`, an organiser setting in
+  Branding & sponsors, shared with friendly sessions). When on, every match's
+  first-listed team is the **Red team** and the second the **Blue team**: calls end
+  in the colour ("Advantage, Red team." "Game, Blue team. Four games to two, Blue
+  team." "Game, set and match, Red team."), point calls stay "Fifteen, love", and
+  team and player names are never spoken. The TV court cards (live, next, result,
+  entrance) and the referee's scoring page mark each side with its colour and the
+  word RED or BLUE, never colour alone. Off: "server" and "receiver", as before.
+  Calling teams by their own names was tried and dropped in favour of this: it
+  needed a voice clip per team, made in each organiser's browser.
 - **Referees can mute** the calls from the scoring page (a header button and a
   "Mute voice" control next to End match) without turning the voice off.
 

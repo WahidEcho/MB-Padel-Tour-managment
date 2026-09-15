@@ -19,7 +19,7 @@ export default function VoicePanel({
   voice: ReturnType<typeof useUmpireVoice>;
   onClose: () => void;
 }) {
-  const { settings, setSettings, status, caption, test } = voice;
+  const { settings, setSettings, status, caption, test, redBlue } = voice;
   const on = settings.enabled;
 
   return (
@@ -81,6 +81,11 @@ export default function VoicePanel({
           </div>
           <p className="text-xs text-muted">
             If a Bluetooth speaker cuts off the first word, raise the wake-up time and press Test.
+          </p>
+          <p className="text-xs text-muted" data-testid="voice-sides">
+            {redBlue
+              ? "Teams are called by colour: “Advantage, Red team.” “Game, Blue team.”"
+              : "Teams are called “server” and “receiver”. An organiser can switch to Red and Blue teams in Settings."}
           </p>
           <label className="flex items-center gap-2 text-sm">
             <input

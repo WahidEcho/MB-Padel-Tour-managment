@@ -13,7 +13,7 @@
  *
  *   npm install --no-save kokoro-js@1.2.1
  *   npm run voice -- --provider kokoro [--voice am_michael]
- *       The released pack, into public/voice/en-v1: Kokoro-82M (Apache-2.0, free for
+ *       The released pack, into public/voice/<VOICE_PACK>: Kokoro-82M (Apache-2.0, free for
  *       commercial use), run on this Mac with no account or key. The voice chosen by
  *       the product owner is am_michael. kokoro-js is installed only for the run —
  *       it is ~400 MB and has no place in the app's own dependencies.
@@ -82,7 +82,8 @@ function spokenText(id: string, text: string): string {
   if (twoWords) return text.replace(/^(\S+) (\S+)$/, (_m, a: string, b: string) => `${a}${pause(0.45)}${b}`);
   if (id === "adv-server" || id === "adv-receiver") return text.replace(" ", pause(0.3));
   if (id === "game-set-match") return `Game,${pause(0.3)}set${pause(0.3)}and match.`;
-  if (/^(games|sets)-\d+-\d+$/.test(id)) return text.replace(/ to /, `${pause(0.3)}to `);
+  if (id === "game-set-match-named") return `Game,${pause(0.3)}set${pause(0.3)}and match,`;
+  if (/^(games|sets)-\d+-\d+(-named)?$/.test(id)) return text.replace(/ to /, `${pause(0.3)}to `);
   return text;
 }
 
@@ -95,7 +96,8 @@ function kokoroText(id: string, text: string): string {
   if (/^(pts|tb)-/.test(id) && id !== "pts-40-40") return text.replace(/^(\S+) (\S+)$/, "$1, $2");
   if (id === "adv-server" || id === "adv-receiver") return text.replace(" ", ", ");
   if (id === "game-set-match") return "Game, set, and match.";
-  if (/^(games|sets)-\d+-\d+$/.test(id)) return text.replace(/ to /, ", to ");
+  if (id === "game-set-match-named") return "Game, set, and match,";
+  if (/^(games|sets)-\d+-\d+(-named)?$/.test(id)) return text.replace(/ to /, ", to ");
   return text;
 }
 
@@ -127,6 +129,10 @@ const FILE_GAP_SAMPLES = Math.round(PACK_SAMPLE_RATE * 0.05);
  * reads it with the right rise and fall. Never recorded themselves.
  */
 function contextFor(id: string): { previous_text?: string; next_text?: string } {
+  // Red and blue teams: a lead-in says a colour next; a named tally starts a new sentence after one.
+  if (id === "team-red" || id === "team-blue") return { previous_text: "Game," };
+  if (id === "advantage" || /^(game|set|game-and-set|game-set-match)-named$/.test(id)) return { next_text: "Red team." };
+  if (/^(games|sets)-\d+-\d+-named$/.test(id)) return { previous_text: "Game, Blue team.", next_text: "Blue team." };
   if (id === "leads-server" || id === "leads-receiver") return { next_text: "four games to two." };
   if (id.startsWith("games-") && !id.startsWith("games-all")) return { previous_text: "Game. Server leads" };
   if (id.startsWith("sets-") && !id.startsWith("sets-all")) return { previous_text: "Game and set. Receiver leads" };

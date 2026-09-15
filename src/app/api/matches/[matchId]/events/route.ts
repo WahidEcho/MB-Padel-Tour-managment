@@ -60,10 +60,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   // chess match would sit finished-but-live forever.
   const { data: owner } = await db()
     .from("tournaments")
-    .select("sport, scoring_config")
+    .select("sport, scoring_config, branding_config")
     .eq("id", match.tournament_id)
     .maybeSingle();
-  const ownerRow = owner as { sport?: string; scoring_config?: { requireResultConfirmation?: boolean } } | null;
+  const ownerRow = owner as {
+    sport?: string;
+    scoring_config?: { requireResultConfirmation?: boolean };
+    branding_config?: { redBlueTeams?: boolean };
+  } | null;
   const requiresConfirmation =
     ownerRow?.sport !== "chess" && ownerRow?.scoring_config?.requireResultConfirmation === true;
   // Carried into the snapshot so the venue screen can tell a scored point from a
@@ -245,5 +249,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     });
   }
 
-  return NextResponse.json({ ok: true, applied, last_event_number: lastApplied });
+  return NextResponse.json({
+    ok: true,
+    applied,
+    last_event_number: lastApplied,
+    // The organiser can switch red and blue teams during a match. The scoring page
+    // never reloads, so each sync tells it the current setting: the walls and the
+    // voice switch together, from the next point.
+    red_blue_teams: ownerRow?.branding_config?.redBlueTeams === true,
+  });
 }

@@ -5,6 +5,7 @@ import type { ScoreState } from "@/lib/scoring/engine";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
+import { redBlueTeams } from "@/lib/sides";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       }}
       serverSnapshot={snapshot}
       reopenState={reopenState as ScoreState | null}
+      redBlueTeams={redBlueTeams(tournament.branding_config)}
     />
   );
 }

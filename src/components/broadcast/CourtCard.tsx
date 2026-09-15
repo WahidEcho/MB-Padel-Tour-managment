@@ -9,9 +9,8 @@ import { TYPE, showsAt, type Density } from "@/lib/tv/layout";
 import { frameFrom, type LiveMatch, type LiveSnapshot } from "@/lib/tv/liveFeed";
 import type { CourtSlotKind } from "@/lib/tv/courtSlots";
 import type { PublicPlayer, PublicTeam } from "@/lib/public";
+import { SIDES, sideTint, type SideKey } from "@/lib/sides";
 import { useSeekedStage } from "./hooks";
-
-type SideKey = "A" | "B";
 
 export interface CourtCardProps {
   courtName: string;
@@ -32,6 +31,8 @@ export interface CourtCardProps {
   entranceReplayAt?: string | null;
   /** The match's last scoring event when the replay was requested; only a later one ends it. */
   entranceReplayEvent?: number | null;
+  /** Red and blue teams: the first-listed team is marked Red, the second Blue. */
+  sides?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -64,6 +65,24 @@ function Portrait({ player, size, eager = true }: { player: PublicPlayer; size: 
       style={{ width: size, height: size, objectPosition: focalPosition(portrait) }}
     />
   );
+}
+
+/** "RED" or "BLUE" on its colour, sized to sit beside a team name. */
+function SideTag({ side, size }: { side: SideKey; size: number }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-lg px-3 font-black uppercase leading-none tracking-widest text-white"
+      style={{ background: SIDES[side].hex, fontSize: size, height: size * 1.5 }}
+      data-side={SIDES[side].short.toLowerCase()}
+    >
+      {SIDES[side].short}
+    </span>
+  );
+}
+
+/** A side's row on its colour: a solid bar down the left and a tint behind. */
+function sideRowStyle(side: SideKey): React.CSSProperties {
+  return { background: sideTint(side, 0.16), boxShadow: `inset 12px 0 0 ${SIDES[side].hex}`, paddingLeft: 24 };
 }
 
 /** First initial and surname, for when a full name will not fit. */
@@ -119,15 +138,22 @@ function IdleCard({ courtName }: CourtCardProps) {
   );
 }
 
-function NextCard({ courtName, match, teamA, teamB, density }: CourtCardProps) {
+function NextCard({ courtName, match, teamA, teamB, density, sides }: CourtCardProps) {
   const t = TYPE[density];
+  const tag = Math.max(18, Math.round(t.team * 0.45));
+  const name = (side: SideKey, team: PublicTeam | null) => (
+    <p className="flex max-w-full items-center justify-center gap-3 font-bold" style={{ fontSize: t.team }}>
+      {sides && <SideTag side={side} size={tag} />}
+      <span className="truncate">{team?.team_name ?? "TBD"}</span>
+    </p>
+  );
   return (
     <div className="bc-card flex h-full flex-col">
       <CourtStrip courtName={courtName} match={match} right={<span className="text-[22px] font-bold text-accent">NEXT ON COURT</span>} />
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="font-bold" style={{ fontSize: t.team }}>{teamA?.team_name ?? "TBD"}</p>
+        {name("A", teamA)}
         <p className="text-muted" style={{ fontSize: Math.max(22, t.player) }}>v</p>
-        <p className="font-bold" style={{ fontSize: t.team }}>{teamB?.team_name ?? "TBD"}</p>
+        {name("B", teamB)}
       </div>
     </div>
   );
@@ -144,9 +170,10 @@ interface Seen {
 }
 
 function LiveCard(props: CourtCardProps) {
-  const { courtName, match, snapshot, teamA, teamB, density, now, motion, pollGapMs = 2_000 } = props;
+  const { courtName, match, snapshot, teamA, teamB, density, now, motion, pollGapMs = 2_000, sides } = props;
   const t = TYPE[density];
   const shows = showsAt(density);
+  const tag = Math.max(18, Math.round(t.team * 0.45));
 
   // Classify each new observation during render, not in an effect: the beat has
   // to be decided from the frame that arrived with this render, and an effect
@@ -241,15 +268,22 @@ function LiveCard(props: CourtCardProps) {
               : snapshot.points[idx]
             : "0";
           return (
-            <div key={key} className="relative flex min-h-0 flex-1 items-center gap-4 overflow-hidden rounded-2xl px-3">
+            <div
+              key={key}
+              className="relative flex min-h-0 flex-1 items-center gap-4 overflow-hidden rounded-2xl px-3"
+              style={sides ? sideRowStyle(key) : undefined}
+            >
               {/* The pulse on the scoring row. Keyed by the beat so a new point
                   restarts it rather than continuing the last one. */}
               {scored && motion && (
                 <span
                   key={beat!.startedAt}
                   aria-hidden
-                  className="bc-animate pointer-events-none absolute inset-0 rounded-2xl bg-accent/25"
-                  style={{ animation: `bc-row-pulse ${BEAT_MS[beat!.kind]}ms ease-out both` }}
+                  className={`bc-animate pointer-events-none absolute inset-0 rounded-2xl ${sides ? "" : "bg-accent/25"}`}
+                  style={{
+                    animation: `bc-row-pulse ${BEAT_MS[beat!.kind]}ms ease-out both`,
+                    ...(sides ? { background: sideTint(key, 0.4) } : {}),
+                  }}
                 />
               )}
 
@@ -271,6 +305,7 @@ function LiveCard(props: CourtCardProps) {
                   >
                     {serving === key && !snapshot?.tiebreak ? "●" : ""}
                   </span>
+                  {sides && <SideTag side={key} size={tag} />}
                   <span className="truncate">{team?.team_name ?? "TBD"}</span>
                 </p>
                 <p className="truncate pl-[36px] text-muted" style={{ fontSize: t.player }}>
@@ -303,8 +338,9 @@ function LiveCard(props: CourtCardProps) {
                     <span
                       key={`burst-${beat!.startedAt}`}
                       aria-hidden
-                      className="bc-animate pointer-events-none absolute inset-0 m-auto rounded-full border-4 border-accent"
+                      className={`bc-animate pointer-events-none absolute inset-0 m-auto rounded-full border-4 ${sides ? "" : "border-accent"}`}
                       style={{
+                        ...(sides ? { borderColor: SIDES[key].hex } : {}),
                         width: t.points,
                         height: t.points,
                         animation: `bc-burst ${Math.min(700, BEAT_MS[beat!.kind])}ms ease-out both`,
@@ -322,10 +358,10 @@ function LiveCard(props: CourtCardProps) {
         <div
           key={`label-${beat.startedAt}`}
           aria-hidden
-          className="bc-animate pointer-events-none absolute right-5 top-[52px] rounded-xl bg-accent px-4 py-1 text-[26px] font-black uppercase text-white"
-          style={{ animation: `bc-rank-in 240ms ease-out both` }}
+          className={`bc-animate pointer-events-none absolute right-5 top-[52px] rounded-xl px-4 py-1 text-[26px] font-black uppercase text-white ${sides ? "" : "bg-accent"}`}
+          style={{ animation: `bc-rank-in 240ms ease-out both`, ...(sides ? { background: SIDES[beat.side].hex } : {}) }}
         >
-          {beat.kind === "set" ? "SET" : "GAME"} · {(beat.side === "A" ? teamA : teamB)?.team_name}
+          {beat.kind === "set" ? "SET" : "GAME"} · {sides ? SIDES[beat.side].label : (beat.side === "A" ? teamA : teamB)?.team_name}
         </div>
       )}
 
@@ -349,6 +385,7 @@ function EntranceOverlay({
   rankB,
   density,
   elapsedMs,
+  sides,
 }: CourtCardProps & { elapsedMs: number }) {
   const t = TYPE[density];
   const photo = Math.min(t.photo, density === "grid" ? 112 : 200);
@@ -359,7 +396,7 @@ function EntranceOverlay({
   const [seekFrom] = useState(elapsedMs);
   const at = (beginsAtMs: number) => seekStyle(seekFrom, beginsAtMs);
 
-  const side = (team: PublicTeam | null, rank: string | null, from: "left" | "right", begins: number) => (
+  const side = (team: PublicTeam | null, rank: string | null, from: "left" | "right", begins: number, key: SideKey) => (
     <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
       <div className="flex gap-3">
         {(team?.players ?? []).map((p, i) => (
@@ -380,6 +417,7 @@ function EntranceOverlay({
           </div>
         ))}
       </div>
+      {sides && <SideTag side={key} size={Math.max(18, Math.round(t.team * 0.45))} />}
       <p className="truncate text-center font-black" style={{ fontSize: t.team }}>{team?.team_name ?? "TBD"}</p>
       {/* Reserved height, so a missing rank does not shift the layout. */}
       <p
@@ -409,9 +447,9 @@ function EntranceOverlay({
         <p className="text-[24px] font-black uppercase tracking-widest text-accent">Now starting</p>
       </div>
       <div className="flex flex-1 items-center gap-4 px-5 pb-3">
-        {side(teamA, rankA, "left", ENTRANCE.marks[1])}
+        {side(teamA, rankA, "left", ENTRANCE.marks[1], "A")}
         <p className="text-[40px] font-black text-muted">v</p>
-        {side(teamB, rankB, "right", ENTRANCE.marks[2])}
+        {side(teamB, rankB, "right", ENTRANCE.marks[2], "B")}
       </div>
       <span className="sr-only">{match?.round_name}</span>
     </div>
@@ -437,6 +475,7 @@ function ResultCard({
   now,
   motion,
   animate,
+  sides,
 }: CourtCardProps & { animate: boolean }) {
   const t = TYPE[density];
   const shows = showsAt(density);
@@ -452,21 +491,21 @@ function ResultCard({
   const sets = snapshot?.completed_sets ?? [];
   const chip = RESULT_CHIP[match?.status ?? "completed"] ?? "WINNER";
 
-  const row = (team: PublicTeam | null, isWinner: boolean) => (
+  const tag = Math.max(18, Math.round(t.team * 0.45));
+  const row = (team: PublicTeam | null, isWinner: boolean, key: SideKey) => (
     <div
-      className={`bc-animate flex min-h-0 flex-1 items-center gap-4 rounded-2xl px-3 ${isWinner ? "bg-accent/15" : ""}`}
-      style={
-        run
+      className={`bc-animate flex min-h-0 flex-1 items-center gap-4 rounded-2xl px-3 ${isWinner && !sides ? "bg-accent/15" : ""}`}
+      style={{
+        ...(sides ? { ...sideRowStyle(key), background: sideTint(key, isWinner ? 0.28 : 0.1) } : {}),
+        ...(run
           ? {
-              animation: isWinner
-                ? "bc-lift 600ms ease-out both"
-                : "bc-recede 600ms ease-out both",
+              animation: isWinner ? "bc-lift 600ms ease-out both" : "bc-recede 600ms ease-out both",
               ...seek(isWinner ? RESULT.marks[1] : RESULT.marks[0]),
             }
           : isWinner
-            ? undefined
-            : { opacity: 0.45 }
-      }
+            ? {}
+            : { opacity: 0.45 }),
+      }}
     >
       {shows.photos && team && (
         <div className="flex shrink-0 -space-x-3">
@@ -476,13 +515,19 @@ function ResultCard({
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate font-bold" style={{ fontSize: t.team }}>{team?.team_name ?? "TBD"}</p>
+        <p className="flex items-center gap-3 truncate font-bold" style={{ fontSize: t.team }}>
+          {sides && <SideTag side={key} size={tag} />}
+          <span className="truncate">{team?.team_name ?? "TBD"}</span>
+        </p>
         <p className="truncate text-muted" style={{ fontSize: t.player }}>{playerNames(team, shows.fullNames)}</p>
       </div>
       {isWinner && (
         <span
-          className="bc-animate origin-left rounded-xl bg-accent px-4 py-1 text-[26px] font-black text-white"
-          style={run ? { animation: "bc-chip 360ms ease-out both", ...seek(RESULT.marks[1]) } : undefined}
+          className={`bc-animate origin-left rounded-xl px-4 py-1 text-[26px] font-black text-white ${sides ? "" : "bg-accent"}`}
+          style={{
+            ...(sides ? { background: SIDES[key].hex } : {}),
+            ...(run ? { animation: "bc-chip 360ms ease-out both", ...seek(RESULT.marks[1]) } : {}),
+          }}
         >
           {chip}
         </span>
@@ -491,10 +536,13 @@ function ResultCard({
   );
 
   return (
-    <div className="bc-card relative flex h-full flex-col overflow-hidden border-accent/60">
+    <div
+      className={`bc-card relative flex h-full flex-col overflow-hidden ${sides ? "" : "border-accent/60"}`}
+      style={sides && match?.winner_team_id ? { borderColor: SIDES[winnerIsA ? "A" : "B"].hex } : undefined}
+    >
       <CourtStrip courtName={courtName} match={match} right={<span className="text-[22px] font-bold text-accent">FINAL</span>} />
       <div className="flex flex-1 flex-col gap-3 px-5 pb-4">
-        {row(teamA, winnerIsA)}
+        {row(teamA, winnerIsA, "A")}
         <div className="flex shrink-0 items-center justify-center gap-6" data-numeral>
           {sets.length === 0 ? (
             <span className="text-[28px] font-bold text-muted">{chip === "WINNER" ? "" : chip}</span>
@@ -514,7 +562,7 @@ function ResultCard({
             ))
           )}
         </div>
-        {row(teamB, !winnerIsA && Boolean(match?.winner_team_id))}
+        {row(teamB, !winnerIsA && Boolean(match?.winner_team_id), "B")}
       </div>
       <span className="sr-only">{winner ? `${winner.team_name} won` : ""}</span>
     </div>

@@ -34,6 +34,7 @@ import { getRankingSnapshot, getSessionByTournament, listPublicPlayers } from "@
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
+import { redBlueTeams } from "@/lib/sides";
 import { resolveSponsors, surfaceForMode } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
@@ -277,7 +278,13 @@ export default async function TvScreen({
 
           <main className="relative min-h-0 overflow-hidden">
             {mode === "live" && !isChess && (
-              <LiveCourts courts={courtInfo} teams={publicTeams} ranks={ranks} pinnedCourtId={pinnedCourtId ?? null} />
+              <LiveCourts
+                courts={courtInfo}
+                teams={publicTeams}
+                ranks={ranks}
+                pinnedCourtId={pinnedCourtId ?? null}
+                sides={redBlueTeams(logos)}
+              />
             )}
 
             {mode === "live" && isChess && (

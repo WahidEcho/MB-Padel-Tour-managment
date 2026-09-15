@@ -323,6 +323,9 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     // Kept in step for anything still reading the old list (clones, exports).
     branding.sponsorLogoUrls = kept.map((sp) => sp.logoUrl);
 
+    // ---------- red and blue teams ----------
+    if (formData.has("red_blue_teams")) branding.redBlueTeams = formData.getAll("red_blue_teams").includes("on");
+
     // ---------- holding slate ----------
     const holdingImage = fileFrom(formData, "holding_image");
     branding.holding = {

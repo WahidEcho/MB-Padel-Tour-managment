@@ -140,6 +140,29 @@ export default function BrandingForm({
         )}
       </fieldset>
 
+      <fieldset className="space-y-2 rounded-xl border border-border p-3" data-testid="red-blue-setting">
+        <legend className="px-1 text-sm font-bold">Red and blue teams — for the voice umpire and the screens</legend>
+        <input type="hidden" name="red_blue_teams" value="off" />
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="red_blue_teams"
+            value="on"
+            defaultChecked={branding.redBlueTeams === true}
+            className="mt-0.5 h-4 w-4"
+          />
+          <span>
+            Call and colour every match as the <b className="text-[#dc2626]">Red team</b> and the{" "}
+            <b className="text-[#2563eb]">Blue team</b>
+          </span>
+        </label>
+        <p className="text-xs text-muted">
+          The first-listed team of each match is Red, the second Blue. The voice says “Advantage, Red team.” and “Game,
+          Blue team. Four games to two, Blue team.” — never team or player names — and the TV court cards and the
+          referee&apos;s scoring page mark each side in its colour. Off: the voice says “server” and “receiver”.
+        </p>
+      </fieldset>
+
       <fieldset className="space-y-2 rounded-xl border border-border p-3">
         <legend className="px-1 text-sm font-bold">Holding slate — what the TV shows between play</legend>
         <div>

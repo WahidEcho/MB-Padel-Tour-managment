@@ -11,7 +11,7 @@
  * version: recorded voices drift between runs, so clips from two runs never mix.
  */
 
-export const VOICE_PACK = "en-v1";
+export const VOICE_PACK = "en-v2";
 /** Built from a stand-in voice for development only. Never committed or deployed. */
 export const DEV_VOICE_PACK = "en-dev";
 /**
@@ -92,6 +92,25 @@ function buildPhrases(): Record<ClipId, string> {
   p["sets-2-1"] = "two sets to one.";
   p["sets-all-1"] = "One set all.";
   p["sets-all-2"] = "Two sets all.";
+
+  // Red and blue teams, when the organiser turns them on: the first-listed team of
+  // every match is Red, the second Blue. "Advantage, Red team." "Game, Blue team."
+  p["team-red"] = "Red team.";
+  p["team-blue"] = "Blue team.";
+  p["advantage"] = "Advantage,";
+  p["game-named"] = "Game,";
+  p["set-named"] = "Set,";
+  p["game-and-set-named"] = "Game and set,";
+  p["game-set-match-named"] = "Game, set and match,";
+  for (let l = 1; l <= MAX_GAMES_PHRASE; l++) {
+    for (let t = 0; t < l; t++) {
+      const trailing = t === 0 ? "love" : numberWord(t);
+      p[`games-${l}-${t}-named`] = `${capitalise(numberWord(l))} ${l === 1 ? "game" : "games"} to ${trailing},`;
+    }
+  }
+  p["sets-1-0-named"] = "One set to love,";
+  p["sets-2-0-named"] = "Two sets to love,";
+  p["sets-2-1-named"] = "Two sets to one,";
   p["leads-server"] = "Server leads";
   p["leads-receiver"] = "Receiver leads";
 
@@ -117,14 +136,37 @@ export const LONG_PAUSE_AFTER: ReadonlySet<ClipId> = new Set([
   "game-and-set",
   "tie-break",
   "correction",
+  // A team ends its sentence: "Game, Red team. — Four games to two, Red team."
+  "team-red",
+  "team-blue",
 ]);
+
+/**
+ * Whether a colour clip needs a sentence pause before it. Clips recorded to lead
+ * into a colour already end on a comma ("Advantage,", "Four games to two,"), but a
+ * tally built from number words past seven games does not: without the pause it
+ * reads "eight games to seven Red team".
+ */
+export function pausesBeforeColour(previous: ClipId, next: ClipId): boolean {
+  return (next === "team-red" || next === "team-blue") && previous !== "advantage" && !previous.endsWith("-named");
+}
 
 /** What the Test button says. */
 export const TEST_CALL: ClipId[] = ["pts-15-0", "pts-40-40", "adv-server"];
+/** What the Test button says with red and blue teams: both colours, so each is heard. */
+export const TEST_CALL_COLOURED: ClipId[] = ["pts-15-0", "pts-40-40", "advantage", "team-red", "game-named", "team-blue"];
 
 /** The words of a call, for the caption under the voice controls. */
 export function captionFor(ids: ClipId[]): string {
-  const text = ids.map((id) => PHRASES[id] ?? "").filter(Boolean);
+  const text: string[] = [];
+  ids.forEach((id, i) => {
+    const words = PHRASES[id];
+    if (!words) return;
+    if (i > 0 && text.length > 0 && pausesBeforeColour(ids[i - 1], id) && !/[.,]$/.test(text[text.length - 1])) {
+      text[text.length - 1] += ",";
+    }
+    text.push(words);
+  });
   return text
     .join(" ")
     .replace(/\s+([.,])/g, "$1")

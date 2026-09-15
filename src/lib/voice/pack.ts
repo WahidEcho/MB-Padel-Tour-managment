@@ -7,7 +7,7 @@
  * and a new iPhone produce the identical sound, and nothing here depends on Web
  * Audio, which an iPhone mutes when its silent switch is on.
  */
-import { LONG_PAUSE_AFTER, type ClipId } from "./phrases";
+import { LONG_PAUSE_AFTER, pausesBeforeColour, type ClipId } from "./phrases";
 
 export interface PackIndex {
   format: 1;
@@ -164,10 +164,13 @@ export function renderUtterance(pack: VoicePack, ids: ClipId[], opts: RenderOpti
   const gap = msToSamples(opts.gapMs ?? DEFAULT_GAP_MS, rate);
   const longGap = msToSamples(opts.longGapMs ?? DEFAULT_LONG_GAP_MS, rate);
 
+  const after = (i: number) =>
+    LONG_PAUSE_AFTER.has(present[i]) || pausesBeforeColour(present[i], present[i + 1]) ? longGap : gap;
+
   let total = msToSamples(opts.leadInMs, rate) + msToSamples(opts.tailMs ?? DEFAULT_TAIL_MS, rate);
   present.forEach((id, i) => {
     total += pack.index.clips[id][1];
-    if (i < present.length - 1) total += LONG_PAUSE_AFTER.has(id) ? longGap : gap;
+    if (i < present.length - 1) total += after(i);
   });
 
   const out = new Int16Array(total);
@@ -176,7 +179,7 @@ export function renderUtterance(pack: VoicePack, ids: ClipId[], opts: RenderOpti
     const [start, length] = pack.index.clips[id];
     out.set(pack.samples.subarray(start, start + length), cursor);
     cursor += length;
-    if (i < present.length - 1) cursor += LONG_PAUSE_AFTER.has(id) ? longGap : gap;
+    if (i < present.length - 1) cursor += after(i);
   });
   return { wav: encodeWav16(out, rate), missing, durationMs: Math.round((total / rate) * 1000) };
 }
