@@ -150,6 +150,31 @@ export default function ScreenControls({
           )}
         </div>
 
+        {/* ---------------- Which bracket ---------------- */}
+        {ceremony.hasPlate && (
+          <div className="card space-y-2" data-testid="bracket-tier-controls">
+            <div>
+              <p className="label">Which bracket is shown</p>
+              <p className="text-xs text-muted">
+                Both tiers are published, so the bracket and winner scenes can show the Plate, the Cup, or
+                both trees side by side. This is separate from the ceremony&apos;s own order below.
+              </p>
+            </div>
+            <form action={save} className="flex flex-wrap items-center gap-2">
+              {hiddenInputs}
+              {/* Keyed by what is stored, so it always shows the tier on air. */}
+              <select key={`bracket-${screen.bracket_tier}`} name="bracket_tier" defaultValue={screen.bracket_tier} className="input w-auto text-xs">
+                <option value="both">Plate and Cup</option>
+                <option value="cup">Cup only</option>
+                <option value="plate">Plate only</option>
+              </select>
+              <button className="btn-secondary text-xs" disabled={saving}>
+                Set
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* ---------------- Ceremony ---------------- */}
         <div className="card space-y-2" data-testid="ceremony-controls">
           <div>

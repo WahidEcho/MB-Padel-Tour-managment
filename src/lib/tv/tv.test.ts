@@ -298,7 +298,21 @@ describe("courtSlots", () => {
 /* layout                                                              */
 /* ------------------------------------------------------------------ */
 
-import { GUTTER, MIN_TEXT, ROWS, STAGE, TYPE, planGrid, showsAt } from "./layout";
+import {
+  GUTTER,
+  LEADERBOARD_MAX_PX,
+  LEADERBOARD_MIN_PX,
+  MIN_TEXT,
+  ROWS,
+  STAGE,
+  TYPE,
+  fitFontSize,
+  isTall,
+  leaderboardPlan,
+  numeralWidth,
+  planGrid,
+  showsAt,
+} from "./layout";
 
 describe("planGrid", () => {
   it("fits four courts as 930x420 cards — the design target", () => {
@@ -349,6 +363,96 @@ describe("type sizes", () => {
     expect(showsAt("dense")).toEqual({ photos: false, entrance: false, resultAnimation: false, fullNames: false });
     expect(TYPE.dense.points).toBeGreaterThanOrEqual(MIN_TEXT);
     expect(showsAt("grid").photos).toBe(true);
+  });
+});
+
+describe("nothing on a scoreboard is clipped", () => {
+  it("a two-digit point needs more room than the old fixed 150px box at wide density", () => {
+    // The bug this replaced: "30" at 150px type was cut in half on a two-court wall.
+    expect(numeralWidth(2, TYPE.wide.points)).toBeGreaterThan(150);
+  });
+
+  it("scales with the digits and the size", () => {
+    expect(numeralWidth(1, 100)).toBeLessThan(numeralWidth(2, 100));
+    expect(numeralWidth(2, 50)).toBeLessThan(numeralWidth(2, 100));
+    expect(numeralWidth(0, 100)).toBe(numeralWidth(1, 100));
+  });
+
+  it("a whole scoreboard row fits the card it is drawn on", () => {
+    for (const [density, plan] of ([["hero", planGrid(1)], ["wide", planGrid(2)], ["grid", planGrid(4)], ["dense", planGrid(6)]] as const)) {
+      const t = TYPE[density];
+      const row =
+        numeralWidth(2, Math.round(t.games * 0.8)) + numeralWidth(2, t.games) + numeralWidth(2, t.points) + t.games;
+      expect(row).toBeLessThan(plan.cardWidth);
+    }
+  });
+});
+
+describe("fitFontSize", () => {
+  it("leaves a short name at the size it was given", () => {
+    expect(fitFontSize("Team A", 600, 48)).toBe(48);
+  });
+
+  it("shrinks a long name rather than cutting it", () => {
+    expect(fitFontSize("Sporting Club de Zamalek Padel", 300, 48)).toBeLessThan(48);
+  });
+
+  it("never goes below the legibility floor, however long the name", () => {
+    expect(fitFontSize("x".repeat(400), 200, 48)).toBe(MIN_TEXT);
+  });
+
+  it("honours a lower floor when one is given, for a name plate", () => {
+    expect(fitFontSize("x".repeat(400), 200, 30, 14)).toBe(14);
+  });
+});
+
+describe("tall cards", () => {
+  it("are the one- and two-court layouts, which have 880 pixels of height to use", () => {
+    expect(isTall("hero")).toBe(true);
+    expect(isTall("wide")).toBe(true);
+    expect(isTall("grid")).toBe(false);
+    expect(isTall("dense")).toBe(false);
+    expect(planGrid(2).cardHeight).toBeGreaterThan(600);
+  });
+});
+
+describe("leaderboardPlan", () => {
+  it("gives one group the whole stage and big type", () => {
+    const plan = leaderboardPlan([4]);
+    expect(plan).toMatchObject({ columns: 1, rows: 1 });
+    expect(plan.fontPx).toBe(LEADERBOARD_MAX_PX);
+    expect(plan.detail).toBe(true);
+  });
+
+  it("clears the reading floor at every realistic number of groups, unlike the old fixed 14px", () => {
+    for (const groups of [[4], [4, 3], [4, 3, 1], [4, 4, 4, 4], [3, 3, 3, 3, 3, 3]]) {
+      expect(leaderboardPlan(groups).fontPx).toBeGreaterThanOrEqual(MIN_TEXT);
+    }
+  });
+
+  it("shrinks as tables and teams are added, and never past the floor", () => {
+    const three = leaderboardPlan([4, 4, 4]).fontPx;
+    const six = leaderboardPlan([6, 6, 6, 6, 6, 6]).fontPx;
+    expect(six).toBeLessThan(three);
+    expect(six).toBeGreaterThanOrEqual(LEADERBOARD_MIN_PX);
+  });
+
+  it("keeps the set and game columns only for a table with the whole stage", () => {
+    expect(leaderboardPlan([4]).detail).toBe(true);
+    expect(leaderboardPlan([4, 4]).detail).toBe(false);
+    expect(leaderboardPlan([4, 4, 4, 4, 4, 4]).detail).toBe(false);
+  });
+
+  it("never lets its cards overflow the stage or the content row", () => {
+    for (let n = 1; n <= 8; n++) {
+      const p = leaderboardPlan(Array.from({ length: n }, () => 4));
+      expect(p.cardWidth * p.columns + GUTTER * (p.columns - 1)).toBeLessThanOrEqual(STAGE.width - GUTTER * 2);
+      expect(p.cardHeight * p.rows + GUTTER * (p.rows - 1)).toBeLessThanOrEqual(ROWS.content);
+    }
+  });
+
+  it("the tallest table decides the size, so every table matches", () => {
+    expect(leaderboardPlan([2, 9]).fontPx).toBe(leaderboardPlan([9, 9]).fontPx);
   });
 });
 

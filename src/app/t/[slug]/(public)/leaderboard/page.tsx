@@ -20,9 +20,12 @@ export default async function PublicLeaderboard({ params }: { params: Promise<{ 
     <div className="space-y-4">
       <AutoRefresh seconds={8} />
       <h2 className="text-xl font-bold">Leaderboard</h2>
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* One column until there is genuinely room for two full tables. Below that
+          the table folds its difference columns away rather than being cut off by
+          a scroller nobody finds. */}
+      <div className="grid gap-4 xl:grid-cols-2">
         {groups.map((g) => (
-          <div key={g.id} className="card overflow-x-auto">
+          <div key={g.id} className="card min-w-0">
             <h3 className="mb-2 font-bold">{g.group_name}</h3>
             <StandingsTable standings={standings.filter((s) => s.group_id === g.id)} teams={tm} />
           </div>

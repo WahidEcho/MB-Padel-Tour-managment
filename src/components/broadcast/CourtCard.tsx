@@ -5,7 +5,7 @@ import { deliveryWidth, focalPosition, portraitSrc, resolvePortrait, sizedImageS
 import { initials } from "@/components/Avatar";
 import { classifyPointChange, type Beat, type ScoreFrame } from "@/lib/tv/pointBeat";
 import { BEAT_MS, ENTRANCE, RESULT, seekStyle } from "@/lib/tv/timeline";
-import { TYPE, showsAt, type Density } from "@/lib/tv/layout";
+import { TYPE, fitFontSize, isTall, numeralWidth, showsAt, type Density } from "@/lib/tv/layout";
 import { frameFrom, type LiveMatch, type LiveSnapshot } from "@/lib/tv/liveFeed";
 import type { CourtSlotKind } from "@/lib/tv/courtSlots";
 import type { PublicPlayer, PublicTeam } from "@/lib/public";
@@ -23,6 +23,9 @@ export interface CourtCardProps {
   rankA: string | null;
   rankB: string | null;
   density: Density;
+  /** The cell this card fills, in canvas pixels. Boxes inside are sized from it. */
+  cardWidth: number;
+  cardHeight: number;
   now: number;
   motion: boolean;
   /** Milliseconds between the two most recent successful polls of the feed. */
@@ -39,7 +42,72 @@ export interface CourtCardProps {
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
 
-function Portrait({ player, size, eager = true }: { player: PublicPlayer; size: number; eager?: boolean }) {
+/** The shape of a player card: portrait, so a standing figure is not cropped to a head. */
+const CARD_RATIO = 4 / 3;
+
+/**
+ * A player, as a card: their photo with their name on a faded plate across the
+ * foot of it.
+ *
+ * The plate can sit on the picture because the card is 3:4 and the photo is
+ * positioned by its focal point, which puts the face in the upper half — the
+ * plate lands on the chest. On a square crop it would land on the chin, which is
+ * why names used to be stacked underneath.
+ */
+function PlayerCard({ player, width, nameSize }: { player: PublicPlayer; width: number; nameSize: number }) {
+  const portrait = resolvePortrait(player);
+  const src = sizedImageSrc(portraitSrc(portrait), deliveryWidth(width));
+  const height = Math.round(width * CARD_RATIO);
+  const name = shortName(player.full_name);
+  // Two names on one card must not be cut, so the plate's type gives way first.
+  const fitted = fitFontSize(name, width - 12, nameSize, Math.max(14, Math.round(nameSize * 0.6)));
+
+  return (
+    <div
+      className="relative shrink-0 overflow-hidden rounded-2xl bg-accent/15"
+      style={{ width, height }}
+      data-testid="player-card"
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={player.full_name}
+          width={width}
+          height={height}
+          loading="eager"
+          className="h-full w-full object-cover"
+          style={{ objectPosition: focalPosition(portrait) }}
+        />
+      ) : (
+        <span
+          className="flex h-full w-full items-center justify-center font-bold text-accent"
+          style={{ fontSize: width * 0.4 }}
+          aria-hidden
+        >
+          {initials(player.full_name) || "?"}
+        </span>
+      )}
+      <span
+        className="absolute inset-x-0 bottom-0 flex items-end justify-center"
+        style={{
+          background: "linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.45) 55%, rgba(0,0,0,0))",
+          paddingTop: Math.round(nameSize * 1.4),
+        }}
+      >
+        <span
+          className="block w-full truncate px-2 pb-1.5 text-center font-bold leading-tight text-white"
+          style={{ fontSize: fitted }}
+        >
+          {name}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** The small round portrait used where a card will not fit. */
+function Portrait({ player, size }: { player: PublicPlayer; size: number }) {
   const portrait = resolvePortrait(player);
   const src = sizedImageSrc(portraitSrc(portrait), deliveryWidth(size));
   if (!src) {
@@ -60,7 +128,7 @@ function Portrait({ player, size, eager = true }: { player: PublicPlayer; size: 
       alt={player.full_name}
       width={size}
       height={size}
-      loading={eager ? "eager" : "lazy"}
+      loading="eager"
       className="shrink-0 rounded-2xl object-cover"
       style={{ width: size, height: size, objectPosition: focalPosition(portrait) }}
     />
@@ -97,6 +165,106 @@ function playerNames(team: PublicTeam | null, full: boolean): string {
   return team.players.map((p) => (full ? p.full_name : shortName(p.full_name))).join(" & ");
 }
 
+/**
+ * The scoreboard numerals for one side: sets, games and the point.
+ *
+ * Every box is as wide as the digits inside it, so nothing is ever clipped. The
+ * captions appear only where there is room; on a crowded grid three bare numbers
+ * in a fixed order are what a scoreboard has always been.
+ */
+function Numerals({
+  sets,
+  games,
+  points,
+  t,
+  captions,
+  beating,
+  motion,
+  burst,
+  sideHex,
+}: {
+  sets: number;
+  games: number;
+  points: string;
+  t: (typeof TYPE)[Density];
+  captions: boolean;
+  /** A point landed in this poll, so the numeral swaps in rather than appearing. */
+  beating: boolean;
+  motion: boolean;
+  /** This side scored: when and for how long its burst rings, or null. */
+  burst: { startedAt: number; ms: number } | null;
+  sideHex: string | null;
+}) {
+  const setsPx = Math.round(t.games * 0.8);
+  const capPx = Math.max(16, Math.round(t.games * 0.34));
+  const column = (value: React.ReactNode, width: number, caption: string, key: string) => (
+    <div key={key} className="flex flex-col items-center justify-end" style={{ width }}>
+      {value}
+      {captions && (
+        <span className="uppercase tracking-widest text-muted" style={{ fontSize: capPx }}>
+          {caption}
+        </span>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex shrink-0 items-end" style={{ gap: Math.round(t.games * 0.35) }} data-numeral>
+      {column(
+        <span className="bc-num text-center font-bold leading-none text-muted" style={{ fontSize: setsPx }}>
+          {sets}
+        </span>,
+        numeralWidth(2, setsPx),
+        "sets",
+        "sets",
+      )}
+      {column(
+        <span className="bc-num text-center font-bold leading-none" style={{ fontSize: t.games }}>
+          {games}
+        </span>,
+        numeralWidth(2, t.games),
+        "games",
+        "games",
+      )}
+      {column(
+        <span
+          className="relative flex items-center justify-center"
+          style={{ height: t.points * 1.02, width: numeralWidth(Math.max(2, points.length), t.points) }}
+        >
+          {/* Points are an enum, so they swap rather than roll: an odometer
+              counting 15 to 30 through 16, 17, 18 would be wrong. Keyed on the
+              value, so a change re-runs the entry animation. */}
+          <span
+            key={points}
+            className="bc-num bc-animate font-black leading-none"
+            style={{ fontSize: t.points, animation: motion && beating ? "bc-swap-in 240ms ease-out both" : undefined }}
+          >
+            {points}
+          </span>
+          {burst && motion && (
+            <span
+              // Keyed by the beat, so a new point restarts the ring rather than
+              // continuing the last one.
+              key={burst.startedAt}
+              aria-hidden
+              className={`bc-animate pointer-events-none absolute inset-0 m-auto rounded-full border-4 ${sideHex ? "" : "border-accent"}`}
+              style={{
+                ...(sideHex ? { borderColor: sideHex } : {}),
+                width: t.points,
+                height: t.points,
+                animation: `bc-burst ${burst.ms}ms ease-out both`,
+              }}
+            />
+          )}
+        </span>,
+        numeralWidth(Math.max(2, points.length), t.points),
+        "points",
+        "points",
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* The card                                                            */
 /* ------------------------------------------------------------------ */
@@ -108,6 +276,12 @@ function playerNames(team: PublicTeam | null, full: boolean): string {
  * a changing key would remount it and silently kill every animation on the wall.
  * All motion is confined to the card, so two courts scoring at the same moment
  * each animate in their own box and cannot collide.
+ *
+ * Two shapes, chosen by how much height the card has. A tall card — one or two
+ * courts on the wall — gives each side a block of its own: player cards on the
+ * left, the team's name across the top of the rest, the score beneath it. A short
+ * card keeps both sides on one line each. Neither ever clips a name or a numeral:
+ * every box is sized from what goes in it.
  */
 export default function CourtCard(props: CourtCardProps) {
   const { kind } = props;
@@ -119,7 +293,7 @@ export default function CourtCard(props: CourtCardProps) {
 
 function CourtStrip({ courtName, match, right }: { courtName: string; match: LiveMatch | null; right?: React.ReactNode }) {
   return (
-    <div className="flex h-[44px] shrink-0 items-center justify-between px-5">
+    <div className="flex h-[44px] shrink-0 items-center justify-between gap-4 px-5">
       <p className="truncate text-[24px] font-bold uppercase tracking-widest text-muted">
         {courtName}
         {match?.round_name ? <span className="font-semibold normal-case tracking-normal"> · {match.round_name}</span> : null}
@@ -138,22 +312,83 @@ function IdleCard({ courtName }: CourtCardProps) {
   );
 }
 
-function NextCard({ courtName, match, teamA, teamB, density, sides }: CourtCardProps) {
-  const t = TYPE[density];
-  const tag = Math.max(18, Math.round(t.team * 0.45));
-  const name = (side: SideKey, team: PublicTeam | null) => (
-    <p className="flex max-w-full items-center justify-center gap-3 font-bold" style={{ fontSize: t.team }}>
+/**
+ * A team's name, at the largest size that fits the room it has.
+ *
+ * Wraps to a second line rather than being cut: a spectator looking for their own
+ * team needs the whole name, and "Team Alp…" is the one thing a scoreboard must
+ * never say.
+ */
+function TeamName({
+  team,
+  side,
+  sides,
+  basePx,
+  widthPx,
+  serving,
+  lines = 2,
+}: {
+  team: PublicTeam | null;
+  side: SideKey;
+  sides: boolean;
+  basePx: number;
+  widthPx: number;
+  serving?: boolean;
+  lines?: 1 | 2;
+}) {
+  const name = team?.team_name ?? "TBD";
+  const tag = Math.max(18, Math.round(basePx * 0.45));
+  // The tag and the serve dot take their share of the line before the name does.
+  const room = widthPx - (sides ? tag * 3.6 : 0) - (serving !== undefined ? basePx * 0.6 : 0);
+  const size = fitFontSize(name, room * lines, basePx);
+  return (
+    <p className="flex min-w-0 items-center gap-2 font-bold leading-tight" style={{ fontSize: size }}>
+      {serving !== undefined && (
+        // Glyph plus colour, never colour alone: an LED wall's calibration and a
+        // colour-blind viewer both defeat colour-only encoding.
+        <span
+          aria-label={serving ? "serving" : undefined}
+          className="inline-block shrink-0 text-center text-accent"
+          style={{ width: size * 0.6 }}
+        >
+          {serving ? "●" : ""}
+        </span>
+      )}
       {sides && <SideTag side={side} size={tag} />}
-      <span className="truncate">{team?.team_name ?? "TBD"}</span>
+      <span className={lines === 2 ? "min-w-0 break-words" : "min-w-0 truncate"}>{name}</span>
     </p>
   );
+}
+
+function NextCard({ courtName, match, teamA, teamB, density, sides }: CourtCardProps) {
+  const t = TYPE[density];
+  const tall = isTall(density);
+  const shows = showsAt(density);
+  const photo = tall ? (density === "hero" ? 190 : 140) : 96;
+
+  const side = (key: SideKey, team: PublicTeam | null) => (
+    <div className="flex min-w-0 flex-col items-center gap-3">
+      {shows.photos && team && team.players.length > 0 && (
+        <div className="flex items-end gap-3">
+          {team.players.map((p) => (
+            <PlayerCard key={p.id} player={p} width={photo} nameSize={Math.max(18, t.player * 0.8)} />
+          ))}
+        </div>
+      )}
+      <p className="flex max-w-full items-center justify-center gap-3 text-center font-bold" style={{ fontSize: t.team }}>
+        {sides && <SideTag side={key} size={Math.max(18, Math.round(t.team * 0.45))} />}
+        <span className="min-w-0 break-words">{team?.team_name ?? "TBD"}</span>
+      </p>
+    </div>
+  );
+
   return (
-    <div className="bc-card flex h-full flex-col">
-      <CourtStrip courtName={courtName} match={match} right={<span className="text-[22px] font-bold text-accent">NEXT ON COURT</span>} />
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        {name("A", teamA)}
-        <p className="text-muted" style={{ fontSize: Math.max(22, t.player) }}>v</p>
-        {name("B", teamB)}
+    <div className="bc-card flex h-full flex-col overflow-hidden">
+      <CourtStrip courtName={courtName} match={match} right={<span className="shrink-0 text-[22px] font-bold text-accent">NEXT ON COURT</span>} />
+      <div className={`flex flex-1 items-center justify-center gap-6 px-6 pb-4 text-center ${tall ? "" : "flex-col gap-3"}`}>
+        {side("A", teamA)}
+        <p className="shrink-0 text-muted" style={{ fontSize: Math.max(22, t.player) }}>v</p>
+        {side("B", teamB)}
       </div>
     </div>
   );
@@ -173,7 +408,12 @@ function LiveCard(props: CourtCardProps) {
   const { courtName, match, snapshot, teamA, teamB, density, now, motion, pollGapMs = 2_000, sides } = props;
   const t = TYPE[density];
   const shows = showsAt(density);
-  const tag = Math.max(18, Math.round(t.team * 0.45));
+  const tall = isTall(density);
+  // One court owns 1880 pixels of width, so its name and its score sit side by
+  // side with room to spare. Two courts own 930 each, which is not enough for a
+  // 150px score and a team name on one line — that is what cut "Team Alpha" to
+  // "Team Alp…" — so there the name takes a line of its own above the score.
+  const stack = density === "wide";
 
   // Classify each new observation during render, not in an effect: the beat has
   // to be decided from the frame that arrived with this render, and an effect
@@ -243,6 +483,18 @@ function LiveCard(props: CourtCardProps) {
     { key: "B", team: teamB, idx: 1 },
   ];
 
+  // The room each part of a side's block has, so nothing has to guess. A tall
+  // card gives its photos at most two fifths of the width; a short one keeps the
+  // old strip and only sizes its boxes honestly.
+  const cardPad = 56;
+  // As tall as the row allows: a card is 3:4, and one court gives each side
+  // about 400 pixels of height.
+  const photoWidth = tall ? (density === "hero" ? 290 : 185) : Math.min(t.photo, 120);
+  const photoRoom = (n: number) => (n > 0 ? n * photoWidth + (n - 1) * 12 + 16 : 0);
+  /** What the scoreboard takes when it sits beside the name rather than under it. */
+  const scoreRoom =
+    numeralWidth(2, Math.round(t.games * 0.8)) + numeralWidth(2, t.games) + numeralWidth(2, t.points) + t.games;
+
   return (
     <div className="bc-card relative flex h-full flex-col overflow-hidden">
       <CourtStrip
@@ -250,11 +502,11 @@ function LiveCard(props: CourtCardProps) {
         match={match}
         right={
           snapshot?.tiebreak ? (
-            <span className="rounded-lg bg-warning/25 px-3 py-0.5 text-[22px] font-bold text-warning">TIE-BREAK</span>
+            <span className="shrink-0 rounded-lg bg-warning/25 px-3 py-0.5 text-[22px] font-bold text-warning">TIE-BREAK</span>
           ) : match?.status === "paused" ? (
-            <span className="text-[22px] font-bold text-warning">PAUSED</span>
+            <span className="shrink-0 text-[22px] font-bold text-warning">PAUSED</span>
           ) : (
-            <span className="text-[22px] font-bold text-success">● LIVE</span>
+            <span className="shrink-0 text-[22px] font-bold text-success">● LIVE</span>
           )
         }
       />
@@ -267,10 +519,27 @@ function LiveCard(props: CourtCardProps) {
               ? String(snapshot.tiebreak_points[idx])
               : snapshot.points[idx]
             : "0";
+          const players = shows.photos ? (team?.players ?? []) : [];
+          // What is left for the name and the score once the photos have theirs.
+          const rest = props.cardWidth - cardPad - photoRoom(players.length);
+          const numerals = (
+            <Numerals
+              sets={snapshot?.sets[idx] ?? 0}
+              games={snapshot?.games[idx] ?? 0}
+              points={points}
+              t={t}
+              captions={tall}
+              beating={Boolean(seen.beat)}
+              motion={motion}
+              burst={scored ? { startedAt: beat!.startedAt, ms: Math.min(700, BEAT_MS[beat!.kind]) } : null}
+              sideHex={sides ? SIDES[key].hex : null}
+            />
+          );
+
           return (
             <div
               key={key}
-              className="relative flex min-h-0 flex-1 items-center gap-4 overflow-hidden rounded-2xl px-3"
+              className={`relative flex min-h-0 flex-1 gap-4 overflow-hidden rounded-2xl px-3 ${tall ? "items-center py-2" : "items-center"}`}
               style={sides ? sideRowStyle(key) : undefined}
             >
               {/* The pulse on the scoring row. Keyed by the beat so a new point
@@ -287,68 +556,58 @@ function LiveCard(props: CourtCardProps) {
                 />
               )}
 
-              {shows.photos && team && (
-                <div className="flex shrink-0 -space-x-3">
-                  {team.players.map((p) => (
-                    <Portrait key={p.id} player={p} size={Math.min(t.photo, 120)} />
-                  ))}
+              {players.length > 0 &&
+                (tall ? (
+                  <div className="flex shrink-0 items-center gap-3">
+                    {players.map((p) => (
+                      <PlayerCard key={p.id} player={p} width={photoWidth} nameSize={Math.max(18, t.player * 0.78)} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex shrink-0 -space-x-3">
+                    {players.map((p) => (
+                      <Portrait key={p.id} player={p} size={photoWidth} />
+                    ))}
+                  </div>
+                ))}
+
+              {stack ? (
+                // The name across the top of the space the photos left, the score
+                // under it — so both get the full width instead of competing for
+                // one line.
+                <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
+                  <TeamName
+                    team={team}
+                    side={key}
+                    sides={Boolean(sides)}
+                    basePx={t.team}
+                    widthPx={rest}
+                    serving={serving === key && !snapshot?.tiebreak}
+                  />
+                  <p className="truncate text-muted" style={{ fontSize: t.player }}>
+                    {playerNames(team, shows.fullNames)}
+                  </p>
+                  <div className="flex items-end justify-end">{numerals}</div>
                 </div>
-              )}
-
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 truncate font-bold leading-tight" style={{ fontSize: t.team }}>
-                  {/* Glyph plus colour, never colour alone: an LED wall's calibration
-                      and a colour-blind viewer both defeat colour-only encoding. */}
-                  <span
-                    aria-label={serving === key ? "serving" : undefined}
-                    className="inline-block w-[28px] shrink-0 text-center text-accent"
-                  >
-                    {serving === key && !snapshot?.tiebreak ? "●" : ""}
-                  </span>
-                  {sides && <SideTag side={key} size={tag} />}
-                  <span className="truncate">{team?.team_name ?? "TBD"}</span>
-                </p>
-                <p className="truncate pl-[36px] text-muted" style={{ fontSize: t.player }}>
-                  {playerNames(team, shows.fullNames)}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-5" data-numeral>
-                <span className="bc-num w-[56px] text-center font-bold text-muted" style={{ fontSize: t.games * 0.8 }}>
-                  {snapshot?.sets[idx] ?? 0}
-                </span>
-                <span className="bc-num w-[72px] text-center font-bold" style={{ fontSize: t.games }}>
-                  {snapshot?.games[idx] ?? 0}
-                </span>
-                <span className="relative flex w-[150px] items-center justify-center overflow-hidden" style={{ height: t.points * 1.05 }}>
-                  {/* Points are an enum, so they swap rather than roll: an odometer
-                      counting 15 to 30 through 16, 17, 18 would be wrong. Keyed on the
-                      value, so a change re-runs the entry animation. */}
-                  <span
-                    key={points}
-                    className="bc-num bc-animate font-black leading-none"
-                    style={{
-                      fontSize: t.points,
-                      animation: motion && seen.beat ? "bc-swap-in 240ms ease-out both" : undefined,
-                    }}
-                  >
-                    {points}
-                  </span>
-                  {scored && motion && (
-                    <span
-                      key={`burst-${beat!.startedAt}`}
-                      aria-hidden
-                      className={`bc-animate pointer-events-none absolute inset-0 m-auto rounded-full border-4 ${sides ? "" : "border-accent"}`}
-                      style={{
-                        ...(sides ? { borderColor: SIDES[key].hex } : {}),
-                        width: t.points,
-                        height: t.points,
-                        animation: `bc-burst ${Math.min(700, BEAT_MS[beat!.kind])}ms ease-out both`,
-                      }}
+              ) : (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <TeamName
+                      team={team}
+                      side={key}
+                      sides={Boolean(sides)}
+                      basePx={t.team}
+                      widthPx={rest - scoreRoom}
+                      serving={serving === key && !snapshot?.tiebreak}
+                      lines={tall ? 2 : 1}
                     />
-                  )}
-                </span>
-              </div>
+                    <p className="truncate text-muted" style={{ fontSize: t.player }}>
+                      {playerNames(team, shows.fullNames)}
+                    </p>
+                  </div>
+                  {numerals}
+                </>
+              )}
             </div>
           );
         })}
@@ -388,7 +647,7 @@ function EntranceOverlay({
   sides,
 }: CourtCardProps & { elapsedMs: number }) {
   const t = TYPE[density];
-  const photo = Math.min(t.photo, density === "grid" ? 112 : 200);
+  const photo = density === "hero" ? 300 : density === "wide" ? 210 : 130;
   // Seek ONCE, from how far in the entrance was when this overlay appeared, then
   // let the browser run the animations. Re-deriving the negative delay on every
   // clock tick would re-time animations already running and count the elapsed
@@ -397,28 +656,27 @@ function EntranceOverlay({
   const at = (beginsAtMs: number) => seekStyle(seekFrom, beginsAtMs);
 
   const side = (team: PublicTeam | null, rank: string | null, from: "left" | "right", begins: number, key: SideKey) => (
-    <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
-      <div className="flex gap-3">
+    <div className="flex min-w-0 flex-1 flex-col items-center gap-3">
+      <div className="flex items-end gap-4">
         {(team?.players ?? []).map((p, i) => (
           <div
             key={p.id}
-            className="bc-animate flex flex-col items-center gap-1"
+            className="bc-animate"
             style={{
               animation: `${from === "left" ? "bc-in-left" : "bc-in-right"} 520ms cubic-bezier(.2,.8,.2,1) both`,
               ...at(begins + i * 140),
             }}
           >
-            <Portrait player={p} size={photo} />
-            {/* Stacked under the portrait, never over it: studio portraits put the
-                chin at 70-78% of the frame, so an overlaid name lands on the face. */}
-            <p className="max-w-[200px] truncate text-center font-bold" style={{ fontSize: Math.max(22, t.player) }}>
-              {shortName(p.full_name)}
-            </p>
+            {/* The name rides on the card now, on its own faded plate, rather than
+                below it — one object per player instead of two stacked pieces. */}
+            <PlayerCard player={p} width={photo} nameSize={Math.max(20, t.player * 0.9)} />
           </div>
         ))}
       </div>
       {sides && <SideTag side={key} size={Math.max(18, Math.round(t.team * 0.45))} />}
-      <p className="truncate text-center font-black" style={{ fontSize: t.team }}>{team?.team_name ?? "TBD"}</p>
+      <p className="max-w-full break-words text-center font-black leading-tight" style={{ fontSize: t.team }}>
+        {team?.team_name ?? "TBD"}
+      </p>
       {/* Reserved height, so a missing rank does not shift the layout. */}
       <p
         className="bc-animate min-h-[30px] text-center text-[24px] font-semibold text-accent"
@@ -472,6 +730,7 @@ function ResultCard({
   teamA,
   teamB,
   density,
+  cardWidth,
   now,
   motion,
   animate,
@@ -479,6 +738,7 @@ function ResultCard({
 }: CourtCardProps & { animate: boolean }) {
   const t = TYPE[density];
   const shows = showsAt(density);
+  const tall = isTall(density);
   const result = useSeekedStage(RESULT.marks, match?.ended_at ?? null, now);
   // Frozen at mount, for the same reason as the entrance: a delay re-derived on
   // every tick re-times a running animation and plays it at double speed.
@@ -490,60 +750,77 @@ function ResultCard({
   const winner = winnerIsA ? teamA : teamB;
   const sets = snapshot?.completed_sets ?? [];
   const chip = RESULT_CHIP[match?.status ?? "completed"] ?? "WINNER";
+  const photoWidth = tall ? (density === "hero" ? 210 : 155) : Math.min(t.photo, 112);
 
-  const tag = Math.max(18, Math.round(t.team * 0.45));
-  const row = (team: PublicTeam | null, isWinner: boolean, key: SideKey) => (
-    <div
-      className={`bc-animate flex min-h-0 flex-1 items-center gap-4 rounded-2xl px-3 ${isWinner && !sides ? "bg-accent/15" : ""}`}
-      style={{
-        ...(sides ? { ...sideRowStyle(key), background: sideTint(key, isWinner ? 0.28 : 0.1) } : {}),
-        ...(run
-          ? {
-              animation: isWinner ? "bc-lift 600ms ease-out both" : "bc-recede 600ms ease-out both",
-              ...seek(isWinner ? RESULT.marks[1] : RESULT.marks[0]),
-            }
-          : isWinner
-            ? {}
-            : { opacity: 0.45 }),
-      }}
-    >
-      {shows.photos && team && (
-        <div className="flex shrink-0 -space-x-3">
-          {team.players.map((p) => (
-            <Portrait key={p.id} player={p} size={Math.min(t.photo, 112)} />
+  // The winner chip and the photos take their share before the name does.
+  const nameRoom = (photos: number) =>
+    cardWidth - 100 - (photos > 0 ? photos * photoWidth + (photos - 1) * 12 + 16 : 0);
+  const row = (team: PublicTeam | null, isWinner: boolean, key: SideKey) => {
+    const players = shows.photos ? (team?.players ?? []) : [];
+    return (
+      <div
+        className={`bc-animate flex min-h-0 flex-1 items-center gap-4 overflow-hidden rounded-2xl px-3 ${isWinner && !sides ? "bg-accent/15" : ""}`}
+        style={{
+          ...(sides ? { ...sideRowStyle(key), background: sideTint(key, isWinner ? 0.28 : 0.1) } : {}),
+          ...(run
+            ? {
+                animation: isWinner ? "bc-lift 600ms ease-out both" : "bc-recede 600ms ease-out both",
+                ...seek(isWinner ? RESULT.marks[1] : RESULT.marks[0]),
+              }
+            : isWinner
+              ? {}
+              : { opacity: 0.45 }),
+        }}
+      >
+        {players.length > 0 &&
+          (tall ? (
+            <div className="flex shrink-0 items-center gap-3">
+              {players.map((p) => (
+                <PlayerCard key={p.id} player={p} width={photoWidth} nameSize={Math.max(18, t.player * 0.78)} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex shrink-0 -space-x-3">
+              {players.map((p) => (
+                <Portrait key={p.id} player={p} size={photoWidth} />
+              ))}
+            </div>
           ))}
+        <div className="min-w-0 flex-1">
+          <TeamName
+            team={team}
+            side={key}
+            sides={Boolean(sides)}
+            basePx={t.team}
+            widthPx={nameRoom(players.length)}
+            lines={tall ? 2 : 1}
+          />
+          <p className="truncate text-muted" style={{ fontSize: t.player }}>{playerNames(team, shows.fullNames)}</p>
         </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-3 truncate font-bold" style={{ fontSize: t.team }}>
-          {sides && <SideTag side={key} size={tag} />}
-          <span className="truncate">{team?.team_name ?? "TBD"}</span>
-        </p>
-        <p className="truncate text-muted" style={{ fontSize: t.player }}>{playerNames(team, shows.fullNames)}</p>
+        {isWinner && (
+          <span
+            className={`bc-animate shrink-0 origin-left rounded-xl px-4 py-1 text-[26px] font-black text-white ${sides ? "" : "bg-accent"}`}
+            style={{
+              ...(sides ? { background: SIDES[key].hex } : {}),
+              ...(run ? { animation: "bc-chip 360ms ease-out both", ...seek(RESULT.marks[1]) } : {}),
+            }}
+          >
+            {chip}
+          </span>
+        )}
       </div>
-      {isWinner && (
-        <span
-          className={`bc-animate origin-left rounded-xl px-4 py-1 text-[26px] font-black text-white ${sides ? "" : "bg-accent"}`}
-          style={{
-            ...(sides ? { background: SIDES[key].hex } : {}),
-            ...(run ? { animation: "bc-chip 360ms ease-out both", ...seek(RESULT.marks[1]) } : {}),
-          }}
-        >
-          {chip}
-        </span>
-      )}
-    </div>
-  );
+    );
+  };
 
   return (
     <div
       className={`bc-card relative flex h-full flex-col overflow-hidden ${sides ? "" : "border-accent/60"}`}
       style={sides && match?.winner_team_id ? { borderColor: SIDES[winnerIsA ? "A" : "B"].hex } : undefined}
     >
-      <CourtStrip courtName={courtName} match={match} right={<span className="text-[22px] font-bold text-accent">FINAL</span>} />
+      <CourtStrip courtName={courtName} match={match} right={<span className="shrink-0 text-[22px] font-bold text-accent">FINAL</span>} />
       <div className="flex flex-1 flex-col gap-3 px-5 pb-4">
         {row(teamA, winnerIsA, "A")}
-        <div className="flex shrink-0 items-center justify-center gap-6" data-numeral>
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-6" data-numeral>
           {sets.length === 0 ? (
             <span className="text-[28px] font-bold text-muted">{chip === "WINNER" ? "" : chip}</span>
           ) : (

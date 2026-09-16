@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BACKGROUND_ACCEPT, BACKGROUND_DIMS, BACKGROUND_TYPES, DEFAULT_DIM, backgroundProblem } from "@/lib/background";
+import { compressImageFile, isReEncodable } from "@/lib/imageCompress";
 import type { EventBackground } from "@/lib/types";
 import { finishBackgroundUpload, prepareBackgroundUpload } from "./actions";
 
@@ -55,15 +56,32 @@ export default function BackgroundUploader({
   const busy = phase !== "idle";
 
   async function upload(picked: File) {
-    const type = typeOf(picked);
-    const problem = backgroundProblem({ type, size: picked.size });
+    const pickedType = typeOf(picked);
+    // Stored with the right type even when the system did not name one.
+    const typed = picked.type === pickedType ? picked : new File([picked], picked.name, { type: pickedType });
+
+    // A still picture over its limit is shrunk rather than refused. An animation
+    // — a GIF, an animated WebP or PNG — and a video are never touched:
+    // re-encoding one would leave a single frozen frame on every wall.
+    let file = typed;
+    if (isReEncodable(pickedType)) {
+      setMessage(null);
+      setPhase("checking");
+      const shrunk = await compressImageFile(typed, {
+        maxBytes: BACKGROUND_TYPES[pickedType].maxBytes,
+        maxEdge: 3840,
+      });
+      setPhase("idle");
+      file = shrunk.file;
+      if (shrunk.changed) setMessage({ ok: true, text: shrunk.note ?? "" });
+    }
+
+    const type = typeOf(file);
+    const problem = backgroundProblem({ type, size: file.size });
     if (problem) {
       setMessage({ ok: false, text: problem });
       return;
     }
-    // Stored with the right type even when the system did not name one.
-    const file = picked.type === type ? picked : new File([picked], picked.name, { type });
-    setMessage(null);
     setProgress(0);
     setPhase("uploading");
     try {

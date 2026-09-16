@@ -2,7 +2,8 @@ import { getGroups, getStandings, getTeams, getTournament, teamMap } from "@/lib
 import SessionRowNotice from "../SessionRowNotice";
 import AutoRefresh from "@/components/AutoRefresh";
 import StandingsTable from "@/components/StandingsTable";
-import { overrideQualification, recalcAction } from "./actions";
+import QualificationControl from "./QualificationControl";
+import { recalcAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,29 +30,23 @@ export default async function LeaderboardPage({ params }: { params: Promise<{ id
 
       {groups.length === 0 && <p className="card p-8 text-center text-muted">Create and publish groups first.</p>}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      {/* One table per row until the screen is genuinely wide: eleven columns and
+          the override control do not share 550 pixels. */}
+      <div className="grid gap-4 2xl:grid-cols-2">
         {groups.map((g) => (
-          <div key={g.id} className="card overflow-x-auto">
+          <div key={g.id} className="card min-w-0 overflow-x-auto">
             <h3 className="mb-2 font-bold">{g.group_name}</h3>
             <StandingsTable
               standings={standings.filter((s) => s.group_id === g.id)}
               teams={tm}
               actions={(s) => (
-                <form action={overrideQualification} className="flex items-center gap-1">
-                  <input type="hidden" name="tournament_id" value={id} />
-                  <input type="hidden" name="standing_id" value={s.id} />
-                  <select name="status" defaultValue={s.status} className="input w-auto px-2 py-1 text-xs">
-                    {["pending", "qualified", "eliminated", "disqualified"].map((st) => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
-                  </select>
-                  <button className="btn-secondary px-2 py-1 text-xs">Set</button>
-                  {s.manual_status_override && (
-                    <button name="reset" value="1" className="px-1 text-xs text-muted hover:text-foreground" title="Clear override">
-                      ↺
-                    </button>
-                  )}
-                </form>
+                <QualificationControl
+                  tournamentId={id}
+                  teamId={s.team_id}
+                  groupId={s.group_id}
+                  status={s.status}
+                  overridden={s.manual_status_override}
+                />
               )}
             />
           </div>

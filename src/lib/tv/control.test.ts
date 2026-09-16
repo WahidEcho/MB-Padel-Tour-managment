@@ -165,6 +165,30 @@ describe("modeChangeEffects", () => {
     ).not.toHaveProperty("bracket_tier");
   });
 
+  it("shows both trees when the bracket scene goes on air with a Plate published", () => {
+    expect(
+      modeChangeEffects({ display_mode: "bracket" }, { display_mode: "live", bracket_tier: "cup" }, NOW, {
+        plateBracketPublished: true,
+      }),
+    ).toMatchObject({ bracket_tier: "both" });
+  });
+
+  it("keeps a tier the operator chose with the bracket scene", () => {
+    expect(
+      modeChangeEffects({ display_mode: "bracket", bracket_tier: "cup" }, { display_mode: "live", bracket_tier: "both" }, NOW, {
+        plateBracketPublished: true,
+      }),
+    ).toMatchObject({ bracket_tier: "cup" });
+  });
+
+  it("leaves the bracket scene alone when there is no Plate", () => {
+    expect(
+      modeChangeEffects({ display_mode: "bracket" }, { display_mode: "live", bracket_tier: "cup" }, NOW, {
+        plateBracketPublished: false,
+      }),
+    ).not.toHaveProperty("bracket_tier");
+  });
+
   it("restarts from the slate when the podiums shown change on air, so no champion appears unrevealed", () => {
     expect(modeChangeEffects({ bracket_tier: "cup" }, { display_mode: "ceremony", bracket_tier: "both" }, NOW)).toEqual({
       bracket_tier: "cup",

@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { resolveSponsors } from "@/lib/sponsors";
 import type { BrandingConfig } from "@/lib/types";
+import ImageInput from "@/components/ImageInput";
 import { saveBranding, type BrandingFormState } from "./actions";
 import BackgroundUploader from "./BackgroundUploader";
 
@@ -49,7 +50,7 @@ export default function BrandingForm({
           )}
           <div className="flex-1">
             <label className="label">{label}</label>
-            <input type="file" name={field} accept="image/*" className="input text-xs" />
+            <ImageInput name={field} />
           </div>
         </div>
       ))}
@@ -78,7 +79,7 @@ export default function BrandingForm({
             </div>
             <div>
               <label className="label">Logo</label>
-              <input type="file" name="main_logo" accept="image/*" className="input text-xs" />
+              <ImageInput name="main_logo" />
             </div>
             <div>
               <label className="label">Glow colour</label>
@@ -131,7 +132,7 @@ export default function BrandingForm({
         ))}
         <div>
           <label className="label">Add logos</label>
-          <input type="file" name="sponsor_logos" accept="image/*" multiple className="input text-xs" />
+          <ImageInput name="sponsor_logos" multiple />
         </div>
         {footer.length > 0 && (
           <label className="flex items-center gap-1 text-xs text-danger">
@@ -180,7 +181,7 @@ export default function BrandingForm({
           )}
           <div className="flex-1">
             <label className="label">Picture (defaults to the still picture above)</label>
-            <input type="file" name="holding_image" accept="image/*" className="input text-xs" />
+            <ImageInput name="holding_image" />
           </div>
           {branding.holding?.imageUrl && (
             <label className="flex items-center gap-1 text-xs text-danger">

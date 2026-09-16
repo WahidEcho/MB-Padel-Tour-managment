@@ -182,12 +182,15 @@ export function modeChangeEffects(
   nowMs: number,
   opts: { plateBracketPublished?: boolean } = {},
 ): ScreenPatch {
-  // With two brackets the ceremony honours the Plate first, then the Cup, unless
-  // whoever put it on air chose otherwise in the same save.
+  // With two brackets the ceremony honours the Plate first, then the Cup, and the
+  // bracket scene shows both trees side by side — unless whoever put it on air
+  // chose otherwise in the same save. Without this the Plate is published and
+  // simply never appears, because a screen's stored tier was decided before it
+  // existed.
   if (
     opts.plateBracketPublished &&
-    patch.display_mode === "ceremony" &&
-    screen.display_mode !== "ceremony" &&
+    (patch.display_mode === "ceremony" || patch.display_mode === "bracket") &&
+    screen.display_mode !== patch.display_mode &&
     patch.bracket_tier === undefined
   ) {
     patch = { ...patch, bracket_tier: "both" };

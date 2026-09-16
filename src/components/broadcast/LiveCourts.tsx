@@ -82,6 +82,8 @@ export default function LiveCourts({
               rankA={rank?.a ?? null}
               rankB={rank?.b ?? null}
               density={plan.density}
+              cardWidth={plan.cardWidth}
+              cardHeight={plan.cardHeight}
               now={now}
               motion={motion}
               pollGapMs={pollGapMs}
