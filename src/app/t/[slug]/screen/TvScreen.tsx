@@ -36,7 +36,7 @@ import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
 import { redBlueTeams } from "@/lib/sides";
-import { resolveSponsors, surfaceForMode } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle, surfaceForMode } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
@@ -179,6 +179,7 @@ export default async function TvScreen({
   const courtInfo = covered.map((c) => ({ id: c.id, name: c.court_name }));
   const logos = tournament.branding_config;
   const { main: mainSponsor, footer: footerSponsors } = resolveSponsors(logos);
+  const bandStyle = sponsorStyle(logos);
   const backdrop = backgroundFor(logos, "screen");
   const dark = settings.theme === "dark";
   // How loud the glow may be depends on what it sits behind: quiet under a full
@@ -427,7 +428,14 @@ export default async function TvScreen({
           {/* The during-play sponsor surface. The full-screen rotator above is the
               between-matches one; showing both at once doubled every logo. */}
           <footer className="min-h-0 overflow-hidden">
-            {mode !== "sponsors" && <SponsorTicker main={mainSponsor} sponsors={footerSponsors} />}
+            {mode !== "sponsors" && (
+              <SponsorTicker
+                main={mainSponsor}
+                sponsors={footerSponsors}
+                chips={bandStyle.chips}
+                uniform={bandStyle.uniform}
+              />
+            )}
           </footer>
         </div>
       </LiveFeedProvider>

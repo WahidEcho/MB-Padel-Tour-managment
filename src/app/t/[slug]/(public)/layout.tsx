@@ -7,7 +7,7 @@ import SponsorMarquee from "@/components/SponsorMarquee";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
-import { resolveSponsors } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
 import { watchTargets } from "@/lib/watch";
 
@@ -42,6 +42,7 @@ export default async function PublicLayout({
         ] as const);
 
   const { main, footer } = resolveSponsors(tournament.branding_config);
+  const band = sponsorStyle(tournament.branding_config);
   // The venue screens anyone here may open, on every public page.
   const watch = await watchTargets(tournament.id);
   const backdrop = backgroundFor(tournament.branding_config, "public");
@@ -89,7 +90,7 @@ export default async function PublicLayout({
       <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 p-4">{children}</main>
       {footer.length > 0 && (
         <footer className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-4">
-          <SponsorMarquee logos={footer.map((sp) => sp.logoUrl)} />
+          <SponsorMarquee logos={footer.map((sp) => sp.logoUrl)} chips={band.chips} uniform={band.uniform} />
         </footer>
       )}
     </div>

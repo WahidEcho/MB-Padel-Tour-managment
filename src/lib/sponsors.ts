@@ -33,6 +33,28 @@ export interface ResolvedSponsors {
   footer: SponsorEntry[];
 }
 
+/** How the looping band draws its logos. Both surfaces read the same two answers. */
+export interface SponsorStyle {
+  /** A white panel behind each logo. */
+  chips: boolean;
+  /** One identical box for every logo, rather than one equal area each. */
+  uniform: boolean;
+}
+
+/**
+ * The band's two display choices.
+ *
+ * Defaults are what every tournament had before they existed: chips on, because
+ * a dark wall swallows a dark logo; areas rather than boxes, because equal
+ * heights make a wide wordmark shout over a square crest.
+ */
+export function sponsorStyle(branding: BrandingConfig | null | undefined): SponsorStyle {
+  return {
+    chips: branding?.sponsorChips !== false,
+    uniform: branding?.sponsorUniformSize === true,
+  };
+}
+
 export function resolveSponsors(branding: BrandingConfig | null | undefined): ResolvedSponsors {
   const b = branding ?? {};
   const m = b.mainSponsor;
@@ -187,8 +209,14 @@ export interface LogoBox {
  * Sized by area rather than height, so a wide wordmark and a square crest read
  * as the same weight: equal heights make wordmarks shout. A logo whose shape is
  * unknown gets a 2:1 box and is contained inside it.
+ *
+ * `uniform` overrides all of that with one 2:1 box for everybody — every panel
+ * the same size down the band, each logo as large as it can be inside its own.
+ * Nothing is ever distorted to fill a box: a stretched logo is a sponsor's
+ * trademark drawn wrongly, and that is not ours to do.
  */
-export function logoBox(aspect: number | undefined, maxHeight: number): LogoBox {
+export function logoBox(aspect: number | undefined, maxHeight: number, uniform = false): LogoBox {
+  if (uniform) return { width: Math.round(maxHeight * 2), height: Math.round(maxHeight) };
   const a = aspect ?? 2;
   const area = maxHeight * maxHeight * 2.2;
   const height = Math.max(maxHeight * 0.5, Math.min(maxHeight, Math.sqrt(area / a)));
@@ -206,8 +234,14 @@ export interface TickerPlan {
 
 export const TICKER_PX_PER_SECOND = 32;
 
-export function tickerPlan(logos: { aspect?: number }[], viewportWidth: number, maxHeight: number, gap: number): TickerPlan {
-  const groupWidth = logos.reduce((sum, l) => sum + logoBox(l.aspect, maxHeight).width + gap, 0);
+export function tickerPlan(
+  logos: { aspect?: number }[],
+  viewportWidth: number,
+  maxHeight: number,
+  gap: number,
+  uniform = false,
+): TickerPlan {
+  const groupWidth = logos.reduce((sum, l) => sum + logoBox(l.aspect, maxHeight, uniform).width + gap, 0);
   if (groupWidth <= 0) return { groupWidth: 0, copies: 0, durationS: 0 };
   return {
     groupWidth,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { resolveSponsors } from "@/lib/sponsors";
+import { logoBox, resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import type { BrandingConfig } from "@/lib/types";
 import ImageInput from "@/components/ImageInput";
 import { saveBranding, type BrandingFormState } from "./actions";
@@ -26,6 +26,13 @@ export default function BrandingForm({
   const [state, action, pending] = useActionState<BrandingFormState, FormData>(saveBranding, null);
   const { main, footer } = resolveSponsors(branding);
   const [accent, setAccent] = useState(main?.accentHex ?? "#00a651");
+  // The band's two display choices, held here so the strip below shows the
+  // answer before it is saved: this is a purely visual decision and describing
+  // it in words is no substitute for looking at it.
+  const saved = sponsorStyle(branding);
+  const [chips, setChips] = useState(saved.chips);
+  const [uniform, setUniform] = useState(saved.uniform);
+  const preview = [main, ...footer].filter(Boolean).slice(0, 5) as { logoUrl: string; aspect?: number }[];
 
   return (
     <form action={action} className="card space-y-4">
@@ -139,6 +146,81 @@ export default function BrandingForm({
             <input type="checkbox" name="clear_sponsors" /> clear all footer sponsors
           </label>
         )}
+
+        <div className="space-y-2 border-t border-border pt-3" data-testid="sponsor-band-style">
+          <p className="label">How the band draws the logos</p>
+
+          {/* The band as the TV shows it: a dark strip, because that is where
+              the panel matters and where the difference is visible at all. */}
+          {preview.length > 0 ? (
+            <div
+              className="flex items-center gap-4 overflow-x-auto rounded-xl bg-[#0b0b0b] px-4 py-3"
+              data-testid="band-preview"
+            >
+              {preview.map((sp) => {
+                const box = logoBox(sp.aspect, 34, uniform);
+                return (
+                  <span
+                    key={sp.logoUrl}
+                    className={`flex shrink-0 items-center justify-center ${chips ? "rounded-lg bg-white" : ""}`}
+                    style={{ padding: 6 }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={sp.logoUrl}
+                      alt=""
+                      className="object-contain"
+                      style={{ width: box.width, height: box.height }}
+                    />
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-muted">Add a logo above to see the band.</p>
+          )}
+
+          <input type="hidden" name="sponsor_chips" value="off" />
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="sponsor_chips"
+              value="on"
+              checked={chips}
+              onChange={(e) => setChips(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+              data-testid="sponsor-chips"
+            />
+            <span>
+              White panel behind each logo
+              <span className="block text-xs text-muted">
+                On: a dark logo still reads on a dark wall. Off: the logos sit straight on the
+                background — right for a set supplied light or knocked out.
+              </span>
+            </span>
+          </label>
+
+          <input type="hidden" name="sponsor_uniform" value="off" />
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="sponsor_uniform"
+              value="on"
+              checked={uniform}
+              onChange={(e) => setUniform(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+              data-testid="sponsor-uniform"
+            />
+            <span>
+              Give every logo the same size
+              <span className="block text-xs text-muted">
+                On: one identical box down the whole band. Off: each logo is sized by area, so a wide
+                wordmark and a square crest carry the same weight. Either way nothing is stretched — a
+                distorted logo is a sponsor&apos;s trademark drawn wrongly.
+              </span>
+            </span>
+          </label>
+        </div>
       </fieldset>
 
       <fieldset className="space-y-2 rounded-xl border border-border p-3" data-testid="red-blue-setting">

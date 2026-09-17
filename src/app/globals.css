@@ -260,6 +260,16 @@ body {
    invisible and only its padding remains. */
 .bc-logo-chip { border-radius: 14px; }
 .theme-dark .bc-logo-chip { background: #ffffff; }
+
+/* The same panel on the public pages' band, where there is no light and dark
+   wall to distinguish: it is plain white, which is invisible on the default
+   white page and does its job over an event background. Its padding rides on
+   the box rather than the class, so a logo keeps its own size either way. */
+.logo-chip {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 6px 10px;
+}
 .bc-ticker-viewport {
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);

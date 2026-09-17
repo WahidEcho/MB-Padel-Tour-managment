@@ -26,10 +26,16 @@ export default function SponsorMarquee({
   label = "Our partners",
   /** Bigger on a TV; the default suits phones and admin pages. */
   size = "normal",
+  chips = true,
+  uniform = false,
 }: {
   logos: string[];
   label?: string;
   size?: "normal" | "big";
+  /** A white panel behind each logo (branding_config.sponsorChips). */
+  chips?: boolean;
+  /** One identical box for every logo (branding_config.sponsorUniformSize). */
+  uniform?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const group = useRef<HTMLUListElement>(null);
@@ -65,6 +71,11 @@ export default function SponsorMarquee({
   if (clean.length === 0) return null;
 
   const height = size === "big" ? "h-20 sm:h-24" : "h-10 sm:h-12";
+  // Uniform: one box for everybody, each logo contained inside its own, never
+  // stretched — a distorted logo is a sponsor's trademark drawn wrongly.
+  // Otherwise every logo keeps its own width at a shared height, as before.
+  const boxHeight = size === "big" ? 96 : 48;
+  const boxStyle = uniform ? { width: boxHeight * 2, height: boxHeight } : undefined;
   // One copy past the viewport, so the seam is always off-screen. Until the logos
   // have laid out, two copies — the same as before, and never fewer. Capped, so a
   // measurement taken mid-load cannot ask for hundreds of copies of the list.
@@ -82,12 +93,16 @@ export default function SponsorMarquee({
       aria-hidden={copy > 0 || undefined}
     >
       {clean.map((src, i) => (
-        <li key={`${copy}-${src}-${i}`} className="shrink-0">
+        <li
+          key={`${copy}-${src}-${i}`}
+          className={`flex shrink-0 items-center justify-center${chips ? " logo-chip" : ""}`}
+          style={boxStyle}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={sizedImageSrc(src, size === "big" ? 480 : 240) ?? src}
             alt={copy === 0 ? `Sponsor ${i + 1}` : ""}
-            className={`${height} w-auto object-contain opacity-80 transition-opacity hover:opacity-100`}
+            className={`${uniform ? "h-full w-full" : `${height} w-auto`} object-contain opacity-80 transition-opacity hover:opacity-100`}
             // A venue screen never scrolls, so a lazy logo in a duplicated track
             // may never load at all — and sponsor exposure is contractual.
             loading="eager"
