@@ -10,6 +10,7 @@ import {
   markOpacity,
   relativeLuminance,
   resolveSponsors,
+  sponsorStyle,
   surfaceForMode,
   tickerPlan,
   type WatermarkSurface,
@@ -162,6 +163,47 @@ describe("footer loop", () => {
 
   it("is empty for no logos", () => {
     expect(tickerPlan([], 1600, 52, 64)).toEqual({ groupWidth: 0, copies: 0, durationS: 0 });
+  });
+});
+
+describe("how the band draws its logos", () => {
+  it("defaults to what every tournament had before the settings existed", () => {
+    expect(sponsorStyle(undefined)).toEqual({ chips: true, uniform: false });
+    expect(sponsorStyle({})).toEqual({ chips: true, uniform: false });
+  });
+
+  it("reads both switches", () => {
+    expect(sponsorStyle({ sponsorChips: false })).toEqual({ chips: false, uniform: false });
+    expect(sponsorStyle({ sponsorUniformSize: true })).toEqual({ chips: true, uniform: true });
+  });
+
+  it("gives every logo the same box in uniform mode, whatever its shape", () => {
+    const crest = logoBox(1, 52, true);
+    const wordmark = logoBox(6, 52, true);
+    const unknown = logoBox(undefined, 52, true);
+    expect(crest).toEqual(wordmark);
+    expect(crest).toEqual(unknown);
+    expect(crest.height).toBe(52);
+  });
+
+  it("changes the loop's arithmetic with it, so the band never runs dry in either mode", () => {
+    const logos = [{ aspect: 1 }, { aspect: 4 }, { aspect: 2.5 }, {}];
+    for (const uniform of [false, true]) {
+      const plan = tickerPlan(logos, 1600, 52, 64, uniform);
+      const measured = logos.reduce((sum, l) => sum + logoBox(l.aspect, 52, uniform).width + 64, 0);
+      expect(plan.groupWidth).toBe(measured);
+      expect(plan.groupWidth * (plan.copies - 1)).toBeGreaterThanOrEqual(1600);
+    }
+  });
+
+  it("never distorts a logo: the box may change, the logo is contained in it", () => {
+    // Every box stays inside the band's height, so a logo drawn to fit one is
+    // never scaled past the row it sits in.
+    for (const aspect of [0.4, 1, 2, 6, undefined]) {
+      for (const uniform of [false, true]) {
+        expect(logoBox(aspect, 52, uniform).height).toBeLessThanOrEqual(52);
+      }
+    }
   });
 });
 

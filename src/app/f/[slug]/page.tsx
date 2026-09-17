@@ -5,7 +5,7 @@ import SponsorMarquee from "@/components/SponsorMarquee";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
-import { resolveSponsors } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import PresenceBeat from "@/components/PresenceBeat";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
@@ -32,6 +32,7 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const { main: mainSponsor, footer } = resolveSponsors(tournament?.branding_config);
   const backdrop = backgroundFor(tournament?.branding_config, "public");
   const sponsors = footer.map((sp) => sp.logoUrl);
+  const band = sponsorStyle(tournament?.branding_config);
 
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
@@ -157,7 +158,7 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
         </p>
       </section>
 
-      <SponsorMarquee logos={sponsors} />
+      <SponsorMarquee logos={sponsors} chips={band.chips} uniform={band.uniform} />
     </main>
   );
 }

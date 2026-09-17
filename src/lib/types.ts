@@ -187,6 +187,20 @@ export interface BrandingConfig {
    * in the voice umpire's calls and on the screens. See src/lib/sides.ts.
    */
   redBlueTeams?: boolean;
+  /**
+   * A white panel behind each sponsor logo in the looping band. On by default,
+   * because a dark wall swallows a dark logo entirely. Off puts the logos
+   * straight onto the background — right for a set of light or knocked-out
+   * logos supplied for exactly that.
+   */
+  sponsorChips?: boolean;
+  /**
+   * Give every sponsor logo an identical box instead of sizing each by area.
+   * Off by default: equal areas make a wide wordmark and a square crest read as
+   * the same weight, where equal boxes make the wordmark shout. On when an
+   * organiser wants one uniform band whatever the shapes.
+   */
+  sponsorUniformSize?: boolean;
 }
 
 export interface Tournament {

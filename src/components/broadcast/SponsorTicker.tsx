@@ -26,11 +26,17 @@ export default function SponsorTicker({
   sponsors,
   logoHeight = 52,
   gap = 72,
+  chips = true,
+  uniform = false,
 }: {
   main: MainSponsor | null;
   sponsors: SponsorEntry[];
   logoHeight?: number;
   gap?: number;
+  /** A white panel behind each logo (branding_config.sponsorChips). */
+  chips?: boolean;
+  /** One identical box for every logo (branding_config.sponsorUniformSize). */
+  uniform?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   // A sensible first guess for the server render: the stage is 1920 wide and the
@@ -51,16 +57,19 @@ export default function SponsorTicker({
   if (!main && sponsors.length === 0) return null;
   // Each logo sits in a chip with fixed padding, counted into the arithmetic so
   // the group width stays exact.
-  const plan = tickerPlan(sponsors, width, logoHeight, gap + 2 * CHIP_PAD);
+  const plan = tickerPlan(sponsors, width, logoHeight, gap + 2 * CHIP_PAD, uniform);
+  // Without a panel the padding is still spent, so turning chips off moves no
+  // logo: the band's arithmetic, and therefore its loop, is unchanged.
+  const chipClass = chips ? "bc-logo-chip " : "";
 
   const group = (copy: number) => (
     <ul key={copy} className="flex shrink-0 items-center" aria-hidden={copy > 0 || undefined}>
       {sponsors.map((s, i) => {
-        const box = logoBox(s.aspect, logoHeight);
+        const box = logoBox(s.aspect, logoHeight, uniform);
         return (
           <li
             key={`${copy}-${i}`}
-            className="bc-logo-chip flex shrink-0 items-center justify-center"
+            className={`${chipClass}flex shrink-0 items-center justify-center`}
             style={{ width: box.width + 2 * CHIP_PAD, height: logoHeight + 2 * CHIP_PAD, marginRight: gap }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -74,7 +83,14 @@ export default function SponsorTicker({
               loading="eager"
               decoding="async"
               className="object-contain"
-              style={{ width: box.width, height: box.height, aspectRatio: s.aspect ? String(s.aspect) : undefined }}
+              style={{
+                width: box.width,
+                height: box.height,
+                // In uniform mode the box is the same for everybody and the logo
+                // is contained inside it, so declaring its own ratio would fight
+                // the box it has been given.
+                aspectRatio: uniform || !s.aspect ? undefined : String(s.aspect),
+              }}
             />
           </li>
         );
@@ -92,9 +108,9 @@ export default function SponsorTicker({
             partner
           </p>
           {(() => {
-            const box = logoBox(main.aspect, logoHeight);
+            const box = logoBox(main.aspect, logoHeight, uniform);
             return (
-              <span className="bc-logo-chip flex items-center justify-center" style={{ padding: CHIP_PAD }}>
+              <span className={`${chipClass}flex items-center justify-center`} style={{ padding: CHIP_PAD }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={sizedImageSrc(main.logoUrl, Math.max(200, box.width * 2)) ?? main.logoUrl}

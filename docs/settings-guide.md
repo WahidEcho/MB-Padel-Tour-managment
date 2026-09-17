@@ -129,6 +129,16 @@ The logos that loop along the bottom of the TV screens and the public pages. Add
 several at once, name each one, tick **remove** beside any to drop it, or
 **clear all**. The loop repeats without a gap at any screen width.
 
+Two switches decide how the band draws them, with a preview strip above that
+shows the answer before you save:
+
+| Setting | What it does |
+| --- | --- |
+| **White panel behind each logo** | On (the default): each logo sits on a white panel, so a dark logo still reads on a dark wall. Off: the logos sit straight on the background — right for a set supplied light or knocked out. On a white public page the panel is invisible either way; it earns its keep on a dark TV or over an event background. |
+| **Give every logo the same size** | On: one identical box down the whole band, every panel the same size. Off (the default): each logo is sized by area, so a wide wordmark and a square crest carry the same visual weight rather than the wordmark shouting. Either way **nothing is stretched** — a distorted logo is a sponsor's trademark drawn wrongly, so each one is fitted inside its box at its own shape. |
+
+Both apply to the TV band and the public footer at once.
+
 ### Red and blue teams
 
 One switch, and it changes three things at once:

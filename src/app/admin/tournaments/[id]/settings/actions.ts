@@ -323,6 +323,14 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     // Kept in step for anything still reading the old list (clones, exports).
     branding.sponsorLogoUrls = kept.map((sp) => sp.logoUrl);
 
+    // ---------- how the band draws its logos ----------
+    // Each rides with a hidden "off", so unticking is written too: an unchecked
+    // box sends nothing, which would otherwise read as "leave it alone".
+    if (formData.has("sponsor_chips")) branding.sponsorChips = formData.getAll("sponsor_chips").includes("on");
+    if (formData.has("sponsor_uniform")) {
+      branding.sponsorUniformSize = formData.getAll("sponsor_uniform").includes("on");
+    }
+
     // ---------- red and blue teams ----------
     if (formData.has("red_blue_teams")) branding.redBlueTeams = formData.getAll("red_blue_teams").includes("on");
 
