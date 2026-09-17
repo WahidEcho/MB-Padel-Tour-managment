@@ -69,6 +69,46 @@ export const TYPE: Record<Density, { points: number; games: number; team: number
 };
 
 /**
+ * Whether a card has the height to stack a team over its photos rather than
+ * squeeze everything onto one line.
+ *
+ * One court fills the stage and two take half of it each, so both are 880 tall
+ * and were showing two thin strips of content with 300 pixels of nothing above
+ * and below. Four or six courts share the height and genuinely need the row.
+ */
+export function isTall(density: Density): boolean {
+  return density === "hero" || density === "wide";
+}
+
+/**
+ * Width a run of digits needs, at a given size, in the numeral face.
+ *
+ * The scoreboard used fixed pixel widths — 150 for the points — with the box
+ * clipping whatever did not fit. At 150px type a two-digit "30" is 186 pixels
+ * wide, so every tie-break and every 30 on a two-court wall was shown with its
+ * right-hand side sliced off. Nothing on a scoreboard may be cut, so the box is
+ * sized from what goes in it.
+ */
+export function numeralWidth(digits: number, fontPx: number): number {
+  return Math.ceil(Math.max(1, digits) * fontPx * 0.66);
+}
+
+/**
+ * The largest size, no bigger than `basePx`, at which `text` fits `widthPx` on
+ * one line — down to the legibility floor, below which it is better to let a
+ * long name wrap than to shrink it into decoration.
+ *
+ * A rough average width per character (bold sans sits near 0.52em) rather than a
+ * measurement: this runs during render on a screen that must never reflow, and
+ * being a little conservative only costs a point or two of size.
+ */
+export function fitFontSize(text: string, widthPx: number, basePx: number, minPx = MIN_TEXT): number {
+  const chars = Math.max(1, text.trim().length);
+  const fits = widthPx / (chars * 0.52);
+  return Math.max(minPx, Math.min(basePx, Math.floor(fits)));
+}
+
+/**
  * What a card leaves out as it shrinks. Never dropped at any size: the court
  * name, both team names, points, games, sets, the serve or tie-break indicator,
  * and the match status.
@@ -85,4 +125,87 @@ export function showsAt(density: Density): {
     resultAnimation: density !== "dense",
     fullNames: density === "hero" || density === "wide",
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* The leaderboard scene                                               */
+/* ------------------------------------------------------------------ */
+
+export interface LeaderboardPlan {
+  columns: number;
+  rows: number;
+  cardWidth: number;
+  cardHeight: number;
+  /** Type size for every table, so they read as one set rather than a jumble. */
+  fontPx: number;
+  /** Whether there is room for set and game columns beside the core ones. */
+  detail: boolean;
+}
+
+/** Below this the standings are a texture on a wall, not a table anybody reads. */
+export const LEADERBOARD_MIN_PX = 18;
+export const LEADERBOARD_MAX_PX = 44;
+
+/**
+ * How big the venue leaderboard's tables may be, from how many there are and how
+ * many teams the biggest holds.
+ *
+ * One size for every table: the eye reads a wall of tables as a set, and three
+ * groups at three sizes look like a mistake rather than a hierarchy. The size is
+ * whichever of height and width runs out first, so nothing is ever clipped — the
+ * old scene hard-coded 24px on a table that then forced its own 14px and the far
+ * end of a room could read none of it.
+ */
+export function leaderboardPlan(rowCounts: number[]): LeaderboardPlan {
+  const n = Math.max(1, rowCounts.length);
+  const columns = n === 1 ? 1 : n <= 4 ? 2 : 3;
+  const rows = Math.ceil(n / columns);
+  const cardWidth = Math.floor((STAGE.width - GUTTER * 2 - GUTTER * (columns - 1)) / columns);
+  const cardHeight = Math.floor((ROWS.content - GUTTER - GUTTER * (rows - 1)) / rows);
+
+  const tallest = Math.max(1, ...rowCounts);
+  // A card holds its padding, a heading, a column header and one row per team,
+  // each measured in multiples of its own type size. A row is budgeted at three
+  // lines rather than two: a team name is allowed to wrap rather than be cut,
+  // and both players' names sit under it. Budgeting two clipped the last team of
+  // every three-team group off the bottom of its card.
+  const byHeight = (cardHeight - 44) / (1.7 + 1.8 + tallest * 3.1);
+  // Eleven columns with detail, seven without — and the team column carries a
+  // name and both players, so it is worth about half the table on its own.
+  // Only a table with the whole stage to itself has room for the set and game
+  // columns; below that they squeeze the name into three wrapped lines, and on a
+  // wall the place, the points and the status are what anybody reads.
+  const detail = cardWidth >= 1200;
+  const byWidth = (cardWidth - 44) / (detail ? 30 : 20);
+
+  const fontPx = Math.round(
+    Math.max(LEADERBOARD_MIN_PX, Math.min(LEADERBOARD_MAX_PX, Math.min(byHeight, byWidth))),
+  );
+  return { columns, rows, cardWidth, cardHeight, fontPx, detail };
+}
+
+/* ------------------------------------------------------------------ */
+/* The bracket scene                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Type size for a knockout tree on a wall.
+ *
+ * The scene had two sizes, `big` and not, and chose between them by counting
+ * brackets — so publishing a Plate silently dropped the Cup from 20px to 14px,
+ * both of which are under the legibility floor anyway. Size comes from the room
+ * a tree actually has: its column width and how many first-round pairs must
+ * stack down the height.
+ *
+ * The floor is lower here than elsewhere on the stage. A sixteen-team draw on
+ * half a wall cannot be read from six metres at any size, and showing all of it
+ * small is more use than showing half of it large.
+ */
+export function bracketFontPx(roundCount: number, firstRoundPairs: number, width: number, height: number): number {
+  const column = width / Math.max(1, roundCount);
+  // A team name runs to about twelve characters in the column.
+  const byWidth = (column - 28) / (12 * 0.52);
+  // A pair is its two rows, the card's padding and the gap to the next.
+  const byHeight = (height - 48) / Math.max(1, firstRoundPairs) / 6;
+  return Math.round(Math.max(14, Math.min(40, Math.min(byWidth, byHeight))));
 }

@@ -18,6 +18,7 @@ import { MAIN_SCREEN, isValidScreenKey } from "@/lib/screens";
 import { podiumDepthFor } from "@/lib/bracket";
 import { normalizeDisplayMode, type Court, type DisplayMode, type Match } from "@/lib/types";
 import BracketView from "@/components/BracketView";
+import { orderedRounds } from "@/components/BracketView";
 import ChessLiveCard from "@/components/ChessLiveCard";
 import SponsorRotator from "@/components/SponsorRotator";
 import StandingsTable from "@/components/StandingsTable";
@@ -34,11 +35,12 @@ import { getRankingSnapshot, getSessionByTournament, listPublicPlayers } from "@
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
+import { redBlueTeams } from "@/lib/sides";
 import { resolveSponsors, surfaceForMode } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
-import { ROWS } from "@/lib/tv/layout";
+import { GUTTER, ROWS, STAGE, bracketFontPx, leaderboardPlan } from "@/lib/tv/layout";
 import { sizedImageSrc } from "@/lib/portrait";
 
 const VALID_MODES: DisplayMode[] = [
@@ -277,7 +279,13 @@ export default async function TvScreen({
 
           <main className="relative min-h-0 overflow-hidden">
             {mode === "live" && !isChess && (
-              <LiveCourts courts={courtInfo} teams={publicTeams} ranks={ranks} pinnedCourtId={pinnedCourtId ?? null} />
+              <LiveCourts
+                courts={courtInfo}
+                teams={publicTeams}
+                ranks={ranks}
+                pinnedCourtId={pinnedCourtId ?? null}
+                sides={redBlueTeams(logos)}
+              />
             )}
 
             {mode === "live" && isChess && (
@@ -302,40 +310,66 @@ export default async function TvScreen({
 
             {mode === "leaderboard" && isSession && <RankingScene title={rankingTitle} rows={rankingRows} />}
 
-            {mode === "leaderboard" && !isSession && (
-              <div className="grid h-full content-start gap-5 overflow-hidden px-5 pb-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                {groups.map((g) => (
-                  <div key={g.id} className="bc-card p-5">
-                    <h3 className="mb-2 text-[34px] font-bold">{g.group_name}</h3>
-                    <div className="text-[24px]">
-                      <StandingsTable standings={standings.filter((st) => st.group_id === g.id)} teams={tm} />
+            {mode === "leaderboard" && !isSession && (() => {
+              // Sized from what has to fit: how many tables, and how many teams in
+              // the biggest. One table on a wall gets 44px type; six get 19px.
+              const byGroup = groups.map((g) => standings.filter((st) => st.group_id === g.id));
+              const plan = leaderboardPlan(byGroup.map((rows) => rows.length));
+              return (
+                <div
+                  className="grid h-full content-start overflow-hidden"
+                  style={{
+                    gridTemplateColumns: `repeat(${plan.columns}, ${plan.cardWidth}px)`,
+                    gap: GUTTER,
+                    padding: `0 ${GUTTER}px ${GUTTER}px`,
+                  }}
+                >
+                  {groups.map((g, i) => (
+                    <div key={g.id} className="bc-card min-w-0 overflow-hidden" style={{ padding: plan.fontPx * 0.6 }}>
+                      <h3 className="mb-1 font-bold" style={{ fontSize: Math.round(plan.fontPx * 1.35) }}>
+                        {g.group_name}
+                      </h3>
+                      <StandingsTable standings={byGroup[i]} teams={tm} fontPx={plan.fontPx} detail={plan.detail} />
                     </div>
-                  </div>
-                ))}
-                {groups.length === 0 && (
-                  <p className="col-span-2 flex items-center justify-center text-[40px] text-muted">Leaderboard coming soon</p>
-                )}
-              </div>
-            )}
+                  ))}
+                  {groups.length === 0 && (
+                    <p className="flex items-center justify-center text-[40px] text-muted">Leaderboard coming soon</p>
+                  )}
+                </div>
+              );
+            })()}
 
             {mode === "bracket" &&
               (brackets.length > 0 ? (
                 <div className="grid h-full gap-5 overflow-hidden px-5 pb-5" style={{ gridTemplateColumns: brackets.length > 1 ? "1fr 1fr" : "1fr" }}>
-                  {brackets.map((bracket, i) => (
-                    <div key={bracket.id} className="min-w-0 overflow-hidden">
-                      {brackets.length > 1 && (
-                        <p className="mb-1 text-[28px] font-bold uppercase tracking-widest text-muted">
-                          {bracket.tier === "plate" ? "Plate" : "Cup"}
-                        </p>
-                      )}
-                      <BracketView
-                        slots={slotsByBracket[i]}
-                        teams={tm}
-                        matches={new Map(matches.map((m) => [m.id, m]))}
-                        big={brackets.length === 1}
-                      />
-                    </div>
-                  ))}
+                  {brackets.map((bracket, i) => {
+                    // Sized from the room this tree has, so a Plate beside a Cup is
+                    // still readable rather than dropping to the old 14px.
+                    const slots = slotsByBracket[i];
+                    const rounds = orderedRounds(slots);
+                    const first = rounds[0];
+                    const pairs = Math.max(1, Math.ceil(slots.filter((s) => s.round_name === first).length / 2));
+                    const width = (STAGE.width - GUTTER * 2 - (brackets.length > 1 ? GUTTER : 0)) / brackets.length;
+                    const labelled = brackets.length > 1;
+                    const fontPx = bracketFontPx(rounds.length, pairs, width, ROWS.content - GUTTER - (labelled ? 44 : 0));
+                    return (
+                      <div key={bracket.id} className="flex min-w-0 flex-col overflow-hidden">
+                        {labelled && (
+                          <p className="mb-1 shrink-0 text-[28px] font-bold uppercase tracking-widest text-muted">
+                            {bracket.tier === "plate" ? "Plate" : "Cup"}
+                          </p>
+                        )}
+                        <div className="min-h-0 flex-1">
+                          <BracketView
+                            slots={slots}
+                            teams={tm}
+                            matches={new Map(matches.map((m) => [m.id, m]))}
+                            fontPx={fontPx}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="flex h-full items-center justify-center text-[40px] text-muted">Bracket coming soon</p>

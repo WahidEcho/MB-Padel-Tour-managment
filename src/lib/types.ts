@@ -182,6 +182,11 @@ export interface BrandingConfig {
   sponsors?: SponsorEntry[];
   holding?: HoldingContent;
   background?: EventBackground;
+  /**
+   * Red and blue teams: every match's first-listed team is Red, the second Blue,
+   * in the voice umpire's calls and on the screens. See src/lib/sides.ts.
+   */
+  redBlueTeams?: boolean;
 }
 
 export interface Tournament {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import type { ScoreState } from "@/lib/scoring/engine";
 import type { ScoringConfig } from "@/lib/types";
 import { callForTransition, classifyEvent, sameScore } from "@/lib/voice/calls";
-import { TEST_CALL, captionFor, type ClipId } from "@/lib/voice/phrases";
+import { TEST_CALL, TEST_CALL_COLOURED, captionFor, type ClipId } from "@/lib/voice/phrases";
 import { loadPack, play, prime, stop, type PackState } from "@/lib/voice/player";
 
 /* ---------------- per-phone settings ---------------- */
@@ -111,8 +111,10 @@ interface CallWindow {
  *
  * `active` is whether this page can score. A read-only page (another tablet holds
  * the match) never speaks, so it neither downloads the pack nor keeps the screen on.
+ * `redBlue` is the organiser's red-and-blue-teams setting: calls then end in the
+ * side's colour ("Advantage, Red team.") instead of "server" and "receiver".
  */
-export function useUmpireVoice(config: ScoringConfig, active: boolean) {
+export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue = false) {
   const settings = useSyncExternalStore(subscribe, snapshot, () => DEFAULTS);
   const on = settings.enabled && active;
   const [packState, setPackState] = useState<PackState | null>(null);
@@ -123,7 +125,9 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean) {
   const activeRef = useRef(active);
   const settingsRef = useRef(settings);
   const configRef = useRef(config);
+  const redBlueRef = useRef(redBlue);
   useEffect(() => {
+    redBlueRef.current = redBlue;
     onRef.current = on;
     activeRef.current = active;
     settingsRef.current = settings;
@@ -283,7 +287,7 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean) {
           const ids = callForTransition(
             w.from,
             w.latest,
-            { corrects: w.lowestNet < 0, netPoints: w.netPoints },
+            { corrects: w.lowestNet < 0, netPoints: w.netPoints, named: redBlueRef.current },
             configRef.current,
           );
           if (ids) void speak(ids, generation);
@@ -323,16 +327,17 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean) {
       const { pack, state } = await loadPack();
       setPackState(state);
       if (!pack || !onRef.current) return;
-      const result = await play(pack, TEST_CALL, settingsRef.current.leadInMs);
+      const call = redBlueRef.current ? TEST_CALL_COLOURED : TEST_CALL;
+      const result = await play(pack, call, settingsRef.current.leadInMs);
       if (result === "blocked") setBlocked(true);
       if (result === "played") {
         setBlocked(false);
-        setCaption(captionFor(TEST_CALL));
+        setCaption(captionFor(call));
       }
     })();
   }, [ensureWakeLock]);
 
   const status: VoiceStatus = !on ? "off" : blocked ? "blocked" : packState ?? "loading";
 
-  return { settings, setSettings, status, caption, onEvent, test };
+  return { settings, setSettings, status, caption, onEvent, test, redBlue };
 }

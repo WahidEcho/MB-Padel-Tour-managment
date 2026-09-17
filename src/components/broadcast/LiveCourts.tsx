@@ -23,6 +23,7 @@ export default function LiveCourts({
   teams,
   ranks,
   pinnedCourtId,
+  sides = false,
 }: {
   /** The courts this screen covers, in order. */
   courts: CourtInfo[];
@@ -31,6 +32,8 @@ export default function LiveCourts({
   /** Where each side stands, keyed by match id. */
   ranks: Record<string, { a: string | null; b: string | null }>;
   pinnedCourtId: string | null;
+  /** Red and blue teams: mark the first-listed team Red, the second Blue. */
+  sides?: boolean;
 }) {
   const { feed, now, motion, pollGapMs } = useLive();
   if (!feed) return null;
@@ -79,11 +82,14 @@ export default function LiveCourts({
               rankA={rank?.a ?? null}
               rankB={rank?.b ?? null}
               density={plan.density}
+              cardWidth={plan.cardWidth}
+              cardHeight={plan.cardHeight}
               now={now}
               motion={motion}
               pollGapMs={pollGapMs}
               entranceReplayAt={replay && match && replay.match_id === match.id ? replay.at : null}
               entranceReplayEvent={replay && match && replay.match_id === match.id ? (replay.event_number ?? null) : null}
+              sides={sides}
             />
           </div>
         );

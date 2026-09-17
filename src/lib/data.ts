@@ -207,7 +207,10 @@ export function defaultScreenSettings(tournamentId: string, screenKey = "main"):
     court_ids: [],
     focus_court_id: null,
     focus_match_id: null,
-    bracket_tier: "cup",
+    // Both tiers: a screen nobody has configured shows every bracket that has
+    // been published. Defaulting to the Cup meant an organiser who published a
+    // Plate saw no sign of it on the wall and no setting saying why.
+    bracket_tier: "both",
     theme: "dark",
     sponsor_rotation_seconds: 10,
     revision: 0,

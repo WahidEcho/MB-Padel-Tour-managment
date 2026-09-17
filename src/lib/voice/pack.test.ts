@@ -111,6 +111,16 @@ describe("rendering a call", () => {
     expect(out.durationMs).toBeGreaterThan(1500);
   });
 
+  it("pauses before a colour that follows a number word, but not after a clip that leads into it", () => {
+    const { wav, index } = pack({ "n-7": tone(200), "team-red": tone(300), advantage: tone(250) });
+    const voice = parsePack(wav, index);
+    const ms = (n: number) => Math.round((n / 1000) * RATE);
+    const built = renderUtterance(voice, ["n-7", "team-red"], { leadInMs: 0, tailMs: 0 });
+    expect(parseWav(built.wav).samples.length).toBe(ms(200) + ms(DEFAULT_LONG_GAP_MS) + ms(300));
+    const led = renderUtterance(voice, ["advantage", "team-red"], { leadInMs: 0, tailMs: 0 });
+    expect(parseWav(led.wav).samples.length).toBe(ms(250) + ms(DEFAULT_GAP_MS) + ms(300));
+  });
+
   it("reports and skips clips the pack lacks", () => {
     const { wav, index } = pack({ game: tone(100) });
     const out = renderUtterance(parsePack(wav, index), ["game", "nope"], { leadInMs: 0, tailMs: 0 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { MB, compressImageFile } from "@/lib/imageCompress";
 import { DEFAULT_FOCAL, focalPosition, sizedImageSrc } from "@/lib/portrait";
 
 type Folder = "tournament-player" | "profile-player";
@@ -22,6 +23,7 @@ export default function PlayerPhotoField({
   name,
   folder,
   endpoint,
+  maxUploadBytes = 4 * MB,
   label = "Photo",
   photoUrl: initialPhoto = null,
   focalX: initialX = DEFAULT_FOCAL[0],
@@ -34,6 +36,11 @@ export default function PlayerPhotoField({
   folder?: Folder;
   /** Overrides the staff upload route — used by public self-registration. */
   endpoint?: string;
+  /**
+   * The limit the endpoint enforces. A phone photo is several times this, so the
+   * picked file is shrunk to fit rather than refused.
+   */
+  maxUploadBytes?: number;
   label?: string;
   photoUrl?: string | null;
   focalX?: number;
@@ -44,6 +51,7 @@ export default function PlayerPhotoField({
   const [preview, setPreview] = useState<string | null>(null);
   const [focal, setFocal] = useState<[number, number]>([initialX, initialY]);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -51,12 +59,18 @@ export default function PlayerPhotoField({
   const shown = preview ?? sizedImageSrc(photo, size * 2) ?? photo;
 
   const upload = useCallback(
-    async (file: File) => {
+    async (picked: File) => {
       setError(null);
+      setNote(null);
       // Show the picked file at once; the network round trip comes after.
-      setPreview(URL.createObjectURL(file));
+      setPreview(URL.createObjectURL(picked));
       setBusy(true);
       try {
+        // A phone writes 6-12 MB a frame, well past what the endpoint takes, and
+        // nobody can shrink it on the phone. So it is shrunk here instead.
+        const shrunk = await compressImageFile(picked, { maxBytes: maxUploadBytes, maxEdge: 2400 });
+        const file = shrunk.file;
+        if (shrunk.note) setNote(shrunk.note);
         const body = new FormData();
         body.append("file", file);
         const res = await fetch(endpoint ?? `/api/media?folder=${folder}`, { method: "POST", body });
@@ -71,7 +85,7 @@ export default function PlayerPhotoField({
         setBusy(false);
       }
     },
-    [folder, endpoint],
+    [folder, endpoint, maxUploadBytes],
   );
 
   /**
@@ -175,6 +189,7 @@ export default function PlayerPhotoField({
             Waist-up, even light, at least 800px tall. Click the face so the crop keeps it
             centred on every screen size.
           </p>
+          {note && <p className="text-[11px] text-muted" data-testid="photo-compressed">{note}</p>}
           {error && <p className="text-[11px] font-semibold text-danger">{error}</p>}
         </div>
       </div>

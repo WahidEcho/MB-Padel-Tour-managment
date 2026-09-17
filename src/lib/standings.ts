@@ -13,6 +13,25 @@ export interface MatchResultInput {
 
 const FINISHED: string[] = ["completed", "walkover", "disqualified", "retired"];
 
+/**
+ * The statuses an organiser may set by hand on the leaderboard.
+ *
+ * `plate` is included because the calculation itself assigns it — a dropdown
+ * without it showed a Plate team as "pending" and wrote that back the moment
+ * anyone pressed Set.
+ */
+export const MANUAL_STATUSES: Standing["status"][] = [
+  "pending",
+  "qualified",
+  "plate",
+  "eliminated",
+  "disqualified",
+];
+
+export function isManualStatus(value: string): value is Standing["status"] {
+  return (MANUAL_STATUSES as string[]).includes(value);
+}
+
 export function isFinished(status: string): boolean {
   return FINISHED.includes(status);
 }

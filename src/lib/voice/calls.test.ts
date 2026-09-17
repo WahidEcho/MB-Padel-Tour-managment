@@ -330,10 +330,89 @@ describe("never throws and never asks for a missing clip", () => {
   });
 });
 
+describe("calls with red and blue teams", () => {
+  const NAMED = { corrects: false, netPoints: 1, named: true };
+  const named = (from: ScoreState, team: TeamKey, config = one) =>
+    callForTransition(from, awardPoint(from, team, config), NAMED, config);
+
+  it("names the side with advantage", () => {
+    const deuce = play(initialScoreState("A"), "AAABBB");
+    expect(named(deuce, "A")).toEqual(["advantage", "team-red"]);
+    expect(named(deuce, "B")).toEqual(["advantage", "team-blue", "break-point"]);
+  });
+
+  it("keeps plain point calls without names", () => {
+    expect(named(initialScoreState("A"), "B")).toEqual(["pts-0-15"]);
+  });
+
+  it("names who won the game, then the leader after the tally", () => {
+    // A holds the first game: "Game, A. One game to love, A."
+    expect(named(play(initialScoreState("A"), "AAA"), "A")).toEqual(["game-named", "team-red", "games-1-0-named", "team-red"]);
+    // B breaks back for 2-2: level games carry no name.
+    expect(named(play(games(initialScoreState("A"), "ABA"), "BBB"), "B")).toEqual(["game-named", "team-blue", "games-all-2"]);
+  });
+
+  it("names the game winner when a tie-break starts", () => {
+    const beforeTwelfth = play(games(initialScoreState("A"), "ABABABABABA"), "BBB");
+    expect(named(beforeTwelfth, "B")).toEqual(["game-named", "team-blue", "games-all-6", "tie-break"]);
+  });
+
+  it("names the set winner and the sets leader", () => {
+    const s = play(games(initialScoreState("A"), "AAAAA", bestOf3), "AAA", bestOf3);
+    expect(named(s, "A", bestOf3)).toEqual(["game-and-set-named", "team-red", "sets-1-0-named", "team-red"]);
+  });
+
+  it("names the match winner", () => {
+    const s = play(games(initialScoreState("A"), "AAAAA"), "AAA");
+    expect(named(s, "A")).toEqual(["game-set-match-named", "team-red"]);
+    const m = play(games(initialScoreState("A"), "BBBBB"), "BBB");
+    expect(named(m, "B")).toEqual(["game-set-match-named", "team-blue"]);
+  });
+
+  it("names a set ended by hand", () => {
+    const s = games(initialScoreState("A"), "AAAB", bestOf3);
+    expect(callForTransition(s, manualEndSet(s, "A", bestOf3), NAMED, bestOf3)).toEqual(["set-named", "team-red", "sets-1-0-named", "team-red"]);
+  });
+
+  it("names the leader in a standing call and past seven games", () => {
+    const from = initialScoreState("A");
+    expect(callForTransition(from, play(from, "AAAAB"), { corrects: false, netPoints: 5, named: true }, one)).toEqual([
+      "games-1-0-named",
+      "team-red",
+      "pts-15-0",
+    ]);
+    const advantageSet = { ...one, tiebreakEnabled: false };
+    const s = games(initialScoreState("A"), "ABABABABABABABA", advantageSet); // 8-7 to A
+    expect(gamesTally(s, true)).toEqual(["n-8", "games-to", "n-7", "team-red"]);
+  });
+
+  it("never asks for a clip that does not exist, in random named matches", () => {
+    let seed = 11;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    for (const config of [one, bestOf3, { ...bestOf3, tiebreakEnabled: false }, { ...one, setsToWinMatch: 3 }]) {
+      for (let m = 0; m < 20; m++) {
+        let s = initialScoreState(rand() < 0.5 ? "A" : "B");
+        let guard = 0;
+        while (!s.matchOver && guard++ < 2000) {
+          const next = awardPoint(s, rand() < 0.5 ? "A" : "B", config);
+          const call = callForTransition(s, next, NAMED, config);
+          expect(call).not.toBeNull();
+          for (const id of call!) expect(PHRASES[id], id).toBeTruthy();
+          s = next;
+        }
+      }
+    }
+  });
+});
+
 describe("captions", () => {
   it("reads a call back as a sentence", () => {
     expect(captionFor(["game", "leads-server", "games-4-2"])).toBe("Game. Server leads four games to two.");
     expect(captionFor(TEST_CALL)).toBe("Fifteen love. Deuce. Advantage server.");
     expect(captionFor(["n-9", "all"])).toBe("Nine all");
+    expect(captionFor(["game-named", "team-red", "games-4-2-named", "team-red"])).toBe("Game, Red team. Four games to two, Red team.");
+    expect(captionFor(["advantage", "team-blue"])).toBe("Advantage, Blue team.");
+    // Past seven games the tally is built from number words; the colour still reads as its own clause.
+    expect(captionFor(["game-named", "team-red", "n-8", "games-to", "n-7", "team-red"])).toBe("Game, Red team. Eight games to seven, Red team.");
   });
 });

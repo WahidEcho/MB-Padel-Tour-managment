@@ -92,12 +92,15 @@ body {
   animation: pulse-live 1.6s ease-in-out infinite;
 }
 
-/* Sponsor marquee — the track holds two identical copies of the logo list, so
-   translating by exactly -50% lands on the start of the second copy and the
-   loop is seamless. */
+/* Sponsor marquee — the track holds as many identical copies of the logo list as
+   the viewport needs, and travels exactly one copy's width, so the frame after
+   the last logo is the first logo again. Two copies alone leave a blank stretch
+   whenever the browser is wider than they are. The shift is measured and handed
+   in as --marquee-shift; -50% is the two-copy fallback before the first
+   measurement lands. */
 @keyframes marquee-scroll {
   from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
+  to   { transform: translateX(var(--marquee-shift, -50%)); }
 }
 .marquee-track {
   animation-name: marquee-scroll;

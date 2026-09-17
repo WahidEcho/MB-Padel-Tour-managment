@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { resolveSponsors } from "@/lib/sponsors";
 import type { BrandingConfig } from "@/lib/types";
+import ImageInput from "@/components/ImageInput";
 import { saveBranding, type BrandingFormState } from "./actions";
 import BackgroundUploader from "./BackgroundUploader";
 
@@ -49,7 +50,7 @@ export default function BrandingForm({
           )}
           <div className="flex-1">
             <label className="label">{label}</label>
-            <input type="file" name={field} accept="image/*" className="input text-xs" />
+            <ImageInput name={field} />
           </div>
         </div>
       ))}
@@ -78,7 +79,7 @@ export default function BrandingForm({
             </div>
             <div>
               <label className="label">Logo</label>
-              <input type="file" name="main_logo" accept="image/*" className="input text-xs" />
+              <ImageInput name="main_logo" />
             </div>
             <div>
               <label className="label">Glow colour</label>
@@ -131,13 +132,36 @@ export default function BrandingForm({
         ))}
         <div>
           <label className="label">Add logos</label>
-          <input type="file" name="sponsor_logos" accept="image/*" multiple className="input text-xs" />
+          <ImageInput name="sponsor_logos" multiple />
         </div>
         {footer.length > 0 && (
           <label className="flex items-center gap-1 text-xs text-danger">
             <input type="checkbox" name="clear_sponsors" /> clear all footer sponsors
           </label>
         )}
+      </fieldset>
+
+      <fieldset className="space-y-2 rounded-xl border border-border p-3" data-testid="red-blue-setting">
+        <legend className="px-1 text-sm font-bold">Red and blue teams — for the voice umpire and the screens</legend>
+        <input type="hidden" name="red_blue_teams" value="off" />
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="red_blue_teams"
+            value="on"
+            defaultChecked={branding.redBlueTeams === true}
+            className="mt-0.5 h-4 w-4"
+          />
+          <span>
+            Call and colour every match as the <b className="text-[#dc2626]">Red team</b> and the{" "}
+            <b className="text-[#2563eb]">Blue team</b>
+          </span>
+        </label>
+        <p className="text-xs text-muted">
+          The first-listed team of each match is Red, the second Blue. The voice says “Advantage, Red team.” and “Game,
+          Blue team. Four games to two, Blue team.” — never team or player names — and the TV court cards and the
+          referee&apos;s scoring page mark each side in its colour. Off: the voice says “server” and “receiver”.
+        </p>
       </fieldset>
 
       <fieldset className="space-y-2 rounded-xl border border-border p-3">
@@ -157,7 +181,7 @@ export default function BrandingForm({
           )}
           <div className="flex-1">
             <label className="label">Picture (defaults to the still picture above)</label>
-            <input type="file" name="holding_image" accept="image/*" className="input text-xs" />
+            <ImageInput name="holding_image" />
           </div>
           {branding.holding?.imageUrl && (
             <label className="flex items-center gap-1 text-xs text-danger">

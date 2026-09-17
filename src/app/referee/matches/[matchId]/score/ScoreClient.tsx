@@ -19,6 +19,20 @@ import Avatar from "@/components/Avatar";
 import { describeMatchRules } from "@/lib/scoring/rules";
 import VoicePanel from "./VoicePanel";
 import { useUmpireVoice } from "./useUmpireVoice";
+import { SIDES, sideTint } from "@/lib/sides";
+
+/** "RED TEAM" / "BLUE TEAM" in its colour, when the organiser uses red and blue teams. */
+function SideChip({ side }: { side: TeamKey }) {
+  return (
+    <span
+      className="inline-block rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-white"
+      style={{ background: SIDES[side].hex }}
+      data-testid={`side-chip-${side}`}
+    >
+      {SIDES[side].label}
+    </span>
+  );
+}
 
 interface TeamInfo {
   id: string;
@@ -50,6 +64,7 @@ export default function ScoreClient({
   teamB,
   serverSnapshot,
   reopenState = null,
+  redBlueTeams = false,
 }: {
   match: Match;
   tournamentName: string;
@@ -60,6 +75,8 @@ export default function ScoreClient({
   serverSnapshot: MatchSnapshot | null;
   /** The score before the winning point of a completed match, so this device can reopen it. */
   reopenState?: ScoreState | null;
+  /** The organiser's red-and-blue-teams setting: team A is Red, team B Blue. */
+  redBlueTeams?: boolean;
 }) {
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
@@ -74,7 +91,9 @@ export default function ScoreClient({
   const [startWarningAck, setStartWarningAck] = useState(false);
   const [popKey, setPopKey] = useState(0);
   // Only the device holding the match speaks; a read-only page stays quiet.
-  const voice = useUmpireVoice(scoringConfig, controller === true);
+  // Starts from the page load and follows the organiser's setting on every sync.
+  const [redBlue, setRedBlue] = useState(redBlueTeams);
+  const voice = useUmpireVoice(scoringConfig, controller === true, redBlue);
   const onVoiceEvent = voice.onEvent;
 
   const eventNumberRef = useRef(serverSnapshot?.last_event_number ?? 0);
@@ -142,6 +161,8 @@ export default function ScoreClient({
         }),
       });
       if (res.ok) {
+        const synced = (await res.json().catch(() => null)) as { red_blue_teams?: unknown } | null;
+        if (typeof synced?.red_blue_teams === "boolean") setRedBlue(synced.red_blue_teams);
         await offlineDb.events.bulkPut(pending.map((e) => ({ ...e, sync_status: "synced" as const })));
         setPendingCount(0);
         setSyncStatus("synced");
@@ -524,9 +545,11 @@ export default function ScoreClient({
                   <button
                     key={k}
                     className="card flex flex-col items-center gap-2 border-2 py-6 hover:border-accent"
+                    style={redBlue ? { borderColor: SIDES[k].hex, background: sideTint(k, 0.1) } : undefined}
                     onClick={() => startMatch(k)}
                   >
                     <span className="text-3xl">🎾</span>
+                    {redBlue && <SideChip side={k} />}
                     <span className="font-bold">{team(k).name}</span>
                   </button>
                 ))}
@@ -545,7 +568,13 @@ export default function ScoreClient({
               const serving = currentServer(state) === k;
               const isWinner = state.winner === k;
               return (
-                <div key={k} className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}>
+                <div
+                  key={k}
+                  className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}
+                  style={redBlue ? { borderColor: isWinner ? undefined : SIDES[k].hex, borderWidth: 2, background: sideTint(k, 0.12) } : undefined}
+                  data-side={redBlue ? SIDES[k].short.toLowerCase() : undefined}
+                >
+                  {redBlue && <SideChip side={k} />}
                   <div className="flex items-center justify-center gap-1">
                     {info.players.map((p) => (
                       <Avatar key={p.name} name={p.name} person={p.photo} size={28} />
@@ -629,7 +658,14 @@ export default function ScoreClient({
                     onClick={() => tapScore(k)}
                     disabled={matchStatus === "paused"}
                     className="rounded-[20px] border-2 border-accent/50 bg-accent/10 text-xl font-bold transition active:scale-95 active:bg-accent/30 disabled:opacity-40"
+                    style={redBlue ? { borderColor: SIDES[k].hex, background: sideTint(k, 0.2) } : undefined}
+                    data-side={redBlue ? SIDES[k].short.toLowerCase() : undefined}
                   >
+                    {redBlue && (
+                      <span className="mb-2 block">
+                        <SideChip side={k} />
+                      </span>
+                    )}
                     + Point
                     <span className="block text-sm font-semibold text-muted">{team(k).name}</span>
                   </button>

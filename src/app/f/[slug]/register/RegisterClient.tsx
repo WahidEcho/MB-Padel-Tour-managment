@@ -102,6 +102,8 @@ export default function RegisterClient({
         <PlayerPhotoField
           name="player"
           endpoint={`/api/f/${slug}/photo`}
+          // The public endpoint takes 2 MB; a phone photo is shrunk to fit it.
+          maxUploadBytes={2 * 1024 * 1024}
           label="Your photo (optional)"
           size={96}
         />

@@ -8,6 +8,8 @@ import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
 import { resolveSponsors } from "@/lib/sponsors";
+import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
+import { watchTargets } from "@/lib/watch";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,8 @@ export default async function PublicLayout({
         ] as const);
 
   const { main, footer } = resolveSponsors(tournament.branding_config);
+  // The venue screens anyone here may open, on every public page.
+  const watch = await watchTargets(tournament.id);
   const backdrop = backgroundFor(tournament.branding_config, "public");
 
   return (
@@ -51,8 +55,10 @@ export default async function PublicLayout({
       {main?.showOnDashboard !== false && (
         <SponsorWatermark sponsor={main} surface="dashboard" backgroundHex="#ffffff" variant="page" />
       )}
-      <header className={`relative z-10 border-b border-border px-4 py-3${backdrop ? " bg-background/85" : ""}`}>
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between">
+      {/* Above the content, not level with it: the Watch menu drops out of the
+          header, and at the same z-index the page below painted straight over it. */}
+      <header className={`relative z-30 border-b border-border px-4 py-3${backdrop ? " bg-background/85" : ""}`}>
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             {tournament.branding_config.eventLogoUrl && (
               // eslint-disable-next-line @next/next/no-img-element
@@ -68,18 +74,21 @@ export default async function PublicLayout({
               <p className="text-[10px] uppercase tracking-widest text-muted">Powered by Move Beyond</p>
             </div>
           </div>
-          <nav className="flex gap-1 text-xs font-semibold">
-            {NAV.map(([path, label]) => (
-              <Link key={path} href={`/t/${slug}${path}`} className="rounded-lg px-2 py-1 text-muted hover:bg-card hover:text-foreground">
-                {label}
-              </Link>
-            ))}
-          </nav>
+          <div className="flex items-center gap-2">
+            <nav className="flex flex-wrap gap-1 text-xs font-semibold">
+              {NAV.map(([path, label]) => (
+                <Link key={path} href={`/t/${slug}${path}`} className="rounded-lg px-2 py-1 text-muted hover:bg-card hover:text-foreground">
+                  {label}
+                </Link>
+              ))}
+            </nav>
+            <WatchOnScreenMenu slug={slug} screens={watch.screens} courts={watch.courts} />
+          </div>
         </div>
       </header>
-      <main className="relative z-10 mx-auto w-full max-w-5xl flex-1 p-4">{children}</main>
+      <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 p-4">{children}</main>
       {footer.length > 0 && (
-        <footer className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-4">
+        <footer className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-4">
           <SponsorMarquee logos={footer.map((sp) => sp.logoUrl)} />
         </footer>
       )}
