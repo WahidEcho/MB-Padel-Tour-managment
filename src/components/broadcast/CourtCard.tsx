@@ -360,32 +360,68 @@ function TeamName({
   );
 }
 
-function NextCard({ courtName, match, teamA, teamB, density, sides }: CourtCardProps) {
+/**
+ * The fixture waiting on a court: two sides facing each other across a "v".
+ *
+ * Always side by side, at every density. Stacking them down the card was the
+ * obvious reading of "one above the other", and on a four-court wall it pushed
+ * the second team clean off the bottom — a fixture card that shows one of the
+ * two teams is worse than no card. A court card is always wider than it is tall,
+ * so across is the shape that fits.
+ *
+ * The player cards are sized from the cell this card was given, by whichever of
+ * width and height runs out first, so nothing is ever cut.
+ */
+function NextCard({ courtName, match, teamA, teamB, density, cardWidth, cardHeight, sides }: CourtCardProps) {
   const t = TYPE[density];
-  const tall = isTall(density);
   const shows = showsAt(density);
-  const photo = tall ? (density === "hero" ? 190 : 140) : 96;
+  const nameSize = Math.max(18, Math.round(t.player * 0.8));
+  const mostPlayers = Math.max(teamA?.players.length ?? 0, teamB?.players.length ?? 0, 1);
 
-  const side = (key: SideKey, team: PublicTeam | null) => (
-    <div className="flex min-w-0 flex-col items-center gap-3">
-      {shows.photos && team && team.players.length > 0 && (
-        <div className="flex items-end gap-3">
-          {team.players.map((p) => (
-            <PlayerCard key={p.id} player={p} width={photo} nameSize={Math.max(18, t.player * 0.8)} />
-          ))}
-        </div>
-      )}
-      <p className="flex max-w-full items-center justify-center gap-3 text-center font-bold" style={{ fontSize: t.team }}>
-        {sides && <SideTag side={key} size={Math.max(18, Math.round(t.team * 0.45))} />}
-        <span className="min-w-0 break-words">{team?.team_name ?? "TBD"}</span>
-      </p>
-    </div>
+  // Half the card, less its padding and the "v" between the two sides.
+  const sideWidth = (cardWidth - 48 - 56) / 2;
+  // The card, less the court strip, its own padding and the team name under it.
+  const room = cardHeight - 44 - 28 - t.team * 1.5;
+  const photo = Math.floor(
+    Math.max(
+      64,
+      Math.min(
+        // A ceiling only, so the cards stay cards. One court has the height for
+        // much larger ones; four share it and are held to the width instead.
+        density === "hero" ? 360 : 190,
+        (sideWidth - 12 * (mostPlayers - 1)) / mostPlayers,
+        room / CARD_RATIO,
+      ),
+    ),
   );
+
+  const side = (key: SideKey, team: PublicTeam | null) => {
+    const name = team?.team_name ?? "TBD";
+    const tag = Math.max(18, Math.round(t.team * 0.45));
+    return (
+      <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3">
+        {shows.photos && team && team.players.length > 0 && (
+          <div className="flex items-end gap-3">
+            {team.players.map((p) => (
+              <PlayerCard key={p.id} player={p} width={photo} nameSize={nameSize} />
+            ))}
+          </div>
+        )}
+        <p
+          className="flex max-w-full items-center justify-center gap-3 text-center font-bold leading-tight"
+          style={{ fontSize: fitFontSize(name, sideWidth * 2 - (sides ? tag * 3.6 : 0), t.team) }}
+        >
+          {sides && <SideTag side={key} size={tag} />}
+          <span className="min-w-0 break-words">{name}</span>
+        </p>
+      </div>
+    );
+  };
 
   return (
     <div className="bc-card flex h-full flex-col overflow-hidden">
       <CourtStrip courtName={courtName} match={match} right={<span className="shrink-0 text-[22px] font-bold text-accent">NEXT ON COURT</span>} />
-      <div className={`flex flex-1 items-center justify-center gap-6 px-6 pb-4 text-center ${tall ? "" : "flex-col gap-3"}`}>
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-6 px-6 pb-4 text-center">
         {side("A", teamA)}
         <p className="shrink-0 text-muted" style={{ fontSize: Math.max(22, t.player) }}>v</p>
         {side("B", teamB)}
