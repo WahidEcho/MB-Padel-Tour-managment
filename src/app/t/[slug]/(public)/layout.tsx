@@ -30,6 +30,7 @@ export default async function PublicLayout({
       ? ([
           ["", "Overview"],
           ["/live", "Live"],
+          ["/matches", "Matches"],
           ["/bracket", "Bracket"],
           ["/winner", "Winner"],
         ] as const)
@@ -37,6 +38,7 @@ export default async function PublicLayout({
           ["", "Overview"],
           ["/leaderboard", "Leaderboard"],
           ["/live", "Live"],
+          ["/matches", "Matches"],
           ["/bracket", "Bracket"],
           ["/winner", "Winner"],
         ] as const);
