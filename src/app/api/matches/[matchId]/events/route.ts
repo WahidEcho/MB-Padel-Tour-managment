@@ -3,6 +3,7 @@ import { db } from "@/lib/supabase";
 import { currentRole, can } from "@/lib/auth";
 import { getMatch, getSnapshot } from "@/lib/data";
 import { finalizeMatch, upsertSnapshotFromState, type EngineStateLike } from "@/lib/ops";
+import { claimLease, defaultDeviceLabel, getLease, isLeaseLive } from "@/lib/scoringControl";
 import type { Match } from "@/lib/types";
 
 interface IncomingEvent {
@@ -42,14 +43,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
   const match = await getMatch(matchId);
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
-  if (match.active_scoring_device_id && match.active_scoring_device_id !== deviceId) {
+  // Same shape as before, translated to a lease: refuse a live lease held by
+  // someone else, and silently claim an unheld (or stale) one for whichever
+  // device's events are landing — an offline-first sync can arrive before its
+  // own /claim request ever resolves, and it still needs to end up holding
+  // the match. A lease this device already holds is left untouched: the
+  // periodic renew-lease heartbeat is what extends it, not every sync.
+  const existingLease = await getLease(matchId);
+  const leaseNowMs = Date.now();
+  if (existingLease && isLeaseLive(existingLease, leaseNowMs) && existingLease.device_id !== deviceId) {
     return NextResponse.json(
       { error: "Another device controls this match", conflict: "device_lock" },
       { status: 409 }
     );
   }
-  if (!match.active_scoring_device_id) {
-    await db().from("matches").update({ active_scoring_device_id: deviceId }).eq("id", matchId);
+  if (!existingLease || !isLeaseLive(existingLease, leaseNowMs)) {
+    const claimed = await claimLease(matchId, match.tournament_id, deviceId, defaultDeviceLabel(deviceId));
+    if (!claimed.ok) {
+      // Lost the race for the same just-freed lease to another device's claim.
+      return NextResponse.json(
+        { error: "Another device controls this match", conflict: "device_lock" },
+        { status: 409 }
+      );
+    }
   }
 
   const snapshot = await getSnapshot(matchId);

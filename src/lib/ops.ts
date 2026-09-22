@@ -48,6 +48,7 @@ import type {
 import { DEFAULT_SCORING_CONFIG } from "./types";
 import { ensureMainScreen } from "./screens";
 import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, tournamentRowRefusal } from "./rowGuards";
+import { endLease, endLeasesForTournament } from "./scoringControl";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -341,12 +342,14 @@ export async function resetTournamentLiveData(
       status: "scheduled",
       winner_team_id: null,
       serving_team_id: null,
-      active_scoring_device_id: null,
       is_pending_sync: false,
       started_at: null,
       ended_at: null,
     })
     .eq("tournament_id", id);
+  // The delete above already cascaded away every non-group match's lease; the
+  // group matches it reset above survive with theirs still attached otherwise.
+  await endLeasesForTournament(id);
   await db().from("match_score_snapshots").delete().eq("tournament_id", id);
   await db().from("score_events").delete().eq("tournament_id", id);
   await db().from("standings_snapshots").delete().eq("tournament_id", id);
@@ -1100,11 +1103,12 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
       winner_team_id: opts.winnerTeamId,
       ended_at: new Date().toISOString(),
       is_pending_sync: opts.pendingSync ?? false,
-      active_scoring_device_id: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", match.id);
   if (error) throw new Error(error.message);
+  // A finished match is nobody's to score any more — its scoring lease, if any.
+  await endLease(match.id);
 
   await audit({
     tournament_id: match.tournament_id,
