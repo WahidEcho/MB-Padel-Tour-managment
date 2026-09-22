@@ -18,6 +18,8 @@ import { offlineDb, getDeviceId, type LocalScoreEvent } from "@/lib/offline/db";
 import Avatar from "@/components/Avatar";
 import { describeMatchRules } from "@/lib/scoring/rules";
 import VoicePanel from "./VoicePanel";
+import ControlPanel from "./ControlPanel";
+import { useScoringControl } from "./useScoringControl";
 import { useUmpireVoice } from "./useUmpireVoice";
 import { SIDES, sideTint } from "@/lib/sides";
 
@@ -81,7 +83,6 @@ export default function ScoreClient({
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
   const [matchStatus, setMatchStatus] = useState(match.status);
-  const [controller, setController] = useState<boolean | null>(null);
   const [online, setOnline] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "pending" | "error">("synced");
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -93,8 +94,6 @@ export default function ScoreClient({
   // Only the device holding the match speaks; a read-only page stays quiet.
   // Starts from the page load and follows the organiser's setting on every sync.
   const [redBlue, setRedBlue] = useState(redBlueTeams);
-  const voice = useUmpireVoice(scoringConfig, controller === true, redBlue);
-  const onVoiceEvent = voice.onEvent;
 
   const eventNumberRef = useRef(serverSnapshot?.last_event_number ?? 0);
   const startedAtRef = useRef<string | null>(match.started_at);
@@ -115,10 +114,36 @@ export default function ScoreClient({
     setHistory(nextHistory);
   }, []);
 
+  // A finished, non-reopenable match has nothing left to control: no claim is
+  // made and the panel never polls. See getReopenState — only a completed
+  // match with a recorded pre-winning-point state can be reopened, and never
+  // one ended by cancellation.
+  const controlDisabled = FINISHED.includes(match.status) && (!reopenState || match.status === "cancelled");
+  const control = useScoringControl(match.id, {
+    initialMatch: match,
+    initialSnapshot: serverSnapshot,
+    disabled: controlDisabled,
+  });
+  const voice = useUmpireVoice(scoringConfig, control.isController, redBlue);
+  const onVoiceEvent = voice.onEvent;
+
+  const readOnly = !control.isController;
+  // What this device currently shows. A controller's own state is already
+  // live — every tap applies straight to it. A read-only device has no taps
+  // of its own, so it shows the freshest polled snapshot instead:
+  // match_score_snapshots.snapshot_json is the very same ScoreState shape
+  // `state` already is (see page.tsx's own server-side commit). Computed here
+  // during render rather than synced in via an effect — the lint rule (and
+  // React's own guidance) is explicit that a value already available from
+  // another hook belongs in a derived const, not an effect that mirrors it.
+  const renderState: ScoreState | null = readOnly ? ((control.snapshot?.snapshot_json as ScoreState | null) ?? state) : state;
+  const renderStatus: Match["status"] = readOnly ? (control.match?.status ?? matchStatus) : matchStatus;
+  const renderFinished = FINISHED.includes(renderStatus);
+
   const finished = FINISHED.includes(matchStatus);
   const confirmFirst = scoringConfig.requireResultConfirmation === true;
   // The score says the match is over, but nobody has confirmed it yet.
-  const awaitingConfirmation = confirmFirst && Boolean(state?.matchOver) && !finished;
+  const awaitingConfirmation = confirmFirst && Boolean(renderState?.matchOver) && !renderFinished;
   const team = useCallback((k: TeamKey) => (k === "A" ? teamA : teamB), [teamA, teamB]);
 
   /* ---------------- sync loop ---------------- */
@@ -221,27 +246,18 @@ export default function ScoreClient({
       setPendingCount(pend);
       if (pend > 0) setSyncStatus("pending");
 
-      if (FINISHED.includes(match.status)) {
-        // A finished match is read-only unless it can be reopened. Finalising
-        // releases the lock, so any referee device may take it to undo the
-        // winning point — the confirming tablet may be flat, or reloaded.
-        if (!reopenState || match.status === "cancelled") {
-          setController(false);
-          return;
+      // A finished match is read-only unless it can be reopened. Finalising
+      // ends its lease, so any referee device may take it to undo the winning
+      // point — the confirming tablet may be flat, or reloaded. `controlDisabled`
+      // (passed to useScoringControl) already covers the non-reopenable case —
+      // its hook never polls or claims, so nothing further is needed here.
+      if (!controlDisabled) {
+        if (FINISHED.includes(match.status) && reopenState && historyRef.current.length === 0) {
+          commit(stateRef.current, [reopenState]);
         }
-        if (historyRef.current.length === 0) commit(stateRef.current, [reopenState]);
-      }
-      try {
-        const res = await fetch(`/api/matches/${match.id}/claim`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceId: deviceIdRef.current }),
-        });
-        const data = await res.json();
-        setController(Boolean(data.controller));
-      } catch {
-        // Offline on load: allow control if we already have local state for this match
-        setController(Boolean(local) || match.active_scoring_device_id === deviceIdRef.current);
+        // Offline right now: lean on local state, the strongest signal this
+        // device — not some other one — was the one scoring the match.
+        await control.claim(Boolean(local));
       }
     }
     init();
@@ -446,17 +462,16 @@ export default function ScoreClient({
   }, [online, syncStatus, pendingCount]);
 
   function pointLabel(k: TeamKey) {
-    if (!state) return "0";
-    if (state.isTiebreak) return String(k === "A" ? state.teamA.tiebreakPoints : state.teamB.tiebreakPoints);
-    return k === "A" ? state.teamA.points : state.teamB.points;
+    if (!renderState) return "0";
+    if (renderState.isTiebreak) return String(k === "A" ? renderState.teamA.tiebreakPoints : renderState.teamB.tiebreakPoints);
+    return k === "A" ? renderState.teamA.points : renderState.teamB.points;
   }
 
-  if (controller === null) {
+  if (!control.ready) {
     return <div className="flex flex-1 items-center justify-center p-10 text-muted">Connecting…</div>;
   }
 
-  const readOnly = !controller;
-  const notStarted = matchStatus === "scheduled" || matchStatus === "ready" || !state;
+  const notStarted = renderStatus === "scheduled" || renderStatus === "ready" || !renderState;
   const bothCheckedIn = teamA.checkedIn && teamB.checkedIn;
 
   return (
@@ -469,8 +484,8 @@ export default function ScoreClient({
               the same tournament can differ, so the referee is told which applies. */}
           <p className="text-[11px] text-muted" data-testid="resolved-rules">{describeMatchRules(scoringConfig)}</p>
           <p className="text-xs font-semibold capitalize">
-            {matchStatus.replace("_", " ")}
-            {elapsed && !finished && <span className="ml-2 font-mono text-muted">⏱ {elapsed}</span>}
+            {renderStatus.replace("_", " ")}
+            {elapsed && !renderFinished && <span className="ml-2 font-mono text-muted">⏱ {elapsed}</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -508,11 +523,7 @@ export default function ScoreClient({
           {syncError}
         </p>
       )}
-      {readOnly && !finished && (
-        <p className="mb-2 rounded-xl bg-warning/15 px-3 py-2 text-xs font-semibold text-warning">
-          Read-only — another device is scoring this match. Ask the admin to release the lock if that device is gone.
-        </p>
-      )}
+      {!finished && !controlDisabled && <ControlPanel control={control} />}
 
       {/* Pre-start */}
       {notStarted && !readOnly ? (
@@ -558,15 +569,15 @@ export default function ScoreClient({
             </div>
           )}
         </div>
-      ) : state ? (
+      ) : renderState ? (
         <>
           {/* Scoreboard */}
           <div className="grid grid-cols-2 gap-2">
             {(["A", "B"] as TeamKey[]).map((k) => {
               const info = team(k);
-              const ts = k === "A" ? state.teamA : state.teamB;
-              const serving = currentServer(state) === k;
-              const isWinner = state.winner === k;
+              const ts = k === "A" ? renderState.teamA : renderState.teamB;
+              const serving = currentServer(renderState) === k;
+              const isWinner = renderState.winner === k;
               return (
                 <div
                   key={k}
@@ -587,8 +598,8 @@ export default function ScoreClient({
                   </p>
                   <p className="text-xs text-muted">
                     Sets {ts.sets} · Games {ts.games}
-                    {state.completedSets.length > 0 && (
-                      <span className="block">{scoreSummary(state)}</span>
+                    {renderState.completedSets.length > 0 && (
+                      <span className="block">{scoreSummary(renderState)}</span>
                     )}
                   </p>
                   <p key={`${popKey}-${k}`} className="score-pop text-6xl font-bold tabular-nums">
@@ -598,7 +609,7 @@ export default function ScoreClient({
               );
             })}
           </div>
-          {state.isTiebreak && !state.matchOver && (
+          {renderState.isTiebreak && !renderState.matchOver && (
             <p className="mt-1 text-center text-xs font-bold uppercase tracking-widest text-accent">
               Tie-break · first to {scoringConfig.tiebreakTargetPoints}
               {scoringConfig.tiebreakWinByTwo ? ", win by 2" : ""}
@@ -609,7 +620,7 @@ export default function ScoreClient({
           {awaitingConfirmation && (
             <div className="card mt-3 space-y-3 border-warning/60 text-center">
               <p className="text-lg font-bold">
-                {state.winner ? team(state.winner).name : "Match"} wins {scoreSummary(state) || ""}
+                {renderState.winner ? team(renderState.winner).name : "Match"} wins {scoreSummary(renderState) || ""}
               </p>
               <p className="text-sm text-muted">
                 Check the score before it goes official. Confirming updates the standings, advances the
@@ -629,12 +640,12 @@ export default function ScoreClient({
           )}
 
           {/* Finished banner */}
-          {!awaitingConfirmation && (finished || state.matchOver) && (
+          {!awaitingConfirmation && (renderFinished || renderState.matchOver) && (
             <div className="card mt-3 border-success/50 text-center">
               <p className="text-lg font-bold text-success">
-                🏆 {state.winner ? team(state.winner).name : "Match ended"} wins
+                🏆 {renderState.winner ? team(renderState.winner).name : "Match ended"} wins
               </p>
-              <p className="text-sm text-muted">Final score: {scoreSummary(state) || "—"}</p>
+              <p className="text-sm text-muted">Final score: {scoreSummary(renderState) || "—"}</p>
               {pendingCount > 0 && (
                 <p className="mt-1 text-xs font-semibold text-warning">
                   Result will be official after sync ({pendingCount} pending).
@@ -649,7 +660,7 @@ export default function ScoreClient({
           )}
 
           {/* Score buttons */}
-          {!readOnly && !finished && !state.matchOver && (
+          {!readOnly && !finished && !renderState.matchOver && (
             <>
               <div className="mt-3 grid flex-1 grid-cols-2 gap-3" style={{ minHeight: "34vh" }}>
                 {(["A", "B"] as TeamKey[]).map((k) => (
@@ -687,7 +698,7 @@ export default function ScoreClient({
                 <button
                   className="btn-secondary py-3"
                   onClick={switchServer}
-                  title={state.isTiebreak ? "Correct who is serving this tie-break point" : "Change serving team"}
+                  title={renderState.isTiebreak ? "Correct who is serving this tie-break point" : "Change serving team"}
                 >
                   🎾 Server
                 </button>

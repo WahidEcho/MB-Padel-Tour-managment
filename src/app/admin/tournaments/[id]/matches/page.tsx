@@ -6,19 +6,29 @@ import MatchStatusBadge from "@/components/MatchStatusBadge";
 import { createManualMatch, deleteMatch, regenerateMatches, releaseScoringLock, updateMatchSchedule } from "./actions";
 import GroupStageRegenerateForm from "../GroupStageRegenerateForm";
 import { summarizeBrackets } from "@/lib/ops";
+import { getLiveLeasesByMatch } from "@/lib/scoringControl";
 import SessionRowNotice from "../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
 
+/** "held 2m ago" / "held just now" — lets an admin tell a stuck lock from one that's simply mid-match. */
+function heldAgo(renewedAt: string): string {
+  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(renewedAt)) / 1000));
+  if (seconds < 10) return "held just now";
+  if (seconds < 90) return `held ${seconds}s ago`;
+  return `held ${Math.round(seconds / 60)}m ago`;
+}
+
 export default async function MatchesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [tournament, matches, teams, courts, groups, brackets] = await Promise.all([
+  const [tournament, matches, teams, courts, groups, brackets, leases] = await Promise.all([
     getTournament(id),
     getMatches(id),
     getTeams(id),
     getCourts(id),
     getGroups(id),
     summarizeBrackets(id),
+    getLiveLeasesByMatch(id),
   ]);
   if (!tournament) notFound();
   // A session's matches are its schedule and its points; they are managed from the
@@ -27,7 +37,7 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
   // scoring lock is the same problem on a session, and only an admin can release it.
   if (tournament.kind !== "tournament") {
     const tmSession = teamMap(teams);
-    const locked = matches.filter((m) => m.active_scoring_device_id);
+    const locked = matches.filter((m) => leases.has(m.id));
     return (
       <div className="space-y-4">
         <SessionRowNotice tournamentId={id} tool="Matches" />
@@ -48,7 +58,8 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
                     {m.team_a_id ? tmSession.get(m.team_a_id)?.team_name ?? "?" : "TBD"}{" "}
                     <span className="text-muted">vs</span>{" "}
                     {m.team_b_id ? tmSession.get(m.team_b_id)?.team_name ?? "?" : "TBD"}{" "}
-                    <MatchStatusBadge status={m.status} />
+                    <MatchStatusBadge status={m.status} />{" "}
+                    <span className="text-xs text-muted">{heldAgo(leases.get(m.id)!.renewed_at)}</span>
                   </span>
                   <form action={releaseScoringLock}>
                     <input type="hidden" name="tournament_id" value={id} />
@@ -153,10 +164,11 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
                     <Link href={`/referee/matches/${m.id}/score`} className="btn-primary px-2 py-1 text-xs">
                       Score
                     </Link>
-                    {m.active_scoring_device_id && (
-                      <form action={releaseScoringLock}>
+                    {leases.has(m.id) && (
+                      <form action={releaseScoringLock} className="flex items-center gap-1">
                         <input type="hidden" name="tournament_id" value={id} />
                         <input type="hidden" name="match_id" value={m.id} />
+                        <span className="text-[10px] text-muted">{heldAgo(leases.get(m.id)!.renewed_at)}</span>
                         <ConfirmSubmit
                           className="btn-secondary px-2 py-1 text-xs"
                           message="Release the scoring lock? Only do this if the original scoring device is gone."

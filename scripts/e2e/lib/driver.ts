@@ -49,8 +49,8 @@ export async function openDriver(matchId: string, deviceId = `e2e-${randomUUID()
   const { data: tournament } = await db().from("tournaments").select("*").eq("id", match.tournament_id).single();
   const { data: snapshot } = await db().from("match_score_snapshots").select("*").eq("match_id", matchId).maybeSingle();
 
-  // Release any stale lock so the driver can claim it, exactly as an admin would.
-  await db().from("matches").update({ active_scoring_device_id: null }).eq("id", matchId);
+  // Release any stale lease so the driver can claim it, exactly as an admin would.
+  await db().from("scoring_leases").delete().eq("match_id", matchId);
   const claim = await post(`/api/matches/${matchId}/claim`, { deviceId });
   if (claim.status !== 200 || !claim.json.controller) {
     throw new Error(`Could not claim ${matchId}: ${JSON.stringify(claim.json)}`);

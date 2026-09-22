@@ -300,10 +300,40 @@ export interface Match {
   status: MatchStatus;
   serving_team_id: string | null;
   winner_team_id: string | null;
+  /** @deprecated Superseded by `scoring_leases` (see src/lib/scoringControl.ts). Read/written by nothing since migration 0013. */
   active_scoring_device_id: string | null;
   is_pending_sync: boolean;
   started_at: string | null;
   ended_at: string | null;
+}
+
+/**
+ * A pending "please hand over control" request against a live lease. Cleared
+ * the moment the holder accepts or declines it, or reassigns the lease to
+ * someone else outright.
+ */
+export interface ScoringTransferRequest {
+  deviceId: string;
+  deviceLabel: string | null;
+  requestedAt: string;
+}
+
+/**
+ * One match's scoring lease — see src/lib/scoringControl.ts for the state
+ * machine this row implements.
+ */
+export interface ScoringLease {
+  id: string;
+  match_id: string;
+  tournament_id: string;
+  device_id: string;
+  device_label: string | null;
+  revision: number;
+  acquired_at: string;
+  renewed_at: string;
+  expires_at: string;
+  released_at: string | null;
+  transfer_request: ScoringTransferRequest | null;
 }
 
 export interface CompletedSet {

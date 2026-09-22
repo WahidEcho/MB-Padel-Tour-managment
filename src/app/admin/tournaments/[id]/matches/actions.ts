@@ -5,6 +5,7 @@ import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { deleteManualMatch } from "@/lib/ops";
+import { endLease } from "@/lib/scoringControl";
 import { entityRefusal, ownershipRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { runGroupStageRegeneration, type GroupStageFormState } from "../groupStage";
 
@@ -113,7 +114,7 @@ export async function releaseScoringLock(formData: FormData) {
   const tournamentId = String(formData.get("tournament_id"));
   const matchId = String(formData.get("match_id"));
   refuse(await ownershipRefusal(tournamentId, "matches", matchId));
-  await db().from("matches").update({ active_scoring_device_id: null }).eq("id", matchId).eq("tournament_id", tournamentId);
+  await endLease(matchId);
   await audit({
     tournament_id: tournamentId,
     actor_role: role,

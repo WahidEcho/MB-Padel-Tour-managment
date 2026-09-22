@@ -20,6 +20,8 @@ import {
 import type { Match, MatchSnapshot, PhotoFields } from "@/lib/types";
 import { offlineDb, getDeviceId } from "@/lib/offline/db";
 import ChessBoard from "@/components/ChessBoard";
+import ControlPanel from "./ControlPanel";
+import { useScoringControl } from "./useScoringControl";
 
 interface TeamInfo {
   id: string;
@@ -74,7 +76,6 @@ export default function ChessScoreClient({
   const [state, setState] = useState<ChessState | null>(null);
   const [history, setHistory] = useState<ChessState[]>([]);
   const [matchStatus, setMatchStatus] = useState(match.status);
-  const [controller, setController] = useState<boolean | null>(null);
   const [online, setOnline] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "pending" | "error">("synced");
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -93,6 +94,21 @@ export default function ChessScoreClient({
     setState(next);
     setHistory(nextHistory);
   }, []);
+
+  // Chess has no reopen flow (no reopenState prop at all): a finished game is
+  // simply done, for every device.
+  const controlDisabled = FINISHED.includes(match.status);
+  const control = useScoringControl(match.id, {
+    initialMatch: match,
+    initialSnapshot: serverSnapshot,
+    disabled: controlDisabled,
+  });
+  const readOnly = !control.isController;
+  // What this device currently shows — see ScoreClient.tsx's identical
+  // comment for why this is a derived const and not an effect that mirrors it.
+  const renderState: ChessState | null = readOnly ? ((control.snapshot?.snapshot_json as ChessState | null) ?? state) : state;
+  const renderStatus: Match["status"] = readOnly ? (control.match?.status ?? matchStatus) : matchStatus;
+  const renderFinished = FINISHED.includes(renderStatus);
 
   const finished = FINISHED.includes(matchStatus);
   const team = useCallback((k: Side) => (k === "A" ? teamA : teamB), [teamA, teamB]);
@@ -175,20 +191,10 @@ export default function ChessScoreClient({
       setPendingCount(pend);
       if (pend > 0) setSyncStatus("pending");
 
-      if (FINISHED.includes(match.status)) {
-        setController(false);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/matches/${match.id}/claim`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceId: deviceIdRef.current }),
-        });
-        const data = await res.json();
-        setController(Boolean(data.controller));
-      } catch {
-        setController(Boolean(local) || match.active_scoring_device_id === deviceIdRef.current);
+      if (!controlDisabled) {
+        // Offline right now: lean on local state, the strongest signal this
+        // device — not some other one — was the one recording the game.
+        await control.claim(Boolean(local));
       }
     }
     init();
@@ -318,17 +324,16 @@ export default function ChessScoreClient({
     return ["Online · Synced", "bg-success/20 text-success"];
   }, [online, syncStatus, pendingCount]);
 
-  if (controller === null) {
+  if (!control.ready) {
     return <div className="flex flex-1 items-center justify-center p-10 text-muted">Connecting…</div>;
   }
 
-  const readOnly = !controller;
-  const notStarted = (matchStatus === "scheduled" || matchStatus === "ready" || !state) && !finished;
-  const g = state ? currentGame(state) : null;
+  const notStarted = (renderStatus === "scheduled" || renderStatus === "ready" || !renderState) && !renderFinished;
+  const g = renderState ? currentGame(renderState) : null;
   const whiteName = g ? team(g.whiteSide).name : teamA.name;
   const blackName = g ? team(g.whiteSide === "A" ? "B" : "A").name : teamB.name;
-  const toMove = state && !state.matchOver && g && !g.result ? sideToMove(state) : null;
-  const boardInteractive = Boolean(state) && !readOnly && !finished && !state!.matchOver && !!g && !g.result;
+  const toMove = renderState && !renderState.matchOver && g && !g.result ? sideToMove(renderState) : null;
+  const boardInteractive = Boolean(renderState) && !readOnly && !renderFinished && !renderState!.matchOver && !!g && !g.result;
   const movePairs = g ? formatMovePairs(g.sanHistory) : [];
   const lastPairs = movePairs.slice(-6);
 
@@ -338,7 +343,7 @@ export default function ChessScoreClient({
         <div>
           <p className="text-xs text-muted">{tournamentName} · {boardName} · {match.round_name}</p>
           <p className="text-xs font-semibold capitalize">
-            ♟ Chess{legs === 2 ? ` · 2-game match` : ""} · {matchStatus.replace("_", " ")}
+            ♟ Chess{legs === 2 ? ` · 2-game match` : ""} · {renderStatus.replace("_", " ")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -351,11 +356,7 @@ export default function ChessScoreClient({
       {syncError && (
         <p className="mb-2 rounded-xl bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">{syncError}</p>
       )}
-      {readOnly && !finished && (
-        <p className="mb-2 rounded-xl bg-warning/15 px-3 py-2 text-xs font-semibold text-warning">
-          Read-only — another device is recording this game.
-        </p>
-      )}
+      {!renderFinished && !controlDisabled && <ControlPanel control={control} />}
 
       {notStarted && !readOnly ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-5">
@@ -367,14 +368,14 @@ export default function ChessScoreClient({
           </p>
           <button className="btn-primary px-8 py-3" onClick={startMatch}>Start game</button>
         </div>
-      ) : state && g ? (
+      ) : renderState && g ? (
         <>
           {/* Players */}
           <div className="grid grid-cols-2 gap-2">
             {([["white", whiteName, "#fff", "#111"], ["black", blackName, "#111", "#fff"]] as const).map(
               ([color, name]) => {
                 const isToMove = toMove !== null && team(toMove).name === name;
-                const isWinner = state.matchOver && state.winner !== null && team(state.winner).name === name;
+                const isWinner = renderState.matchOver && renderState.winner !== null && team(renderState.winner).name === name;
                 return (
                   <div key={color} className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}>
                     <p className="text-[10px] uppercase tracking-widest text-muted">
@@ -404,24 +405,24 @@ export default function ChessScoreClient({
 
           {toMove && (
             <p className="mt-2 text-center text-xs font-semibold text-muted">
-              {team(toMove).name} to move{inCheck(state) ? " · CHECK" : ""}
+              {team(toMove).name} to move{inCheck(renderState) ? " · CHECK" : ""}
             </p>
           )}
 
           {/* Move log */}
           <div className="mt-2 rounded-xl bg-card p-2">
-            <p className="mb-1 text-[10px] uppercase tracking-widest text-muted">Moves (game {state.currentGameIndex + 1}{legs === 2 ? `/${legs}` : ""})</p>
+            <p className="mb-1 text-[10px] uppercase tracking-widest text-muted">Moves (game {renderState.currentGameIndex + 1}{legs === 2 ? `/${legs}` : ""})</p>
             <p className="min-h-5 break-words font-mono text-xs leading-relaxed">
               {lastPairs.length > 0 ? lastPairs.join("   ") : <span className="text-muted">No moves yet</span>}
             </p>
           </div>
 
           {/* Arbiter decision */}
-          {state.needsArbiter && !state.matchOver && !readOnly && (
+          {renderState.needsArbiter && !renderState.matchOver && !readOnly && (
             <div className="card mt-3 border-warning/50 text-center">
               <p className="text-sm font-bold text-warning">
                 {legs === 2 ? "Match tied " : "Game drawn "}
-                {matchScoreSummary(state)} — arbiter decides who advances:
+                {matchScoreSummary(renderState)} — arbiter decides who advances:
               </p>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {(["A", "B"] as Side[]).map((k) => (
@@ -432,11 +433,11 @@ export default function ChessScoreClient({
           )}
 
           {/* Finished banner */}
-          {(finished || state.matchOver) && state.winner && (
+          {(renderFinished || renderState.matchOver) && renderState.winner && (
             <div className="card mt-3 border-success/50 text-center">
-              <p className="text-lg font-bold text-success">🏆 {team(state.winner).name} advances</p>
-              {matchScoreSummary(state) && (
-                <p className="text-sm text-muted">Match score: {matchScoreSummary(state)}</p>
+              <p className="text-lg font-bold text-success">🏆 {team(renderState.winner).name} advances</p>
+              {matchScoreSummary(renderState) && (
+                <p className="text-sm text-muted">Match score: {matchScoreSummary(renderState)}</p>
               )}
               {pendingCount > 0 && (
                 <p className="mt-1 text-xs font-semibold text-warning">Official after sync ({pendingCount} pending).</p>
@@ -450,7 +451,7 @@ export default function ChessScoreClient({
           )}
 
           {/* Controls */}
-          {!readOnly && !finished && !state.matchOver && g && !g.result && (
+          {!readOnly && !finished && !renderState.matchOver && g && !g.result && (
             <div className="mt-3 grid grid-cols-2 gap-2 pb-2">
               <button className="btn-secondary py-3" onClick={doUndo} disabled={history.length === 0}>↩ Undo</button>
               <button className="btn-secondary py-3" onClick={doDraw}>½ Draw</button>
