@@ -27,6 +27,8 @@
  *       Human recordings named <clip id>.wav / .m4a / .mp3, one per line of the
  *       recording sheet (sheet.csv, written next to every pack).
  *
+ * On Linux, where afconvert is missing, clips are converted with ffmpeg instead.
+ *
  * Other flags: --pack <name>, --force (ignore the clip cache), --model <id>,
  * --overwrite (replace an existing pack folder other than en-dev).
  *
@@ -130,7 +132,7 @@ const FILE_GAP_SAMPLES = Math.round(PACK_SAMPLE_RATE * 0.05);
  */
 function contextFor(id: string): { previous_text?: string; next_text?: string } {
   // Red and blue teams: a lead-in says a colour next; a named tally starts a new sentence after one.
-  if (id === "team-red" || id === "team-blue") return { previous_text: "Game," };
+  if (id === "team-red" || id === "team-blue" || id.startsWith("nation-")) return { previous_text: "Game," };
   if (id === "advantage" || /^(game|set|game-and-set|game-set-match)-named$/.test(id)) return { next_text: "Red team." };
   if (/^(games|sets)-\d+-\d+-named$/.test(id)) return { previous_text: "Game, Blue team.", next_text: "Blue team." };
   if (id === "leads-server" || id === "leads-receiver") return { next_text: "four games to two." };
@@ -170,10 +172,14 @@ function apiKey(): string {
   return key;
 }
 
-/** Decodes any audio file macOS understands into 16-bit mono PCM at the pack's rate. */
+/** Decodes a clip into 16-bit mono PCM at the pack's rate: afconvert on a Mac, ffmpeg elsewhere. */
 function toPackSamples(input: string): Int16Array {
   const output = join(tmpdir(), `mb-voice-${createHash("sha1").update(input).digest("hex").slice(0, 12)}.wav`);
-  execFileSync("afconvert", ["-f", "WAVE", "-d", `LEI16@${PACK_SAMPLE_RATE}`, "-c", "1", input, output]);
+  if (process.platform === "darwin") {
+    execFileSync("afconvert", ["-f", "WAVE", "-d", `LEI16@${PACK_SAMPLE_RATE}`, "-c", "1", input, output]);
+  } else {
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-i", input, "-ac", "1", "-ar", String(PACK_SAMPLE_RATE), "-c:a", "pcm_s16le", output]);
+  }
   const wav = parseWav(readFileSync(output));
   rmSync(output, { force: true });
   if (wav.sampleRate !== PACK_SAMPLE_RATE) throw new Error(`afconvert gave ${wav.sampleRate} Hz for ${input}`);

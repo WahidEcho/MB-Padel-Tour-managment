@@ -1,6 +1,6 @@
 export type Role = "admin" | "manager" | "referee" | "operator";
 
-export type Sport = "padel" | "chess";
+export type Sport = "padel" | "chess" | "tennis";
 
 export type CheckInStatus = "not_arrived" | "checked_in" | "no_show" | "disqualified";
 
@@ -47,6 +47,18 @@ export interface MatchRules {
   tiebreakTargetPoints: number;
   tiebreakWinByTwo: boolean;
   walkoverScore: string;
+  /**
+   * No-ad scoring: at 40-40 the next point wins the game (the receivers choose
+   * which of them receives it). Absent means advantage scoring, as before.
+   */
+  decidingPoint?: boolean;
+  /**
+   * When the sets are level one short of the match, the deciding set is played
+   * as a single match tie-break instead (tennis doubles: at one set all).
+   */
+  matchTiebreak?: boolean;
+  /** Points to win that match tie-break, win by two. Defaults to 10. */
+  matchTiebreakPoints?: number;
 }
 
 /**
@@ -82,6 +94,12 @@ export interface ScoringConfig extends MatchRules {
    * events (walkover, retirement, disqualification, force-end) always finalize.
    */
   requireResultConfirmation?: boolean;
+  /**
+   * Tennis: rules a doubles match takes on top of the resolved stage rules
+   * (normally the deciding point and a match tie-break in place of a final set).
+   * Ignored for padel, where every match is a doubles match under the base rules.
+   */
+  doubles?: Partial<MatchRules>;
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
@@ -94,6 +112,21 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   walkoverScore: "6-0",
 };
 
+/**
+ * Standard tennis rules: best of three tie-break sets with advantage scoring.
+ * Doubles uses no-ad scoring and a 10-point match tie-break at one set all.
+ */
+export const DEFAULT_TENNIS_SCORING_CONFIG: ScoringConfig = {
+  setsToWinMatch: 2,
+  gamesToWinSet: 6,
+  tiebreakEnabled: true,
+  tiebreakAtGames: 6,
+  tiebreakTargetPoints: 7,
+  tiebreakWinByTwo: true,
+  walkoverScore: "6-0",
+  doubles: { decidingPoint: true, matchTiebreak: true, matchTiebreakPoints: 10 },
+};
+
 export interface FormatConfig {
   // "group_knockout" (padel default) or "knockout" (chess: no group stage).
   type: "group_knockout" | "knockout";
@@ -101,6 +134,8 @@ export interface FormatConfig {
   thirdPlaceMatch?: boolean;
   // Chess knockout only: games per pairing (1 or 2). Defaults to 1.
   legs?: 1 | 2;
+  /** Tennis team competition: present means every fixture is a tie of rubbers. */
+  ties?: TieFormatConfig;
   /**
    * Per-bracket settings. `cup` is the main bracket (1st and 2nd per group);
    * `plate` is the second bracket for the teams below them, off unless enabled.
@@ -115,6 +150,56 @@ export interface FormatConfig {
       podiumDepth?: 1 | 2 | 3 | 4;
     };
   };
+}
+
+/** The three rubbers of a tie, in the default order of play. See src/lib/tennis/ties.ts. */
+export type RubberType = "S2" | "S1" | "D";
+
+/**
+ * A nation-v-nation team competition: every group match and placement match is
+ * a tie of rubbers rather than a single match.
+ */
+export interface TieFormatConfig {
+  /** Order of play within a tie. Defaults to No. 2 singles, No. 1 singles, doubles. */
+  rubbers?: RubberType[];
+  /**
+   * Once a tie is decided, are its remaining rubbers played? Group ties play them
+   * (they count in the group ranking); placement ties drop them by default.
+   */
+  playDeadRubbersInPlacement?: boolean;
+  /**
+   * Demo events: a known result per rubber, by match id, from team A's side
+   * ("6-2 6-1", "5-7 4-6"), which the replay console plays point by point.
+   */
+  replays?: Record<string, string>;
+}
+
+export interface Tie {
+  id: string;
+  tournament_id: string;
+  stage: "group" | "placement";
+  group_id: string | null;
+  draw_from: number | null;
+  draw_to: number | null;
+  places_from: number | null;
+  places_to: number | null;
+  round_no: number;
+  round_name: string | null;
+  tie_order: number;
+  court_id: string | null;
+  scheduled_time: string | null;
+  team_a_id: string | null;
+  team_b_id: string | null;
+  status: "scheduled" | "live" | "completed";
+  rubbers_a: number;
+  rubbers_b: number;
+  winner_team_id: string | null;
+  winner_to_tie_id: string | null;
+  winner_to_side: "A" | "B" | null;
+  loser_to_tie_id: string | null;
+  loser_to_side: "A" | "B" | null;
+  lineup_locked_at: string | null;
+  ended_at: string | null;
 }
 
 export const DEFAULT_CHESS_FORMAT: FormatConfig = {
@@ -231,6 +316,11 @@ export interface Team {
   seed_number: number | null;
   check_in_status: CheckInStatus;
   team_status: "active" | "disqualified" | "withdrawn";
+  /** Tennis team competitions: the nation this team is, as its ITF code (EGY, USA, ROU). */
+  nation_code?: string | null;
+  /** ISO 3166-1 alpha-2 code for the flag (eg, us, ro). Derived from the ITF code. */
+  iso2?: string | null;
+  captain_name?: string | null;
   players?: Player[];
 }
 
@@ -305,6 +395,14 @@ export interface Match {
   is_pending_sync: boolean;
   started_at: string | null;
   ended_at: string | null;
+  /** Tennis team competitions: the tie this match is a rubber of. See migration 0014. */
+  tie_id?: string | null;
+  /** 1-based position in the tie's order of play. */
+  rubber_no?: number | null;
+  rubber_type?: RubberType | null;
+  /** The nominated players for this rubber, from the captains' line-ups. */
+  team_a_player_ids?: string[] | null;
+  team_b_player_ids?: string[] | null;
 }
 
 /**
@@ -340,6 +438,11 @@ export interface CompletedSet {
   teamAGames: number;
   teamBGames: number;
   tiebreak?: { a: number; b: number };
+  /**
+   * The set was a match tie-break played in place of a final set. It counts as
+   * one game to the winner (1-0) and its points are in `tiebreak`: [10-8].
+   */
+  matchTiebreak?: boolean;
 }
 
 export interface MatchSnapshot {
@@ -394,6 +497,9 @@ export interface Standing {
    */
   status: "pending" | "qualified" | "plate" | "eliminated" | "disqualified";
   manual_status_override: boolean;
+  /** Team competitions: rubbers won and lost across the group's ties. */
+  rubbers_won?: number;
+  rubbers_lost?: number;
 }
 
 export interface Bracket {

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ScoreState } from "@/lib/scoring/engine";
 import type { ScoringConfig } from "@/lib/types";
-import { callForTransition, classifyEvent, sameScore } from "@/lib/voice/calls";
-import { TEST_CALL, TEST_CALL_COLOURED, captionFor, type ClipId } from "@/lib/voice/phrases";
+import { callForTransition, classifyEvent, sameScore, supportedCall, type SideNames } from "@/lib/voice/calls";
+import { TEST_CALL, TEST_CALL_COLOURED, captionFor, nationClip, type ClipId } from "@/lib/voice/phrases";
+import type { VoicePack } from "@/lib/voice/pack";
 import { loadPack, play, prime, stop, type PackState } from "@/lib/voice/player";
 
 /* ---------------- per-phone settings ---------------- */
@@ -103,6 +104,21 @@ interface CallWindow {
   lowestNet: number;
 }
 
+/** A tennis match's voice: the tennis calls, and the nations when it is a tie's rubber. */
+export interface TennisVoice {
+  /** ITF codes of the two sides, when they are nations. */
+  nations?: { A: string | null; B: string | null };
+}
+
+/** The nation names for a pack, or null when either side has none in it. */
+function nationNames(pack: VoicePack, tennis: TennisVoice | null): SideNames | null {
+  const a = tennis?.nations?.A;
+  const b = tennis?.nations?.B;
+  if (!a || !b) return null;
+  const names = { A: nationClip(a), B: nationClip(b) };
+  return pack.index.clips[names.A] && pack.index.clips[names.B] ? names : null;
+}
+
 /**
  * The voice umpire for one scoring page. `onEvent` is called by the page for every
  * event it records, synchronously inside the referee's tap; everything else —
@@ -113,8 +129,12 @@ interface CallWindow {
  * the match) never speaks, so it neither downloads the pack nor keeps the screen on.
  * `redBlue` is the organiser's red-and-blue-teams setting: calls then end in the
  * side's colour ("Advantage, Red team.") instead of "server" and "receiver".
+ *
+ * `tennis` adds the tennis calls (change of ends, deciding point, match tie-break)
+ * and, for a nations tie, names the sides by nation ("Game, Romania."). Both need
+ * a pack that holds them; with an older one the calls are said without them.
  */
-export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue = false) {
+export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue = false, tennis: TennisVoice | null = null) {
   const settings = useSyncExternalStore(subscribe, snapshot, () => DEFAULTS);
   const on = settings.enabled && active;
   const [packState, setPackState] = useState<PackState | null>(null);
@@ -126,7 +146,10 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue =
   const settingsRef = useRef(settings);
   const configRef = useRef(config);
   const redBlueRef = useRef(redBlue);
+  const tennisRef = useRef(tennis);
+  const [packName, setPackName] = useState<string | null>(null);
   useEffect(() => {
+    tennisRef.current = tennis;
     redBlueRef.current = redBlue;
     onRef.current = on;
     activeRef.current = active;
@@ -191,7 +214,9 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue =
     if (!on) return;
     let alive = true;
     void loadPack().then((r) => {
-      if (alive) setPackState(r.state);
+      if (!alive) return;
+      setPackState(r.state);
+      if (r.pack) setPackName(r.pack.index.pack);
     });
     return () => {
       alive = false;
@@ -227,11 +252,15 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue =
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [on, ensureWakeLock]);
 
-  const speak = useCallback(async (ids: ClipId[], generation: number) => {
+  /** Plays the call `build` makes for the loaded pack, unless a newer tap has made it out of date. */
+  const speak = useCallback(async (build: (pack: VoicePack) => ClipId[] | null, generation: number | null) => {
     const { pack, state } = await loadPack();
     setPackState(state);
+    if (pack) setPackName(pack.index.pack);
     // A tap while the pack was still downloading makes this call out of date.
-    if (!pack || generation !== generationRef.current || !onRef.current || settingsRef.current.muted) return;
+    if (!pack || (generation !== null && generation !== generationRef.current) || !onRef.current || settingsRef.current.muted) return;
+    const ids = supportedCall(build(pack), (id) => Boolean(pack.index.clips[id]));
+    if (!ids) return;
     const result = await play(pack, ids, settingsRef.current.leadInMs);
     if (result === "blocked") setBlocked(true);
     if (result === "played") {
@@ -284,13 +313,22 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue =
           const w = windowRef.current;
           windowRef.current = null;
           if (!w || document.hidden || Date.now() - due > STALE_MS) return;
-          const ids = callForTransition(
-            w.from,
-            w.latest,
-            { corrects: w.lowestNet < 0, netPoints: w.netPoints, named: redBlueRef.current },
-            configRef.current,
+          void speak(
+            (pack) =>
+              callForTransition(
+                w.from,
+                w.latest,
+                {
+                  corrects: w.lowestNet < 0,
+                  netPoints: w.netPoints,
+                  named: redBlueRef.current,
+                  sides: nationNames(pack, tennisRef.current),
+                  tennis: tennisRef.current !== null,
+                },
+                configRef.current,
+              ),
+            generation,
           );
-          if (ids) void speak(ids, generation);
         }, delay);
       } catch {
         // The voice must never get in the way of scoring.
@@ -326,6 +364,7 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue =
     void (async () => {
       const { pack, state } = await loadPack();
       setPackState(state);
+      if (pack) setPackName(pack.index.pack);
       if (!pack || !onRef.current) return;
       const call = redBlueRef.current ? TEST_CALL_COLOURED : TEST_CALL;
       const result = await play(pack, call, settingsRef.current.leadInMs);
@@ -337,7 +376,17 @@ export function useUmpireVoice(config: ScoringConfig, active: boolean, redBlue =
     })();
   }, [ensureWakeLock]);
 
-  const status: VoiceStatus = !on ? "off" : blocked ? "blocked" : packState ?? "loading";
+  /** A call of its own, outside the point-by-point flow: "Time." at the end of a changeover. */
+  const say = useCallback(
+    (ids: ClipId[]) => {
+      if (!onRef.current) return;
+      void speak(() => ids, null);
+    },
+    [speak],
+  );
 
-  return { settings, setSettings, status, caption, onEvent, test, redBlue };
+  const status: VoiceStatus = !on ? "off" : blocked ? "blocked" : packState ?? "loading";
+  const nationsNamed = Boolean(tennis?.nations?.A && tennis?.nations?.B);
+
+  return { settings, setSettings, status, caption, onEvent, test, say, redBlue, nationsNamed, packName };
 }

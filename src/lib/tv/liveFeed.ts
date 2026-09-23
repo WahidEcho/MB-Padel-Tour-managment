@@ -6,6 +6,7 @@
  * agree by construction.
  */
 import type { Match, MatchSnapshot, ScreenSettings } from "../types";
+import type { ScoreState } from "../scoring/engine";
 import type { ScoreFrame } from "./pointBeat";
 
 export interface LiveMatch {
@@ -32,10 +33,18 @@ export interface LiveSnapshot {
   games: [number, number];
   sets: [number, number];
   tiebreak: boolean;
+  /** Tennis: the tie-break is a match tie-break played in place of the final set. */
+  match_tiebreak?: boolean;
   tiebreak_points: [number, number];
   serving_team_id: string | null;
   completed_sets: MatchSnapshot["completed_sets"];
   match_over: boolean;
+  /**
+   * The full score state while the match is unfinished: tennis walls read the
+   * serving player, the callouts and the rules-aware bits from it. Left out once
+   * a match is over, so the feed does not grow with the day's results.
+   */
+  state?: ScoreState;
 }
 
 export type LiveScreen = Pick<
@@ -87,7 +96,7 @@ export function toLiveMatch(m: Match): LiveMatch {
 }
 
 export function toLiveSnapshot(s: MatchSnapshot): LiveSnapshot {
-  const json = (s.snapshot_json ?? {}) as { matchOver?: boolean };
+  const json = (s.snapshot_json ?? {}) as { matchOver?: boolean; isMatchTiebreak?: boolean; teamA?: unknown };
   return {
     match_id: s.match_id,
     last_event_number: s.last_event_number,
@@ -96,10 +105,12 @@ export function toLiveSnapshot(s: MatchSnapshot): LiveSnapshot {
     games: [s.team_a_games, s.team_b_games],
     sets: [s.team_a_sets, s.team_b_sets],
     tiebreak: s.is_tiebreak,
+    match_tiebreak: s.is_tiebreak && Boolean(json.isMatchTiebreak),
     tiebreak_points: [s.tiebreak_team_a_points, s.tiebreak_team_b_points],
     serving_team_id: s.serving_team_id,
     completed_sets: s.completed_sets ?? [],
     match_over: Boolean(json.matchOver),
+    ...(json.teamA && !json.matchOver ? { state: s.snapshot_json as unknown as ScoreState } : {}),
   };
 }
 

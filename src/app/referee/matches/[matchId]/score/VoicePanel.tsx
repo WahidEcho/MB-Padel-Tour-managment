@@ -1,5 +1,6 @@
 "use client";
 
+import { VOICE_PACK } from "@/lib/voice/phrases";
 import { DELAY_OPTIONS, LEAD_IN_OPTIONS, type useUmpireVoice, type VoiceStatus } from "./useUmpireVoice";
 
 const STATUS_TEXT: Record<VoiceStatus, string> = {
@@ -19,7 +20,8 @@ export default function VoicePanel({
   voice: ReturnType<typeof useUmpireVoice>;
   onClose: () => void;
 }) {
-  const { settings, setSettings, status, caption, test, redBlue } = voice;
+  const { settings, setSettings, status, caption, test, redBlue, nationsNamed, packName } = voice;
+  const olderPack = packName !== null && packName !== VOICE_PACK;
   const on = settings.enabled;
 
   return (
@@ -83,10 +85,18 @@ export default function VoicePanel({
             If a Bluetooth speaker cuts off the first word, raise the wake-up time and press Test.
           </p>
           <p className="text-xs text-muted" data-testid="voice-sides">
-            {redBlue
-              ? "Teams are called by colour: “Advantage, Red team.” “Game, Blue team.”"
-              : "Teams are called “server” and “receiver”. An organiser can switch to Red and Blue teams in Settings."}
+            {nationsNamed && !olderPack
+              ? "Nations are called by name: “Advantage, Romania.” “Game, United States.”"
+              : redBlue
+                ? "Teams are called by colour: “Advantage, Red team.” “Game, Blue team.”"
+                : "Teams are called “server” and “receiver”. An organiser can switch to Red and Blue teams in Settings."}
           </p>
+          {olderPack && (
+            <p className="text-xs text-warning" data-testid="voice-older-pack">
+              This server has an older voice pack, so the tennis calls (nation names, change of ends, deciding point,
+              match tie-break, time) are left out. Scores are still called.
+            </p>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

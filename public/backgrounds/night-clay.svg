@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" preserveAspectRatio="xMidYMid slice">
+  <!-- Night clay: the Cairo 2026 event background. Clay light on a night sky, court
+       lines drifting behind, a line drawn in ball-yellow every 20 s, ball arcs crossing. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.55" y2="1">
+      <stop offset="0" stop-color="#1a1420"/>
+      <stop offset="0.55" stop-color="#0c1626"/>
+      <stop offset="1" stop-color="#07101c"/>
+    </linearGradient>
+    <radialGradient id="clay" cx="0.78" cy="0.18" r="0.62">
+      <stop offset="0" stop-color="#c0552f" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#c0552f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blue" cx="0.1" cy="1" r="0.55">
+      <stop offset="0" stop-color="#284a82" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#284a82" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.55" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.6"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#clay)">
+    <animate attributeName="opacity" values="0.85;1;0.85" dur="18s" repeatCount="indefinite"/>
+  </rect>
+  <rect width="1920" height="1080" fill="url(#blue)"/>
+  <g opacity="0.16" fill="none" stroke="#ffffff" stroke-width="3">
+    <animateTransform attributeName="transform" type="rotate" values="-4 960 540;3 960 540;-4 960 540" dur="120s" repeatCount="indefinite"/>
+    <g transform="translate(-240 -160)">
+      <rect x="300" y="250" width="1800" height="900"/>
+      <line x1="300" y1="362" x2="2100" y2="362"/>
+      <line x1="300" y1="1038" x2="2100" y2="1038"/>
+      <line x1="1200" y1="250" x2="1200" y2="1150" stroke-width="5"/>
+      <line x1="780" y1="362" x2="780" y2="1038"/>
+      <line x1="1620" y1="362" x2="1620" y2="1038"/>
+      <line x1="780" y1="700" x2="1620" y2="700"/>
+      <line x1="300" y1="700" x2="330" y2="700"/>
+      <line x1="2070" y1="700" x2="2100" y2="700"/>
+      <path d="M300 362 H2100 M780 362 V1038 M780 700 H1620" stroke="#e2ee4c" stroke-width="4" stroke-dasharray="3300" stroke-dashoffset="3300" opacity="0">
+        <animate attributeName="stroke-dashoffset" values="3300;3300;0;0" keyTimes="0;0.2;0.55;1" dur="20s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.3;0.6;0.8" dur="20s" repeatCount="indefinite"/>
+      </path>
+    </g>
+  </g>
+  <g>
+    <animate id="arc0" attributeName="opacity" from="1" to="1" dur="4.2s" begin="0s;arc0.end+8.8s"/>
+    <circle r="7.0" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.2s" begin="0.000s;arc0.end+8.8s" path="M-80 820 Q 960 380 2000 860" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.55;0.55;0" keyTimes="0;0.08;0.85;1" dur="4.2s" begin="0.000s;arc0.end+8.8s" fill="freeze"/>
+    </circle>
+    <circle r="6.1" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.2s" begin="0.045s;arc0.end+8.8s" path="M-80 820 Q 960 380 2000 860" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.47;0.47;0" keyTimes="0;0.08;0.85;1" dur="4.2s" begin="0.045s;arc0.end+8.8s" fill="freeze"/>
+    </circle>
+    <circle r="5.2" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.2s" begin="0.090s;arc0.end+8.8s" path="M-80 820 Q 960 380 2000 860" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.39;0.39;0" keyTimes="0;0.08;0.85;1" dur="4.2s" begin="0.090s;arc0.end+8.8s" fill="freeze"/>
+    </circle>
+    <circle r="4.3" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.2s" begin="0.135s;arc0.end+8.8s" path="M-80 820 Q 960 380 2000 860" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.31;0.31;0" keyTimes="0;0.08;0.85;1" dur="4.2s" begin="0.135s;arc0.end+8.8s" fill="freeze"/>
+    </circle>
+    <circle r="3.4" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.2s" begin="0.180s;arc0.end+8.8s" path="M-80 820 Q 960 380 2000 860" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.23;0.23;0" keyTimes="0;0.08;0.85;1" dur="4.2s" begin="0.180s;arc0.end+8.8s" fill="freeze"/>
+    </circle>
+    <circle r="2.5" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.2s" begin="0.225s;arc0.end+8.8s" path="M-80 820 Q 960 380 2000 860" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.15;0.15;0" keyTimes="0;0.08;0.85;1" dur="4.2s" begin="0.225s;arc0.end+8.8s" fill="freeze"/>
+    </circle>
+  </g>
+  <g>
+    <animate id="arc1" attributeName="opacity" from="1" to="1" dur="3.8s" begin="5s;arc1.end+9.2s"/>
+    <circle r="7.0" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="3.8s" begin="5.000s;arc1.end+9.2s" path="M2000 900 Q 1000 470 -80 780" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.55;0.55;0" keyTimes="0;0.08;0.85;1" dur="3.8s" begin="5.000s;arc1.end+9.2s" fill="freeze"/>
+    </circle>
+    <circle r="6.1" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="3.8s" begin="5.045s;arc1.end+9.2s" path="M2000 900 Q 1000 470 -80 780" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.47;0.47;0" keyTimes="0;0.08;0.85;1" dur="3.8s" begin="5.045s;arc1.end+9.2s" fill="freeze"/>
+    </circle>
+    <circle r="5.2" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="3.8s" begin="5.090s;arc1.end+9.2s" path="M2000 900 Q 1000 470 -80 780" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.39;0.39;0" keyTimes="0;0.08;0.85;1" dur="3.8s" begin="5.090s;arc1.end+9.2s" fill="freeze"/>
+    </circle>
+    <circle r="4.3" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="3.8s" begin="5.135s;arc1.end+9.2s" path="M2000 900 Q 1000 470 -80 780" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.31;0.31;0" keyTimes="0;0.08;0.85;1" dur="3.8s" begin="5.135s;arc1.end+9.2s" fill="freeze"/>
+    </circle>
+    <circle r="3.4" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="3.8s" begin="5.180s;arc1.end+9.2s" path="M2000 900 Q 1000 470 -80 780" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.23;0.23;0" keyTimes="0;0.08;0.85;1" dur="3.8s" begin="5.180s;arc1.end+9.2s" fill="freeze"/>
+    </circle>
+    <circle r="2.5" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="3.8s" begin="5.225s;arc1.end+9.2s" path="M2000 900 Q 1000 470 -80 780" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.15;0.15;0" keyTimes="0;0.08;0.85;1" dur="3.8s" begin="5.225s;arc1.end+9.2s" fill="freeze"/>
+    </circle>
+  </g>
+  <g>
+    <animate id="arc2" attributeName="opacity" from="1" to="1" dur="4.6s" begin="9.5s;arc2.end+8.4s"/>
+    <circle r="7.0" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.6s" begin="9.500s;arc2.end+8.4s" path="M-80 960 Q 900 560 2000 700" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.55;0.55;0" keyTimes="0;0.08;0.85;1" dur="4.6s" begin="9.500s;arc2.end+8.4s" fill="freeze"/>
+    </circle>
+    <circle r="6.1" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.6s" begin="9.545s;arc2.end+8.4s" path="M-80 960 Q 900 560 2000 700" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.47;0.47;0" keyTimes="0;0.08;0.85;1" dur="4.6s" begin="9.545s;arc2.end+8.4s" fill="freeze"/>
+    </circle>
+    <circle r="5.2" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.6s" begin="9.590s;arc2.end+8.4s" path="M-80 960 Q 900 560 2000 700" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.39;0.39;0" keyTimes="0;0.08;0.85;1" dur="4.6s" begin="9.590s;arc2.end+8.4s" fill="freeze"/>
+    </circle>
+    <circle r="4.3" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.6s" begin="9.635s;arc2.end+8.4s" path="M-80 960 Q 900 560 2000 700" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.31;0.31;0" keyTimes="0;0.08;0.85;1" dur="4.6s" begin="9.635s;arc2.end+8.4s" fill="freeze"/>
+    </circle>
+    <circle r="3.4" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.6s" begin="9.680s;arc2.end+8.4s" path="M-80 960 Q 900 560 2000 700" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.23;0.23;0" keyTimes="0;0.08;0.85;1" dur="4.6s" begin="9.680s;arc2.end+8.4s" fill="freeze"/>
+    </circle>
+    <circle r="2.5" fill="#e2ee4c" opacity="0">
+      <animateMotion dur="4.6s" begin="9.725s;arc2.end+8.4s" path="M-80 960 Q 900 560 2000 700" fill="freeze"/>
+      <animate attributeName="opacity" values="0;0.15;0.15;0" keyTimes="0;0.08;0.85;1" dur="4.6s" begin="9.725s;arc2.end+8.4s" fill="freeze"/>
+    </circle>
+  </g>
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
+</svg>

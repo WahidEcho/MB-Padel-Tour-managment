@@ -19,6 +19,7 @@
 import {
   awardPoint,
   currentServer,
+  endsChange,
   manualEndSet,
   opponent,
   pointOutcome,
@@ -27,11 +28,27 @@ import {
   type TeamScore,
 } from "../scoring/engine";
 import type { ScoringConfig } from "../types";
-import { MAX_GAMES_PHRASE, MAX_NUMBER, MAX_TIEBREAK_PHRASE, PHRASES, type ClipId } from "./phrases";
+import { MAX_GAMES_PHRASE, MAX_NUMBER, MAX_TIEBREAK_PHRASE, PHRASES, isSideClip, isTennisClip, type ClipId } from "./phrases";
 
 /** A side's colour: the match's first-listed team is always Red, the second Blue. */
 export function teamClip(team: TeamKey): ClipId {
   return team === "A" ? "team-red" : "team-blue";
+}
+
+/** The clip naming each side, when sides are called by name: a nation, say. */
+export interface SideNames {
+  A: ClipId;
+  B: ClipId;
+}
+
+/**
+ * How calls name the sides: `false` for "server" and "receiver", `true` for Red
+ * and Blue teams, or a clip per side (nations: "Game, Romania.").
+ */
+export type Naming = boolean | SideNames;
+
+function nameOf(naming: Naming, team: TeamKey): ClipId {
+  return typeof naming === "object" ? naming[team] : teamClip(team);
 }
 
 /** The team whose count went up between two states, for games or sets. */
@@ -56,6 +73,8 @@ export function classifyEvent(eventType: string): VoiceEventKind {
     case "POINT_AWARDED":
     case "UNDO":
     case "MANUAL_SET_END":
+    // A point or game penalty moves the score, so the new score is called.
+    case "CODE_VIOLATION":
       return "scoring";
     case "FORCE_END":
     case "WALKOVER":
@@ -105,13 +124,13 @@ function numberClips(n: number): ClipId[] | null {
 }
 
 /** "Thirty fifteen", "Deuce", "Advantage receiver" or "Advantage, Red team". Null when the server is unknown. */
-export function pointsPhrase(state: ScoreState, named = false): ClipId[] | null {
+export function pointsPhrase(state: ScoreState, named: Naming = false): ClipId[] | null {
   const server = currentServer(state);
   if (!server || state.isTiebreak) return null;
   const s = side(state, server).points;
   const r = side(state, opponent(server)).points;
-  if (s === "AD") return named ? ["advantage", teamClip(server)] : ["adv-server"];
-  if (r === "AD") return named ? ["advantage", teamClip(opponent(server))] : ["adv-receiver"];
+  if (s === "AD") return named ? ["advantage", nameOf(named, server)] : ["adv-server"];
+  if (r === "AD") return named ? ["advantage", nameOf(named, opponent(server))] : ["adv-receiver"];
   return [`pts-${s}-${r}`];
 }
 
@@ -134,7 +153,7 @@ export function tiebreakNumbers(state: ScoreState): ClipId[] | null {
  * all". Unnamed tallies are relative to whoever serves the next point. Null at
  * love all, where there is nothing to tally.
  */
-export function gamesTally(state: ScoreState, named = false): ClipId[] | null {
+export function gamesTally(state: ScoreState, named: Naming = false): ClipId[] | null {
   const server = currentServer(state);
   if (!server) return null;
   const g = side(state, server).games;
@@ -149,7 +168,7 @@ export function gamesTally(state: ScoreState, named = false): ClipId[] | null {
   const hi = Math.max(g, h);
   const lo = Math.min(g, h);
   if (named) {
-    if (hi <= MAX_GAMES_PHRASE) return [`games-${hi}-${lo}-named`, teamClip(leader)];
+    if (hi <= MAX_GAMES_PHRASE) return [`games-${hi}-${lo}-named`, nameOf(named, leader)];
   } else if (hi <= MAX_GAMES_PHRASE) {
     return [g > h ? "leads-server" : "leads-receiver", `games-${hi}-${lo}`];
   }
@@ -157,12 +176,12 @@ export function gamesTally(state: ScoreState, named = false): ClipId[] | null {
   const loClips = lo === 0 ? ["love"] : numberClips(lo);
   if (!hiClips || !loClips) return null;
   return named
-    ? [...hiClips, "games-to", ...loClips, teamClip(leader)]
+    ? [...hiClips, "games-to", ...loClips, nameOf(named, leader)]
     : [g > h ? "leads-server" : "leads-receiver", ...hiClips, "games-to", ...loClips];
 }
 
 /** "Receiver leads one set to love", "One set to love, Red team", "One set all". Null past best of five. */
-export function setsTally(state: ScoreState, named = false): ClipId[] | null {
+export function setsTally(state: ScoreState, named: Naming = false): ClipId[] | null {
   const server = currentServer(state);
   if (!server) return null;
   const s = side(state, server).sets;
@@ -170,13 +189,14 @@ export function setsTally(state: ScoreState, named = false): ClipId[] | null {
   if (s === r) return s >= 1 && `sets-all-${s}` in PHRASES ? [`sets-all-${s}`] : null;
   const id = `sets-${Math.max(s, r)}-${Math.min(s, r)}`;
   if (!(id in PHRASES)) return null;
-  if (named) return [`${id}-named`, teamClip(s > r ? server : opponent(server))];
+  if (named) return [`${id}-named`, nameOf(named, s > r ? server : opponent(server))];
   return [s > r ? "leads-server" : "leads-receiver", id];
 }
 
 /**
  * "Match point", "Set point" or "Break point" when the next point could decide
- * it, for either side. The biggest one wins, and a tie-break has no break point.
+ * it, for either side. The biggest one wins, and a tie-break has no break point;
+ * nor does a deciding point, which is announced as that.
  */
 export function bigPoint(state: ScoreState, config: ScoringConfig): ClipId | null {
   const server = currentServer(state);
@@ -185,7 +205,8 @@ export function bigPoint(state: ScoreState, config: ScoringConfig): ClipId | nul
   const forReceiver = pointOutcome(state, opponent(server), config);
   if (forServer.winsMatch || forReceiver.winsMatch) return "match-point";
   if (forServer.winsSet || forReceiver.winsSet) return "set-point";
-  if (!state.isTiebreak && forReceiver.winsGame) return "break-point";
+  // A deciding point is announced on its own (see `withBigPoint`), not as a break point.
+  if (!state.isTiebreak && forReceiver.winsGame && !isDecidingPoint(state, config)) return "break-point";
   return null;
 }
 
@@ -193,28 +214,39 @@ function totalGames(state: ScoreState): number {
   return state.teamA.games + state.teamB.games;
 }
 
+/**
+ * No-ad at forty all: the next point takes the game whoever wins it, and the
+ * receivers choose who receives it — which is why it is announced even when it is
+ * also a set or match point.
+ */
+export function isDecidingPoint(state: ScoreState, config: ScoringConfig): boolean {
+  return Boolean(config.decidingPoint) && !state.isTiebreak && !state.matchOver && state.teamA.points === "40" && state.teamB.points === "40";
+}
+
 function withBigPoint(call: ClipId[] | null, state: ScoreState, config: ScoringConfig): ClipId[] | null {
   if (!call) return null;
+  const deciding: ClipId[] = isDecidingPoint(state, config) ? ["deciding-point"] : [];
   const big = bigPoint(state, config);
-  return big ? [...call, big] : call;
+  return [...call, ...deciding, ...(big ? [big] : [])];
 }
 
 /** "Game, set and match" — with the winner's name when calls are named. */
-function matchCall(to: ScoreState, named: boolean): ClipId[] {
-  return named && to.winner ? ["game-set-match-named", teamClip(to.winner)] : ["game-set-match"];
+function matchCall(to: ScoreState, named: Naming): ClipId[] {
+  return named && to.winner ? ["game-set-match-named", nameOf(named, to.winner)] : ["game-set-match"];
 }
 
 /** "Game." or "Game, Blue team." for the team that just won it. */
-function wonCall(plain: ClipId, namedId: ClipId, winner: TeamKey | null, named: boolean): ClipId[] {
-  return named && winner ? [namedId, teamClip(winner)] : [plain];
+function wonCall(plain: ClipId, namedId: ClipId, winner: TeamKey | null, named: Naming): ClipId[] {
+  return named && winner ? [namedId, nameOf(named, winner)] : [plain];
 }
 
 /** The call for exactly one point won, from `from` to `to`. */
-export function pointCall(from: ScoreState, to: ScoreState, config: ScoringConfig, named = false): ClipId[] | null {
+export function pointCall(from: ScoreState, to: ScoreState, config: ScoringConfig, named: Naming = false): ClipId[] | null {
   if (to.matchOver) return matchCall(to, named);
   if (to.completedSets.length > from.completedSets.length) {
     const opening = wonCall("game-and-set", "game-and-set-named", gainer(from, to, "sets"), named);
-    return withBigPoint([...opening, ...(setsTally(to, named) ?? [])], to, config);
+    const decider = to.isMatchTiebreak ? ["match-tie-break"] : [];
+    return withBigPoint([...opening, ...(setsTally(to, named) ?? []), ...decider], to, config);
   }
   if (!from.isTiebreak && to.isTiebreak) {
     const opening = wonCall("game", "game-named", gainer(from, to, "games"), named);
@@ -232,7 +264,7 @@ export function pointCall(from: ScoreState, to: ScoreState, config: ScoringConfi
  * The whole standing score, for a correction or a burst of taps: the sets and
  * games tallies when those changed since the last call, then the points.
  */
-export function standingCall(from: ScoreState, to: ScoreState, config: ScoringConfig, named = false): ClipId[] | null {
+export function standingCall(from: ScoreState, to: ScoreState, config: ScoringConfig, named: Naming = false): ClipId[] | null {
   if (to.matchOver) return matchCall(to, named);
   if (!currentServer(to)) return null;
   const parts: ClipId[] = [];
@@ -263,6 +295,10 @@ export interface TransitionInfo {
   netPoints: number;
   /** Red and blue teams are on, so calls end in the side's colour. */
   named?: boolean;
+  /** Sides called by name instead — a nations tie: "Game, Romania." Wins over `named`. */
+  sides?: SideNames | null;
+  /** Tennis: a point that sends the players to the other end says so. */
+  tennis?: boolean;
 }
 
 /**
@@ -275,12 +311,15 @@ export function callForTransition(
   info: TransitionInfo,
   config: ScoringConfig,
 ): ClipId[] | null {
-  const named = info.named === true;
+  const named: Naming = info.sides ?? info.named === true;
   try {
     if (sameScore(from, to)) return null;
     if (info.netPoints === 1 && !from.matchOver) {
       for (const team of ["A", "B"] as TeamKey[]) {
-        if (sameScore(awardPoint(from, team, config), to)) return valid(pointCall(from, to, config, named));
+        if (sameScore(awardPoint(from, team, config), to)) {
+          const call = pointCall(from, to, config, named);
+          return valid(call && info.tennis && endsChange(from, to).changeEnds ? [...call, "change-ends"] : call);
+        }
       }
       for (const team of ["A", "B"] as TeamKey[]) {
         if (sameScore(manualEndSet(from, team, config), to)) {
@@ -302,4 +341,16 @@ export function callForTransition(
 function valid(call: ClipId[] | null): ClipId[] | null {
   if (!call || call.length === 0) return null;
   return call.every((id) => id in PHRASES) ? call : null;
+}
+
+/**
+ * A call as a given pack can say it. An older pack lacks the tennis calls, which
+ * are whole sentences of their own ("Deciding point.", "Change of ends."), so
+ * they are dropped and the rest is still said. A missing name is different —
+ * "Game," with nothing after it — so a call missing any other clip is refused.
+ */
+export function supportedCall(ids: ClipId[] | null, has: (id: ClipId) => boolean): ClipId[] | null {
+  if (!ids) return null;
+  const kept = ids.filter((id) => has(id) || !isTennisClip(id) || isSideClip(id));
+  return kept.length > 0 && kept.every(has) ? kept : null;
 }

@@ -7,14 +7,15 @@ import { requirePermission } from "@/lib/guard";
 import { audit, slugify } from "@/lib/audit";
 import { cloneTournament as cloneOp, deleteTournamentRow, resetTournamentLiveData, type CloneOptions } from "@/lib/ops";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
-import { DEFAULT_CHESS_FORMAT, DEFAULT_SCORING_CONFIG, type FormatConfig } from "@/lib/types";
+import { DEFAULT_CHESS_FORMAT, DEFAULT_SCORING_CONFIG, DEFAULT_TENNIS_SCORING_CONFIG, type FormatConfig } from "@/lib/types";
 import { ensureMainScreen } from "@/lib/screens";
 
 export async function createTournament(formData: FormData) {
   const role = await requirePermission("manage_tournament");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Name is required");
-  const sport = String(formData.get("sport") ?? "padel") === "chess" ? "chess" : "padel";
+  const requested = String(formData.get("sport") ?? "padel");
+  const sport = requested === "chess" || requested === "tennis" ? requested : "padel";
   const courtCount = Math.min(20, Math.max(1, parseInt(String(formData.get("courts") ?? "2"), 10) || 2));
   const isDemo = formData.get("is_demo") === "on";
 
@@ -25,7 +26,9 @@ export async function createTournament(formData: FormData) {
         legs: String(formData.get("legs") ?? "1") === "2" ? 2 : 1,
         thirdPlaceMatch: formData.get("third_place") === "on",
       }
-    : undefined;
+    : sport === "tennis" && formData.get("team_ties") === "on"
+      ? { type: "group_knockout", qualifyPerGroup: 2, thirdPlaceMatch: false, ties: {} }
+      : undefined;
 
   const slug = `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`;
   const { data: tournament, error } = await db()
@@ -39,7 +42,10 @@ export async function createTournament(formData: FormData) {
       // point shows the score and waits, so a mis-tap on match point is caught
       // before it reaches the standings and the bracket. Existing tournaments
       // are left as they were, so no referee finds the flow changed mid-event.
-      scoring_config: { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: !isChess },
+      scoring_config: {
+        ...(sport === "tennis" ? DEFAULT_TENNIS_SCORING_CONFIG : DEFAULT_SCORING_CONFIG),
+        requireResultConfirmation: !isChess,
+      },
       ...(formatConfig ? { format_config: formatConfig } : {}),
       created_by: role,
     })

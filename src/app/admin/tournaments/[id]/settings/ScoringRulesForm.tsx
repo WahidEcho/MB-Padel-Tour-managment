@@ -164,6 +164,35 @@ export default function ScoringRulesForm({
         <input type="checkbox" name="thirdPlaceMatch" defaultChecked={format.thirdPlaceMatch} className="h-4 w-4" />
         Third-place match
       </label>
+      {sport === "tennis" && (
+        <fieldset className="space-y-2 rounded-xl border border-border p-3" data-testid="doubles-rules">
+          <legend className="px-1 text-sm font-semibold">Doubles rules</legend>
+          <p className="text-xs text-muted">
+            Applied on top of the rules above whenever both sides field two players. Singles keeps the rules above.
+          </p>
+          <input type="hidden" name="doubles.present" value="1" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="doubles.decidingPoint" defaultChecked={scoring.doubles?.decidingPoint === true} className="h-4 w-4" />
+            No-ad scoring (deciding point at deuce)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="doubles.matchTiebreak" defaultChecked={scoring.doubles?.matchTiebreak === true} className="h-4 w-4" />
+            Match tie-break in place of the final set
+          </label>
+          <div>
+            <label className="label" htmlFor="doubles-mtb-points">Match tie-break to</label>
+            <input
+              id="doubles-mtb-points"
+              name="doubles.matchTiebreakPoints"
+              type="number"
+              min={1}
+              max={21}
+              defaultValue={scoring.doubles?.matchTiebreakPoints ?? 10}
+              className="input"
+            />
+          </div>
+        </fieldset>
+      )}
       {/* Chess boards finish on the last move with no confirm step, so the setting
           is not offered there (the events route ignores it for chess too). */}
       {sport !== "chess" && (

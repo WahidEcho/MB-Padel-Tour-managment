@@ -37,6 +37,7 @@ import {
   getTournament,
 } from "./data";
 import type {
+  CompletedSet,
   BracketSlot,
   BracketTier,
   Match,
@@ -45,7 +46,7 @@ import type {
   Team,
   Tournament,
 } from "./types";
-import { DEFAULT_SCORING_CONFIG } from "./types";
+import { DEFAULT_SCORING_CONFIG, DEFAULT_TENNIS_SCORING_CONFIG } from "./types";
 import { ensureMainScreen } from "./screens";
 import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, tournamentRowRefusal } from "./rowGuards";
 import { endLease, endLeasesForTournament } from "./scoringControl";
@@ -96,6 +97,10 @@ export async function summarizeBrackets(tournamentId: string): Promise<BracketSu
  * session's own preflight — and this stays the backstop for every other path.
  */
 export async function generateGroupMatches(tournamentId: string, actorRole: string) {
+  // A team competition's group stage is ties of rubbers, not single matches.
+  const owner = await getTournament(tournamentId);
+  const { isTieFormat, generateGroupTies } = await import("./tennis/tieOps");
+  if (isTieFormat(owner)) return generateGroupTies(tournamentId, actorRole);
   const [groups, groupTeams, courts, brackets] = await Promise.all([
     getGroups(tournamentId),
     getGroupTeams(tournamentId),
@@ -259,7 +264,15 @@ export async function groupDrawLock(tournamentId: string): Promise<string | null
   if (!tournament) return "Tournament not found.";
   if (tournament.kind !== "tournament") return NOT_A_TOURNAMENT_MESSAGE;
   const brackets = await getBrackets(tournamentId);
-  return brackets.length > 0 ? groupStageLockedMessage(brackets) : null;
+  if (brackets.length > 0) return groupStageLockedMessage(brackets);
+  const { count } = await db()
+    .from("ties")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", tournamentId)
+    .eq("stage", "placement");
+  return (count ?? 0) > 0
+    ? "The placement draws have been made from these groups. Reset the placement draws before changing the groups."
+    : null;
 }
 
 export type AdminOpResult = { ok: true } | { ok: false; message: string };
@@ -335,6 +348,9 @@ export async function resetTournamentLiveData(
   }
 
   const id = tournamentId;
+  // Placement ties take their rubbers with them; group ties go back to 0-0.
+  const { resetTies } = await import("./tennis/tieOps");
+  await resetTies(id);
   await db().from("matches").delete().eq("tournament_id", id).neq("stage", "group");
   await db()
     .from("matches")
@@ -372,6 +388,8 @@ export async function resetTournamentLiveData(
 export async function recalcStandings(tournamentId: string) {
   const tournament = await getTournament(tournamentId);
   if (!tournament) throw new Error("Tournament not found");
+  const { isTieFormat, recalcTieStandings } = await import("./tennis/tieOps");
+  if (isTieFormat(tournament)) return recalcTieStandings(tournamentId);
   const [groups, groupTeams, matches, snapshots, existing] = await Promise.all([
     getGroups(tournamentId),
     getGroupTeams(tournamentId),
@@ -1119,6 +1137,12 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
     new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null },
   });
 
+  if (match.tie_id) {
+    // A rubber: its tie decides standings and advancement, not the match itself.
+    const { applyTieResult } = await import("./tennis/tieOps");
+    await applyTieResult(match.tie_id);
+    return;
+  }
   if (match.stage === "friendly") {
     // Friendly sessions award individual player points instead of team
     // standings. Imported lazily to keep the friendly module out of the
@@ -1170,7 +1194,10 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
       branding_config: opts.copyBranding ? source.branding_config : {},
       scoring_config: opts.copyScoring
         ? source.scoring_config
-        : { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: source.sport !== "chess" },
+        : {
+            ...(source.sport === "tennis" ? DEFAULT_TENNIS_SCORING_CONFIG : DEFAULT_SCORING_CONFIG),
+            requireResultConfirmation: source.sport !== "chess",
+          },
       format_config: source.format_config,
       court_config: source.court_config,
       lower_third_text: opts.copyBranding ? source.lower_third_text : undefined,
@@ -1303,7 +1330,7 @@ export interface EngineStateLike {
   teamA: { points: string; games: number; sets: number; tiebreakPoints: number };
   teamB: { points: string; games: number; sets: number; tiebreakPoints: number };
   isTiebreak: boolean;
-  completedSets: { teamAGames: number; teamBGames: number; tiebreak?: { a: number; b: number } }[];
+  completedSets: CompletedSet[];
   servingTeam: "A" | "B" | null;
   winner: "A" | "B" | null;
   matchOver: boolean;

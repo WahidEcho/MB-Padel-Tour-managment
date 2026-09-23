@@ -181,6 +181,8 @@ describe("the committed voice pack", () => {
     expect(index.pack).toBe(VOICE_PACK);
     // The Mac's built-in voices are for personal use only, so never in a shipped pack.
     expect(index.provider).not.toBe("say");
+    // Nor the tone pack the tennis voice gate builds for itself.
+    expect(index.provider).not.toBe("tones");
     const missing = Object.keys(PHRASES).filter((id) => !index.clips[id]);
     expect(missing).toEqual([]);
     // The committed audio is the one this index describes.

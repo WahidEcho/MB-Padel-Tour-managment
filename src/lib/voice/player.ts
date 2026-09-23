@@ -14,7 +14,7 @@
  * Each call is rendered to a WAV in memory from the pack and played from a blob
  * URL, falling back to a data URI on the rare browser that refuses blob media.
  */
-import { DEV_VOICE_PACK, VOICE_PACK, type ClipId } from "./phrases";
+import { DEV_VOICE_PACK, PREVIOUS_VOICE_PACKS, VOICE_PACK, type ClipId } from "./phrases";
 import { parsePack, renderUtterance, silentWav, type PackIndex, type VoicePack } from "./pack";
 
 export type PackState = "ready" | "missing" | "error";
@@ -67,14 +67,17 @@ async function fetchPack(name: string): Promise<VoicePack | null> {
 }
 
 /**
- * Downloads the pack once per page. The deployed pack is used when it exists; in
- * development the stand-in pack built from the Mac's voice is the fallback.
+ * Downloads the pack once per page. The deployed pack is used when it exists, else
+ * the last released one; in development the stand-in pack built from the Mac's
+ * voice is the fallback.
  */
 export function loadPack(): Promise<{ state: PackState; pack: VoicePack | null }> {
   if (!loading) {
     const attempt = (async () => {
       try {
         let pack = await fetchPack(VOICE_PACK);
+        // The current pack not rendered yet: the last released one, without the newer calls.
+        for (const older of PREVIOUS_VOICE_PACKS) pack ??= await fetchPack(older);
         if (!pack && process.env.NODE_ENV !== "production") pack = await fetchPack(DEV_VOICE_PACK);
         return pack ? { state: "ready" as const, pack } : { state: "missing" as const, pack: null };
       } catch {

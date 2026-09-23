@@ -538,7 +538,9 @@ function LiveCard(props: CourtCardProps) {
         match={match}
         right={
           snapshot?.tiebreak ? (
-            <span className="shrink-0 rounded-lg bg-warning/25 px-3 py-0.5 text-[22px] font-bold text-warning">TIE-BREAK</span>
+            <span className="shrink-0 rounded-lg bg-warning/25 px-3 py-0.5 text-[22px] font-bold text-warning">
+              {snapshot.match_tiebreak ? "MATCH TIE-BREAK" : "TIE-BREAK"}
+            </span>
           ) : match?.status === "paused" ? (
             <span className="shrink-0 text-[22px] font-bold text-warning">PAUSED</span>
           ) : (
@@ -869,8 +871,14 @@ function ResultCard({
                   ...(run ? { animation: "bc-set-in 360ms ease-out both", ...seek(RESULT.marks[2] + i * 220) } : {}),
                 }}
               >
-                {s.teamAGames}-{s.teamBGames}
-                {s.tiebreak ? <sup className="text-[22px] text-muted"> ({Math.min(s.tiebreak.a, s.tiebreak.b)})</sup> : null}
+                {s.matchTiebreak && s.tiebreak ? (
+                  <>[{s.tiebreak.a}-{s.tiebreak.b}]</>
+                ) : (
+                  <>
+                    {s.teamAGames}-{s.teamBGames}
+                    {s.tiebreak ? <sup className="text-[22px] text-muted"> ({Math.min(s.tiebreak.a, s.tiebreak.b)})</sup> : null}
+                  </>
+                )}
               </span>
             ))
           )}

@@ -15,6 +15,19 @@ const PADEL_TABS = [
   ["/settings", "Settings"],
 ] as const;
 
+// A tennis team competition: nations instead of teams, and ties of rubbers.
+const TIE_TABS = [
+  ["", "Dashboard"],
+  ["/nations", "Nations"],
+  ["/groups", "Groups"],
+  ["/ties", "Ties"],
+  ["/leaderboard", "Leaderboard"],
+  ["/matches", "Rubbers"],
+  ["/screens", "Screens"],
+  ["/replay", "Replay"],
+  ["/settings", "Settings"],
+] as const;
+
 // Chess is a pure knockout — no group stage or group leaderboard.
 const CHESS_TABS = [
   ["", "Dashboard"],
@@ -47,7 +60,14 @@ export default async function TournamentLayout({
   // pages. A layout cannot see which tab is open, so each other tab's page shows
   // a notice too; this just stops offering them.
   const isSessionRow = tournament.kind !== "tournament";
-  const TABS = isSessionRow ? SESSION_TABS : tournament.sport === "chess" ? CHESS_TABS : PADEL_TABS;
+  const TABS = isSessionRow
+    ? SESSION_TABS
+    : tournament.sport === "chess"
+      ? CHESS_TABS
+      : tournament.format_config?.ties
+        ? // Replaying results is for demo events only.
+          TIE_TABS.filter(([href]) => href !== "/replay" || tournament.is_demo)
+        : PADEL_TABS;
 
   return (
     <div className="space-y-4">

@@ -211,7 +211,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
         // pairing that was no longer true. Refused outright once that next match
         // has started, because silently rewriting a match in progress is worse
         // than making the referee resolve it.
-        if (match.stage !== "group" && match.stage !== "friendly") {
+        if (match.tie_id) {
+          // A rubber that decided its tie cannot be reopened once the tie its
+          // nation went on to has started.
+          const { canReopenRubber } = await import("@/lib/tennis/tieOps");
+          const check = await canReopenRubber(match);
+          if (!check.ok) {
+            return NextResponse.json({ error: check.message, conflict: check.reason, applied }, { status: 409 });
+          }
+        } else if (match.stage !== "group" && match.stage !== "friendly") {
           const { retractKnockout } = await import("@/lib/ops");
           const retraction = await retractKnockout(match);
           if (!retraction.ok) {
@@ -245,7 +253,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       .eq("id", matchId);
     // Reopening a finished match un-does whatever it awarded.
     if ("winner_team_id" in statusUpdate) {
-      if (match.stage === "group") {
+      if (match.tie_id) {
+        const { applyTieResult } = await import("@/lib/tennis/tieOps");
+        await applyTieResult(match.tie_id);
+      } else if (match.stage === "group") {
         const { recalcStandings } = await import("@/lib/ops");
         await recalcStandings(match.tournament_id);
       } else if (match.stage === "friendly") {
