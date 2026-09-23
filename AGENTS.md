@@ -36,3 +36,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   confirms; admin page `replay` plays a tie's rubbers through the events API (results in
   `format_config.ties.replays`). Demo `scripts/demo/finals-demo.ts` (2025 boys', 2024 girls' finals, kept live);
   gate `npm run e2e:tennis-replay` on the stand-in.
+- Go-live: `docs/junior-finals-go-live.md`. Ties page has per-tie court + not-before time (entered in Cairo
+  time, `zonedToIso`) and "Delay the order of play" (`delayOrderOfPlay`). Week rehearsal of both events with
+  an offline referee, a late line-up change and rain: `npm run e2e:tennis-week` (stand-in, cleans up).
+- Open go-live item: live RLS still grants `anon` full access (`server_full_access`); switch `SUPABASE_KEY`
+  to the secret key in Vercel before dropping those policies.

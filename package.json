@@ -17,6 +17,7 @@
     "localdb": "node scripts/localdb/server.mjs",
     "e2e:tennis-voice": "tsx --env-file=.env.localdb scripts/e2e/tennis-voice.ts",
     "e2e:tennis-replay": "tsx --env-file=.env.localdb scripts/e2e/tennis-replay.ts",
+    "e2e:tennis-week": "tsx --env-file=.env.localdb scripts/e2e/tennis-week.ts",
     "e2e:tennis-tv": "tsx --env-file=.env.localdb scripts/e2e/tennis-tv.ts",
     "e2e:tennis-ties": "tsx --env-file=.env.local scripts/e2e/tennis-ties.ts"
   },

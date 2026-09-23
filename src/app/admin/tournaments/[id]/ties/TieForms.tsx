@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { delayOrderOfPlayAction, drawPlacementAction, lockLineupsAction, resetPlacementAction, saveLineupAction, type TieFormState } from "./actions";
+import { delayOrderOfPlayAction, scheduleTieAction, drawPlacementAction, lockLineupsAction, resetPlacementAction, saveLineupAction, type TieFormState } from "./actions";
 
 function Notice({ state }: { state: TieFormState }) {
   if (!state) return null;
@@ -128,6 +128,47 @@ export function DelayForm({ tournamentId, courts }: { tournamentId: string; cour
         </select>
       </label>
       <button type="submit" className="btn-secondary" disabled={pending}>Delay the order of play</button>
+      <Notice state={state} />
+    </form>
+  );
+}
+
+/** A tie's court and its not-before time, in the event's own time (Cairo). */
+export function ScheduleForm({
+  tournamentId,
+  tieId,
+  courts,
+  courtId,
+  local,
+}: {
+  tournamentId: string;
+  tieId: string;
+  courts: { id: string; name: string }[];
+  courtId: string | null;
+  /** The current time as Cairo's wall clock, for the input. */
+  local: string;
+}) {
+  const [state, action, pending] = useActionState(scheduleTieAction, null);
+  return (
+    <form action={action} className="flex flex-wrap items-end gap-2" data-testid="schedule-form">
+      <input type="hidden" name="tournament_id" value={tournamentId} />
+      <input type="hidden" name="tie_id" value={tieId} />
+      <label className="text-xs">
+        <span className="label">Court</span>
+        <select name="court_id" className="input" defaultValue={courtId ?? ""}>
+          <option value="">No court yet</option>
+          {courts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="label">Not before (Cairo time)</span>
+        <input name="scheduled_local" type="datetime-local" className="input" defaultValue={local} />
+      </label>
+      <button type="submit" className="btn-secondary py-1 text-xs" disabled={pending}>Save</button>
       <Notice state={state} />
     </form>
   );

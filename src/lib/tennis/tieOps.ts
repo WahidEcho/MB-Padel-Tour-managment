@@ -15,7 +15,7 @@ import { roundRobin } from "../roundrobin";
 import { applyQualification } from "../standings";
 import { scoringConfigForMatch } from "../scoring/rules";
 import type { Court, Group, GroupTeam, Match, MatchSnapshot, RubberType, Team, Tie, Tournament } from "../types";
-import { MAX_DELAY_MINUTES, RUBBER_LABELS, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome } from "./ties";
+import { MAX_DELAY_MINUTES, RUBBER_GAP_MINUTES, RUBBER_LABELS, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome } from "./ties";
 import { calculateTieStandings } from "./tieStandings";
 import { placementPlan, type PlannedTie } from "./placement";
 
@@ -577,4 +577,42 @@ export async function delayOrderOfPlay(
     new_value: { minutes: m, ties: ties?.length ?? 0, rubbers: rubbers?.length ?? 0 },
   });
   return { ok: true, ties: ties?.length ?? 0, rubbers: rubbers?.length ?? 0 };
+}
+
+/**
+ * Puts a tie on a court, not before a time. Its rubbers not yet started follow it
+ * there, the first at the tie's time and each after about a rubber's length, so
+ * the court TVs, the public order of play and a later delay all read one plan.
+ * A rubber already on court stays where it is.
+ */
+export async function scheduleTie(
+  tieId: string,
+  courtId: string | null,
+  at: string | null,
+  actorRole: string,
+): Promise<LineupResult> {
+  const { data: tie } = await db().from("ties").select("id, tournament_id, status, court_id, scheduled_time").eq("id", tieId).single();
+  if (!tie) return { ok: false, message: "That tie no longer exists." };
+  if (tie.status === "completed") return { ok: false, message: "That tie is finished." };
+  if (courtId) {
+    const { data: court } = await db().from("courts").select("id").eq("id", courtId).eq("tournament_id", tie.tournament_id).single();
+    if (!court) return { ok: false, message: "That court is not in this event." };
+  }
+  await db().from("ties").update({ court_id: courtId, scheduled_time: at }).eq("id", tieId);
+  const { data: rubbers } = await db().from("matches").select("id, rubber_no").eq("tie_id", tieId).in("status", ["scheduled", "ready"]);
+  const now = new Date().toISOString();
+  for (const r of rubbers ?? []) {
+    const time = at ? shiftTime(at, ((r.rubber_no as number) - 1) * RUBBER_GAP_MINUTES) : null;
+    await db().from("matches").update({ court_id: courtId, scheduled_time: time, updated_at: now }).eq("id", r.id);
+  }
+  await audit({
+    tournament_id: tie.tournament_id,
+    actor_role: actorRole,
+    action: "TIE_SCHEDULED",
+    entity_type: "tie",
+    entity_id: tieId,
+    old_value: { court_id: tie.court_id, scheduled_time: tie.scheduled_time },
+    new_value: { court_id: courtId, scheduled_time: at },
+  });
+  return { ok: true };
 }

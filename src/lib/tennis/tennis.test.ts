@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lineupFor, lineupProblems, rubberPlan, tieOutcome, withNominees, type RubberResult } from "./ties";
+import { isoToZonedInput, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome, withNominees, zonedToIso, type RubberResult } from "./ties";
 import { calculateTieStandings } from "./tieStandings";
 import { firstRoundLines, placementPlan, sourceLabel } from "./placement";
 import { nationByCode, normalizeNationCode } from "./nations";
@@ -230,5 +230,24 @@ describe("nominees on public cards", () => {
     expect(withNominees(squad, null)).toBe(squad);
     expect(withNominees(squad, [])).toBe(squad);
     expect(withNominees(undefined, ["p1"])).toBeUndefined();
+  });
+});
+
+describe("order-of-play times", () => {
+  it("reads a Cairo wall-clock time as the right instant, whatever the server's zone", () => {
+    // Cairo is UTC+2 in November, UTC+3 in summer time.
+    expect(zonedToIso("2026-11-02T09:30")).toBe("2026-11-02T07:30:00.000Z");
+    expect(zonedToIso("2026-07-01T09:30")).toBe("2026-07-01T06:30:00.000Z");
+    expect(zonedToIso("2026-11-02T09:30", "UTC")).toBe("2026-11-02T09:30:00.000Z");
+    expect(zonedToIso("half past nine")).toBeNull();
+  });
+  it("shows an instant back as Cairo's wall clock", () => {
+    expect(isoToZonedInput("2026-11-02T07:30:00.000Z")).toBe("2026-11-02T09:30");
+    expect(isoToZonedInput(null)).toBe("");
+  });
+  it("shifts a time by minutes, leaving no time alone", () => {
+    expect(shiftTime("2026-11-02T07:30:00.000Z", 45)).toBe("2026-11-02T08:15:00.000Z");
+    expect(shiftTime("2026-11-02T07:30:00.000Z", -30)).toBe("2026-11-02T07:00:00.000Z");
+    expect(shiftTime(null, 45)).toBeNull();
   });
 });

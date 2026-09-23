@@ -141,3 +141,42 @@ export function shiftTime(iso: string | null, minutes: number): string | null {
   const at = Date.parse(iso);
   return Number.isFinite(at) ? new Date(at + minutes * 60_000).toISOString() : iso;
 }
+
+/** Where the event is played: order-of-play times are entered and shown in this zone. */
+export const EVENT_TIME_ZONE = "Africa/Cairo";
+/** A tie's rubbers follow one another; each is expected about this long after the one before. */
+export const RUBBER_GAP_MINUTES = 90;
+
+/** The zone's offset from UTC, in minutes, at an instant. */
+function offsetMinutes(atMs: number, timeZone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(new Date(atMs))
+      .map((p) => [p.type, p.value]),
+  );
+  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return Math.round((asUtc - Math.floor(atMs / 1000) * 1000) / 60_000);
+}
+
+/**
+ * A wall-clock time in the event's zone ("2026-11-02T09:30", as a datetime-local
+ * input gives it) as an ISO instant. The server runs in UTC, so reading the input
+ * as a plain Date would put every tie two hours out in Cairo. Null when unreadable.
+ */
+export function zonedToIso(local: string, timeZone = EVENT_TIME_ZONE): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local.trim());
+  if (!m) return null;
+  const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  // Twice, so an instant next to a daylight-saving change settles on its own offset.
+  let at = guess - offsetMinutes(guess, timeZone) * 60_000;
+  at = guess - offsetMinutes(at, timeZone) * 60_000;
+  return new Date(at).toISOString();
+}
+
+/** An instant as the event zone's wall clock, for a datetime-local input. */
+export function isoToZonedInput(iso: string | null, timeZone = EVENT_TIME_ZONE): string {
+  if (!iso) return "";
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return "";
+  return new Date(at + offsetMinutes(at, timeZone) * 60_000).toISOString().slice(0, 16);
+}

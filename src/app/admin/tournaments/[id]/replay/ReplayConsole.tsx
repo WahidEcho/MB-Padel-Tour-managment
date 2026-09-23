@@ -129,7 +129,9 @@ export default function ReplayConsole({ tournamentId, ties }: { tournamentId: st
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId: device, deviceLabel: "Replay console" }),
     });
-    if (!claim.ok) throw new Error(`${r.label}: another device is scoring it (${claim.status}). Release its lock on the Rubbers page first.`);
+    // A held rubber still answers 200, with controller false.
+    const held = claim.ok ? ((await claim.json()) as { controller?: boolean }).controller === false : true;
+    if (held) throw new Error(`${r.label}: another device is scoring it. Release its lock on the Rubbers page first.`);
 
     if (!now.state) {
       await send(r.id, device, ++n, "MATCH_STARTED", null, states[0], null, { first_server: "A" });

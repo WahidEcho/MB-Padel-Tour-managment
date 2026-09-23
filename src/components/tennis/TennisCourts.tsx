@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Big_Shoulders } from "next/font/google";
 import { currentServer, formatSet, servingPlayer, type ScoreState, type TeamKey } from "@/lib/scoring/engine";
 import type { PublicPlayer } from "@/lib/public";
-import { RUBBER_LABELS } from "@/lib/tennis/ties";
+import { EVENT_TIME_ZONE, RUBBER_LABELS } from "@/lib/tennis/ties";
 import { callout, courtScene, tieScore, type CourtScene, type SceneRubber } from "@/lib/tennis/tvScene";
 import { frameFrom, type LiveMatch, type LiveSnapshot } from "@/lib/tv/liveFeed";
 import { classifyPointChange, type ScoreFrame } from "@/lib/tv/pointBeat";
@@ -79,7 +79,7 @@ export default function TennisCourts({
   ties,
   rubbers,
   records,
-  timeZone = "Africa/Cairo",
+  timeZone = EVENT_TIME_ZONE,
 }: {
   courts: TvCourt[];
   pinnedCourtId: string | null;

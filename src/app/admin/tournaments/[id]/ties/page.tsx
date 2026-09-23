@@ -1,12 +1,12 @@
 import { getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
 import { scoreSummary, type ScoreState } from "@/lib/scoring/engine";
-import { RUBBER_LABELS } from "@/lib/tennis/ties";
+import { RUBBER_LABELS, isoToZonedInput } from "@/lib/tennis/ties";
 import { finalPlacings, getTies, isTieFormat } from "@/lib/tennis/tieOps";
 import { ordinal } from "@/lib/tennis/placement";
 import type { Match, RubberType, Team, Tie } from "@/lib/types";
 import SessionRowNotice from "../SessionRowNotice";
 import { generateTiesAction } from "./actions";
-import { DelayForm, LineupForm, LockForm, PlacementControls } from "./TieForms";
+import { DelayForm, LineupForm, LockForm, PlacementControls, ScheduleForm } from "./TieForms";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,7 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
     getCourts(id),
   ]);
   const teamBy = new Map(teams.map((t) => [t.id, t]));
+  const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const snapBy = new Map(snapshots.map((s) => [s.match_id, s]));
   const rubbersOf = (tieId: string) => matches.filter((m) => m.tie_id === tieId).sort((a, b) => (a.rubber_no ?? 0) - (b.rubber_no ?? 0));
   const playerName = (team: Team | undefined, pid: string) => team?.players?.find((p) => p.id === pid)?.full_name ?? "?";
@@ -82,6 +83,23 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
             );
           })}
         </ul>
+        {tie.status !== "completed" && (
+          <details>
+            <summary className="cursor-pointer text-xs font-semibold text-muted">
+              Court and time · {tie.court_id ? courtName.get(tie.court_id) ?? "court" : "no court"}
+              {tie.scheduled_time ? ` · not before ${isoToZonedInput(tie.scheduled_time).slice(11)} on ${isoToZonedInput(tie.scheduled_time).slice(0, 10)}` : " · no time"}
+            </summary>
+            <div className="mt-2">
+              <ScheduleForm
+                tournamentId={id}
+                tieId={tie.id}
+                courts={courts.map((c) => ({ id: c.id, name: c.court_name }))}
+                courtId={tie.court_id}
+                local={isoToZonedInput(tie.scheduled_time)}
+              />
+            </div>
+          </details>
+        )}
         {a && b && (
           <details>
             <summary className="cursor-pointer text-xs font-semibold text-muted">
