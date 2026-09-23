@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lineupFor, lineupProblems, rubberPlan, tieOutcome, type RubberResult } from "./ties";
+import { lineupFor, lineupProblems, rubberPlan, tieOutcome, withNominees, type RubberResult } from "./ties";
 import { calculateTieStandings } from "./tieStandings";
 import { firstRoundLines, placementPlan, sourceLabel } from "./placement";
 import { nationByCode, normalizeNationCode } from "./nations";
@@ -217,5 +217,18 @@ describe("placement draws", () => {
     const small = placementPlan(2, 4);
     expect(small).toHaveLength(8);
     expect(small.filter((t) => t.roundNo === 1 && t.drawFrom === 1).map((t) => `${sourceLabel(t.a)}-${sourceLabel(t.b)}`)).toEqual(["A1-B2", "B1-A2"]);
+  });
+});
+
+describe("nominees on public cards", () => {
+  const squad = { id: "t", players: [{ id: "p1" }, { id: "p2" }, { id: "p3" }] };
+  it("shows only the rubber's nominees, in nomination order", () => {
+    expect(withNominees(squad, ["p3", "p1"])?.players.map((p) => p.id)).toEqual(["p3", "p1"]);
+    expect(squad.players).toHaveLength(3);
+  });
+  it("leaves a match without nominations as it is", () => {
+    expect(withNominees(squad, null)).toBe(squad);
+    expect(withNominees(squad, [])).toBe(squad);
+    expect(withNominees(undefined, ["p1"])).toBeUndefined();
   });
 });

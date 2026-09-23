@@ -24,3 +24,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   New migrations must also be applied to the live project (Supabase MCP `apply_migration`).
 - Tennis team competitions (nations, ties of S2/S1/D rubbers, ITF ranking, placement draws for every
   place): `src/lib/tennis/`, admin pages `nations` and `ties`, gate `scripts/e2e/tennis-ties.ts`.
+- Tennis court TVs (`src/components/tennis/`, scenes decided by `src/lib/tennis/tvScene.ts`): a tie-format
+  tournament's live screen runs line-up → walk-on → live score → rubber won → tie score per court on its own.
+  Flags are local SVGs in `public/flags/` (from `flag-icons`, MIT). Gate on the stand-in only:
+  `npm run e2e:tennis-tv` (plays the demo's first tie; screenshots + video to `OUT`).

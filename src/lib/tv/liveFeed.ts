@@ -6,6 +6,7 @@
  * agree by construction.
  */
 import type { Match, MatchSnapshot, ScreenSettings } from "../types";
+import type { ScoreState } from "../scoring/engine";
 import type { ScoreFrame } from "./pointBeat";
 
 export interface LiveMatch {
@@ -38,6 +39,12 @@ export interface LiveSnapshot {
   serving_team_id: string | null;
   completed_sets: MatchSnapshot["completed_sets"];
   match_over: boolean;
+  /**
+   * The full score state while the match is unfinished: tennis walls read the
+   * serving player, the callouts and the rules-aware bits from it. Left out once
+   * a match is over, so the feed does not grow with the day's results.
+   */
+  state?: ScoreState;
 }
 
 export type LiveScreen = Pick<
@@ -89,7 +96,7 @@ export function toLiveMatch(m: Match): LiveMatch {
 }
 
 export function toLiveSnapshot(s: MatchSnapshot): LiveSnapshot {
-  const json = (s.snapshot_json ?? {}) as { matchOver?: boolean; isMatchTiebreak?: boolean };
+  const json = (s.snapshot_json ?? {}) as { matchOver?: boolean; isMatchTiebreak?: boolean; teamA?: unknown };
   return {
     match_id: s.match_id,
     last_event_number: s.last_event_number,
@@ -103,6 +110,7 @@ export function toLiveSnapshot(s: MatchSnapshot): LiveSnapshot {
     serving_team_id: s.serving_team_id,
     completed_sets: s.completed_sets ?? [],
     match_over: Boolean(json.matchOver),
+    ...(json.teamA && !json.matchOver ? { state: s.snapshot_json as unknown as ScoreState } : {}),
   };
 }
 

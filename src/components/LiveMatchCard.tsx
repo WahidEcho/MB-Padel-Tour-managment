@@ -2,6 +2,7 @@ import Avatar from "./Avatar";
 import MatchStatusBadge from "./MatchStatusBadge";
 import type { Match, MatchSnapshot, Team } from "@/lib/types";
 import { formatSet } from "@/lib/scoring/engine";
+import { withNominees } from "@/lib/tennis/ties";
 
 function setScores(snap: MatchSnapshot | null): string {
   if (!snap) return "";
@@ -25,9 +26,12 @@ export default function LiveMatchCard({
   big?: boolean;
 }) {
   const live = match.status === "live";
+  // A rubber of a nations tie shows its nominated players, not the whole squad.
+  const sideA = withNominees(teamA, match.team_a_player_ids);
+  const sideB = withNominees(teamB, match.team_b_player_ids);
   const rows: { team: Team | undefined; points: string; games: number; sets: number; serving: boolean; winner: boolean }[] = [
     {
-      team: teamA,
+      team: sideA,
       points: snapshot ? (snapshot.is_tiebreak ? String(snapshot.tiebreak_team_a_points) : snapshot.team_a_point_label) : "0",
       games: snapshot?.team_a_games ?? 0,
       sets: snapshot?.team_a_sets ?? 0,
@@ -35,7 +39,7 @@ export default function LiveMatchCard({
       winner: Boolean(match.winner_team_id && match.winner_team_id === match.team_a_id),
     },
     {
-      team: teamB,
+      team: sideB,
       points: snapshot ? (snapshot.is_tiebreak ? String(snapshot.tiebreak_team_b_points) : snapshot.team_b_point_label) : "0",
       games: snapshot?.team_b_games ?? 0,
       sets: snapshot?.team_b_sets ?? 0,

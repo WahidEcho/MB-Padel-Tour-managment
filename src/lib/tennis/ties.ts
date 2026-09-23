@@ -117,3 +117,17 @@ export function lineupFor(
   const p = lineup[type];
   return p ? [p] : null;
 }
+
+/**
+ * A side as a rubber shows it: the nation with only the players nominated for
+ * this rubber, in nomination order. A match with no nominations (not a rubber,
+ * or a line-up not yet made) shows the team as it is.
+ */
+export function withNominees<T extends { players?: P[] }, P extends { id: string }>(
+  team: T | undefined,
+  ids: string[] | null | undefined,
+): T | undefined {
+  if (!team || !ids || ids.length === 0) return team;
+  const players = ids.map((id) => team.players?.find((p) => p.id === id)).filter((p): p is P => Boolean(p));
+  return { ...team, players };
+}

@@ -16,7 +16,7 @@ import {
 } from "@/lib/data";
 import { MAIN_SCREEN, isValidScreenKey } from "@/lib/screens";
 import { podiumDepthFor } from "@/lib/bracket";
-import { normalizeDisplayMode, type Court, type DisplayMode, type Match } from "@/lib/types";
+import { normalizeDisplayMode, type Court, type DisplayMode, type Match, type Team, type Tournament } from "@/lib/types";
 import BracketView from "@/components/BracketView";
 import { orderedRounds } from "@/components/BracketView";
 import ChessLiveCard from "@/components/ChessLiveCard";
@@ -42,6 +42,9 @@ import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
 import { GUTTER, ROWS, STAGE, bracketFontPx, leaderboardPlan } from "@/lib/tv/layout";
 import { sizedImageSrc } from "@/lib/portrait";
+import { getTies, isTieFormat } from "@/lib/tennis/tieOps";
+import { scoringConfigForMatch } from "@/lib/scoring/rules";
+import TennisCourts, { type TvNation, type TvRubber } from "@/components/tennis/TennisCourts";
 
 const VALID_MODES: DisplayMode[] = [
   "live",
@@ -217,6 +220,12 @@ export default async function TvScreen({
     }
   }
 
+  // A nations team competition: the court TVs run their own scenes, and see only
+  // public fields — nations, their squads' public projections, and each rubber's
+  // nominees and rules.
+  const isTies = mode === "live" && !isChess && isTieFormat(tournament);
+  const tennis = isTies ? await tennisProps(tournament, teams, matches) : null;
+
   const holding = {
     title: logos.holding?.title?.trim() || displayName,
     message: logos.holding?.message?.trim() || "Back shortly",
@@ -279,7 +288,18 @@ export default async function TvScreen({
           </header>
 
           <main className="relative min-h-0 overflow-hidden">
-            {mode === "live" && !isChess && (
+            {tennis && (
+              <TennisCourts
+                courts={courtInfo}
+                pinnedCourtId={pinnedCourtId ?? null}
+                nations={tennis.nations}
+                ties={tennis.ties}
+                rubbers={tennis.rubbers}
+                records={tennis.records}
+              />
+            )}
+
+            {mode === "live" && !isChess && !tennis && (
               <LiveCourts
                 courts={courtInfo}
                 teams={publicTeams}
@@ -441,4 +461,80 @@ export default async function TvScreen({
       </LiveFeedProvider>
     </BroadcastStage>
   );
+}
+
+const FINISHED = ["completed", "walkover", "retired", "disqualified"];
+
+async function tennisProps(
+  tournament: Tournament,
+  teams: Team[],
+  matches: Match[],
+) {
+  const ties = await getTies(tournament.id);
+  const nations: Record<string, TvNation> = Object.fromEntries(
+    teams.map((t) => {
+      const pub = toPublicTeam(t);
+      return [
+        t.id,
+        {
+          id: t.id,
+          name: t.team_name,
+          code: t.nation_code ?? t.team_name.slice(0, 3).toUpperCase(),
+          iso2: t.iso2 ?? null,
+          captain: t.captain_name ?? null,
+          seed: t.seed_number,
+          players: pub.players,
+        },
+      ];
+    }),
+  );
+  const rubbers: Record<string, TvRubber> = {};
+  const records: Record<string, [number, number]> = {};
+  for (const m of matches) {
+    if (!m.tie_id || !m.rubber_type) continue;
+    const a = m.team_a_player_ids ?? [];
+    const b = m.team_b_player_ids ?? [];
+    const rules = scoringConfigForMatch(tournament, m, null, { doubles: m.rubber_type === "D" });
+    rubbers[m.id] = {
+      id: m.id,
+      tie_id: m.tie_id,
+      rubber_no: m.rubber_no ?? 1,
+      rubber_type: m.rubber_type,
+      a,
+      b,
+      rules: {
+        setsToWinMatch: rules.setsToWinMatch,
+        gamesToWinSet: rules.gamesToWinSet,
+        tiebreakEnabled: rules.tiebreakEnabled,
+        tiebreakAtGames: rules.tiebreakAtGames,
+        tiebreakTargetPoints: rules.tiebreakTargetPoints,
+        tiebreakWinByTwo: rules.tiebreakWinByTwo,
+        walkoverScore: rules.walkoverScore,
+        decidingPoint: rules.decidingPoint,
+        matchTiebreak: rules.matchTiebreak,
+        matchTiebreakPoints: rules.matchTiebreakPoints,
+      },
+    };
+    if (FINISHED.includes(m.status) && m.winner_team_id) {
+      const winners = m.winner_team_id === m.team_a_id ? a : b;
+      for (const id of [...a, ...b]) {
+        const r = (records[id] ??= [0, 0]);
+        r[winners.includes(id) ? 0 : 1]++;
+      }
+    }
+  }
+  return {
+    nations,
+    ties: ties.map((t) => ({
+      id: t.id,
+      court_id: t.court_id,
+      tie_order: t.tie_order,
+      round_name: t.round_name,
+      scheduled_time: t.scheduled_time,
+      team_a_id: t.team_a_id,
+      team_b_id: t.team_b_id,
+    })),
+    rubbers,
+    records,
+  };
 }
