@@ -32,3 +32,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `public/voice/en-v3` is rendered (`npm run voice -- --provider kokoro` on a Mac; Hugging Face is blocked in
   cloud sessions) phones fall back to `en-v2` and `supportedCall` drops the calls it lacks. Gate:
   `npm run e2e:tennis-voice` (see the script header for its two passes; never commit the tone test pack).
+- Finals replay (demo events only): `src/lib/tennis/replay.ts` turns a real score line into points the engine
+  confirms; admin page `replay` plays a tie's rubbers through the events API (results in
+  `format_config.ties.replays`). Demo `scripts/demo/finals-demo.ts` (2025 boys', 2024 girls' finals, kept live);
+  gate `npm run e2e:tennis-replay` on the stand-in.

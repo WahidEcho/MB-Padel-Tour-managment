@@ -167,6 +167,11 @@ export interface TieFormatConfig {
    * (they count in the group ranking); placement ties drop them by default.
    */
   playDeadRubbersInPlacement?: boolean;
+  /**
+   * Demo events: a known result per rubber, by match id, from team A's side
+   * ("6-2 6-1", "5-7 4-6"), which the replay console plays point by point.
+   */
+  replays?: Record<string, string>;
 }
 
 export interface Tie {

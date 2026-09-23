@@ -24,6 +24,7 @@ const TIE_TABS = [
   ["/leaderboard", "Leaderboard"],
   ["/matches", "Rubbers"],
   ["/screens", "Screens"],
+  ["/replay", "Replay"],
   ["/settings", "Settings"],
 ] as const;
 
@@ -64,7 +65,8 @@ export default async function TournamentLayout({
     : tournament.sport === "chess"
       ? CHESS_TABS
       : tournament.format_config?.ties
-        ? TIE_TABS
+        ? // Replaying results is for demo events only.
+          TIE_TABS.filter(([href]) => href !== "/replay" || tournament.is_demo)
         : PADEL_TABS;
 
   return (
