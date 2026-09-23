@@ -377,8 +377,8 @@ const server = http.createServer((req, res) => {
         const url = new URL(req.url, "http://x");
         if (url.pathname === "/__health") return send(res, 200, { ok: true });
         if (url.pathname === "/__sql" && req.method === "POST") {
-          const r = await pg.query(JSON.parse(body).query);
-          return send(res, 200, r.rows);
+          const results = await pg.exec(JSON.parse(body).query);
+          return send(res, 200, results.at(-1)?.rows ?? []);
         }
         if (url.pathname.startsWith("/storage/v1/")) return send(res, 200, { Key: "local" });
         const m = url.pathname.match(/^\/rest\/v1\/([a-z_0-9]+)$/);
