@@ -144,6 +144,9 @@ async function send(tb: Tablet, type: string, next: ScoreState, teamId: string |
   tb.state = next;
 }
 
+/** The bracket tier per bracket id, as the referee page resolves it (tierForMatch). */
+const tierOf = new Map<string, "cup" | "plate">();
+
 async function openTablet(match: Match, tournament: Tournament): Promise<Tablet> {
   const deviceId = `rehearsal-${randomUUID()}`;
   const claim = await postJson(`/api/matches/${match.id}/claim`, { deviceId });
@@ -154,7 +157,7 @@ async function openTablet(match: Match, tournament: Tournament): Promise<Tablet>
     state: initialScoreState("A"),
     history: [],
     n: 0,
-    rules: scoringConfigForMatch(tournament, match),
+    rules: scoringConfigForMatch(tournament, match, match.bracket_id ? (tierOf.get(match.bracket_id) ?? null) : null),
   };
   await send(tb, "MATCH_STARTED", initialScoreState("A"), null, { first_server: "A" });
   return tb;
@@ -337,7 +340,7 @@ async function main() {
     check("the main screen carries the Fresh logo", shot.text.includes(mediaPath));
     const adminPage = await http(`/admin/tournaments/${tid}`, "admin");
     check("admin dashboard renders", adminPage.status === 200, String(adminPage.status));
-    const refList = await http(`/referee/tournaments/${tid}`, "referee");
+    const refList = await http(`/referee/tournaments/${tid}/matches`, "referee");
     check("referee court list renders", refList.status === 200, String(refList.status));
     const refScore = await http(`/referee/matches/${groupMatches[0].id}/score`, "referee");
     check("referee scoring page renders", refScore.status === 200, String(refScore.status));
@@ -358,13 +361,12 @@ async function main() {
       feedChecks++;
       const r1 = await http(`/api/t/${slug}/live?screen=${tv1.key}`);
       const r2 = await http(`/api/t/${slug}/live?screen=${tv2.key}`);
-      const f1 = JSON.parse(r1.text) as { matches: { court_id: string | null; status: string }[] };
-      const f2 = JSON.parse(r2.text) as { matches: { court_id: string | null; status: string }[] };
-      const in1 = new Set(c.slice(0, 4).map((x) => x.id));
-      const in2 = new Set(c.slice(4).map((x) => x.id));
-      const live1 = f1.matches.filter((m) => m.status === "live");
-      const live2 = f2.matches.filter((m) => m.status === "live");
-      if (live1.some((m) => m.court_id && !in1.has(m.court_id)) || live2.some((m) => m.court_id && !in2.has(m.court_id))) feedLeaks++;
+      // The feed carries every match on purpose; each wall filters to its own
+      // courts on the device, from the court list the feed hands it.
+      const f1 = JSON.parse(r1.text) as { screen: { court_ids: string[] } };
+      const f2 = JSON.parse(r2.text) as { screen: { court_ids: string[] } };
+      const same = (a: string[], b: string[]) => [...a].sort().join() === [...b].sort().join();
+      if (!same(f1.screen.court_ids, c.slice(0, 4).map((x) => x.id)) || !same(f2.screen.court_ids, c.slice(4).map((x) => x.id))) feedLeaks++;
       if (PUBLIC_LEAK.test(r1.text) || PUBLIC_LEAK.test(r2.text)) feedLeaks++;
     };
 
@@ -402,7 +404,7 @@ async function main() {
     console.log(`   ${totalPoints} points, ${undone} undos, ${httpStats.events} events, avg ${(httpStats.totalMs / httpStats.events).toFixed(0)}ms, slowest ${httpStats.slowest}ms, up to ${maxLive} courts live`);
     check("courts ran in parallel (≥5 live at once)", maxLive >= 5, String(maxLive));
     check("result confirmation held every match live until Confirm", !findings.some((f) => f.includes("before Confirm")));
-    check("per-screen feeds only ever carried their own courts, and no phone", feedLeaks === 0, `${feedLeaks} bad of ${feedChecks}`);
+    check("each wall's feed names its own courts, and no feed carries a phone", feedLeaks === 0, `${feedLeaks} bad of ${feedChecks}`);
 
     const afterGroups = (await getMatches(tid)).filter((m) => m.stage === "group");
     check("all 24 group matches finished", afterGroups.every((m) => ["completed", "walkover"].includes(m.status)), afterGroups.map((m) => m.status).filter((s) => s !== "completed").join(","));
@@ -442,6 +444,7 @@ async function main() {
     await approveBracket(tid, "admin", "plate");
     await publishBracket(tid, "admin", { courtStrategy: "parallel" });
     const brackets = await getBrackets(tid);
+    for (const b of brackets) tierOf.set(b.id, b.tier);
     check("Cup and Plate drawn and published", brackets.map((b) => b.tier).join(",") === "cup,plate", brackets.map((b) => `${b.tier}:${b.status}`).join(","));
     const koFirst = (await getMatches(tid)).filter((m) => m.bracket_id);
     check("knockout quarter-finals spread over the courts", new Set(koFirst.filter((m) => m.stage === "quarter_final").map((m) => m.court_id)).size >= 7, String(new Set(koFirst.filter((m) => m.stage === "quarter_final").map((m) => m.court_id)).size));
