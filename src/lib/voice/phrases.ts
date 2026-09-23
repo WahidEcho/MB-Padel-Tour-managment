@@ -11,7 +11,15 @@
  * version: recorded voices drift between runs, so clips from two runs never mix.
  */
 
-export const VOICE_PACK = "en-v2";
+import { NATIONS } from "../tennis/nations";
+
+export const VOICE_PACK = "en-v3";
+/**
+ * Released packs a phone falls back to, newest first, while the current one is
+ * not yet on the server. An older pack lacks the newer clips; calls degrade
+ * around them (see `supportedCall`), so a referee never hears half a sentence.
+ */
+export const PREVIOUS_VOICE_PACKS = ["en-v2"];
 /** Built from a stand-in voice for development only. Never committed or deployed. */
 export const DEV_VOICE_PACK = "en-dev";
 /**
@@ -47,6 +55,21 @@ export const MAX_GAMES_PHRASE = 7;
 
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The clip that names a nation, by its ITF code. */
+export function nationClip(code: string): ClipId {
+  return `nation-${code.toUpperCase()}`;
+}
+
+/** A clip that names a side — a colour or a nation — and ends its sentence. */
+export function isSideClip(id: ClipId): boolean {
+  return id === "team-red" || id === "team-blue" || id.startsWith("nation-");
+}
+
+/** Clips added in en-v3, which older packs do not hold. */
+export function isTennisClip(id: ClipId): boolean {
+  return id.startsWith("nation-") || ["deciding-point", "match-tie-break", "time", "change-ends"].includes(id);
 }
 
 function buildPhrases(): Record<ClipId, string> {
@@ -124,13 +147,24 @@ function buildPhrases(): Record<ClipId, string> {
   p["break-point"] = "Break point.";
   p["set-point"] = "Set point.";
   p["match-point"] = "Match point.";
+
+  // Tennis (en-v3). A deciding point is no-ad deuce, where the next point takes
+  // the game; a match tie-break is played in place of the final set; "Time" ends
+  // a changeover or set break; players change ends after odd games.
+  p["deciding-point"] = "Deciding point.";
+  p["match-tie-break"] = "Match tie-break.";
+  p["time"] = "Time.";
+  p["change-ends"] = "Change of ends.";
+  // Nations team competitions call sides by nation, as red and blue teams are
+  // called by colour: "Game, Romania." "Four games to two, Romania."
+  for (const n of NATIONS) p[nationClip(n.code)] = `${n.name}.`;
   return p;
 }
 
 export const PHRASES: Readonly<Record<ClipId, string>> = buildPhrases();
 
 /** Clips followed by a longer breath, so the next part reads as a new sentence. */
-export const LONG_PAUSE_AFTER: ReadonlySet<ClipId> = new Set([
+const SENTENCE_ENDS: ReadonlySet<ClipId> = new Set([
   "game",
   "set",
   "game-and-set",
@@ -139,7 +173,12 @@ export const LONG_PAUSE_AFTER: ReadonlySet<ClipId> = new Set([
   // A team ends its sentence: "Game, Red team. — Four games to two, Red team."
   "team-red",
   "team-blue",
+  "match-tie-break",
 ]);
+
+export const LONG_PAUSE_AFTER = {
+  has: (id: ClipId): boolean => SENTENCE_ENDS.has(id) || isSideClip(id),
+};
 
 /**
  * Whether a colour clip needs a sentence pause before it. Clips recorded to lead
@@ -148,7 +187,7 @@ export const LONG_PAUSE_AFTER: ReadonlySet<ClipId> = new Set([
  * reads "eight games to seven Red team".
  */
 export function pausesBeforeColour(previous: ClipId, next: ClipId): boolean {
-  return (next === "team-red" || next === "team-blue") && previous !== "advantage" && !previous.endsWith("-named");
+  return isSideClip(next) && previous !== "advantage" && !previous.endsWith("-named");
 }
 
 /** What the Test button says. */

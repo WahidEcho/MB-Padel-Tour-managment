@@ -92,12 +92,14 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         name: sideName(teamA),
         players: teamA.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         checkedIn: teamA.check_in_status === "checked_in",
+        nation: match.tie_id ? (teamA.nation_code ?? null) : null,
       }}
       teamB={{
         id: teamB.id,
         name: sideName(teamB),
         players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         checkedIn: teamB.check_in_status === "checked_in",
+        nation: match.tie_id ? (teamB.nation_code ?? null) : null,
       }}
       serverSnapshot={snapshot}
       reopenState={reopenState as ScoreState | null}

@@ -46,6 +46,8 @@ interface TeamInfo {
   name: string;
   players: { name: string; photo: PhotoFields }[];
   checkedIn: boolean;
+  /** A rubber of a nations tie: the side's ITF code, so the voice names it ("Game, Romania."). */
+  nation?: string | null;
 }
 
 type Modal =
@@ -142,7 +144,12 @@ export default function ScoreClient({
     initialSnapshot: serverSnapshot,
     disabled: controlDisabled,
   });
-  const voice = useUmpireVoice(scoringConfig, control.isController, redBlue);
+  const voice = useUmpireVoice(
+    scoringConfig,
+    control.isController,
+    redBlue,
+    tennis ? { nations: { A: teamA.nation ?? null, B: teamB.nation ?? null } } : null,
+  );
   const onVoiceEvent = voice.onEvent;
 
   const readOnly = !control.isController;
@@ -311,6 +318,19 @@ export default function ScoreClient({
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
   }, [rest]);
+
+  // The umpire calls "Time" when the rest runs out, unless play has already moved on.
+  const sayVoice = voice.say;
+  useEffect(() => {
+    if (!tennis || !rest) return;
+    const wait = rest.endsAt - Date.now();
+    if (wait <= 0) return;
+    const at = eventNumberRef.current;
+    const id = setTimeout(() => {
+      if (eventNumberRef.current === at) sayVoice(["time"]);
+    }, wait);
+    return () => clearTimeout(id);
+  }, [tennis, rest, sayVoice]);
 
   /** After a point or penalty: tell the referee when the players change ends and time the rest. */
   const noteEnds = useCallback(

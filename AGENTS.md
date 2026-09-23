@@ -28,3 +28,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   tournament's live screen runs line-up → walk-on → live score → rubber won → tie score per court on its own.
   Flags are local SVGs in `public/flags/` (from `flag-icons`, MIT). Gate on the stand-in only:
   `npm run e2e:tennis-tv` (plays the demo's first tie; screenshots + video to `OUT`).
+- Tennis voice (pack `en-v3`: nation names, deciding point, match tie-break, change of ends, time). Until
+  `public/voice/en-v3` is rendered (`npm run voice -- --provider kokoro` on a Mac; Hugging Face is blocked in
+  cloud sessions) phones fall back to `en-v2` and `supportedCall` drops the calls it lacks. Gate:
+  `npm run e2e:tennis-voice` (see the script header for its two passes; never commit the tone test pack).
