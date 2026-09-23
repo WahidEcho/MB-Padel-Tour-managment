@@ -131,3 +131,13 @@ export function withNominees<T extends { players?: P[] }, P extends { id: string
   const players = ids.map((id) => team.players?.find((p) => p.id === id)).filter((p): p is P => Boolean(p));
   return { ...team, players };
 }
+
+/** The longest delay (or bringing forward) the order of play takes in one go: a day's play. */
+export const MAX_DELAY_MINUTES = 12 * 60;
+
+/** A scheduled time moved by some minutes; null stays null. */
+export function shiftTime(iso: string | null, minutes: number): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? new Date(at + minutes * 60_000).toISOString() : iso;
+}

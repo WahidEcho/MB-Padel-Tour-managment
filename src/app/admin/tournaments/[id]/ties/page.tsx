@@ -1,4 +1,4 @@
-import { getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
+import { getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
 import { scoreSummary, type ScoreState } from "@/lib/scoring/engine";
 import { RUBBER_LABELS } from "@/lib/tennis/ties";
 import { finalPlacings, getTies, isTieFormat } from "@/lib/tennis/tieOps";
@@ -6,7 +6,7 @@ import { ordinal } from "@/lib/tennis/placement";
 import type { Match, RubberType, Team, Tie } from "@/lib/types";
 import SessionRowNotice from "../SessionRowNotice";
 import { generateTiesAction } from "./actions";
-import { LineupForm, LockForm, PlacementControls } from "./TieForms";
+import { DelayForm, LineupForm, LockForm, PlacementControls } from "./TieForms";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +24,14 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
   if (!isTieFormat(tournament)) {
     return <p className="text-sm text-muted">This tournament is not a team competition, so it has no ties.</p>;
   }
-  const [ties, teams, matches, snapshots, groups, placings] = await Promise.all([
+  const [ties, teams, matches, snapshots, groups, placings, courts] = await Promise.all([
     getTies(id),
     getTeams(id),
     getMatches(id),
     getSnapshots(id),
     getGroups(id),
     finalPlacings(id),
+    getCourts(id),
   ]);
   const teamBy = new Map(teams.map((t) => [t.id, t]));
   const snapBy = new Map(snapshots.map((s) => [s.match_id, s]));
@@ -127,6 +128,12 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
         )}
       </div>
       {groups.length === 0 && <p className="text-sm text-muted">Draw the nations into groups first, on the Groups page.</p>}
+      {ties.some((x) => x.status !== "completed") && (
+        <div className="card space-y-1">
+          <p className="text-sm font-semibold">Rain or a long match?</p>
+          <DelayForm tournamentId={id} courts={courts.map((c) => ({ id: c.id, name: c.court_name }))} />
+        </div>
+      )}
 
       {groups.map((g) => {
         const list = groupTies.filter((t) => t.group_id === g.id);

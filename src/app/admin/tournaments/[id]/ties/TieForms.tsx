@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { drawPlacementAction, lockLineupsAction, resetPlacementAction, saveLineupAction, type TieFormState } from "./actions";
+import { delayOrderOfPlayAction, drawPlacementAction, lockLineupsAction, resetPlacementAction, saveLineupAction, type TieFormState } from "./actions";
 
 function Notice({ state }: { state: TieFormState }) {
   if (!state) return null;
@@ -99,5 +99,36 @@ export function PlacementControls({ tournamentId, drawn, ready }: { tournamentId
       {!drawn && !ready && <span className="text-xs text-muted">Available when every group tie is finished.</span>}
       <Notice state={drawState ?? resetState} />
     </div>
+  );
+}
+
+/**
+ * After rain, or a long match: push everything not yet started back, on one
+ * court or all of them. The referee pauses the rubbers in play; the operator puts
+ * the walls on a break.
+ */
+export function DelayForm({ tournamentId, courts }: { tournamentId: string; courts: { id: string; name: string }[] }) {
+  const [state, action, pending] = useActionState(delayOrderOfPlayAction, null);
+  return (
+    <form action={action} className="flex flex-wrap items-end gap-2" data-testid="delay-form">
+      <input type="hidden" name="tournament_id" value={tournamentId} />
+      <label className="text-xs">
+        <span className="label">Delay by (minutes)</span>
+        <input name="minutes" type="number" required min={-720} max={720} step={5} defaultValue={30} className="input w-28" />
+      </label>
+      <label className="text-xs">
+        <span className="label">Court</span>
+        <select name="court_id" className="input" defaultValue="">
+          <option value="">All courts</option>
+          {courts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="submit" className="btn-secondary" disabled={pending}>Delay the order of play</button>
+      <Notice state={state} />
+    </form>
   );
 }

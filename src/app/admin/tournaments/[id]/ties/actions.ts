@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/guard";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
-import { drawPlacement, generateGroupTies, lockLineups, resetPlacement, setLineup } from "@/lib/tennis/tieOps";
+import { delayOrderOfPlay, drawPlacement, generateGroupTies, lockLineups, resetPlacement, setLineup } from "@/lib/tennis/tieOps";
 
 const path = (id: string) => `/admin/tournaments/${id}/ties`;
 
@@ -60,4 +60,17 @@ export async function resetPlacementAction(_prev: TieFormState, formData: FormDa
   const result = await resetPlacement(id, role);
   revalidatePath(path(id));
   return result.ok ? { ok: true, message: "Placement draws removed." } : { ok: false, message: result.message };
+}
+
+export async function delayOrderOfPlayAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
+  const role = await requirePermission("manage_groups");
+  const id = String(formData.get("tournament_id"));
+  refuse(await tournamentRowRefusal(id));
+  const minutes = Number(formData.get("minutes"));
+  const courtId = String(formData.get("court_id") ?? "") || null;
+  const result = await delayOrderOfPlay(id, minutes, courtId, role);
+  revalidatePath(path(id));
+  if (!result.ok) return { ok: false, message: result.message };
+  const moved = `${result.ties} tie${result.ties === 1 ? "" : "s"} and ${result.rubbers} rubber${result.rubbers === 1 ? "" : "s"}`;
+  return { ok: true, message: `${moved} moved ${minutes > 0 ? "back" : "forward"} ${Math.abs(minutes)} minutes.` };
 }

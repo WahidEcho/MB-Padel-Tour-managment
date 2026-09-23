@@ -15,7 +15,7 @@ import { roundRobin } from "../roundrobin";
 import { applyQualification } from "../standings";
 import { scoringConfigForMatch } from "../scoring/rules";
 import type { Court, Group, GroupTeam, Match, MatchSnapshot, RubberType, Team, Tie, Tournament } from "../types";
-import { RUBBER_LABELS, lineupFor, lineupProblems, rubberPlan, tieOutcome } from "./ties";
+import { MAX_DELAY_MINUTES, RUBBER_LABELS, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome } from "./ties";
 import { calculateTieStandings } from "./tieStandings";
 import { placementPlan, type PlannedTie } from "./placement";
 
@@ -524,4 +524,57 @@ export async function resetTies(tournamentId: string) {
     .from("ties")
     .update({ status: "scheduled", rubbers_a: 0, rubbers_b: 0, winner_team_id: null, ended_at: null, updated_at: new Date().toISOString() })
     .eq("tournament_id", tournamentId);
+}
+
+/* ------------------------------------------------------------------ */
+/* Order of play                                                       */
+/* ------------------------------------------------------------------ */
+
+export type DelayResult = { ok: true; ties: number; rubbers: number } | { ok: false; message: string };
+
+/**
+ * Pushes the rest of the order of play back — after rain, or a long match
+ * before it — on one court or all of them. Moves every tie not yet started and
+ * every rubber not yet started (including the later rubbers of a tie under way);
+ * nothing already played or in play moves. A negative number brings play forward.
+ */
+export async function delayOrderOfPlay(
+  tournamentId: string,
+  minutes: number,
+  courtId: string | null,
+  actorRole: string,
+): Promise<DelayResult> {
+  const m = Math.round(minutes);
+  if (!Number.isFinite(m) || m === 0 || Math.abs(m) > MAX_DELAY_MINUTES) {
+    return { ok: false, message: `Give a delay of 1 to ${MAX_DELAY_MINUTES} minutes.` };
+  }
+  let tieQuery = db().from("ties").select("id, scheduled_time").eq("tournament_id", tournamentId).eq("status", "scheduled").not("scheduled_time", "is", null);
+  let rubberQuery = db()
+    .from("matches")
+    .select("id, scheduled_time")
+    .eq("tournament_id", tournamentId)
+    .not("tie_id", "is", null)
+    .in("status", ["scheduled", "ready"])
+    .not("scheduled_time", "is", null);
+  if (courtId) {
+    tieQuery = tieQuery.eq("court_id", courtId);
+    rubberQuery = rubberQuery.eq("court_id", courtId);
+  }
+  const [{ data: ties }, { data: rubbers }] = await Promise.all([tieQuery, rubberQuery]);
+  const now = new Date().toISOString();
+  for (const row of ties ?? []) {
+    await db().from("ties").update({ scheduled_time: shiftTime(row.scheduled_time as string, m) }).eq("id", row.id);
+  }
+  for (const row of rubbers ?? []) {
+    await db().from("matches").update({ scheduled_time: shiftTime(row.scheduled_time as string, m), updated_at: now }).eq("id", row.id);
+  }
+  await audit({
+    tournament_id: tournamentId,
+    actor_role: actorRole,
+    action: "ORDER_OF_PLAY_DELAYED",
+    entity_type: "court",
+    entity_id: courtId,
+    new_value: { minutes: m, ties: ties?.length ?? 0, rubbers: rubbers?.length ?? 0 },
+  });
+  return { ok: true, ties: ties?.length ?? 0, rubbers: rubbers?.length ?? 0 };
 }
