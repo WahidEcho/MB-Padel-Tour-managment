@@ -150,12 +150,26 @@ export async function updateScoring(
     ...(formData.has("requireResultConfirmation")
       ? { requireResultConfirmation: formData.getAll("requireResultConfirmation").includes("on") }
       : {}),
+    // Tennis only: the form carries the doubles block, so an absent block leaves it alone.
+    ...(formData.has("doubles.present")
+      ? {
+          doubles: {
+            decidingPoint: formData.get("doubles.decidingPoint") === "on",
+            matchTiebreak: formData.get("doubles.matchTiebreak") === "on",
+            matchTiebreakPoints: num("doubles.matchTiebreakPoints", 10),
+          },
+        }
+      : {}),
   };
 
   // Validate what each bucket actually resolves to, not the override in isolation:
   // a trigger is only wrong in combination with the set length it inherits.
   const problems: string[] = [];
   for (const p of validateMatchRules(base)) problems.push(`Tournament default — ${p.message}`);
+  if (scoring.doubles) {
+    const doublesRules = scoringConfigForMatch({ scoring_config: scoring, sport: t.sport }, { stage: "group" }, null, { doubles: true });
+    for (const p of validateMatchRules(doublesRules)) problems.push(`Doubles — ${p.message}`);
+  }
   for (const key of Object.keys(stageOverrides) as StageRuleKey[]) {
     const stage = STAGE_FOR_KEY[key];
     const resolved = scoringConfigForMatch({ scoring_config: scoring }, { stage }, key.startsWith("plate_") ? "plate" : "cup");

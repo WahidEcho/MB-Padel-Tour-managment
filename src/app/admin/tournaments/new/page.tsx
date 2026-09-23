@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createTournament } from "../actions";
 
 export default function NewTournamentPage() {
-  const [sport, setSport] = useState<"padel" | "chess">("padel");
+  const [sport, setSport] = useState<"padel" | "chess" | "tennis">("padel");
   const isChess = sport === "chess";
 
   return (
@@ -17,17 +17,18 @@ export default function NewTournamentPage() {
             id="sport"
             name="sport"
             value={sport}
-            onChange={(e) => setSport(e.target.value as "padel" | "chess")}
+            onChange={(e) => setSport(e.target.value as "padel" | "chess" | "tennis")}
             className="input"
           >
             <option value="padel">🎾 Padel</option>
+            <option value="tennis">🎾 Tennis</option>
             <option value="chess">♟ Chess</option>
           </select>
         </div>
 
         <div>
           <label className="label" htmlFor="name">Tournament name</label>
-          <input id="name" name="name" required className="input" placeholder={isChess ? "Move Beyond Chess Open" : "Move Beyond Cup"} />
+          <input id="name" name="name" required className="input" placeholder={isChess ? "Move Beyond Chess Open" : sport === "tennis" ? "Junior Team Finals" : "Move Beyond Cup"} />
         </div>
 
         <div>
@@ -61,7 +62,9 @@ export default function NewTournamentPage() {
         <p className="text-xs text-muted">
           {isChess
             ? "Chess runs as a knockout (no group stage). Add players under Teams, then seed the bracket from the player list."
-            : "Default padel rules are applied: 1 set to 6 games, advantage scoring, tie-break at 6-6. You can change everything in Settings afterwards."}
+            : sport === "tennis"
+              ? "Standard tennis rules are applied: best of 3 tie-break sets with advantage scoring. Doubles plays no-ad with a 10-point match tie-break at one set all. A team with one player plays singles. You can change everything in Settings afterwards."
+              : "Default padel rules are applied: 1 set to 6 games, advantage scoring, tie-break at 6-6. You can change everything in Settings afterwards."}
         </p>
         <button type="submit" className="btn-primary w-full">Create Tournament</button>
       </form>

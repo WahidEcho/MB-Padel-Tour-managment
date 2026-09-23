@@ -56,6 +56,8 @@ export function classifyEvent(eventType: string): VoiceEventKind {
     case "POINT_AWARDED":
     case "UNDO":
     case "MANUAL_SET_END":
+    // A point or game penalty moves the score, so the new score is called.
+    case "CODE_VIOLATION":
       return "scoring";
     case "FORCE_END":
     case "WALKOVER":

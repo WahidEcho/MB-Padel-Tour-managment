@@ -60,7 +60,18 @@ function pickRules(rules: Partial<MatchRules> | undefined): Partial<MatchRules> 
   if (!rules) return {};
   // Only the rule fields, so a stray `stageOverrides` in stored json can never
   // nest itself into a resolved config.
-  const { setsToWinMatch, gamesToWinSet, tiebreakEnabled, tiebreakAtGames, tiebreakTargetPoints, tiebreakWinByTwo, walkoverScore } = rules;
+  const {
+    setsToWinMatch,
+    gamesToWinSet,
+    tiebreakEnabled,
+    tiebreakAtGames,
+    tiebreakTargetPoints,
+    tiebreakWinByTwo,
+    walkoverScore,
+    decidingPoint,
+    matchTiebreak,
+    matchTiebreakPoints,
+  } = rules;
   const out: Partial<MatchRules> = {};
   if (setsToWinMatch !== undefined) out.setsToWinMatch = setsToWinMatch;
   if (gamesToWinSet !== undefined) out.gamesToWinSet = gamesToWinSet;
@@ -69,6 +80,9 @@ function pickRules(rules: Partial<MatchRules> | undefined): Partial<MatchRules> 
   if (tiebreakTargetPoints !== undefined) out.tiebreakTargetPoints = tiebreakTargetPoints;
   if (tiebreakWinByTwo !== undefined) out.tiebreakWinByTwo = tiebreakWinByTwo;
   if (walkoverScore !== undefined) out.walkoverScore = walkoverScore;
+  if (decidingPoint !== undefined) out.decidingPoint = decidingPoint;
+  if (matchTiebreak !== undefined) out.matchTiebreak = matchTiebreak;
+  if (matchTiebreakPoints !== undefined) out.matchTiebreakPoints = matchTiebreakPoints;
   return out;
 }
 
@@ -77,23 +91,30 @@ function pickRules(rules: Partial<MatchRules> | undefined): Partial<MatchRules> 
  *
  * Layered, so every layer is optional and an absent layer changes nothing:
  * built-in defaults, then the tournament's own config, then the Cup override for
- * the stage, then the Plate override when the match is in the Plate.
+ * the stage, then the Plate override when the match is in the Plate, and last,
+ * for a tennis doubles match, the tournament's doubles rules.
  */
 export function scoringConfigForMatch(
-  tournament: { scoring_config?: Partial<ScoringConfig> | null } | null | undefined,
+  tournament: { scoring_config?: Partial<ScoringConfig> | null; sport?: string } | null | undefined,
   match: { stage: Stage },
   tier: BracketTier | null = null,
+  opts: { doubles?: boolean } = {},
 ): ScoringConfig {
   const base: ScoringConfig = { ...DEFAULT_SCORING_CONFIG, ...(tournament?.scoring_config ?? {}) };
   const key = stageRuleKey(match.stage, tier);
-  if (!key) return base;
   const overrides = base.stageOverrides ?? {};
-  const parentKey = inheritsFrom(key);
-  return {
-    ...base,
-    ...(parentKey ? pickRules(overrides[parentKey]) : {}),
-    ...pickRules(overrides[key]),
-  };
+  const parentKey = key ? inheritsFrom(key) : null;
+  const staged: ScoringConfig = key
+    ? { ...base, ...(parentKey ? pickRules(overrides[parentKey]) : {}), ...pickRules(overrides[key]) }
+    : base;
+  // Padel is always doubles under its base rules; only tennis separates them.
+  if (opts.doubles && tournament?.sport === "tennis") return { ...staged, ...pickRules(base.doubles) };
+  return staged;
+}
+
+/** A tennis match is doubles when either side fields two players. */
+export function isDoublesMatch(...sides: ({ players?: unknown[] | null } | null | undefined)[]): boolean {
+  return sides.some((t) => (t?.players?.length ?? 0) >= 2);
 }
 
 export interface RuleProblem {
@@ -129,6 +150,9 @@ export function validateMatchRules(rules: MatchRules): RuleProblem[] {
   if (!/^\d+-\d+$/.test(rules.walkoverScore)) {
     problems.push({ field: "walkoverScore", message: 'Walkover score must look like "6-0".' });
   }
+  if (rules.matchTiebreak && rules.matchTiebreakPoints !== undefined && !whole(rules.matchTiebreakPoints)) {
+    problems.push({ field: "matchTiebreakPoints", message: "Match tie-break target must be a whole number, at least 1." });
+  }
   if (rules.tiebreakEnabled) {
     if (!whole(rules.tiebreakTargetPoints)) {
       problems.push({ field: "tiebreakTargetPoints", message: "Tie-break target must be a whole number, at least 1." });
@@ -158,6 +182,11 @@ export function describeMatchRules(rules: MatchRules): string {
   } else {
     parts.push("no tie-break");
   }
+  if (rules.matchTiebreak && rules.setsToWinMatch > 1) {
+    const level = rules.setsToWinMatch - 1;
+    parts.push(`match tie-break to ${rules.matchTiebreakPoints || 10} at ${level} set${level === 1 ? "" : "s"} all`);
+  }
+  if (rules.decidingPoint) parts.push("no-ad (deciding point)");
   return parts.join(" · ");
 }
 

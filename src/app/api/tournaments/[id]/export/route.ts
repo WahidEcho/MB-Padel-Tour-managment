@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { formatSet } from "@/lib/scoring/engine";
 import { currentRole, can } from "@/lib/auth";
 import {
   getBracket,
@@ -111,7 +112,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   matchesSheet.addRow(["#", "Round", "Team A", "Team B", "Court", "Status", "Score", "Winner"]);
   for (const m of matches.filter((m) => m.stage === "group")) {
     const snap = snapByMatch.get(m.id);
-    const sets = (snap?.completed_sets ?? []).map((s) => `${s.teamAGames}-${s.teamBGames}`).join(" ");
+    const sets = (snap?.completed_sets ?? []).map((s) => formatSet(s)).join(" ");
     matchesSheet.addRow([
       m.match_order,
       m.round_name,

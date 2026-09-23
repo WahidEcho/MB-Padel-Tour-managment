@@ -1,6 +1,6 @@
 export type Role = "admin" | "manager" | "referee" | "operator";
 
-export type Sport = "padel" | "chess";
+export type Sport = "padel" | "chess" | "tennis";
 
 export type CheckInStatus = "not_arrived" | "checked_in" | "no_show" | "disqualified";
 
@@ -47,6 +47,18 @@ export interface MatchRules {
   tiebreakTargetPoints: number;
   tiebreakWinByTwo: boolean;
   walkoverScore: string;
+  /**
+   * No-ad scoring: at 40-40 the next point wins the game (the receivers choose
+   * which of them receives it). Absent means advantage scoring, as before.
+   */
+  decidingPoint?: boolean;
+  /**
+   * When the sets are level one short of the match, the deciding set is played
+   * as a single match tie-break instead (tennis doubles: at one set all).
+   */
+  matchTiebreak?: boolean;
+  /** Points to win that match tie-break, win by two. Defaults to 10. */
+  matchTiebreakPoints?: number;
 }
 
 /**
@@ -82,6 +94,12 @@ export interface ScoringConfig extends MatchRules {
    * events (walkover, retirement, disqualification, force-end) always finalize.
    */
   requireResultConfirmation?: boolean;
+  /**
+   * Tennis: rules a doubles match takes on top of the resolved stage rules
+   * (normally the deciding point and a match tie-break in place of a final set).
+   * Ignored for padel, where every match is a doubles match under the base rules.
+   */
+  doubles?: Partial<MatchRules>;
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
@@ -92,6 +110,21 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   tiebreakTargetPoints: 7,
   tiebreakWinByTwo: true,
   walkoverScore: "6-0",
+};
+
+/**
+ * Standard tennis rules: best of three tie-break sets with advantage scoring.
+ * Doubles uses no-ad scoring and a 10-point match tie-break at one set all.
+ */
+export const DEFAULT_TENNIS_SCORING_CONFIG: ScoringConfig = {
+  setsToWinMatch: 2,
+  gamesToWinSet: 6,
+  tiebreakEnabled: true,
+  tiebreakAtGames: 6,
+  tiebreakTargetPoints: 7,
+  tiebreakWinByTwo: true,
+  walkoverScore: "6-0",
+  doubles: { decidingPoint: true, matchTiebreak: true, matchTiebreakPoints: 10 },
 };
 
 export interface FormatConfig {
@@ -340,6 +373,11 @@ export interface CompletedSet {
   teamAGames: number;
   teamBGames: number;
   tiebreak?: { a: number; b: number };
+  /**
+   * The set was a match tie-break played in place of a final set. It counts as
+   * one game to the winner (1-0) and its points are in `tiebreak`: [10-8].
+   */
+  matchTiebreak?: boolean;
 }
 
 export interface MatchSnapshot {

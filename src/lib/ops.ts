@@ -37,6 +37,7 @@ import {
   getTournament,
 } from "./data";
 import type {
+  CompletedSet,
   BracketSlot,
   BracketTier,
   Match,
@@ -45,7 +46,7 @@ import type {
   Team,
   Tournament,
 } from "./types";
-import { DEFAULT_SCORING_CONFIG } from "./types";
+import { DEFAULT_SCORING_CONFIG, DEFAULT_TENNIS_SCORING_CONFIG } from "./types";
 import { ensureMainScreen } from "./screens";
 import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, tournamentRowRefusal } from "./rowGuards";
 import { endLease, endLeasesForTournament } from "./scoringControl";
@@ -1170,7 +1171,10 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
       branding_config: opts.copyBranding ? source.branding_config : {},
       scoring_config: opts.copyScoring
         ? source.scoring_config
-        : { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: source.sport !== "chess" },
+        : {
+            ...(source.sport === "tennis" ? DEFAULT_TENNIS_SCORING_CONFIG : DEFAULT_SCORING_CONFIG),
+            requireResultConfirmation: source.sport !== "chess",
+          },
       format_config: source.format_config,
       court_config: source.court_config,
       lower_third_text: opts.copyBranding ? source.lower_third_text : undefined,
@@ -1303,7 +1307,7 @@ export interface EngineStateLike {
   teamA: { points: string; games: number; sets: number; tiebreakPoints: number };
   teamB: { points: string; games: number; sets: number; tiebreakPoints: number };
   isTiebreak: boolean;
-  completedSets: { teamAGames: number; teamBGames: number; tiebreak?: { a: number; b: number } }[];
+  completedSets: CompletedSet[];
   servingTeam: "A" | "B" | null;
   winner: "A" | "B" | null;
   matchOver: boolean;

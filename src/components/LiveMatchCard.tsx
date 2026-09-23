@@ -1,13 +1,12 @@
 import Avatar from "./Avatar";
 import MatchStatusBadge from "./MatchStatusBadge";
 import type { Match, MatchSnapshot, Team } from "@/lib/types";
+import { formatSet } from "@/lib/scoring/engine";
 
 function setScores(snap: MatchSnapshot | null): string {
   if (!snap) return "";
   const sets = Array.isArray(snap.completed_sets) ? snap.completed_sets : [];
-  return sets
-    .map((s) => `${s.teamAGames}-${s.teamBGames}${s.tiebreak ? ` (${Math.min(s.tiebreak.a, s.tiebreak.b)})` : ""}`)
-    .join("  ");
+  return sets.map((s) => formatSet(s, { tiebreakSpace: true })).join("  ");
 }
 
 export default function LiveMatchCard({

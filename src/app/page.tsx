@@ -30,7 +30,11 @@ export default async function Home() {
   }
 
   const sportMeta = (sport: string) =>
-    sport === "chess" ? { icon: "♟", label: "Chess" } : { icon: "🎾", label: "Padel" };
+    sport === "chess"
+      ? { icon: "♟", label: "Chess" }
+      : sport === "tennis"
+        ? { icon: "🎾", label: "Tennis" }
+        : { icon: "🎾", label: "Padel" };
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-8 p-8">

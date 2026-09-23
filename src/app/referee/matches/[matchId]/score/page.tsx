@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/guard";
 import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "@/lib/data";
 import type { ScoreState } from "@/lib/scoring/engine";
-import { scoringConfigForMatch } from "@/lib/scoring/rules";
+import { isDoublesMatch, scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 import { redBlueTeams } from "@/lib/sides";
@@ -59,7 +59,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       // The single place a match's rules are resolved. Stage overrides land here,
       // so the referee screen obeys them without any engine change: every engine
       // mutator already takes the config as its last argument.
-      scoringConfig={scoringConfigForMatch(tournament, match, tier)}
+      scoringConfig={scoringConfigForMatch(tournament, match, tier, { doubles: isDoublesMatch(teamA, teamB) })}
+      tennis={tournament.sport === "tennis"}
       teamA={{
         id: teamA.id,
         name: teamA.team_name,
