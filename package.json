@@ -14,7 +14,8 @@
     "e2e:ceremony": "tsx --env-file=.env.local scripts/e2e/ceremony.ts",
     "voice": "tsx --env-file-if-exists=.env.local scripts/voice/generate.ts",
     "e2e:rehearsal": "tsx --env-file=.env.local scripts/e2e/rehearsal.ts",
-    "localdb": "node scripts/localdb/server.mjs"
+    "localdb": "node scripts/localdb/server.mjs",
+    "e2e:tennis-ties": "tsx --env-file=.env.local scripts/e2e/tennis-ties.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

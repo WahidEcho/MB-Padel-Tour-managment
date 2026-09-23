@@ -54,6 +54,19 @@ export default function NewTournamentPage() {
           </>
         )}
 
+        {sport === "tennis" && (
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="team_ties" defaultChecked className="mt-0.5 h-4 w-4" />
+            <span>
+              Nations team competition
+              <span className="block text-xs text-muted">
+                Nations meet in ties of two singles and a doubles, in groups and then placement draws that decide
+                every place (Junior Davis Cup and Junior Billie Jean King Cup format).
+              </span>
+            </span>
+          </label>
+        )}
+
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="is_demo" className="h-4 w-4" />
           Demo / training tournament (for referee training and screen testing)

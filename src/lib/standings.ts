@@ -36,7 +36,7 @@ export function isFinished(status: string): boolean {
   return FINISHED.includes(status);
 }
 
-function gamesFromSnapshot(snap: MatchSnapshot | null): { a: number; b: number; setsA: number; setsB: number } {
+export function gamesFromSnapshot(snap: MatchSnapshot | null): { a: number; b: number; setsA: number; setsB: number } {
   if (!snap) return { a: 0, b: 0, setsA: 0, setsB: 0 };
   const completed: CompletedSet[] = Array.isArray(snap.completed_sets) ? snap.completed_sets : [];
   let a = 0;

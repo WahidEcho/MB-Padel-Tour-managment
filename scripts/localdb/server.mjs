@@ -25,6 +25,9 @@ const pg = new PGlite(process.env.LOCALDB_DIR || undefined);
 async function boot() {
   const { rows } = await pg.query("select to_regclass('public.tournaments') t");
   if (!rows[0].t) {
+    // Supabase's API roles, which the migrations' policies name.
+    await pg.exec("do $$ begin create role anon; exception when duplicate_object then null; end $$;");
+    await pg.exec("do $$ begin create role authenticated; exception when duplicate_object then null; end $$;");
     await pg.exec(fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8"));
     // Migrations after the schema snapshot (0014 onwards) are applied on top.
     const dir = path.join(ROOT, "supabase/migrations");
@@ -134,6 +137,13 @@ function parseList(s) {
   return out;
 }
 
+/** A text parameter cast to the column's own type, as PostgREST does. */
+function typed(table, column, placeholder) {
+  const type = COLS[table]?.[column];
+  if (!type || type === "ARRAY" || type === "USER-DEFINED" || column.includes("->")) return placeholder;
+  return `(${placeholder}::text)::${type === "jsonb" || type === "json" ? type : type}`;
+}
+
 /** One condition, e.g. column "status", expr "in.(a,b)" → SQL. */
 function condition(table, column, expr, params) {
   const col = column.includes("->") ? jsonPath(column) : ident(column);
@@ -148,7 +158,7 @@ function condition(table, column, expr, params) {
   let sql;
   if (OPS[op]) {
     params.push(op === "like" || op === "ilike" ? raw.replace(/\*/g, "%") : raw);
-    sql = `${col} ${OPS[op]} $${params.length}`;
+    sql = op === "like" || op === "ilike" ? `${col} ${OPS[op]} $${params.length}` : `${col} ${OPS[op]} ${typed(table, column, `$${params.length}`)}`;
   } else if (op === "is") {
     const v = raw.toLowerCase();
     if (!["null", "true", "false", "unknown"].includes(v)) throw new Unsupported(`is.${raw}`);
@@ -159,7 +169,7 @@ function condition(table, column, expr, params) {
     else {
       const ph = vals.map((v) => {
         params.push(v);
-        return `$${params.length}`;
+        return typed(table, column, `$${params.length}`);
       });
       sql = `${col} in (${ph.join(",")})`;
     }

@@ -26,7 +26,9 @@ export async function createTournament(formData: FormData) {
         legs: String(formData.get("legs") ?? "1") === "2" ? 2 : 1,
         thirdPlaceMatch: formData.get("third_place") === "on",
       }
-    : undefined;
+    : sport === "tennis" && formData.get("team_ties") === "on"
+      ? { type: "group_knockout", qualifyPerGroup: 2, thirdPlaceMatch: false, ties: {} }
+      : undefined;
 
   const slug = `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`;
   const { data: tournament, error } = await db()

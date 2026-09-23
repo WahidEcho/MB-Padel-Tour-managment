@@ -18,3 +18,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `src/app/api/matches/[matchId]/events/route.ts` (ordered events, device lock, 409 conflicts).
 - Verify with: `npm run lint`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`, and the
   live-DB E2E: `npx tsx --env-file=.env.local scripts/smoke.ts` (creates + deletes its own data).
+- No network route to the live project (cloud sessions): `npm run localdb` starts a local stand-in
+  (PGlite + a PostgREST-compatible server on :54321, schema from `supabase/schema.sql` plus
+  migrations ≥ 0014). Point `SUPABASE_URL=http://localhost:54321` at it and every E2E script runs.
+  New migrations must also be applied to the live project (Supabase MCP `apply_migration`).
+- Tennis team competitions (nations, ties of S2/S1/D rubbers, ITF ranking, placement draws for every
+  place): `src/lib/tennis/`, admin pages `nations` and `ties`, gate `scripts/e2e/tennis-ties.ts`.
