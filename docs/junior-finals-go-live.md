@@ -3,17 +3,20 @@
 Davis Cup Junior Finals and Billie Jean King Cup Junior Finals, Smash Sporting Club, 2–8 November 2026.
 Two TV courts, one TV each. Everything below is done in the app unless it says otherwise.
 
-## Must be done before the on-site rehearsal (25 September)
+## Before the rehearsal (25 September)
+
+1. **Ship the tennis work to production.** Done: branch `main-uhj0tx` merged into `main`.
+
+## After the rehearsal, before 2 November
 
 1. **Close the database's open door.** The live database lets its `anon` key read and write every table,
    and the app uses that key on the server. Anyone who obtained it could rewrite scores or read player data.
    - In Supabase, copy the project's **secret** (service role) key.
-   - In Vercel, set it as `SUPABASE_KEY` for Production and Preview, then redeploy.
-   - Then apply a migration that drops the `server_full_access` policies for `anon` and `authenticated`.
-     The server key bypasses row-level security, so the app keeps working; the anon key then opens nothing.
+   - In Vercel, set it as `SUPABASE_KEY` for Production and Preview, then redeploy and check the site.
+   - Only then apply a migration that drops the `server_full_access` policies for `anon` and `authenticated`.
+     The secret key bypasses row-level security, so the app keeps working; the anon key then opens nothing.
+     (Dropping them first would blank every page and TV.)
    - Check: the Supabase security advisor, and a smoke run (`scripts/smoke.ts`).
-2. **Ship the tennis work to production.** Merge branch `main-uhj0tx` into `main` (ask for the pull request),
-   check the preview first, then promote.
 
 Not used for this event, by decision: the voice umpire (referees keep it off) and player photos (the TVs
 show initials on each nation's flag).
