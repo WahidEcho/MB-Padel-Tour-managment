@@ -3,7 +3,7 @@
 Davis Cup Junior Finals and Billie Jean King Cup Junior Finals, Smash Sporting Club, 2–8 November 2026.
 Two TV courts, one TV each. Everything below is done in the app unless it says otherwise.
 
-## Must be done before the on-site rehearsal (by 26 October)
+## Must be done before the on-site rehearsal (25 September)
 
 1. **Close the database's open door.** The live database lets its `anon` key read and write every table,
    and the app uses that key on the server. Anyone who obtained it could rewrite scores or read player data.
@@ -14,11 +14,9 @@ Two TV courts, one TV each. Everything below is done in the app unless it says o
    - Check: the Supabase security advisor, and a smoke run (`scripts/smoke.ts`).
 2. **Ship the tennis work to production.** Merge branch `main-uhj0tx` into `main` (ask for the pull request),
    check the preview first, then promote.
-3. **Record the tennis voice** on a Mac, once:
-   `npm install --no-save kokoro-js@1.2.1 && npm run voice -- --provider kokoro`, then commit
-   `public/voice/en-v3`. Until then phones use the older voice without nation names or the tennis calls.
-4. **Photos.** Upload federation-approved photos per player on each event's Nations page (consent is the
-   federation's). Players without a photo show their initials on the flag.
+
+Not used for this event, by decision: the voice umpire (referees keep it off) and player photos (the TVs
+show initials on each nation's flag).
 
 ## Setting up the two events
 
@@ -43,8 +41,8 @@ to Court 1, or open the other event's TV link on that screen.
 6. **Order of play**: on each tie card, **Court and time** — the court and the not-before time, in Cairo
    time. The tie's rubbers follow at 90-minute intervals. Do this on the Ties page; the Rubbers page's time
    field reads times as UTC.
-7. **Referee phones**: each referee signs in with the referee code, opens their rubber, turns the voice on and
-   pairs a speaker. Keep the page open all match.
+7. **Referee phones**: each referee signs in with the referee code and opens their rubber. Keep the page open
+   all match.
 
 ## Every morning
 
@@ -74,7 +72,7 @@ to Court 1, or open the other event's TV link on that screen.
 
 ## The rehearsal (the gate)
 
-A dry run on the real courts, TVs and phones about a week before 2 November, trying on purpose:
+A dry run on the real courts, TVs and phones on 25 September, trying on purpose:
 a late line-up change, a referee phone in airplane mode for a game, a rain delay with a break and a delayed
 order of play, and a finals tie through to its result. The same week has been rehearsed in software
 (`scripts/e2e/tennis-week.ts`).
@@ -84,4 +82,12 @@ order of play, and a finals tie through to its result. The same week has been re
 - Rules follow standard tennis and the ITF junior team format as researched; the 2026 regulations PDF has not
   been read against them.
 - The break screen's title is the event's holding title, not a per-break message.
-- Walk-on photos come only from uploads; nothing is pulled from outside sources.
+- No photos: walk-ons and score rows show initials on the flag.
+
+## The finals replay demo (for the rehearsal)
+
+`Junior Team Finals Demo — The finals, replayed` is loaded on the live database: the 2025 Davis Cup Junior final
+(USA d. Japan 2–0) on Court 1 and the 2024 BJK Cup Junior final (USA d. Romania 2–1) on Court 2, with the real
+line-ups and results. Open the two TV links, then **Replay** in the event's admin and press **Play tie** on each
+(pace "Broadcast" is about 8 seconds a point). Only the set scores are real; the points inside them are made up
+to fit. To play them again, delete the event and reload it from `scripts/demo/finals-demo.ts`.

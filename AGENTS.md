@@ -34,7 +34,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `npm run e2e:tennis-voice` (see the script header for its two passes; never commit the tone test pack).
 - Finals replay (demo events only): `src/lib/tennis/replay.ts` turns a real score line into points the engine
   confirms; admin page `replay` plays a tie's rubbers through the events API (results in
-  `format_config.ties.replays`). Demo `scripts/demo/finals-demo.ts` (2025 boys', 2024 girls' finals, kept live);
+  `format_config.ties.replays`). Demo `scripts/demo/finals-demo.ts` (2025 boys', 2024 girls' finals; loaded on the live project, slug
+  `junior-team-finals-replay-demo`);
   gate `npm run e2e:tennis-replay` on the stand-in.
 - Go-live: `docs/junior-finals-go-live.md`. Ties page has per-tie court + not-before time (entered in Cairo
   time, `zonedToIso`) and "Delay the order of play" (`delayOrderOfPlay`). Week rehearsal of both events with
