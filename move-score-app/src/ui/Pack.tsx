@@ -52,7 +52,7 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
   return (
     <GestureDetector gesture={Gesture.Exclusive(pan, tap)}>
       <View style={{ width: PASS_W, height: PASS_H }} accessible accessibilityRole="button" accessibilityLabel="Sealed event pass. Drag across the top, or double-tap, to open it.">
-        <Animated.View style={[{ height: 66, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden" }, top]}>
+        <Animated.View style={[{ height: 64, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderBottomLeftRadius: 4, borderBottomRightRadius: 4, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, top]}>
           <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Eyebrow size={11} style={{ color: BALL, letterSpacing: 3 }}>← DRAG TO OPEN →</Eyebrow>
           </LinearGradient>
@@ -60,10 +60,10 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
         <View style={{ height: 6, marginHorizontal: 10, borderTopWidth: 2, borderStyle: "dashed", borderColor: "rgba(252,252,0,0.7)" }}>
           <Animated.View style={[{ position: "absolute", top: -12, left: -10, height: 22, borderRadius: 8, backgroundColor: "rgba(252,252,0,0.55)" }, strip]} />
         </View>
-        <Animated.View style={[{ flex: 1, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden" }, body]}>
+        <Animated.View style={[{ flex: 1, borderTopLeftRadius: 4, borderTopRightRadius: 4, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, body]}>
           <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 20 }}>
             <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ width: 190, height: 190 * (74 / 997) }} contentFit="contain" />
-            <Animated.Text style={{ fontFamily: F.display, fontSize: 28, lineHeight: 28, color: "#E8ECF4", textTransform: "uppercase", textAlign: "center" }}>{title}</Animated.Text>
+            <Animated.Text style={{ fontFamily: F.display, fontSize: 30, lineHeight: 29, color: "#E8ECF4", textTransform: "uppercase", textAlign: "center" }}>{title}</Animated.Text>
             <View style={{ backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
               <Eyebrow size={10} style={{ color: "#05060A" }}>Event pass</Eyebrow>
             </View>

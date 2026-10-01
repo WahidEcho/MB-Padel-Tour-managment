@@ -27,8 +27,7 @@
       "cwd": "move-score-app",
       "port": 8099,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3077",
-        "CI": "1"
+        "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3077"
       }
     },
     {

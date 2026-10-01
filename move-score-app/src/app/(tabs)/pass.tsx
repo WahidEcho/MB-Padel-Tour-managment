@@ -13,6 +13,7 @@ import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, SectionHeader } from "../../ui/Bits";
 import { PassCard, type PassEvent } from "../../ui/PassCard";
 import { Pack } from "../../ui/Pack";
+import { Pins } from "../../ui/Pins";
 import { session } from "../../state/session";
 import { useFollowsOf } from "../../state/follows";
 
@@ -24,8 +25,16 @@ function eventDays(a: string | null, b: string | null): string[] {
   return out;
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Wed 4 Nov" */
+function dayLabel(iso: string): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
 export default function PassTab() {
-  const { t } = useTheme();
+  const { t, calm } = useTheme();
   const qc = useQueryClient();
   const group = useFeaturedGroup();
   const slugs = useFeaturedSlugs();
@@ -36,6 +45,7 @@ export default function PassTab() {
   const supporting = useFollowsOf("nation");
   const [opening, setOpening] = useState(false);
   const [name, setName] = useState("");
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A failed open reseals the pack: a new key gives a fresh, untorn Pack.
   const [packKey, setPackKey] = useState(0);
@@ -74,13 +84,15 @@ export default function PassTab() {
     }
   };
   const nationIso = nations.find((n) => n.code === pass?.nationCode)?.iso2 ?? null;
+  const today = new Date().toISOString().slice(0, 10);
+  const stampedToday = Boolean(pass?.stamps.includes(today));
   return (
     <Screen onRefresh={() => q.refetch()}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-        <Display size={26}>My pass</Display>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 14 }}>
+        <Display size={24}>My pass</Display>
         <Chip label={pass ? (pass.edition === "staff" ? "Accredited" : pass.onsiteUnlockedAt ? "On-site" : "Opened") : "Sealed"} ball={Boolean(pass?.onsiteUnlockedAt || pass?.edition === "staff")} />
       </View>
-      <View style={{ alignItems: "center", marginTop: 18 }}>
+      <View style={{ alignItems: "center", paddingTop: 6 }}>
         {pass && !opening ? (
           <Animated.View entering={ZoomIn.springify().damping(12)}>
             <PassCard pass={pass} event={event} nationIso2={nationIso} />
@@ -96,59 +108,63 @@ export default function PassTab() {
       )}
       {pass && (
         <Animated.View entering={FadeInDown.delay(250)} style={{ gap: 8, marginTop: 18 }}>
-          <Button label={pass.onsiteUnlockedAt ? "Stamp today: scan the venue code" : "Scan the venue code"} onPress={() => router.push("/scan")} />
+          {!calm && (
+            <Eyebrow tone="ink3" style={{ textAlign: "center", letterSpacing: 1.5 }}>
+              {"📱  Tilt your phone"}
+            </Eyebrow>
+          )}
+          <Button label={stampedToday ? `Stamped · ${dayLabel(today)}` : "Scan the venue code"} onPress={() => router.push("/scan")} />
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Button kind="ghost" label="Share pass" onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: "pass" } })} style={{ flex: 1 }} />
             {cfg.data?.flags.wallet ? (
               <Button kind="ghost" label="Add to Wallet" onPress={() => void Linking.openURL(apiUrl(`/api/mobile/v1/passes/${pass.id}/${process.env.EXPO_OS === "android" ? "google" : "apple"}`))} style={{ flex: 1 }} />
             ) : null}
           </View>
-          <Body tone="ink3" size={12} style={{ textAlign: "center" }}>
-            {pass.onsiteUnlockedAt ? `Stamped on ${pass.stamps.length} ${pass.stamps.length === 1 ? "day" : "days"}. Scan again each day you come.` : "Scan the code at the gate to unlock the on-site edition."}
-          </Body>
-          <SectionHeader title="Name on the pass" />
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <TextInput
-              defaultValue={pass.holderName ?? ""}
-              onChangeText={setName}
-              maxLength={40}
-              placeholder="Your name"
-              placeholderTextColor={t.ink3}
-              accessibilityLabel="Name on the pass"
-              style={{ flex: 1, backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, color: t.ink, fontSize: 15 }}
-            />
-            <Button label="Save" onPress={() => void update({ holderName: name })} />
-          </View>
-          {nations.length > 0 && (
-            <>
-              <SectionHeader title="Your nation" />
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                {nations.map((n) => (
-                  <Card key={n.code} onPress={() => void update({ nationCode: n.code })} style={{ paddingVertical: 8, paddingHorizontal: 10, flexDirection: "row", gap: 6, alignItems: "center", borderColor: pass.nationCode === n.code ? t.ball : t.line, borderWidth: pass.nationCode === n.code ? 2 : 1 }}>
-                    <Flag iso2={n.iso2} code={n.code} size={18} />
-                    <Body weight="semi" size={13}>{n.code}</Body>
-                  </Card>
-                ))}
-              </View>
-            </>
-          )}
-          {cfg.data?.flags.pins && (
-            <>
-              <SectionHeader title="Nation pins" action={`${pass.pins.length} of ${nations.length}`} />
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                {nations.map((n) => {
-                  const got = pass.pins.includes(n.code);
-                  return (
-                    <View key={n.code} style={{ width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", backgroundColor: got ? "#E0BC1F" : t.chip, borderWidth: got ? 0 : 1, borderStyle: "dashed", borderColor: t.line, opacity: got ? 1 : 0.5 }}>
-                      <Flag iso2={n.iso2} code={n.code} size={30} />
-                    </View>
-                  );
-                })}
-              </View>
-              <Eyebrow tone="ink3" style={{ marginTop: 8 }}>Follow a nation, or support it on-site, to collect its pin.</Eyebrow>
-            </>
-          )}
         </Animated.View>
+      )}
+      {nations.length > 0 && (
+        <>
+          <SectionHeader title="Nation pins" action={`${pass?.pins.length ?? 0} of ${nations.length}`} />
+          <Pins nations={nations.map((n) => ({ code: n.code, iso2: n.iso2, name: n.name }))} got={pass?.pins ?? []} />
+          <Body tone="ink3" size={12} style={{ marginTop: 12, textAlign: "center" }}>Follow a nation, or support it on-site, to collect its pin.</Body>
+        </>
+      )}
+      {pass && (
+        <View style={{ marginTop: 22 }}>
+          <Body tone="blue" weight="semi" size={13} onPress={() => setEditing((e) => !e)} accessibilityRole="button" style={{ textAlign: "center" }}>
+            {editing ? "Done" : "Edit name and nation"}
+          </Body>
+          {editing && (
+            <>
+              <SectionHeader title="Name on the pass" />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  defaultValue={pass.holderName ?? ""}
+                  onChangeText={setName}
+                  maxLength={40}
+                  placeholder="Your name"
+                  placeholderTextColor={t.ink3}
+                  accessibilityLabel="Name on the pass"
+                  style={{ flex: 1, backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, color: t.ink, fontSize: 15 }}
+                />
+                <Button label="Save" onPress={() => void update({ holderName: name })} />
+              </View>
+              {nations.length > 0 && (
+                <>
+                  <SectionHeader title="Your nation" />
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {nations.map((n) => (
+                      <Card key={n.code} onPress={() => void update({ nationCode: n.code })} style={{ paddingVertical: 8, paddingHorizontal: 10, flexDirection: "row", gap: 6, alignItems: "center", borderColor: pass.nationCode === n.code ? t.ball : t.line, borderWidth: pass.nationCode === n.code ? 2 : 1 }}>
+                        <Flag iso2={n.iso2} code={n.code} size={18} />
+                        <Body weight="semi" size={13}>{n.code}</Body>
+                      </Card>
+                    ))}
+                  </View>
+                </>
+              )}
+            </>
+          )}
+        </View>
       )}
       {!installed && <Body tone="ink3" size={12} style={{ marginTop: 14, textAlign: "center" }}>Connecting…</Body>}
     </Screen>

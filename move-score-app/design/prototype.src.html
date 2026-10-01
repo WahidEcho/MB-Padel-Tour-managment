@@ -327,7 +327,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pass-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 18px; }
 .pins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .pin { aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; position: relative; background: var(--chip-bg); border: 1px dashed var(--line); }
-.pin img { width: 56%; border-radius: 3px; filter: grayscale(1) opacity(.35); }
+.pin { align-content: center; gap: 4px; }
+.pin img { width: 46%; border-radius: 3px; filter: grayscale(1) opacity(.35); }
+.pin b { font-family: var(--f-data); font-stretch: 75%; font-weight: 800; font-size: 12px; letter-spacing: .06em; color: var(--ink-3); line-height: 1; position: relative; z-index: 1; }
+.pin.got b { color: #3d3200; }
 .pin.got { border: 0; background: radial-gradient(circle at 35% 30%, #fff9, transparent 40%), linear-gradient(145deg, #ffe066, #c9a400); box-shadow: 0 4px 0 #8a7000, 0 10px 20px rgba(0,0,0,.3); }
 .pin.got img { filter: none; box-shadow: 0 0 0 2px #8a7000; }
 .pin.got::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(120deg, transparent 35%, rgba(255,255,255,.7) 50%, transparent 65%); background-size: 260% 100%; animation: sheen 3s linear infinite; }
@@ -898,7 +901,7 @@ $('#walletBtn').addEventListener('click', () => toast('Opens Apple Wallet on the
 (() => { const c = $('#qr').getContext('2d'); let s = 418; const r = () => (s = (s * 9301 + 49297) % 233280) / 233280; c.fillStyle = '#05060a'; for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) { const f = (x < 7 && y < 7) || (x > 13 && y < 7) || (x < 7 && y > 13); if (f) { const e = x % 14 === 0 || x % 14 === 6 || y % 14 === 0 || y % 14 === 6 || (x % 14 > 1 && x % 14 < 5 && y % 14 > 1 && y % 14 < 5); if (e && !(x > 6 && x < 14) && !(y > 6 && y < 14)) c.fillRect(x, y, 1, 1); } else if (r() > .5) c.fillRect(x, y, 1, 1); } })();
 const PINS = ['USA', 'JPN', 'EGY', 'FRA', 'CAN', 'ITA', 'GER', 'AUS'];
 const pins = new Set(['USA', 'JPN', 'FRA']);
-function renderPins(newOne) { $('#pins').innerHTML = PINS.map(c => `<span class="pin ${pins.has(c) ? 'got' : ''} ${c === newOne ? 'new' : ''}" title="${c}"><img src="${FLAGS[c]}" alt="${c}"></span>`).join(''); $('#pinCount').textContent = `${pins.size} of 16`; }
+function renderPins(newOne) { $('#pins').innerHTML = PINS.map(c => `<span class="pin ${pins.has(c) ? 'got' : ''} ${c === newOne ? 'new' : ''}" title="${c}"><img src="${FLAGS[c]}" alt=""><b>${c}</b></span>`).join(''); $('#pinCount').textContent = `${pins.size} of 16`; }
 function collectPin(c) { if (pins.has(c)) return; pins.add(c); renderPins(c); }
 renderPins();
 
