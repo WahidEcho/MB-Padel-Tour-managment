@@ -4,9 +4,49 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3001"
+      ],
       "url": "http://localhost:3001",
       "port": 3001
+    },
+    {
+      "name": "move-score-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8099"
+      ],
+      "cwd": "move-score-app",
+      "port": 8099,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3077"
+      }
+    },
+    {
+      "name": "localdb",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "localdb"
+      ],
+      "port": 54321
+    },
+    {
+      "name": "move-score-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env.localdb; set +a; exec npx next dev -p 3077"
+      ],
+      "port": 3077
     }
   ]
 }

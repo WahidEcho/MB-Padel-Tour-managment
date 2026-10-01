@@ -7,6 +7,7 @@ import { createManualMatch, deleteMatch, regenerateMatches, releaseScoringLock, 
 import GroupStageRegenerateForm from "../GroupStageRegenerateForm";
 import { summarizeBrackets } from "@/lib/ops";
 import { getLiveLeasesByMatch } from "@/lib/scoringControl";
+import { EVENT_TIME_ZONE, isoToZonedInput } from "@/lib/tennis/ties";
 import SessionRowNotice from "../SessionRowNotice";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
     getLiveLeasesByMatch(id),
   ]);
   if (!tournament) notFound();
+  const zone = tournament.timezone || EVENT_TIME_ZONE;
   // A session's matches are its schedule and its points; they are managed from the
   // session page, whose rules revert points when a result is undone. The one tool
   // shared with sessions stays: a referee tablet that died holding a match's
@@ -146,14 +148,14 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
                     <input
                       name="scheduled_time"
                       type="datetime-local"
-                      defaultValue={m.scheduled_time ? m.scheduled_time.slice(0, 16) : ""}
+                      defaultValue={isoToZonedInput(m.scheduled_time, zone)}
                       className="input w-44 px-2 py-1 text-xs"
                     />
                     <button className="btn-secondary px-2 py-1 text-xs">Save</button>
                   </form>
                 </td>
                 <td className="px-2 py-2 text-xs text-muted">
-                  {m.scheduled_time ? new Date(m.scheduled_time).toLocaleString() : "order only"}
+                  {m.scheduled_time ? new Date(m.scheduled_time).toLocaleString("en-GB", { timeZone: zone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "order only"}
                 </td>
                 <td className="px-2 py-2">
                   <MatchStatusBadge status={m.status} />

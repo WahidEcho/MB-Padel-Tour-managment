@@ -15,10 +15,12 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 
 const PORT = Number(process.env.LOCALDB_PORT ?? 54321);
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+// fileURLToPath, not .pathname: a checkout under a folder with spaces would otherwise read as %20.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /* ---------------- database ---------------- */
 const pg = new PGlite(process.env.LOCALDB_DIR || undefined);
@@ -255,12 +257,23 @@ async function shape(table, rows, sel) {
   }
   return rows;
 }
+/** A JSON-path column ("state->teamA->games", "->>" for text) read from a row, as PostgREST returns it. */
+function jsonPick(row, path) {
+  const parts = path.split(/->>?/);
+  let v = row[parts[0]];
+  for (const key of parts.slice(1)) {
+    if (v === null || v === undefined || typeof v !== "object") return null;
+    v = v[key];
+  }
+  if (v === undefined) return null;
+  return path.includes("->>") && v !== null && typeof v !== "string" ? String(v) : v;
+}
 function project(row, sel) {
   const out = {};
   if (sel.star || (sel.cols.length === 0 && sel.embeds.length === 0)) {
     for (const [k, v] of Object.entries(row)) if (!k.startsWith("__embed_")) out[k] = v;
   }
-  for (const c of sel.cols) out[c.alias] = row[c.name];
+  for (const c of sel.cols) out[c.alias] = c.name.includes("->") ? jsonPick(row, c.name) : row[c.name];
   for (const e of sel.embeds) out[e.alias] = row[`__embed_${e.alias}`];
   return out;
 }

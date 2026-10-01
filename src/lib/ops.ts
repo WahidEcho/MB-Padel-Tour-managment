@@ -1136,6 +1136,10 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
     entity_id: match.id,
     new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null },
   });
+  {
+    const { notifyMatchFinished } = await import("./notify/hooks");
+    await notifyMatchFinished(match.id);
+  }
 
   if (match.tie_id) {
     // A rubber: its tie decides standings and advancement, not the match itself.

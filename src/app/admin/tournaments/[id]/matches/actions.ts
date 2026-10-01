@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { deleteManualMatch } from "@/lib/ops";
 import { endLease } from "@/lib/scoringControl";
+import { EVENT_TIME_ZONE, zonedToIso } from "@/lib/tennis/ties";
 import { entityRefusal, ownershipRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { runGroupStageRegeneration, type GroupStageFormState } from "../groupStage";
 
@@ -30,12 +31,15 @@ export async function updateMatchSchedule(formData: FormData) {
   if (courtId) refuse(await ownershipRefusal(tournamentId, "courts", courtId));
   const order = parseInt(String(formData.get("match_order") ?? ""), 10);
   const time = String(formData.get("scheduled_time") ?? "");
+  // The input is the event's wall clock; the server runs in UTC.
+  const { data: tz } = await db().from("tournaments").select("timezone").eq("id", tournamentId).maybeSingle();
+  const zone = (tz as { timezone?: string | null } | null)?.timezone || EVENT_TIME_ZONE;
   await db()
     .from("matches")
     .update({
       court_id: courtId || null,
       match_order: Number.isFinite(order) ? order : undefined,
-      scheduled_time: time ? new Date(time).toISOString() : null,
+      scheduled_time: time ? zonedToIso(time, zone) : null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", matchId)
@@ -47,6 +51,8 @@ export async function updateMatchSchedule(formData: FormData) {
     entity_type: "match",
     entity_id: matchId,
   });
+  const { notifyMatchScheduled } = await import("@/lib/notify/hooks");
+  await notifyMatchScheduled(matchId);
   revalidatePath(path(tournamentId));
 }
 

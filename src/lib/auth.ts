@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from "crypto";
-import { cookies } from "next/headers";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { cookies, headers } from "next/headers";
 import type { Role } from "./types";
 
 const COOKIE_NAME = "mb_session";
@@ -15,8 +15,11 @@ function sign(payload: string): string {
   return createHmac("sha256", secret()).update(payload).digest("base64url");
 }
 
-export function createSessionToken(role: Role): string {
-  const payload = `${role}.${Date.now() + SESSION_HOURS * 3600_000}`;
+/** The app keeps a staff session for a week: a 24-hour token can expire mid-match. */
+export const APP_SESSION_HOURS = 24 * 7;
+
+export function createSessionToken(role: Role, hours = SESSION_HOURS): string {
+  const payload = `${role}.${Date.now() + hours * 3600_000}`;
   return `${payload}.${sign(payload)}`;
 }
 
@@ -42,13 +45,29 @@ export function roleForPassword(password: string): Role | null {
     [process.env.REFEREE_PASSWORD, "referee"],
     [process.env.OPERATOR_PASSWORD, "operator"],
   ];
+  // Compare digests, so every comparison takes the same time whatever the input.
+  const given = createHash("sha256").update(password).digest();
+  let found: Role | null = null;
   for (const [pw, role] of map) {
-    if (pw && password === pw) return role;
+    if (!pw) continue;
+    if (timingSafeEqual(given, createHash("sha256").update(pw).digest()) && !found) found = role;
   }
-  return null;
+  return found;
+}
+
+/** The token from an `Authorization: Bearer …` header, as the app sends it. */
+export function bearerToken(h: Headers): string | undefined {
+  const v = h.get("authorization");
+  if (!v || !v.toLowerCase().startsWith("bearer ")) return undefined;
+  return v.slice(7).trim() || undefined;
 }
 
 export async function currentRole(): Promise<Role | null> {
+  // The app has no cookie jar for our domain: it sends the same signed token as a
+  // bearer header. A token that is not ours (a user's Supabase session) simply
+  // fails the signature check and falls through to the cookie.
+  const fromHeader = verifySessionToken(bearerToken(await headers()));
+  if (fromHeader) return fromHeader;
   const store = await cookies();
   return verifySessionToken(store.get(COOKIE_NAME)?.value);
 }
@@ -58,6 +77,7 @@ export async function setSessionCookie(role: Role) {
   store.set(COOKIE_NAME, createSessionToken(role), {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: SESSION_HOURS * 3600,
   });

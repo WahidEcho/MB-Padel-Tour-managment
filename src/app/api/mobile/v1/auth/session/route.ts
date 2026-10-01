@@ -1,0 +1,59 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/supabase";
+import { checkRateLimit, clientIpFrom } from "@/lib/ratelimit";
+import { appleRefreshToken, authClient, sealToken } from "@/lib/auth/users";
+import { readJson } from "@/lib/mobile/http";
+
+/**
+ * Sign in with Apple or Google. Accounts are for people aged 16 and over (the
+ * app asks first); younger fans use the app as a guest, which keeps every feature
+ * except syncing across phones.
+ */
+export async function POST(request: Request) {
+  const rl = await checkRateLimit({ key: `signin:${clientIpFrom(request.headers)}`, limit: 60, windowSeconds: 600 });
+  if (!rl.allowed) return NextResponse.json({ error: "Too many sign-ins from this network. Try again shortly." }, { status: 429 });
+  const body = await readJson<{
+    provider?: "apple" | "google";
+    idToken?: string;
+    nonce?: string;
+    authorizationCode?: string;
+    ageConfirmed?: boolean;
+    displayName?: string;
+  }>(request);
+  if (body?.ageConfirmed !== true) return NextResponse.json({ error: "Accounts are for people aged 16 and over." }, { status: 400 });
+  if (body.provider !== "apple" && body.provider !== "google") return NextResponse.json({ error: "provider must be apple or google" }, { status: 400 });
+  if (!body.idToken) return NextResponse.json({ error: "idToken required" }, { status: 400 });
+
+  const { data, error } = await authClient().auth.signInWithIdToken({
+    provider: body.provider,
+    token: body.idToken,
+    ...(body.nonce ? { nonce: body.nonce } : {}),
+  });
+  if (error || !data.session || !data.user) {
+    return NextResponse.json({ error: "Sign-in was not accepted. Try again." }, { status: 401 });
+  }
+  const meta = (data.user.user_metadata ?? {}) as { full_name?: string; name?: string };
+  const displayName = (body.displayName || meta.full_name || meta.name || "").trim().slice(0, 60) || null;
+  const row: Record<string, unknown> = {
+    auth_user_id: data.user.id,
+    provider: body.provider,
+    age_confirmed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (displayName) row.display_name = displayName;
+  if (body.provider === "apple" && body.authorizationCode) {
+    const refresh = await appleRefreshToken(body.authorizationCode);
+    if (refresh) row.apple_refresh_token_enc = sealToken(refresh);
+  }
+  await db().from("app_users").upsert(row, { onConflict: "auth_user_id" });
+  return NextResponse.json(
+    {
+      userId: data.user.id,
+      displayName,
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      expiresAt: data.session.expires_at ?? null,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}

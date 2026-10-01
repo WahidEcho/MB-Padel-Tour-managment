@@ -3,7 +3,9 @@ import { getGroups, getStandings, getTeams, getTournamentBySlug, teamMap } from 
 import AutoRefresh from "@/components/AutoRefresh";
 import StandingsTable from "@/components/StandingsTable";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 8s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 8;
 
 export default async function PublicLeaderboard({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

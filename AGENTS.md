@@ -42,3 +42,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   an offline referee, a late line-up change and rain: `npm run e2e:tennis-week` (stand-in, cleans up).
 - Open go-live item (agreed for after the 25 Sept rehearsal): live RLS still grants `anon` full access
   (`server_full_access`); switch `SUPABASE_KEY` to the secret key in Vercel before dropping those policies.
+- Move Score mobile app: `move-score-app/` (Expo SDK 57). Its plan and decisions are
+  `move-score-app/PRODUCT_PLAN.md` (single source of truth). The app imports pure code from
+  `src/lib` through `move-score-app/src/core/index.ts`; anything it imports must stay free of
+  Node, browser and Next.js APIs. App API: `src/app/api/mobile/v1/*`, contract in
+  `src/lib/mobile/contract.ts`. App API check: `npx tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts`.
+- Database gate (still open): `supabase/gate/close_open_access.sql` — apply only after
+  production's `SUPABASE_KEY` is the secret key and `/api/health/db` reports `"key":"secret"`.

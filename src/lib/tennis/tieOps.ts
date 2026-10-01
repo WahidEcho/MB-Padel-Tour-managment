@@ -263,6 +263,8 @@ export async function lockLineups(tieId: string, actorRole: string): Promise<Lin
     .select("tournament_id")
     .single();
   await audit({ tournament_id: tie?.tournament_id ?? null, actor_role: actorRole, action: "LINEUPS_LOCKED", entity_type: "tie", entity_id: tieId });
+  const { notifyLineups } = await import("../notify/hooks");
+  await notifyLineups(tieId);
   return { ok: true };
 }
 
@@ -341,6 +343,10 @@ export async function applyTieResult(tieId: string, opts: { dryRun?: boolean } =
       entity_id: tieId,
       new_value: { winner_team_id: winnerId, rubbers: `${outcome.rubbersA}-${outcome.rubbersB}` },
     });
+    if (winnerId) {
+      const { notifyTieDecided } = await import("../notify/hooks");
+      await notifyTieDecided(tieId);
+    }
   }
   if (tie.stage === "group") await recalcTieStandings(tie.tournament_id);
   return { ok: true, tie: updated as Tie };
@@ -562,8 +568,10 @@ export async function delayOrderOfPlay(
   }
   const [{ data: ties }, { data: rubbers }] = await Promise.all([tieQuery, rubberQuery]);
   const now = new Date().toISOString();
+  const { notifyTieScheduled } = await import("../notify/hooks");
   for (const row of ties ?? []) {
     await db().from("ties").update({ scheduled_time: shiftTime(row.scheduled_time as string, m) }).eq("id", row.id);
+    await notifyTieScheduled(row.id as string, { court_id: courtId, scheduled_time: row.scheduled_time as string });
   }
   for (const row of rubbers ?? []) {
     await db().from("matches").update({ scheduled_time: shiftTime(row.scheduled_time as string, m), updated_at: now }).eq("id", row.id);
@@ -614,5 +622,9 @@ export async function scheduleTie(
     old_value: { court_id: tie.court_id, scheduled_time: tie.scheduled_time },
     new_value: { court_id: courtId, scheduled_time: at },
   });
+  if (tie.court_id !== courtId || tie.scheduled_time !== at) {
+    const { notifyTieScheduled } = await import("../notify/hooks");
+    await notifyTieScheduled(tieId, tie.scheduled_time || tie.court_id ? { court_id: tie.court_id, scheduled_time: tie.scheduled_time } : null);
+  }
   return { ok: true };
 }

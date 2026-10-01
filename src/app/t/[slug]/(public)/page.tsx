@@ -15,7 +15,9 @@ import LiveMatchCard from "@/components/LiveMatchCard";
 import ChessLiveCard from "@/components/ChessLiveCard";
 import StandingsTable from "@/components/StandingsTable";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 6s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 6;
 
 export default async function PublicOverview({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

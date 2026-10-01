@@ -15,7 +15,13 @@ import {
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 3s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 3;
+
+export function generateStaticParams() {
+  return [];
+}
 
 export default async function PublicMatch({
   params,

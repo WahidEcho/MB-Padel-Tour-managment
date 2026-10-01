@@ -305,6 +305,16 @@ export interface Tournament {
   public_access_enabled: boolean;
   created_at: string;
   updated_at: string;
+  /** Move Score app (migration 0015): the event it belongs to, where and when. */
+  event_group_id?: string | null;
+  venue_name?: string | null;
+  city?: string | null;
+  country_code?: string | null;
+  /** IANA zone the event's times are given in. Defaults to Africa/Cairo. */
+  timezone?: string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  app_skin?: { seedA?: string | null; seedB?: string | null; mode?: "dark" | "light" | null; artworkUrl?: string | null; logoUrl?: string | null; showPhotos?: boolean } | null;
 }
 
 export interface Team {
