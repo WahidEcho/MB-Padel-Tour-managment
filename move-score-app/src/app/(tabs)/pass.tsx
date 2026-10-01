@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Animated, { FadeInDown, ZoomIn } from "react-native-reanimated";
 import type { MPass } from "@core";
-import { api, apiUrl } from "../../api/client";
+import { api, apiUrl, errorMessage } from "../../api/client";
 import { useBundle, useConfig } from "../../api/queries";
 import { useFeaturedGroup, useFeaturedSlugs } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -36,6 +36,9 @@ export default function PassTab() {
   const supporting = useFollowsOf("nation");
   const [opening, setOpening] = useState(false);
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  // A failed open reseals the pack: a new key gives a fresh, untorn Pack.
+  const [packKey, setPackKey] = useState(0);
   const q = useQuery({
     queryKey: ["pass", group?.id],
     queryFn: () => api<{ pass: MPass | null }>(`/api/mobile/v1/me/pass?group=${group!.id}`, { who: "me" }),
@@ -53,13 +56,22 @@ export default function PassTab() {
     try {
       const r = await api<{ pass: MPass }>("/api/mobile/v1/me/pass", { who: "me", body: { group: group.id, nationCode: supporting[0] } });
       qc.setQueryData(["pass", group.id], r);
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+      setPackKey((k) => k + 1);
     } finally {
       setTimeout(() => setOpening(false), 600);
     }
   };
   const update = async (patch: { holderName?: string; nationCode?: string }) => {
-    const r = await api<{ pass: MPass }>("/api/mobile/v1/me/pass", { who: "me", body: { group: group.id, holderName: patch.holderName ?? pass?.holderName ?? undefined, nationCode: patch.nationCode ?? pass?.nationCode ?? undefined } });
-    qc.setQueryData(["pass", group.id], r);
+    try {
+      const r = await api<{ pass: MPass }>("/api/mobile/v1/me/pass", { who: "me", body: { group: group.id, holderName: patch.holderName ?? pass?.holderName ?? undefined, nationCode: patch.nationCode ?? pass?.nationCode ?? undefined } });
+      qc.setQueryData(["pass", group.id], r);
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   };
   const nationIso = nations.find((n) => n.code === pass?.nationCode)?.iso2 ?? null;
   return (
@@ -74,9 +86,14 @@ export default function PassTab() {
             <PassCard pass={pass} event={event} nationIso2={nationIso} />
           </Animated.View>
         ) : (
-          <Pack title={group.name} onOpen={() => void open()} />
+          <Pack key={packKey} title={group.name} onOpen={() => void open()} />
         )}
       </View>
+      {error && (
+        <Body tone="ink2" size={13} style={{ marginTop: 12, textAlign: "center" }} accessibilityRole="alert">
+          {error}
+        </Body>
+      )}
       {pass && (
         <Animated.View entering={FadeInDown.delay(250)} style={{ gap: 8, marginTop: 18 }}>
           <Button label={pass.onsiteUnlockedAt ? "Stamp today: scan the venue code" : "Scan the venue code"} onPress={() => router.push("/scan")} />

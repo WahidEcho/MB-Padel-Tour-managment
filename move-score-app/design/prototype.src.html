@@ -95,7 +95,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .top { display: flex; justify-content: space-between; align-items: center; height: 40px; margin-bottom: 14px; }
 .wm { height: 15px; display: block; }
 .wm-chip { display: inline-flex; padding: 8px 10px; border-radius: 10px; background: #01041a; }
-.avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--chip-bg); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700; }
+.avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--chip-bg); border: 1px solid var(--line); display: grid; place-items: center; padding: 0; flex: none; font-size: 12px; font-weight: 700; letter-spacing: -.02em; line-height: 1; overflow: hidden; }
 .back { background: var(--chip-bg); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px 7px 9px; font-size: 13px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
 
 .display { font-family: var(--f-display); font-stretch: var(--f-display-stretch); font-weight: 900; letter-spacing: -.01em; line-height: .95; text-transform: uppercase; }
@@ -118,7 +118,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hello .display { font-size: 34px; }
 .hello p { margin: 8px 0 0; color: var(--ink-2); font-size: 14px; }
 .event-hero { position: relative; border-radius: 26px; padding: 18px; background: linear-gradient(160deg, color-mix(in srgb, var(--beam) 38%, var(--surface)) 0%, var(--surface) 55%); border: 1px solid var(--line); overflow: hidden; }
-.phone[data-mode="light"] .event-hero { background: linear-gradient(160deg, #01041a 0%, #0a1438 100%); color: #e8ecf4; --ink-2: #9aa4b8; --chip-bg: rgba(255,255,255,.08); --line: rgba(255,255,255,.1); }
+.phone[data-mode="light"] .event-hero { background: linear-gradient(160deg, color-mix(in srgb, var(--blue) 16%, var(--surface)) 0%, var(--surface) 60%); box-shadow: 0 10px 30px rgba(5,6,10,.06); }
+.phone[data-mode="light"] .twin { background: var(--surface); box-shadow: 0 1px 0 var(--line); }
+.phone[data-mode="light"] .ball-court { box-shadow: 0 0 0 1.5px #05060a, 0 0 40px rgba(252,252,0,.35); }
 .event-hero .meta { display: flex; gap: 8px; align-items: center; }
 .event-hero h2 { margin: 14px 0 4px; font-size: 26px; max-width: 72%; position: relative; }
 .event-hero .sub { color: var(--ink-2); font-size: 13px; }
@@ -133,7 +135,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ball-court::before, .ball-court::after { content: ""; position: absolute; inset: 12%; border-radius: 50%; border: 3px solid rgba(255,255,255,.75); clip-path: inset(0 55% 0 0); }
 .ball-court::after { clip-path: inset(0 0 0 55%); }
 
-.rail { display: flex; gap: 10px; overflow-x: auto; margin: 0 -18px; padding: 0 18px 4px; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.rail { display: flex; gap: 10px; overflow-x: auto; margin: 0 -18px; padding: 0 18px 4px; scroll-padding-inline: 18px; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .rail::-webkit-scrollbar { display: none; }
 .mini { scroll-snap-align: start; flex: 0 0 232px; border-radius: 20px; padding: 13px 14px; background: var(--surface); border: 1px solid var(--line); text-align: left; display: flex; flex-direction: column; gap: 9px; }
 .mini .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
@@ -290,6 +292,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pack.torn .half.b { transform: translateY(520px) rotate(-6deg); opacity: 0; }
 .pass { width: 270px; height: 400px; border-radius: 24px; position: relative; transform-style: preserve-3d; transition: transform .12s ease-out; color: #e8ecf4; display: none; }
 .pass.show { display: block; animation: pass-rise .9s cubic-bezier(.2,1.2,.3,1) both; }
+.pass.show.risen { animation: none; transition: none; }
+.tilt-hint { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; color: var(--ink-3); text-align: center; display: flex; gap: 6px; justify-content: center; align-items: center; }
 @keyframes pass-rise { from { transform: translateY(180px) scale(.7) rotateX(40deg); opacity: 0; } to { transform: none; opacity: 1; } }
 .pass .card { position: absolute; inset: 0; border-radius: 24px; overflow: hidden; background: radial-gradient(160px 220px at 20% 0%, rgba(30,107,255,.55), transparent 70%), radial-gradient(200px 240px at 100% 100%, rgba(252,252,0,.22), transparent 70%), linear-gradient(170deg, #0a1438, #01041a 70%); border: 1px solid rgba(255,255,255,.14); padding: 18px; display: flex; flex-direction: column; }
 .pass .foil { position: absolute; inset: 0; border-radius: 24px; pointer-events: none; mix-blend-mode: color-dodge; opacity: .0; background: linear-gradient(115deg, transparent 20%, rgba(255,0,180,.55) 32%, rgba(0,255,230,.55) 44%, rgba(252,252,0,.6) 56%, rgba(30,107,255,.55) 68%, transparent 80%); background-size: 240% 240%; transition: opacity .6s; }
@@ -515,6 +519,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
             <div class="stampmark">ON-SITE<br>CAIRO<br>2026</div>
           </div>
           <div class="pass-actions" id="passActions" hidden>
+            <div class="tilt-hint">📱 <span id="tiltHint">Tilt your phone · simulated here</span></div>
             <button class="btn primary full" id="scanBtn">Scan the venue code</button>
             <div class="actions" style="margin-top:0"><button class="btn ghost" data-share>Share pass</button><button class="btn ghost" id="walletBtn">Add to Wallet</button></div>
           </div>
@@ -838,14 +843,45 @@ function openPass(instant) {
   setTimeout(() => { pack.style.display = 'none'; $('#pass').classList.add('show'); $('#passActions').hidden = false; }, instant ? 0 : 520);
 }
 const pass = $('#pass');
-$('.pass-wrap').addEventListener('pointermove', e => {
-  if (!passOpen) return;
-  const r = pass.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-  pass.style.transform = `rotateY(${(x - .5) * 22}deg) rotateX(${(.5 - y) * 22}deg)`;
-  pass.style.setProperty('--gx', x * 100 + '%'); pass.style.setProperty('--gy', y * 100 + '%');
-  $('#foil').style.backgroundPosition = `${x * 100}% ${y * 100}%`;
-});
-$('.pass-wrap').addEventListener('pointerleave', () => { pass.style.transform = ''; });
+/* Tilt comes from the phone's motion sensors, not from touch: tilt the phone and the
+   light and foil move across the card. Without a gyroscope (a desktop browser), the
+   card sways on its own as if held in a hand. */
+const tiltState = { x: 0, y: 0, tx: 0, ty: 0, gyro: false, base: null, t0: performance.now() };
+function onOrient(e) {
+  if (e.gamma == null || e.beta == null) return;
+  if (tiltState.base === null) tiltState.base = e.beta;            // the angle the phone is held at becomes "flat"
+  tiltState.gyro = true;
+  tiltState.tx = Math.max(-1, Math.min(1, e.gamma / 28));
+  tiltState.ty = Math.max(-1, Math.min(1, (e.beta - tiltState.base) / 28));
+  $('#tiltHint').textContent = 'Tilt your phone';
+}
+function startGyro() {
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission === 'function') {                 // iPhone asks once, on a tap
+    D.requestPermission().then(r => { if (r === 'granted') addEventListener('deviceorientation', onOrient); }).catch(() => {});
+  } else addEventListener('deviceorientation', onOrient);
+}
+startGyro();
+pack.addEventListener('pointerdown', () => { if (!tiltState.gyro) startGyro(); }, { once: true });
+pass.addEventListener('animationend', e => { if (e.animationName === 'pass-rise') pass.classList.add('risen'); });
+function tiltFrame(now) {
+  requestAnimationFrame(tiltFrame);
+  if (!passOpen || !pass.classList.contains('risen')) return;
+  const calm = phone.classList.contains('calm') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!tiltState.gyro) {                                            // simulated hand movement
+    const t = (now - tiltState.t0) / 1000;
+    tiltState.tx = calm ? 0 : Math.sin(t * 0.9) * 0.75 + Math.sin(t * 2.3) * 0.12;
+    tiltState.ty = calm ? 0 : Math.cos(t * 0.7) * 0.5 + Math.sin(t * 1.7) * 0.1;
+  }
+  const k = calm ? 1 : 0.12;                                       // smoothing so sensor noise never jitters
+  tiltState.x += (tiltState.tx - tiltState.x) * k;
+  tiltState.y += (tiltState.ty - tiltState.y) * k;
+  const { x, y } = tiltState;
+  pass.style.transform = `rotateY(${x * 13}deg) rotateX(${-y * 13}deg)`;
+  pass.style.setProperty('--gx', (50 + x * 45) + '%'); pass.style.setProperty('--gy', (35 + y * 45) + '%');
+  $('#foil').style.backgroundPosition = `${50 + x * 50}% ${50 + y * 50}%`;
+}
+requestAnimationFrame(tiltFrame);
 const DAYS = ['M2', 'T3', 'W4', 'T5', 'F6', 'S7', 'S8'];
 const stamped = new Set(['M2', 'T3']);
 function renderDays() { $('#days').innerHTML = DAYS.map(d => `<span class="day ${stamped.has(d) ? 'st' : ''}">${d.slice(1)}</span>`).join(''); }

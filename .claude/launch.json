@@ -30,6 +30,24 @@
         "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3077",
         "CI": "1"
       }
+    },
+    {
+      "name": "localdb",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "localdb"
+      ],
+      "port": 54321
+    },
+    {
+      "name": "move-score-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env.localdb; set +a; exec npx next dev -p 3077"
+      ],
+      "port": 3077
     }
   ]
 }

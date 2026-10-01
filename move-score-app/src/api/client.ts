@@ -18,6 +18,11 @@ export class ApiError extends Error {
 
 type Who = "public" | "me" | "staff";
 
+export const OFFLINE_MESSAGE = "Can't reach Move Score right now. Check your connection and try again.";
+
+/** A message fit to show a person, whatever was thrown. */
+export const errorMessage = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE_MESSAGE);
+
 async function headersFor(who: Who): Promise<Record<string, string>> {
   const s = session.get();
   const h: Record<string, string> = { Accept: "application/json" };
@@ -63,12 +68,19 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 12_000);
   opts.signal?.addEventListener("abort", () => ctrl.abort());
   try {
-    const res = await fetch(`${config.apiBaseUrl}${path}`, {
-      method: opts.method ?? (opts.body ? "POST" : "GET"),
-      headers: { ...(await headersFor(opts.who ?? "public")), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-      signal: ctrl.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${config.apiBaseUrl}${path}`, {
+        method: opts.method ?? (opts.body ? "POST" : "GET"),
+        headers: { ...(await headersFor(opts.who ?? "public")), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      // No response at all: offline, server down, or timed out. Status 0 marks it for callers.
+      if (opts.signal?.aborted) throw e;
+      throw new ApiError(0, OFFLINE_MESSAGE, null);
+    }
     const text = await res.text();
     const json = text ? (JSON.parse(text) as unknown) : null;
     if (!res.ok) {

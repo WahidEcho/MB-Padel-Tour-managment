@@ -48,10 +48,13 @@ function initial<T>(key: string): T | undefined {
   return getJson<T | undefined>(`q:${key}`, undefined);
 }
 
+/** The saved answer is shown at once but counts as old, so it is fetched again straight away (ids can change). */
+const SAVED_IS_OLD = { initialDataUpdatedAt: 0 } as const;
+
 type Opts<T> = Omit<UseQueryOptions<T>, "queryKey" | "queryFn">;
 
 export function useConfig() {
-  return useQuery<MConfig>({ queryKey: ["config"], queryFn: cached("config", () => api<MConfig>("/api/mobile/v1/config")), initialData: initial("config"), staleTime: 60_000 });
+  return useQuery<MConfig>({ queryKey: ["config"], queryFn: cached("config", () => api<MConfig>("/api/mobile/v1/config")), initialData: initial("config"), ...SAVED_IS_OLD, staleTime: 60_000 });
 }
 
 export function useDiscover() {
@@ -60,6 +63,7 @@ export function useDiscover() {
     queryKey: ["discover"],
     queryFn: cached("discover", () => api<MDiscover>("/api/mobile/v1/discover")),
     initialData: initial("discover"),
+    ...SAVED_IS_OLD,
     refetchInterval: focused ? 30_000 : false,
   });
 }
@@ -69,6 +73,7 @@ export function useBundle(slug: string | undefined, opts: Opts<MBundle> = {}) {
     queryKey: ["bundle", slug],
     queryFn: cached(`bundle:${slug}`, () => api<MBundle>(`/api/mobile/v1/t/${slug}/bundle`)),
     initialData: slug ? initial(`bundle:${slug}`) : undefined,
+    ...SAVED_IS_OLD,
     enabled: Boolean(slug),
     staleTime: 60_000,
     ...opts,
@@ -81,6 +86,7 @@ export function useLive(slug: string | undefined, intervalMs = 5_000) {
     queryKey: ["live", slug],
     queryFn: cached(`live:${slug}`, () => api<MLive>(`/api/mobile/v1/t/${slug}/live`)),
     initialData: slug ? initial(`live:${slug}`) : undefined,
+    ...SAVED_IS_OLD,
     enabled: Boolean(slug),
     refetchInterval: focused ? intervalMs : false,
   });
