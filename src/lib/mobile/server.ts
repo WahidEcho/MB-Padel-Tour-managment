@@ -3,7 +3,7 @@
  * (contract.ts) built through projection.ts, so nothing private leaves here.
  *
  * Only tournaments that are public, of kind "tournament", and not demos (unless
- * asked for) are visible. Every function selects only the columns it needs: at
+ * asked for, or placed in an event group) are visible. Every function selects only the columns it needs: at
  * event load these run a few times a second, and egress is the free tier's limit.
  */
 import { db } from "../supabase";
@@ -60,7 +60,8 @@ async function visibleTournaments(includeDemo: boolean): Promise<TournamentRow[]
     .eq("kind", "tournament")
     .eq("public_access_enabled", true)
     .in("status", ["active", "completed"]);
-  if (!includeDemo) q = q.eq("is_demo", false);
+  // A demo shows once an admin puts it in an event group (a demo event set up on purpose).
+  if (!includeDemo) q = q.or("is_demo.eq.false,event_group_id.not.is.null");
   const { data } = await q.order("created_at", { ascending: false }).limit(60);
   return (data ?? []) as unknown as TournamentRow[];
 }
