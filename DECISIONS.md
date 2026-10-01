@@ -199,6 +199,14 @@ Two forward-compatibility *columns* are the deliberate exception
 (`player_profiles.auth_user_id` / `claim_status`, `player_score_ledger.source`) —
 they exist precisely so these stay out of scope without costing a future migration.
 
+**Changed 1 October 2026 by the product owner (Move Score mobile app).** For the
+tournament product (not friendly sessions), these are now in scope:
+**native mobile apps**, **push messages** (alerts for followed players, nations,
+ties and matches; tournament announcements), and **player profile claiming**
+(built, switched off by the `player_claim` flag until after the Junior Finals).
+Friendly sessions keep every prohibition above. WhatsApp sending stays out of
+scope. The plan and its decisions live in `move-score-app/PRODUCT_PLAN.md`.
+
 ---
 
 ## 6. Migrations

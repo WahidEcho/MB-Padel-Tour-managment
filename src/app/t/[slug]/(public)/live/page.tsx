@@ -5,7 +5,9 @@ import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
 import ChessLiveCard from "@/components/ChessLiveCard";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 3s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 3;
 
 export default async function PublicLive({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

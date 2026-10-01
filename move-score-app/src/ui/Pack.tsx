@@ -1,0 +1,75 @@
+import { View } from "react-native";
+import { Image } from "expo-image";
+import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import { BALL } from "../theme/palette";
+import { F } from "../theme/type";
+import { Eyebrow } from "./Text";
+import { PASS_H, PASS_W } from "./PassCard";
+
+/**
+ * The pass arrives sealed. Drag a finger along the perforation to tear it open;
+ * the top flies off and the pass rises out (see the Pass tab).
+ */
+export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
+  const tear = useSharedValue(0);
+  const gone = useSharedValue(0);
+  const ticks = useSharedValue(0);
+  const buzz = (n: number) => {
+    if (n % 3 === 0) void Haptics.selectionAsync().catch(() => {});
+  };
+  const open = () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    onOpen();
+  };
+  const pan = Gesture.Pan()
+    .onChange((e) => {
+      if (gone.value) return;
+      tear.value = Math.min(1, Math.abs(e.translationX) / (PASS_W * 0.8));
+      const step = Math.floor(tear.value * 12);
+      if (step !== ticks.value) {
+        ticks.value = step;
+        runOnJS(buzz)(step);
+      }
+      if (tear.value >= 1) {
+        gone.value = 1;
+        runOnJS(open)();
+      }
+    })
+    .onEnd(() => {
+      if (!gone.value) tear.value = withSpring(0);
+    });
+  const tap = Gesture.Tap().numberOfTaps(2).onEnd(() => {
+    gone.value = 1;
+    tear.value = withTiming(1);
+    runOnJS(open)();
+  });
+  const strip = useAnimatedStyle(() => ({ width: `${tear.value * 100}%` }));
+  const top = useAnimatedStyle(() => ({ transform: [{ translateX: gone.value ? withTiming(80, { duration: 700 }) : 0 }, { translateY: gone.value ? withTiming(-320, { duration: 700 }) : 0 }, { rotate: gone.value ? withTiming("28deg", { duration: 700 }) : "0deg" }], opacity: gone.value ? withTiming(0, { duration: 700 }) : 1 }));
+  const body = useAnimatedStyle(() => ({ transform: [{ translateY: gone.value ? withTiming(560, { duration: 800 }) : 0 }], opacity: gone.value ? withTiming(0, { duration: 800 }) : 1 }));
+  return (
+    <GestureDetector gesture={Gesture.Exclusive(pan, tap)}>
+      <View style={{ width: PASS_W, height: PASS_H }} accessible accessibilityRole="button" accessibilityLabel="Sealed event pass. Drag across the top, or double-tap, to open it.">
+        <Animated.View style={[{ height: 66, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden" }, top]}>
+          <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Eyebrow size={11} style={{ color: BALL, letterSpacing: 3 }}>← DRAG TO OPEN →</Eyebrow>
+          </LinearGradient>
+        </Animated.View>
+        <View style={{ height: 6, marginHorizontal: 10, borderTopWidth: 2, borderStyle: "dashed", borderColor: "rgba(252,252,0,0.7)" }}>
+          <Animated.View style={[{ position: "absolute", top: -12, left: -10, height: 22, borderRadius: 8, backgroundColor: "rgba(252,252,0,0.55)" }, strip]} />
+        </View>
+        <Animated.View style={[{ flex: 1, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden" }, body]}>
+          <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 20 }}>
+            <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ width: 190, height: 190 * (74 / 997) }} contentFit="contain" />
+            <Animated.Text style={{ fontFamily: F.display, fontSize: 28, lineHeight: 28, color: "#E8ECF4", textTransform: "uppercase", textAlign: "center" }}>{title}</Animated.Text>
+            <View style={{ backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Eyebrow size={10} style={{ color: "#05060A" }}>Event pass</Eyebrow>
+            </View>
+          </LinearGradient>
+        </Animated.View>
+      </View>
+    </GestureDetector>
+  );
+}

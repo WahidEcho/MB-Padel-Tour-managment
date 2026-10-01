@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { db } from "@/lib/supabase";
 import { currentRole, can } from "@/lib/auth";
 import { getMatch, getSnapshot } from "@/lib/data";
 import { finalizeMatch, upsertSnapshotFromState, type EngineStateLike } from "@/lib/ops";
 import { claimLease, defaultDeviceLabel, getLease, isLeaseLive } from "@/lib/scoringControl";
 import type { Match } from "@/lib/types";
+import { batchProblem, shadowMismatches } from "@/lib/scoring/eventGuard";
+import { notifyMatchLive } from "@/lib/notify/hooks";
 
 interface IncomingEvent {
   client_event_id: string;
@@ -37,12 +39,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const body = await request.json();
   const deviceId: string = body.deviceId;
   const events: IncomingEvent[] = body.events ?? [];
-  if (!deviceId || events.length === 0) {
+  if (!deviceId || typeof deviceId !== "string" || !Array.isArray(events) || events.length === 0) {
     return NextResponse.json({ error: "deviceId and events required" }, { status: 400 });
   }
 
   const match = await getMatch(matchId);
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+  // Refuse what no honest client sends before anything is written: unknown event
+  // types, or a team or winner that is not one of this match's two sides.
+  const problem = batchProblem(events, match);
+  if (problem) return NextResponse.json({ error: problem.error }, { status: problem.status });
   // Same shape as before, translated to a lease: refuse a live lease held by
   // someone else, and silently claim an unheld (or stale) one for whichever
   // device's events are landing — an offline-first sync can arrive before its
@@ -68,8 +74,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     }
   }
 
-  const snapshot = await getSnapshot(matchId);
-  let lastApplied = snapshot?.last_event_number ?? 0;
+  let snapshot = await getSnapshot(matchId);
+  // The snapshot is written after the events, not with them, so a request that
+  // failed between the two left it behind the event log; every retry then hit a
+  // sequence conflict forever. The log is the truth: when it is ahead, the
+  // snapshot is brought level from the last stored event before anything else.
+  const { data: lastRow } = await db()
+    .from("score_events")
+    .select("event_number, event_type, team_id, new_state_json")
+    .eq("match_id", matchId)
+    .order("event_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const logged = lastRow as { event_number: number; event_type: string; team_id: string | null; new_state_json: EngineStateLike } | null;
+  if (logged && logged.event_number > (snapshot?.last_event_number ?? 0) && logged.new_state_json) {
+    await upsertSnapshotFromState(match, logged.new_state_json, logged.event_number, {
+      lastEventType: logged.event_type,
+      lastEventTeamId: logged.team_id,
+      lastUndoEventNumber: snapshot?.last_undo_event_number ?? 0,
+    });
+    snapshot = await getSnapshot(matchId);
+  }
+  let lastApplied = Math.max(snapshot?.last_event_number ?? 0, logged?.event_number ?? 0);
   // Read once per request. Only `true` turns confirmation on, so a tournament
   // that has never set it keeps finishing on the final point as before. Chess has
   // no confirm step on its board, so the flag never applies to it — otherwise a
@@ -100,26 +126,57 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     .in("client_event_id", events.map((e) => e.client_event_id));
   const existing = new Set((existingRows ?? []).map((r) => r.client_event_id));
 
+  const snapshotBefore = snapshot?.snapshot_json ?? null;
   const fresh = events
     .filter((e) => !existing.has(e.client_event_id))
     .sort((a, b) => a.event_number - b.event_number);
+  // Sequence and reopen checks run before the first insert, so a refused batch
+  // leaves nothing behind. (They used to run inside the loop, after earlier
+  // events of the same batch were already stored, which stalled the phone.)
+  {
+    let expect = lastApplied + 1;
+    for (const e of fresh) {
+      if (e.event_number !== expect) {
+        return NextResponse.json(
+          { error: `Event sequence mismatch: expected ${expect}, got ${e.event_number}`, conflict: "sequence", applied: [] },
+          { status: 409 },
+        );
+      }
+      expect++;
+    }
+  }
+  const finishedNow = ["completed", "walkover", "disqualified", "retired"].includes(match.status);
+  const reopens = finishedNow && fresh.some((e) => e.event_type === "UNDO" && !e.new_state.matchOver);
+  if (reopens) {
+    if (match.tie_id) {
+      const { canReopenRubber } = await import("@/lib/tennis/tieOps");
+      const check = await canReopenRubber(match);
+      if (!check.ok) {
+        return NextResponse.json({ error: check.message, conflict: check.reason, applied: [] }, { status: 409 });
+      }
+    } else if (match.stage !== "group" && match.stage !== "friendly") {
+      const { retractKnockout } = await import("@/lib/ops");
+      const retraction = await retractKnockout(match);
+      if (!retraction.ok) {
+        return NextResponse.json(
+          {
+            error: "The next round has already started, so this result cannot be undone. Correct the later match first.",
+            conflict: retraction.reason,
+            applied: [],
+          },
+          { status: 409 },
+        );
+      }
+    }
+  }
+
   const applied: string[] = [];
   let finalState: EngineStateLike | null = null;
   let statusUpdate: Record<string, unknown> = {};
+  let startedNow = false;
   let finalize: { status: "completed" | "walkover" | "disqualified" | "retired"; winner: string } | null = null;
 
   for (const e of fresh) {
-    if (e.event_number !== lastApplied + 1) {
-      // Sequence mismatch — another device or lost events (spec §18.9)
-      return NextResponse.json(
-        {
-          error: `Event sequence mismatch: expected ${lastApplied + 1}, got ${e.event_number}`,
-          conflict: "sequence",
-          applied,
-        },
-        { status: 409 }
-      );
-    }
     const { error } = await db().from("score_events").insert({
       client_event_id: e.client_event_id,
       tournament_id: match.tournament_id,
@@ -146,6 +203,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
     switch (e.event_type) {
       case "MATCH_STARTED":
+        startedNow = true;
         statusUpdate = {
           ...statusUpdate,
           status: "live",
@@ -205,35 +263,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       finalize = null;
       const wasFinished = ["completed", "walkover", "disqualified", "retired"].includes(match.status);
       if (wasFinished) {
-        // Reopening a knockout match has to take the winner back out of the next
-        // round. Without this the bracket kept the retracted team and the next
-        // match kept it as a side, so a wall showing the bracket showed a
-        // pairing that was no longer true. Refused outright once that next match
-        // has started, because silently rewriting a match in progress is worse
-        // than making the referee resolve it.
-        if (match.tie_id) {
-          // A rubber that decided its tie cannot be reopened once the tie its
-          // nation went on to has started.
-          const { canReopenRubber } = await import("@/lib/tennis/tieOps");
-          const check = await canReopenRubber(match);
-          if (!check.ok) {
-            return NextResponse.json({ error: check.message, conflict: check.reason, applied }, { status: 409 });
-          }
-        } else if (match.stage !== "group" && match.stage !== "friendly") {
-          const { retractKnockout } = await import("@/lib/ops");
-          const retraction = await retractKnockout(match);
-          if (!retraction.ok) {
-            return NextResponse.json(
-              {
-                error:
-                  "The next round has already started, so this result cannot be undone. Correct the later match first.",
-                conflict: retraction.reason,
-                applied,
-              },
-              { status: 409 },
-            );
-          }
-        }
+        // The knockout or tie checks for this reopen already ran before any insert.
         statusUpdate = { ...statusUpdate, status: "live", winner_team_id: null, ended_at: null };
       }
     }
@@ -268,11 +298,94 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       }
     }
   }
+  // A retry whose events were all stored already carries nothing fresh, so a
+  // finalise that failed the first time was never attempted again and the match
+  // stayed live with a finished score. Reconcile from the stored state instead.
+  if (!finalize && fresh.length === 0 && !requiresConfirmation && ["live", "paused", "pending_sync"].includes(match.status)) {
+    const stored = (snapshot?.snapshot_json ?? null) as EngineStateLike | null;
+    if (stored?.matchOver && stored.winner) {
+      finalize = { status: "completed", winner: winnerTeamId(match, stored) ?? "" };
+    }
+  }
   if (finalize && finalize.winner) {
     await finalizeMatch(match, {
       status: finalize.status,
       winnerTeamId: finalize.winner,
       actorRole: role ?? "referee",
+    });
+  }
+  if (startedNow && !finalize) {
+    after(() => notifyMatchLive(match));
+  }
+
+  // iPhone lock-screen scores following this match.
+  if (fresh.length > 0) {
+    after(async () => {
+      try {
+        const { getConfig } = await import("@/lib/mobile/server");
+        if (!(await getConfig()).flags.live_activity) return;
+        const [{ pushLiveActivities, liveState }, { toScore }, { getSnapshot: snap }] = await Promise.all([
+          import("@/lib/notify/apns"),
+          import("@/lib/mobile/projection"),
+          import("@/lib/data"),
+        ]);
+        const latest = await snap(matchId);
+        const { data: names } = await db().from("teams").select("id, team_name, nation_code").in("id", [match.team_a_id, match.team_b_id].filter(Boolean) as string[]);
+        const label = (id: string | null) => {
+          const t = ((names ?? []) as { id: string; team_name: string; nation_code: string | null }[]).find((x) => x.id === id);
+          return t?.nation_code ?? t?.team_name ?? "";
+        };
+        const ended = Boolean(finalize?.winner);
+        const gameChanged = fresh.some((e) => e.event_type !== "POINT_AWARDED") || (finalState?.teamA?.points === "0" && finalState?.teamB?.points === "0");
+        await pushLiveActivities(
+          matchId,
+          liveState(toScore(match, latest), { a: label(match.team_a_id), b: label(match.team_b_id), court: "", status: ended ? "Final" : "Live" }),
+          { end: ended, important: gameChanged },
+        );
+      } catch (err) {
+        console.error("live activity push failed", err);
+      }
+    });
+  }
+
+  // Shadow check: re-derive each point with the shared engine and log any
+  // disagreement. Never rejects; it runs after the response is sent.
+  if (fresh.length > 0) {
+    const priorState = snapshotBefore;
+    after(async () => {
+      try {
+        const [{ getTeams, tierForMatch }, { scoringConfigForMatch, isDoublesMatch }] = await Promise.all([
+          import("@/lib/data"),
+          import("@/lib/scoring/rules"),
+        ]);
+        let config = null;
+        if (ownerRow?.sport !== "chess") {
+          const [teams, tier, { data: t }] = await Promise.all([
+            getTeams(match.tournament_id),
+            tierForMatch(match),
+            db().from("tournaments").select("sport, scoring_config").eq("id", match.tournament_id).maybeSingle(),
+          ]);
+          const a = teams.find((x) => x.id === match.team_a_id);
+          const b = teams.find((x) => x.id === match.team_b_id);
+          config = scoringConfigForMatch(t as never, match, tier, {
+            doubles: match.rubber_type ? match.rubber_type === "D" : isDoublesMatch(a, b),
+          });
+        }
+        const issues = shadowMismatches(fresh, { snapshotState: priorState, teamA: match.team_a_id, config });
+        if (issues.length) {
+          const { audit } = await import("@/lib/audit");
+          await audit({
+            tournament_id: match.tournament_id,
+            actor_role: role,
+            action: "SCORE_SHADOW_MISMATCH",
+            entity_type: "match",
+            entity_id: match.id,
+            new_value: { deviceId, issues: issues.slice(0, 20) },
+          });
+        }
+      } catch (err) {
+        console.error("shadow check failed", err);
+      }
     });
   }
 

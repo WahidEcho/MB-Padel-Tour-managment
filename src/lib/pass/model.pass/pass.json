@@ -1,0 +1,16 @@
+{
+ "formatVersion": 1,
+ "passTypeIdentifier": "pass.org.mbeg.movescore",
+ "teamIdentifier": "TEAMID",
+ "organizationName": "Move Beyond",
+ "description": "Move Score event pass",
+ "backgroundColor": "rgb(1,4,26)",
+ "foregroundColor": "rgb(232,236,244)",
+ "labelColor": "rgb(154,164,184)",
+ "eventTicket": {
+  "primaryFields": [],
+  "secondaryFields": [],
+  "auxiliaryFields": [],
+  "backFields": []
+ }
+}

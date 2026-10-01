@@ -3,7 +3,9 @@ import { getBrackets, getBracketSlots, getMatches, getTeams, getTournamentBySlug
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 8s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 8;
 
 export default async function PublicBracket({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

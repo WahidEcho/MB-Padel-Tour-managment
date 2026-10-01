@@ -8,7 +8,9 @@ import ChessLiveCard from "@/components/ChessLiveCard";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import type { Match } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 5s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 5;
 
 /**
  * Every match, at every stage, in one place.

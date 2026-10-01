@@ -12,6 +12,7 @@ const PADEL_TABS = [
   ["/leaderboard", "Leaderboard"],
   ["/bracket", "Bracket"],
   ["/screens", "Screens"],
+  ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
 
@@ -25,6 +26,7 @@ const TIE_TABS = [
   ["/matches", "Rubbers"],
   ["/screens", "Screens"],
   ["/replay", "Replay"],
+  ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
 

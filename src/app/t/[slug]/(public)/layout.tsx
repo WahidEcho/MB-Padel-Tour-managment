@@ -11,7 +11,15 @@ import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
 import { watchTargets } from "@/lib/watch";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 10s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 10;
+
+// No tournament is built ahead of time; each is rendered on its first visit and
+// then cached for the revalidate window above.
+export function generateStaticParams() {
+  return [];
+}
 
 export default async function PublicLayout({
   children,
@@ -34,7 +42,16 @@ export default async function PublicLayout({
           ["/bracket", "Bracket"],
           ["/winner", "Winner"],
         ] as const)
-      : ([
+      : tournament.format_config?.ties
+        ? ([
+            ["", "Overview"],
+            ["/ties", "Ties"],
+            ["/leaderboard", "Leaderboard"],
+            ["/live", "Live"],
+            ["/matches", "Matches"],
+            ["/winner", "Winner"],
+          ] as const)
+        : ([
           ["", "Overview"],
           ["/leaderboard", "Leaderboard"],
           ["/live", "Live"],

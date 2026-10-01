@@ -1,4 +1,7 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { clientIpFrom } from "@/lib/ratelimit";
+import { staffLoginAllowed } from "@/lib/staffLogin";
 import { currentRole, roleForPassword, setSessionCookie } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 
@@ -24,6 +27,10 @@ export default async function LoginPage({
     "use server";
     const password = String(formData.get("password") ?? "");
     const nextUrl = String(formData.get("next") ?? "");
+    const gate = await staffLoginAllowed(clientIpFrom(await headers()));
+    if (!gate.allowed) {
+      redirect(`/login?error=2${nextUrl ? `&next=${encodeURIComponent(nextUrl)}` : ""}`);
+    }
     const role = roleForPassword(password);
     if (!role) {
       redirect(`/login?error=1${nextUrl ? `&next=${encodeURIComponent(nextUrl)}` : ""}`);
@@ -45,7 +52,7 @@ export default async function LoginPage({
         </div>
         {error && (
           <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-semibold text-danger">
-            Wrong access code. Try again.
+            {error === "2" ? "Too many attempts from this network. Wait 15 minutes and try again." : "Wrong access code. Try again."}
           </p>
         )}
         <input type="hidden" name="next" value={next ?? ""} />

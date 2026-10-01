@@ -4,7 +4,9 @@ import { podiumDepthFor } from "@/lib/bracket";
 import AutoRefresh from "@/components/AutoRefresh";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
 
-export const dynamic = "force-dynamic";
+// Rendered at most every 10s and shared by every visitor: at the venue a crowd
+// refreshing this page reads one cached copy instead of the database each time.
+export const revalidate = 10;
 
 export default async function PublicWinner({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
