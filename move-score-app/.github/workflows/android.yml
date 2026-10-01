@@ -28,6 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
+      # The runner starts with ~14 GB free; native builds for two CPU types need more.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          android: false
+          tool-cache: false
+          docker-images: true
+          large-packages: false
+          swap-storage: true
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
