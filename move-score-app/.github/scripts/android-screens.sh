@@ -28,6 +28,12 @@ PLAYER=$(curl -sf "$API/api/mobile/v1/t/$SLUG/bundle" | node -e '
   });')
 echo "match: $MATCH  player: $PLAYER"
 
+# The CI emulator renders in software and its System UI can stall; hide "isn't responding"
+# dialogs (they are the emulator's, not the app's) and let it settle before starting.
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell settings put secure anr_show_background 0 || true
+sleep 45
+
 adb install -r "$APK"
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
 adb logcat -c
@@ -39,8 +45,16 @@ alive() {
     exit 1
   fi
 }
+dismiss() {
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  if adb shell dumpsys window | grep -qi "not responding"; then
+    adb shell input keyevent KEYCODE_BACK
+    sleep 2
+  fi
+}
 shot() {
   sleep "$2"
+  dismiss
   alive
   adb exec-out screencap -p > "shots/$1.png"
   echo "saved $1"
