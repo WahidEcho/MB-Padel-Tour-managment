@@ -14,4 +14,12 @@ npx tsc --noEmit            # type-check
 ```
 
 The app reads `EXPO_PUBLIC_API_BASE_URL` (defaults per `APP_ENV` in `app.config.ts`).
-Shared scoring and API types come from the web repo through `src/core/index.ts`.
+Shared scoring and API types come from the web platform through `src/core/index.ts`.
+
+The app lives in two places:
+
+- **Platform repo** (WahidEcho/MB-Padel-Tour-managment, `move-score-app/`): the source of truth.
+  `src/core/index.ts` imports `../src/lib` directly.
+- **App repo** (WahidEcho/move-score-app): a standalone copy that builds on its own. The shared
+  code is copied into `shared/` and the barrel points there. Sync it from the platform repo with
+  `scripts/export-app-repo.sh <app-repo-clone> --push`. Change shared code in the platform repo only.
