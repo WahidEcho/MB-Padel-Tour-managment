@@ -15,6 +15,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write # publishes the APK as a GitHub Release
+
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
@@ -58,9 +61,23 @@ jobs:
       - name: Name the APK
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          mkdir -p out
+          mkdir -p out release
           cp android/app/build/outputs/apk/release/app-release.apk "out/MoveScore-${VERSION}-${GITHUB_RUN_NUMBER}.apk"
-          ls -lh out
+          cp android/app/build/outputs/apk/release/app-release.apk release/MoveScore.apk
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ls -lh out release
+      # Fixed download link for the newest build:
+      # https://github.com/<owner>/<repo>/releases/latest/download/MoveScore.apk
+      - name: Publish as the latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-${{ env.VERSION }}-${{ github.run_number }}
+          name: Move Score ${{ env.VERSION }} (Android build ${{ github.run_number }})
+          body: |
+            Android APK built from ${{ github.sha }}, connected to ${{ env.EXPO_PUBLIC_API_BASE_URL }}.
+            Install on a phone: download MoveScore.apk, open it, allow "install unknown apps".
+          files: release/MoveScore.apk
+          make_latest: true
       - uses: actions/upload-artifact@v4
         with:
           name: move-score-apk
