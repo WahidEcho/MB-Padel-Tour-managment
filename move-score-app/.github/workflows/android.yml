@@ -1,0 +1,91 @@
+# Builds an installable Android APK and proves it works against the live server: an emulator
+# installs it, opens the main screens and saves screenshots. Runs in the standalone app repo
+# (WahidEcho/move-score-app); in the platform repo this folder is inert.
+#
+# The APK is signed with the debug key, so it installs directly on a phone ("install unknown apps").
+# Play Store builds come from EAS (see PRODUCT_PLAN.md).
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: Server the app talks to
+        default: https://mb-tournament.vercel.app
+  push:
+    branches: [main]
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ENV: production
+  EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url || 'https://mb-tournament.vercel.app' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --no-install
+      - name: Build the release APK (phones arm64 + emulator x86_64)
+        working-directory: android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64 --no-daemon
+      - name: Name the APK
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk "out/MoveScore-${VERSION}-${GITHUB_RUN_NUMBER}.apk"
+          ls -lh out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: move-score-apk
+          path: out/*.apk
+          retention-days: 30
+
+  screenshots:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: move-score-apk
+          path: apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install, open each screen, screenshot
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/android-screens.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: move-score-screenshots
+          path: shots/
+          retention-days: 30
