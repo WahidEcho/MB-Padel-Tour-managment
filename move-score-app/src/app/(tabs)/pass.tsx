@@ -59,7 +59,7 @@ export default function PassTab() {
     const all = [...(b0.data?.teams ?? []), ...(b1.data?.teams ?? [])].filter((x) => x.code.length === 3);
     return [...new Map(all.map((x) => [x.code, x])).values()].sort((x, y) => x.name.localeCompare(y.name));
   }, [b0.data, b1.data]);
-  if (!group) return <Screen><Display size={26} style={{ marginTop: 8 }}>My pass</Display><Empty title="No event right now" body="Your pass appears when the next event opens." /></Screen>;
+  if (!group) return <Screen><Display size={24} style={{ marginTop: 8, marginBottom: 14 }}>My pass</Display><Empty title="No event right now" body="Your pass appears when the next event opens." /></Screen>;
   const event: PassEvent = { name: group.name, venue: group.venue, city: group.city, days: eventDays(group.startsOn, group.endsOn) };
   const open = async () => {
     setOpening(true);
