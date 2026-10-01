@@ -8,7 +8,7 @@ import { SkinScope } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
-import { Card, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
+import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
 import { toggleFollow, useFollowing } from "../../state/follows";
 
@@ -18,7 +18,16 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
   const following = useFollowing("player", id);
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
   const p = v?.player(id);
-  if (!v || !p || !b.data) return <Screen tabs={false}><BackHeader label="Players" /></Screen>;
+  if (!v || !p || !b.data) {
+    // Still loading, or nothing to show (an old link, or a player no longer in the tournament).
+    const missing = !slug || b.isError || (b.data && l.data && !p);
+    return (
+      <Screen tabs={false}>
+        <BackHeader label="Players" />
+        {missing ? <Empty title="Player not found" body="Open the player again from the tournament's Players list." /> : null}
+      </Screen>
+    );
+  }
   const ms = (l.data?.matches ?? []).filter((m) => m.aPlayers.includes(id) || m.bPlayers.includes(id) || (!m.tieId && (m.a === p.teamId || m.b === p.teamId)));
   const mySide = (m: (typeof ms)[number]) => (m.a === p.teamId ? m.a : m.b);
   const done = ms.filter((m) => isDoneStatus(m.status));

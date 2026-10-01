@@ -69,7 +69,7 @@ open "/t/$SLUG";            shot 02-tournament 15
 open "/match/$MATCH";       shot 03-match 15
 open "/matches";            shot 04-matches 10
 open "/players";            shot 05-players 10
-[ -n "$PLAYER" ] && { open "/player/$PLAYER"; shot 06-player 12; }
+[ -n "$PLAYER" ] && { open "/player/$PLAYER?slug=$SLUG"; shot 06-player 12; }
 open "/pass";               shot 07-pass 10
 open "/following";          shot 08-following 8
 open "/referee";            shot 09-referee 8
