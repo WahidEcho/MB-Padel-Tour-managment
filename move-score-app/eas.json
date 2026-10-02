@@ -31,7 +31,7 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
+        "ascAppId": "6818620996",
         "appleTeamId": "33C2U7Q76F",
         "sku": "movescore-ios"
       },
