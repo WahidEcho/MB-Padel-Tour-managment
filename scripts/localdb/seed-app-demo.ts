@@ -25,7 +25,7 @@ async function main() {
   }
   await sql(`
     insert into event_groups (slug, name, subtitle, venue_name, city, timezone, starts_on, ends_on, featured_rank)
-    values ('junior-team-finals-2026', 'Junior Team Finals 2026', 'Davis Cup and Billie Jean King Cup Junior Finals', 'Smash Sporting Club', 'Cairo', 'Africa/Cairo', current_date - 2, current_date + 4, 1)
+    values ('junior-team-finals-2026', 'Junior Team Finals 2026', 'Sample event · tennis nations team competition', 'Smash Sporting Club', 'Cairo', 'Africa/Cairo', current_date - 2, current_date + 4, 1)
     on conflict (slug) do nothing;
     update tournaments set is_demo = false, event_group_id = (select id from event_groups where slug = 'junior-team-finals-2026'),
       venue_name = 'Smash Sporting Club', city = 'Cairo', starts_on = current_date - 2, ends_on = current_date + 4,

@@ -3,12 +3,12 @@
  * replayed". The two most recent finals, as they were played, one per court:
  *
  *   Court 1 · Davis Cup Junior Finals 2025 (Santiago): USA d. Japan 2-0
- *     No. 2 singles  Andrew Johnson d. Takahiro Kawaguchi  6-4 6-3
- *     No. 1 singles  Michael Antonius d. Kanta Watanabe    6-3 6-2
+ *     No. 2 singles  Ethan Walker d. Sota Yamamoto  6-4 6-3
+ *     No. 1 singles  Lucas Reed d. Haruto Kimura    6-3 6-2
  *     Doubles        not played (the tie was decided)
  *   Court 2 · Billie Jean King Cup Junior Finals 2024 (Córdoba): USA d. Romania 2-1
- *     No. 2 singles  Tyra Grant d. Maia Ilinca Burcescu    6-2 6-1
- *     No. 1 singles  Giulia Safina Popa d. Julieta Pareja  7-5 6-4
+ *     No. 2 singles  Riley Carter d. Sofia Dumitru    6-2 6-1
+ *     No. 1 singles  Bianca Stan d. Madison Brooks  7-5 6-4
  *     Doubles        Grant / Pareja d. Popa / Burcescu     6-1 7-5
  *
  * Squads hold only the players named in those results. Nothing is played in the
@@ -60,9 +60,9 @@ const FINALS: Final[] = [
   {
     key: "boys",
     court: 1,
-    title: "Davis Cup Junior Final 2025 · replay",
-    a: { code: "USA", players: ["Andrew Johnson", "Michael Antonius"] },
-    b: { code: "JPN", players: ["Takahiro Kawaguchi", "Kanta Watanabe"] },
+    title: "Boys' final · sample",
+    a: { code: "USA", players: ["Ethan Walker", "Lucas Reed"] },
+    b: { code: "JPN", players: ["Sota Yamamoto", "Haruto Kimura"] },
     rubbers: [
       ["S2", [0], [0], "6-4 6-3"],
       ["S1", [1], [1], "6-3 6-2"],
@@ -72,9 +72,9 @@ const FINALS: Final[] = [
   {
     key: "girls",
     court: 2,
-    title: "Billie Jean King Cup Junior Final 2024 · replay",
-    a: { code: "USA", players: ["Tyra Grant", "Julieta Pareja", "Kristina Penickova"] },
-    b: { code: "ROU", players: ["Giulia Safina Popa", "Maia Ilinca Burcescu"] },
+    title: "Girls' final · sample",
+    a: { code: "USA", players: ["Riley Carter", "Madison Brooks", "Sophie Bennett"] },
+    b: { code: "ROU", players: ["Bianca Stan", "Sofia Dumitru"] },
     rubbers: [
       ["S2", [0], [1], "6-2 6-1"],
       ["S1", [1], [0], "5-7 4-6"],

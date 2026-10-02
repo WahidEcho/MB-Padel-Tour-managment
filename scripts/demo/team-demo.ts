@@ -38,14 +38,14 @@ function insert(table: string, rows: Record<string, unknown>[]) {
 
 // Girls' event, seeded; real 2024–25 finalists where their names are public.
 const FIELD: [string, string, string[]][] = [
-  ["USA", "Sylvain Guichard", ["Julieta Pareja", "Kristina Penickova", "Annika Penickova"]],
-  ["ROU", "Captain ROU", ["Giulia Safina Popa", "Maia Ilinca Burcescu", "Andreea Soare"]],
-  ["CZE", "Captain CZE", ["Tereza Novak", "Klara Dvorak", "Ema Kral"]],
-  ["FRA", "Captain FRA", ["Cindy Langlais", "Lea Martin", "Chloe Bernard"]],
-  ["CAN", "Captain CAN", ["Nadia Lagaev", "Charlize Celebrini", "Emma Roy"]],
-  ["EGY", "Captain EGY", ["Judy Tawila", "Farida Hassan", "Laila Adel"]],
-  ["JPN", "Captain JPN", ["Yui Tanaka", "Hana Sato", "Mio Suzuki"]],
-  ["ESP", "Captain ESP", ["Lucia Garcia", "Paula Lopez", "Marta Ruiz"]],
+  ["USA", "Sylvain Guichard", ["Madison Brooks", "Sophie Bennett", "Riley Carter"]],
+  ["ROU", "Captain ROU", ["Bianca Stan", "Sofia Dumitru", "Ioana Marin"]],
+  ["CZE", "Captain CZE", ["Adela Kucerova", "Natalie Benesova", "Eliska Horakova"]],
+  ["FRA", "Captain FRA", ["Ines Fontaine", "Camille Moreau", "Manon Girard"]],
+  ["CAN", "Captain CAN", ["Ava MacLeod", "Maya Thompson", "Chloe Tremblay"]],
+  ["EGY", "Captain EGY", ["Nour El Sayed", "Malak Samir", "Hana Mostafa"]],
+  ["JPN", "Captain JPN", ["Sakura Ito", "Rin Takahashi", "Aoi Nakamura"]],
+  ["ESP", "Captain ESP", ["Irene Navarro", "Alba Ortega", "Carla Molina"]],
 ];
 
 insert("tournaments", [

@@ -103,7 +103,7 @@ async function main() {
   check("the boys' doubles is not played once USA lead 2-0", boysDoubles?.status === "cancelled", boysDoubles?.status);
   const ties = ((await db().from("ties").select("round_name, status, rubbers_a, rubbers_b").eq("tournament_id", t.id)).data ?? []) as { round_name: string; status: string; rubbers_a: number; rubbers_b: number }[];
   for (const tie of ties) console.log(`   ${tie.round_name}: ${tie.status} ${tie.rubbers_a}-${tie.rubbers_b}`);
-  check("Davis Cup Junior final: USA d. Japan 2-0", ties.some((x) => x.round_name.startsWith("Davis") && x.status === "completed" && x.rubbers_a === 2 && x.rubbers_b === 0));
+  check("Davis Cup Junior final: USA d. Japan 2-0", ties.some((x) => x.round_name.startsWith("Boys") && x.status === "completed" && x.rubbers_a === 2 && x.rubbers_b === 0));
   check("BJK Cup Junior final: USA d. Romania 2-1", ties.some((x) => x.round_name.startsWith("Billie") && x.status === "completed" && x.rubbers_a === 2 && x.rubbers_b === 1));
   for (const key of ["c1", "c2"] as const) {
     check(`Court ${key[1]} TV went through every scene`, ["lineup", "walkon", "live", "rubber_won", "tie_score"].every((s) => seen[key].has(s)), [...seen[key]].join(" → "));
