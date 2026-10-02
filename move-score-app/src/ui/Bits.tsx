@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type ViewStyle, type StyleProp } from "react-native";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming } from "react-native-reanimated";
+import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Eyebrow, Num } from "./Text";
 import { config } from "../config";
@@ -42,7 +42,14 @@ export function LivePill({ label = "LIVE" }: { label?: string }) {
   const { t, calm } = useTheme();
   const s = useSharedValue(0);
   useEffect(() => {
-    if (!calm) s.value = withRepeat(withTiming(1, { duration: 1600 }), -1);
+    if (calm) {
+      // Reduce Motion switched on mid-pulse: stop the loop and rest the ring.
+      cancelAnimation(s);
+      s.value = 0;
+      return;
+    }
+    s.value = withRepeat(withTiming(1, { duration: 1600 }), -1);
+    return () => cancelAnimation(s);
   }, [s, calm]);
   const ring = useAnimatedStyle(() => ({ opacity: 0.7 * (1 - s.value), transform: [{ scale: 1 + s.value * 1.6 }] }));
   return (

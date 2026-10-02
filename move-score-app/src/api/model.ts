@@ -49,8 +49,22 @@ export function makeView(bundle: MBundle, live: MLive | undefined): View {
   };
 }
 
+/** On court now, or just finished and waiting for the referee's phone to send the result. */
+export function isOnCourt(m: MMatch): boolean {
+  return isLiveStatus(m.status) || m.status === "pending_sync";
+}
+
+/**
+ * The last point is played but the result is not confirmed yet: the referee
+ * still has to confirm it (live with no game in play) or their phone has not
+ * synced it (pending_sync).
+ */
+export function isAwaitingResult(m: MMatch): boolean {
+  return m.status === "pending_sync" || (isLiveStatus(m.status) && Boolean(m.score) && !m.score!.games && !m.score!.points);
+}
+
 export function liveMatches(live: MLive | undefined): MMatch[] {
-  return (live?.matches ?? []).filter((m) => isLiveStatus(m.status));
+  return (live?.matches ?? []).filter(isOnCourt);
 }
 
 export function upcomingMatches(live: MLive | undefined): MMatch[] {
@@ -82,6 +96,46 @@ export function dayIn(iso: string | null, tz: string): string {
   } catch {
     return iso.slice(0, 10);
   }
+}
+
+/** True when times alone would mislead: the list spans several days, or its one day is not today. */
+export function needsDay(isos: (string | null | undefined)[], tz: string, now = Date.now()): boolean {
+  const days = new Set(isos.filter(Boolean).map((x) => dayIn(x!, tz)));
+  if (days.size > 1) return true;
+  return days.size === 1 && !days.has(dayIn(new Date(now).toISOString(), tz));
+}
+
+/** "11:00", or "Tue 3 Nov · 11:00" when the day matters. */
+export function whenIn(iso: string | null, tz: string, withDay: boolean): string {
+  if (!iso || !withDay) return timeIn(iso, tz);
+  return `${dayIn(iso, tz)} · ${timeIn(iso, tz)}`;
+}
+
+/** One sentence for VoiceOver and TalkBack: who, where the match stands, and the score. */
+export function matchA11y(m: MMatch, v: View): string {
+  const a = v.sideLabel(m, "A");
+  const b = v.sideLabel(m, "B");
+  const tz = v.bundle.tournament.timezone;
+  const s = m.score;
+  const winner = m.winner === m.a ? a : m.winner === m.b ? b : null;
+  const status = isAwaitingResult(m)
+    ? "Match over, awaiting confirmation"
+    : m.status === "paused"
+      ? "Play suspended"
+      : isLiveStatus(m.status)
+        ? "Live"
+        : isDoneStatus(m.status)
+          ? `Final${m.winner && winner ? `, ${winner} won` : ""}`
+          : m.status === "cancelled"
+            ? "Not played"
+            : m.scheduledTime
+              ? `Starts ${dayIn(m.scheduledTime, tz)} at ${timeIn(m.scheduledTime, tz)}`
+              : "Time to be confirmed";
+  const parts = [`${a} against ${b}`, status];
+  if (s?.sets.length) parts.push(`Sets ${s.sets.map((x) => `${x.a}–${x.b}`).join(", ")}`);
+  if (isLiveStatus(m.status) && s?.games) parts.push(`Games ${s.games.a}–${s.games.b}`);
+  if (isLiveStatus(m.status) && s?.points) parts.push(`${s.tiebreak ? "Tie-break points" : "Points"} ${s.points.a}–${s.points.b}`);
+  return parts.join(". ");
 }
 
 export function dateRange(a: string | null, b: string | null): string {

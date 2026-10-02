@@ -3,7 +3,7 @@ import { TextInput, View } from "react-native";
 import { router } from "expo-router";
 import type { MPlayer, MTeam } from "@core";
 import { useBundle, useLive } from "../../api/queries";
-import { makeView, timeIn } from "../../api/model";
+import { makeView, needsDay, whenIn } from "../../api/model";
 import { useFeaturedSlugs } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -39,7 +39,7 @@ function PlayerList({ slug, query }: { slug: string; query: string }) {
     const live = ms.find((m) => m.status === "live" || m.status === "paused");
     if (live) return `Live now${v.court(live.courtId) ? ` · ${v.court(live.courtId)}` : ""}`;
     const up = ms.filter((m) => m.status === "scheduled" || m.status === "ready").sort((a, c) => (a.scheduledTime ?? "9").localeCompare(c.scheduledTime ?? "9"))[0];
-    return up ? `Next · ${timeIn(up.scheduledTime, tz)}${v.court(up.courtId) ? ` · ${v.court(up.courtId)}` : ""}` : "";
+    return up ? `Next · ${whenIn(up.scheduledTime, tz, needsDay([up.scheduledTime], tz))}${v.court(up.courtId) ? ` · ${v.court(up.courtId)}` : ""}` : "";
   };
   return (
     <View>

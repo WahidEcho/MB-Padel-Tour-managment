@@ -3,13 +3,29 @@ import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import type { MEventGroup, MTournamentCard } from "@core";
 import { useBundle, useDiscover, useLive } from "../../api/queries";
-import { dateRange, liveMatches, makeView, upcomingMatches } from "../../api/model";
+import { dateRange, liveMatches, makeView, needsDay, upcomingMatches } from "../../api/model";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Card, Chip, Empty, LivePill, SectionHeader, Wordmark } from "../../ui/Bits";
 import { MatchMini, TieRow } from "../../ui/Cards";
+import { StaleBanner } from "../../ui/Offline";
 import { Pressable } from "react-native";
+
+/**
+ * The hero is navy in both themes, so its chips keep fixed light-on-navy colours
+ * (theme chips are dark ink in light mode, about 2:1 on navy).
+ */
+function HeroChip({ label, live }: { label: string; live?: boolean }) {
+  return (
+    <View accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999 }}>
+      {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#FF2D55" }} /> : null}
+      <Eyebrow size={10} style={{ color: "#E8ECF4", letterSpacing: 0.8 }}>
+        {label}
+      </Eyebrow>
+    </View>
+  );
+}
 
 function Hero({ g }: { g: MEventGroup }) {
   const { t } = useTheme();
@@ -18,8 +34,8 @@ function Hero({ g }: { g: MEventGroup }) {
       <LinearGradient colors={["#0b1a4d", "#01041A"]} start={{ x: 0, y: 0 }} end={{ x: 0.8, y: 1 }} style={{ padding: 18, gap: 4 }}>
         <View style={{ position: "absolute", right: -40, top: -40, width: 120, height: 120, borderRadius: 60, backgroundColor: t.ball, opacity: 0.95, shadowColor: t.ball, shadowOpacity: 0.6, shadowRadius: 30 }} />
         <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-          {g.liveCount > 0 ? <LivePill label={`${g.liveCount} LIVE`} /> : <Chip label={dateRange(g.startsOn, g.endsOn) || "Featured"} />}
-          {g.city ? <Chip label={g.city} /> : null}
+          {g.liveCount > 0 ? <HeroChip live label={`${g.liveCount} LIVE`} /> : <HeroChip label={dateRange(g.startsOn, g.endsOn) || "Featured"} />}
+          {g.city ? <HeroChip label={g.city} /> : null}
         </View>
         <Display size={26} style={{ color: "#E8ECF4", marginTop: 12, maxWidth: "78%" }}>
           {g.name}
@@ -61,8 +77,12 @@ function FeaturedFeed({ slug, section }: { slug: string; section: "live" | "next
       </>
     );
   }
-  const ties = (l.data?.ties ?? []).filter((t) => t.status === "scheduled" && t.a && t.b).sort((x, y) => (x.scheduledTime ?? "9").localeCompare(y.scheduledTime ?? "9"));
-  const next = ties.length ? ties.slice(0, 3).map((t) => <TieRow key={t.id} tie={t} v={v} />) : upcomingMatches(l.data).slice(0, 3).map((m) => <MatchMini key={m.id} m={m} v={v} />);
+  const tz = b.data.tournament.timezone;
+  const ties = (l.data?.ties ?? []).filter((t) => t.status === "scheduled" && t.a && t.b).sort((x, y) => (x.scheduledTime ?? "9").localeCompare(y.scheduledTime ?? "9")).slice(0, 3);
+  const matches = upcomingMatches(l.data).slice(0, 3);
+  // Times alone mislead once the list runs into another day (or is not today).
+  const withDay = needsDay((ties.length ? ties : matches).map((x) => x.scheduledTime), tz);
+  const next = ties.length ? ties.map((t) => <TieRow key={t.id} tie={t} v={v} withDay={withDay} />) : matches.map((m) => <MatchMini key={m.id} m={m} v={v} withDay={withDay} />);
   return <>{next}</>;
 }
 
@@ -92,6 +112,7 @@ export default function Discover() {
           <Eyebrow tone="ink2">Account</Eyebrow>
         </Pressable>
       </View>
+      <StaleBanner queries={[d]} />
       <Display size={34} style={{ marginBottom: 6 }}>
         {"Every court.\nEvery point."}
       </Display>

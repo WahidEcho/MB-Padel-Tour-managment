@@ -6,10 +6,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import { useQuery } from "@tanstack/react-query";
-import { isDoneStatus, type MPass } from "@core";
+import { isDoneStatus, isLiveStatus, type MPass } from "@core";
 import { api } from "../../api/client";
-import { useBundle, useConfig, useLive, useMatch } from "../../api/queries";
-import { makeView } from "../../api/model";
+import { isOffline, useBundle, useConfig, useLive, useMatch } from "../../api/queries";
+import { isAwaitingResult, makeView, whenIn } from "../../api/model";
 import { useFeaturedGroup } from "../../api/featured";
 import { BALL } from "../../theme/palette";
 import { F } from "../../theme/type";
@@ -35,13 +35,43 @@ function MatchStory({ id }: { id: string }) {
   const q = useMatch(id);
   const b = useBundle(q.data?.tournamentSlug);
   const l = useLive(q.data?.tournamentSlug, 20_000);
-  if (!q.data || !b.data) return <Story><Body style={{ color: "#9AA4B8" }}>Loading…</Body></Story>;
+  if (!q.data || !b.data) {
+    const failed = q.isError ? q : b.isError ? b : null;
+    if (!failed) return <Story><Body style={{ color: "#9AA4B8" }}>Loading…</Body></Story>;
+    const offline = isOffline(failed.error);
+    return (
+      <Story>
+        <View style={{ flex: 1, justifyContent: "center", gap: 10 }}>
+          <Body weight="bold" style={{ color: "#E8ECF4" }}>{offline ? "You're offline" : "This match is not available"}</Body>
+          <Body size={13} style={{ color: "#9AA4B8" }}>{offline ? "The card needs the latest score. Check your connection and try again." : "It may have been removed from the order of play."}</Body>
+          {offline ? (
+            <Pressable accessibilityRole="button" onPress={() => void Promise.all([q.refetch(), b.refetch()])} style={{ alignSelf: "flex-start", marginTop: 6, backgroundColor: BALL, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10 }}>
+              <Body weight="bold" style={{ color: "#01041A" }}>Retry</Body>
+            </Pressable>
+          ) : null}
+        </View>
+      </Story>
+    );
+  }
   const v = makeView(b.data, l.data);
   const m = q.data.match;
   const tie = v.tieOf(m);
   const done = isDoneStatus(m.status);
   const tieWon = tie?.status === "completed" && tie.winner === m.winner;
-  const big = done ? (tieWon ? "Tie\nwon" : m.tieId ? "Rubber\nwon" : "Match\nwon") : "Live\nnow";
+  // Only a match on court is "live now"; an upcoming one says so instead.
+  const big = done
+    ? tieWon
+      ? "Tie\nwon"
+      : m.tieId
+        ? "Rubber\nwon"
+        : "Match\nwon"
+    : isAwaitingResult(m)
+      ? "Match\nover"
+      : isLiveStatus(m.status)
+        ? "Live\nnow"
+        : m.status === "cancelled"
+          ? "Not\nplayed"
+          : "Coming\nup";
   const line = (side: "A" | "B") => {
     const team = v.team(side === "A" ? m.a : m.b);
     const won = done && m.winner === (side === "A" ? m.a : m.b);
@@ -64,6 +94,9 @@ function MatchStory({ id }: { id: string }) {
         {line("B")}
       </View>
       {tie && <Body size={12} style={{ color: "#9AA4B8", marginTop: 10 }}>{`${v.team(tie.a)?.code} ${tie.rubbersA}–${tie.rubbersB} ${v.team(tie.b)?.code} in the tie`}</Body>}
+      {(m.status === "scheduled" || m.status === "ready") && m.scheduledTime ? (
+        <Body size={12} style={{ color: "#9AA4B8", marginTop: 6 }}>{[whenIn(m.scheduledTime, b.data.tournament.timezone, true), v.court(m.courtId)].filter(Boolean).join(" · ")}</Body>
+      ) : null}
       <View style={{ marginTop: "auto" }}>
         <Body style={{ fontFamily: F.display, fontSize: 44, lineHeight: 40, color: BALL, textTransform: "uppercase" }}>{big}</Body>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12 }}>
