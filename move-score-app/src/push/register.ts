@@ -7,8 +7,8 @@ import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import { api } from "../api/client";
-import { session, saveInstallToken } from "../state/session";
+import { api, ApiError, onInstallRejected } from "../api/client";
+import { session, resetInstallation, saveInstallToken } from "../state/session";
 import { appVersion } from "../config";
 import { syncFollows } from "../state/follows";
 
@@ -38,23 +38,37 @@ async function pushToken(ask: boolean): Promise<string | null> {
   }
 }
 
-/** Called at launch (without asking) and when the person turns alerts on (asking). */
+const register = (installationId: string, expoPushToken: string | null) =>
+  api<{ installToken: string }>("/api/mobile/v1/devices", {
+    who: "me",
+    body: {
+      installationId,
+      platform: Platform.OS === "android" ? "android" : "ios",
+      expoPushToken,
+      appVersion,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      locale: Intl.DateTimeFormat().resolvedOptions().locale,
+    },
+  });
+
+/**
+ * Called at launch (without asking), when the person turns alerts on (asking),
+ * and on signing in or out (so alerts follow the account). The server answers 409
+ * when it will not vouch for this id — taken, or this phone's token is from an
+ * older build — and the phone then starts over as a new installation.
+ */
 export async function registerDevice(askForAlerts = false): Promise<{ alerts: boolean }> {
-  const s = session.get();
-  if (!s.installationId) return { alerts: false };
+  if (!session.get().installationId) return { alerts: false };
   const token = await pushToken(askForAlerts);
   try {
-    const r = await api<{ installToken: string }>("/api/mobile/v1/devices", {
-      who: "me",
-      body: {
-        installationId: s.installationId,
-        platform: Platform.OS === "android" ? "android" : "ios",
-        expoPushToken: token,
-        appVersion,
-        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        locale: Intl.DateTimeFormat().resolvedOptions().locale,
-      },
-    });
+    let r: { installToken: string };
+    try {
+      r = await register(session.get().installationId!, token);
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 409)) throw e;
+      await resetInstallation();
+      r = await register(session.get().installationId!, token);
+    }
     await saveInstallToken(r.installToken);
     await syncFollows();
   } catch {
@@ -62,6 +76,9 @@ export async function registerDevice(askForAlerts = false): Promise<{ alerts: bo
   }
   return { alerts: Boolean(token) };
 }
+
+// A personal call refused for want of a valid install token: register again.
+onInstallRejected(() => registerDevice(false).then(() => undefined));
 
 export async function alertsAllowed(): Promise<boolean> {
   if (Platform.OS === "web") return false;

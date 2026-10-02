@@ -13,8 +13,9 @@ export async function GET(request: Request) {
 }
 
 /**
- * Deletes the account: Apple sign-in is revoked, follows, passes and the account
- * row are removed, phones are unlinked, and the sign-in identity itself is deleted.
+ * Deletes the account: Apple sign-in is revoked, follows, passes, player claims and
+ * the account row are removed, phones are unlinked, and the sign-in identity itself
+ * is deleted.
  */
 export async function DELETE(request: Request) {
   const { owner } = await ownerOf(request);
@@ -29,6 +30,7 @@ export async function DELETE(request: Request) {
   await db().from("event_passes").delete().eq("owner_kind", "user").eq("owner_id", owner.id);
   await db().from("push_devices").update({ user_id: null }).eq("user_id", owner.id);
   await db().from("player_profiles").update({ auth_user_id: null, claim_status: "unclaimed" }).eq("auth_user_id", owner.id);
+  await db().from("player_claims").delete().eq("user_id", owner.id);
   await db().from("app_users").delete().eq("auth_user_id", owner.id);
   // Deleting the identity needs the secret key; until the gate closes it is queued for staff.
   const { error } = await authClient().auth.admin.deleteUser(owner.id);

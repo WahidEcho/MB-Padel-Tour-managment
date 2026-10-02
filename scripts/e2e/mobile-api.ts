@@ -7,7 +7,7 @@
  *   npm run localdb                         # in another terminal
  *   npx tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts
  */
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID } from "crypto";
 import { db } from "../../src/lib/supabase";
 import { awardPoint, initialScoreState, type ScoreState } from "../../src/lib/scoring/engine";
 import { DEFAULT_SCORING_CONFIG } from "../../src/lib/types";
@@ -113,7 +113,21 @@ async function main() {
     const installationId = `e2e-${randomUUID()}`;
     const reg = await call("POST", "/api/mobile/v1/devices", { body: { installationId, platform: "ios", expoPushToken: `ExponentPushToken[e2e${tag}abcdefghij]`, appVersion: "1.0.0" } });
     check(reg.status === 200 && typeof reg.json.installToken === "string", "A phone registers without an account");
+    check(String(reg.json.installToken).split(".").length === 3, "Its token carries a server-chosen nonce");
     const inst = { "x-install-token": reg.json.installToken as string };
+    const hijack = await call("POST", "/api/mobile/v1/devices", { body: { installationId, platform: "android" } });
+    check(hijack.status === 409 && hijack.json.code === "install_taken", "Nobody else can register a known installation id for a token", hijack.status);
+    const oldFormat = `${installationId}.${createHmac("sha256", process.env.AUTH_SECRET!).update(`install:${installationId}`).digest("base64url")}`;
+    const stale = await call("POST", "/api/mobile/v1/devices", { headers: { "x-install-token": oldFormat }, body: { installationId, platform: "ios" } });
+    check(stale.status === 409, "An old-format token no longer re-registers its id (the app starts over with a fresh one)", stale.status);
+    const oldMe = await call("GET", "/api/mobile/v1/me/follows", { headers: { "x-install-token": oldFormat } });
+    check(oldMe.status === 401, "An old-format token is refused on personal routes");
+    // Signed out: a re-registration with the phone's own token and no session unlinks the account.
+    await db().from("push_devices").update({ user_id: randomUUID() }).eq("installation_id", installationId);
+    const again = await call("POST", "/api/mobile/v1/devices", { headers: inst, body: { installationId, platform: "ios", expoPushToken: `ExponentPushToken[e2e${tag}abcdefghij]`, appVersion: "1.0.1" } });
+    const { data: unlinked } = await db().from("push_devices").select("user_id, app_version").eq("installation_id", installationId).single();
+    check(again.status === 200 && again.json.installToken === inst["x-install-token"], "The phone re-registers with its own token", again.status);
+    check(unlinked?.user_id === null && unlinked?.app_version === "1.0.1", "Re-registering without a session unlinks the phone from the account", unlinked);
     const fol = await call("POST", "/api/mobile/v1/me/follows", { headers: inst, body: { add: [{ kind: "nation", key: "EGY", tournamentId: tid }, { kind: "match", key: mid, tournamentId: tid }] } });
     check(fol.status === 200 && fol.json.follows.length === 2, "It follows Egypt and stars the rubber", fol.json?.follows?.length);
     check(/no-store/.test(fol.cache), "Personal answers are never cached", fol.cache);
@@ -131,9 +145,23 @@ async function main() {
     const noAuth = await call("GET", `/api/mobile/v1/referee/matches/${mid}/bootstrap`);
     check(noAuth.status === 403, "Bootstrap needs the referee token");
 
-    const deviceId = `phone-${tag}`;
+    // The app scores under its installation id, as the real console does.
+    const deviceId = installationId;
     const claim = await call("POST", `/api/matches/${mid}/claim`, { headers: ref, body: { deviceId, deviceLabel: "E2E phone" } });
     check(claim.status === 200 && claim.json.controller === true, "The phone takes control of the free rubber");
+    const mine = await call("GET", `/api/matches/${mid}/state`, { headers: inst });
+    check(mine.json?.lease?.deviceId === installationId && mine.json.lease.heldByYou === true, "The holding phone sees its own id in the match state", mine.json?.lease);
+    const publicState = await call("GET", `/api/matches/${mid}/state`);
+    check(
+      publicState.status === 200 && !JSON.stringify(publicState.json).includes(installationId) && publicState.json.lease?.heldByYou === false,
+      "The public match state shows a handle, never the phone's installation id",
+      publicState.json?.lease?.deviceId,
+    );
+    const picker = await call("GET", `/api/mobile/v1/referee/tournaments/${tid}/matches`, { headers: { ...ref, ...inst } });
+    const pick = picker.json?.matches?.find((x: { id: string }) => x.id === mid);
+    check(pick?.heldBy?.deviceId === installationId && pick.heldBy.heldByYou === true, "The referee picker tells this phone it holds the rubber", pick?.heldBy);
+    const otherPicker = await call("GET", `/api/mobile/v1/referee/tournaments/${tid}/matches`, { headers: ref });
+    check(!JSON.stringify(otherPicker.json).includes(installationId), "Another referee's picker shows a handle, not the installation id");
     const config = { ...DEFAULT_SCORING_CONFIG };
     let state: ScoreState = initialScoreState("A");
     let n = 0;
