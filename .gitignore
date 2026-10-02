@@ -46,3 +46,6 @@ next-env.d.ts
 # voice umpire: raw clip cache, and the development pack built from the Mac's own voice
 /voice-src
 /public/voice/en-dev
+
+# agent worktrees
+.claude/worktrees/

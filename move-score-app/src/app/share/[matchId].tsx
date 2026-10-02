@@ -5,12 +5,11 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
-import { useQuery } from "@tanstack/react-query";
-import { isDoneStatus, isLiveStatus, type MPass } from "@core";
-import { api } from "../../api/client";
+import { isDoneStatus, isLiveStatus } from "@core";
 import { isOffline, useBundle, useConfig, useLive, useMatch } from "../../api/queries";
 import { isAwaitingResult, makeView, whenIn } from "../../api/model";
 import { useFeaturedGroup } from "../../api/featured";
+import { usePass } from "../../pass/usePass";
 import { BALL } from "../../theme/palette";
 import { F } from "../../theme/type";
 import { Body, Eyebrow, Num } from "../../ui/Text";
@@ -110,7 +109,7 @@ function MatchStory({ id }: { id: string }) {
 
 function PassStory() {
   const group = useFeaturedGroup();
-  const q = useQuery({ queryKey: ["pass", group?.id], queryFn: () => api<{ pass: MPass | null }>(`/api/mobile/v1/me/pass?group=${group!.id}`, { who: "me" }), enabled: Boolean(group) });
+  const q = usePass(group?.id);
   const p = q.data?.pass;
   return (
     <Story>

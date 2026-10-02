@@ -340,7 +340,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
           import("@/lib/data"),
         ]);
         const latest = await snap(matchId);
-        const { data: names } = await db().from("teams").select("id, team_name, nation_code").in("id", [match.team_a_id, match.team_b_id].filter(Boolean) as string[]);
+        const [{ data: names }, { data: courtRow }] = await Promise.all([
+          db().from("teams").select("id, team_name, nation_code").in("id", [match.team_a_id, match.team_b_id].filter(Boolean) as string[]),
+          match.court_id ? db().from("courts").select("court_name").eq("id", match.court_id).maybeSingle() : Promise.resolve({ data: null }),
+        ]);
+        const court = (courtRow as { court_name?: string } | null)?.court_name ?? "";
         const label = (id: string | null) => {
           const t = ((names ?? []) as { id: string; team_name: string; nation_code: string | null }[]).find((x) => x.id === id);
           return t?.nation_code ?? t?.team_name ?? "";
@@ -349,7 +353,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
         const gameChanged = fresh.some((e) => e.event_type !== "POINT_AWARDED") || (finalState?.teamA?.points === "0" && finalState?.teamB?.points === "0");
         await pushLiveActivities(
           matchId,
-          liveState(toScore(match, latest), { a: label(match.team_a_id), b: label(match.team_b_id), court: "", status: ended ? "Final" : "Live" }),
+          liveState(toScore(match, latest), { a: label(match.team_a_id), b: label(match.team_b_id), court, status: ended ? "Final" : "Live" }),
           { end: ended, important: gameChanged },
         );
       } catch (err) {
