@@ -18,10 +18,10 @@ const WEB_HOST = new URL(API).host;
 // OWNER TO FILL: the EAS project id from `eas init` (expo.dev → project → ID).
 // The EAS_PROJECT_ID environment variable wins when set; until either exists,
 // OTA updates and the EAS project link stay off.
-const EAS_PROJECT_ID_DEFAULT = "";
+const EAS_PROJECT_ID_DEFAULT = "81d21117-5604-4f55-9cbf-484613f1df71";
 const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID || EAS_PROJECT_ID_DEFAULT || undefined;
 // The Expo account that owns the project (EXPO_OWNER), when building under an organisation.
-const OWNER = process.env.EXPO_OWNER || undefined;
+const OWNER = process.env.EXPO_OWNER || "move-beyond";
 
 // Required-reason APIs used by the app and its React Native / Expo modules
 // (Apple privacy manifest). Move Score does no tracking.
