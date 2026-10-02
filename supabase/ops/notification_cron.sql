@@ -26,4 +26,7 @@ select cron.schedule(
   $$
 );
 
+-- Each run also returns stuck 'sending' alerts to the queue and checks Expo's
+-- delivery receipts (needs migration 0017_notify_fixes.sql applied first).
+--
 -- To stop it: select cron.unschedule('movescore-drain-notifications');
