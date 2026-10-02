@@ -15,8 +15,30 @@ const API = {
 }[APP_ENV];
 const WEB_HOST = new URL(API).host;
 
+// OWNER TO FILL: the EAS project id from `eas init` (expo.dev → project → ID).
+// The EAS_PROJECT_ID environment variable wins when set; until either exists,
+// OTA updates and the EAS project link stay off.
+const EAS_PROJECT_ID_DEFAULT = "";
+const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID || EAS_PROJECT_ID_DEFAULT || undefined;
+// The Expo account that owns the project (EXPO_OWNER), when building under an organisation.
+const OWNER = process.env.EXPO_OWNER || undefined;
+
+// Required-reason APIs used by the app and its React Native / Expo modules
+// (Apple privacy manifest). Move Score does no tracking.
+const PRIVACY_MANIFEST = {
+  NSPrivacyTracking: false,
+  NSPrivacyTrackingDomains: [],
+  NSPrivacyAccessedAPITypes: [
+    { NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryUserDefaults", NSPrivacyAccessedAPITypeReasons: ["CA92.1"] },
+    { NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryFileTimestamp", NSPrivacyAccessedAPITypeReasons: ["C617.1"] },
+    { NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategorySystemBootTime", NSPrivacyAccessedAPITypeReasons: ["35F9.1"] },
+    { NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryDiskSpace", NSPrivacyAccessedAPITypeReasons: ["E174.1"] },
+  ],
+};
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
+  ...(OWNER ? { owner: OWNER } : {}),
   name: APP_ENV === "production" ? "Move Score" : `Move Score ${APP_ENV === "staging" ? "Staging" : "Dev"}`,
   slug: "move-score",
   scheme: "movescore",
@@ -26,23 +48,28 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: "automatic",
   backgroundColor: "#00000b",
   runtimeVersion: { policy: "appVersion" },
-  updates: process.env.EAS_PROJECT_ID ? { url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID}` } : undefined,
+  updates: EAS_PROJECT_ID ? { url: `https://u.expo.dev/${EAS_PROJECT_ID}` } : undefined,
   ios: {
     bundleIdentifier: `${BUNDLE}${suffix}`,
     supportsTablet: true,
     usesAppleSignIn: true,
     associatedDomains: [`applinks:${WEB_HOST}`],
+    // No NSMotionUsageDescription: the pass tilt (Reanimated useAnimatedSensor) reads
+    // CMMotionManager device motion, which needs no permission; nothing uses
+    // motion activity or the pedometer.
     infoPlist: {
       NSCameraUsageDescription: "Move Score uses the camera to scan the venue code that stamps your event pass.",
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
     },
+    privacyManifests: PRIVACY_MANIFEST,
   },
   android: {
     package: `${BUNDLE}${suffix}`,
     adaptiveIcon: { foregroundImage: "./assets/brand/adaptive-icon.png", backgroundColor: "#01041A" },
     permissions: ["android.permission.CAMERA", "android.permission.VIBRATE", "android.permission.POST_NOTIFICATIONS"],
+    blockedPermissions: ["android.permission.RECORD_AUDIO"],
     googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? undefined,
     intentFilters: [
       {
@@ -59,11 +86,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ["expo-splash-screen", { image: "./assets/brand/splash.png", imageWidth: 220, resizeMode: "contain", backgroundColor: "#00000b" }],
     "expo-font",
     "expo-sqlite",
-    "expo-secure-store",
+    // Keychain storage without biometrics (no requireAuthentication), so no Face ID string.
+    ["expo-secure-store", { faceIDPermission: false }],
     "expo-localization",
     "expo-web-browser",
     "expo-apple-authentication",
-    ["expo-camera", { cameraPermission: "Move Score uses the camera to scan the venue code that stamps your event pass.", recordAudioAndroid: false }],
+    // Camera only reads the venue QR code: no microphone permission on either platform.
+    [
+      "expo-camera",
+      {
+        cameraPermission: "Move Score uses the camera to scan the venue code that stamps your event pass.",
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00" }],
     ["@react-native-google-signin/google-signin", { iosUrlScheme: process.env.GOOGLE_IOS_URL_SCHEME ?? "com.googleusercontent.apps.placeholder" }],
     ["react-native-share", { ios: ["instagram-stories", "instagram", "whatsapp"], android: ["com.instagram.android", "com.whatsapp"] }],
@@ -73,6 +109,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         // The lock-screen score is registered at runtime (src/live/MatchScoreActivity.tsx).
         widgets: [],
         enablePushNotifications: true,
+        // The plugin writes NSSupportsLiveActivitiesFrequentUpdates from this
+        // option (false when missing), overriding infoPlist above.
+        frequentUpdates: true,
       },
     ],
     ["expo-build-properties", { ios: { deploymentTarget: "16.4" }, android: { minSdkVersion: 26 } }],
@@ -86,6 +125,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? null,
     googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID ?? null,
     metaAppId: process.env.META_APP_ID ?? null,
-    eas: process.env.EAS_PROJECT_ID ? { projectId: process.env.EAS_PROJECT_ID } : undefined,
+    eas: EAS_PROJECT_ID ? { projectId: EAS_PROJECT_ID } : undefined,
   },
 });
