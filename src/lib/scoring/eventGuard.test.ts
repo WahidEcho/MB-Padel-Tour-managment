@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchProblem, sameState, shadowMismatches, MAX_EVENTS_PER_BATCH } from "./eventGuard";
+import { batchProblem, endsMatch, finishedMatchCut, reopensMatch, sameState, shadowMismatches, MAX_EVENTS_PER_BATCH } from "./eventGuard";
 import { awardPoint, initialScoreState } from "./engine";
 import { DEFAULT_SCORING_CONFIG } from "../types";
 
@@ -69,5 +69,44 @@ describe("shadowMismatches", () => {
       { snapshotState: s0, teamA: match.team_a_id, config },
     );
     expect(out.map((m) => `${m.event_number}:${m.kind}`)).toEqual(["2:point", "3:chain"]);
+  });
+});
+
+describe("finishedMatchCut", () => {
+  const live = { matchOver: false, winner: null };
+  const won = { matchOver: true, winner: "A" };
+  const e = (n: number, type: string, state: unknown) => ({ event_number: n, event_type: type, new_state: state });
+
+  it("lets a live match play on and finish", () => {
+    expect(finishedMatchCut("live", [e(5, "POINT_AWARDED", live), e(6, "POINT_AWARDED", won)], false)).toBeNull();
+  });
+  it("refuses a second MATCH_ENDED on a completed match", () => {
+    const cut = finishedMatchCut("completed", [e(9, "MATCH_ENDED", won)], true);
+    expect(cut?.index).toBe(0);
+    expect(cut?.error).toMatch(/already finished/);
+  });
+  it("refuses a WALKOVER or a point after completion", () => {
+    expect(finishedMatchCut("completed", [e(9, "WALKOVER", { ...won, winner: "B" })], false)?.index).toBe(0);
+    expect(finishedMatchCut("retired", [e(9, "POINT_AWARDED", live)], false)?.index).toBe(0);
+  });
+  it("accepts an UNDO that reopens the match, and play after it", () => {
+    expect(finishedMatchCut("completed", [e(9, "UNDO", live), e(10, "POINT_AWARDED", live)], false)).toBeNull();
+  });
+  it("refuses an UNDO that leaves the match over when nothing needs confirming", () => {
+    expect(finishedMatchCut("completed", [e(9, "UNDO", won)], false)?.index).toBe(0);
+  });
+  it("treats undoing a confirmation as a reopen when results need confirming", () => {
+    expect(finishedMatchCut("completed", [e(9, "UNDO", won), e(10, "MATCH_ENDED", won)], true)).toBeNull();
+  });
+  it("cuts a batch after the event that finished the match, keeping what came before", () => {
+    const batch = [e(5, "POINT_AWARDED", live), e(6, "MATCH_ENDED", won), e(7, "MATCH_ENDED", won)];
+    expect(finishedMatchCut("live", batch, true)?.index).toBe(2);
+    expect(finishedMatchCut("live", [e(5, "POINT_AWARDED", won), e(6, "WALKOVER", won)], false)?.index).toBe(1);
+  });
+  it("does not end a match on its last point when results need confirming", () => {
+    expect(endsMatch(e(5, "POINT_AWARDED", won), true)).toBe(false);
+    expect(endsMatch(e(5, "POINT_AWARDED", won), false)).toBe(true);
+    expect(endsMatch(e(5, "RETIREMENT", live), true)).toBe(true);
+    expect(reopensMatch(e(5, "POINT_AWARDED", live), true)).toBe(false);
   });
 });

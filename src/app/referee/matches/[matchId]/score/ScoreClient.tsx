@@ -300,6 +300,68 @@ export default function ScoreClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match.id]);
 
+  /* ---------------- taking over: carry on from the server's score ---------------- */
+  // The score above loads once. A device that becomes the scorer later (an
+  // accepted handover, "Take control") would otherwise number its next point
+  // from that old score and be refused forever. With nothing of its own to
+  // send, it carries on from the server's latest score instead.
+  const wasControllerRef = useRef(false);
+  const pendingOnDevice = useCallback(
+    () => offlineDb.events.where("match_id").equals(match.id).and((e) => e.sync_status === "pending").count(),
+    [match.id],
+  );
+  useEffect(() => {
+    const became = control.isController && !wasControllerRef.current;
+    wasControllerRef.current = control.isController;
+    if (!became) return;
+    const at = eventNumberRef.current;
+    void (async () => {
+      try {
+        if ((await pendingOnDevice()) > 0) return;
+        const res = await fetch(`/api/matches/${match.id}/state`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { match: Match; snapshot: MatchSnapshot | null };
+        const n = data.snapshot?.last_event_number ?? 0;
+        // A tap since this started has its own number already: leave it be.
+        if (eventNumberRef.current !== at || n <= at || !data.snapshot?.snapshot_json) return;
+        commit(data.snapshot.snapshot_json as ScoreState, []);
+        eventNumberRef.current = n;
+        setMatchStatus(data.match.status);
+      } catch {
+        // Offline: keep the score this device has.
+      }
+    })();
+  }, [control.isController, match.id, commit, pendingOnDevice]);
+
+  // A handover or release waits until every point on this device is sent;
+  // otherwise the next device starts without them.
+  const guardedControl = useMemo(
+    () => ({
+      ...control,
+      respond: async (accept: boolean) => {
+        if (accept) {
+          const left = await pendingOnDevice();
+          if (left > 0) {
+            setPendingCount(left);
+            void trySync();
+            return;
+          }
+        }
+        await control.respond(accept);
+      },
+      release: async () => {
+        const left = await pendingOnDevice();
+        if (left > 0) {
+          setPendingCount(left);
+          void trySync();
+          return;
+        }
+        await control.release();
+      },
+    }),
+    [control, pendingOnDevice, trySync],
+  );
+
   /* ---------------- timer ---------------- */
   useEffect(() => {
     const id = setInterval(() => {
@@ -618,7 +680,7 @@ export default function ScoreClient({
           {syncError}
         </p>
       )}
-      {!finished && !controlDisabled && <ControlPanel control={control} />}
+      {!finished && !controlDisabled && <ControlPanel control={guardedControl} pendingCount={pendingCount} />}
 
       {/* Pre-start */}
       {notStarted && !readOnly ? (

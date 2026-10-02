@@ -10,15 +10,20 @@ import type { useScoringControl } from "./useScoringControl";
  * holds it, or there is nothing to say because this device holds it and
  * nobody is asking — in which case the caller shows nothing at all.
  */
-export default function ControlPanel({ control }: { control: ReturnType<typeof useScoringControl> }) {
+export default function ControlPanel({ control, pendingCount = 0 }: { control: ReturnType<typeof useScoringControl>; pendingCount?: number }) {
   const { isController, heldByOther, holder, incomingRequest, myRequestPending, claim, release, requestControl, respond } = control;
+  // Points still on this device must reach the server before anyone else scores.
+  const unsent = pendingCount > 0;
 
   if (isController && incomingRequest) {
     return (
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-accent/15 px-3 py-2 text-xs font-semibold text-accent" data-testid="control-incoming-request">
-        <span>{incomingRequest.deviceLabel ?? "Another device"} wants control of this match.</span>
+        <span>
+          {incomingRequest.deviceLabel ?? "Another device"} wants control of this match.
+          {unsent && ` Sending ${pendingCount} point${pendingCount === 1 ? "" : "s"} first…`}
+        </span>
         <span className="flex gap-2">
-          <button type="button" className="btn-primary px-2 py-1 text-xs" onClick={() => void respond(true)} data-testid="control-accept">
+          <button type="button" className="btn-primary px-2 py-1 text-xs" onClick={() => void respond(true)} disabled={unsent} data-testid="control-accept">
             Hand over
           </button>
           <button type="button" className="btn-secondary px-2 py-1 text-xs" onClick={() => void respond(false)} data-testid="control-decline">
@@ -32,8 +37,8 @@ export default function ControlPanel({ control }: { control: ReturnType<typeof u
   if (isController) {
     return (
       <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted" data-testid="control-holder">
-        <span>You are scoring this match.</span>
-        <button type="button" className="text-muted underline hover:text-foreground" onClick={() => void release()} data-testid="control-release">
+        <span>You are scoring this match.{unsent && " Send every point before releasing control."}</span>
+        <button type="button" className="text-muted underline hover:text-foreground disabled:opacity-40" onClick={() => void release()} disabled={unsent} data-testid="control-release">
           Release control
         </button>
       </div>

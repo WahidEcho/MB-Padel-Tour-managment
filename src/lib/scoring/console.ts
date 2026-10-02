@@ -22,6 +22,7 @@ import {
   type TeamKey,
 } from "./engine";
 import { applyViolation, nextPenalty, type Offence, type Penalty } from "./conduct";
+import { sameState } from "./eventGuard";
 import type { ScoringConfig } from "../types";
 
 export interface ConsoleEvent {
@@ -143,4 +144,56 @@ export function endWith(cur: ScoreState, kind: EndKind, winner: TeamKey, online:
 /** The undo stack after an event, kept the way the web console keeps it (200 deep). */
 export function nextHistory(history: ScoreState[], prev: ScoreState | null, eventType: string): ScoreState[] {
   return (eventType === "UNDO" ? history.slice(0, -1) : prev ? [...history, prev] : history).slice(-200);
+}
+
+/** Statuses a console treats as over. `pending_sync` is a result recorded offline and not yet sent. */
+export const FINISHED_STATUSES = ["completed", "walkover", "disqualified", "retired", "cancelled", "pending_sync"];
+
+/** Over on the console: a final status, or a final score that needs no confirmation. */
+export function isFinished(status: string, state: ScoreState | null, confirmFirst: boolean): boolean {
+  return FINISHED_STATUSES.includes(status) || (Boolean(state?.matchOver) && !confirmFirst);
+}
+
+export interface RestoreInput {
+  /** The server's last event number and score. */
+  serverNo: number;
+  serverState: unknown;
+  /** The phone's own copy of the match, or null when this phone never scored it. */
+  localNo: number | null;
+  /** The phone's queued events for the match that were not given up (sent or still waiting). */
+  rows: { n: number; pending: boolean; state: unknown }[];
+}
+
+/**
+ * Which score a console opens on: its own ("local"), the server's ("server"),
+ * or neither without asking the referee ("ask") — when this phone holds unsent
+ * points that do not follow on from the server's score, so sending them would
+ * be refused (another device scored meanwhile, or a write was lost).
+ *
+ * The phone's copy is used only when its unsent points carry straight on from
+ * the server's last event: they start at the next number, or the gap between is
+ * points this phone already sent (the server copy at hand is older than them),
+ * or the server already holds this phone's points (a lost reply).
+ */
+export function restoreChoice(i: RestoreInput): "local" | "server" | "ask" {
+  const have = new Map(i.rows.map((r) => [r.n, r]));
+  const covers = (from: number, to: number) => {
+    for (let n = from; n <= to; n++) if (!have.has(n)) return false;
+    return true;
+  };
+  const pending = i.rows.filter((r) => r.pending).map((r) => r.n).sort((a, b) => a - b);
+  if (i.localNo === null) return pending.length ? "ask" : "server";
+  if (!pending.length) {
+    // Nothing waiting. Ahead of this server copy only if the phone sent the rest itself.
+    return i.localNo > i.serverNo && covers(i.serverNo + 1, i.localNo) ? "local" : "server";
+  }
+  const first = pending[0];
+  const last = pending[pending.length - 1];
+  // The waiting points must be one unbroken run that ends at the phone's score.
+  if (last !== i.localNo || pending.length !== last - first + 1) return "ask";
+  if (first === i.serverNo + 1) return "local";
+  if (first > i.serverNo + 1) return covers(i.serverNo + 1, first - 1) ? "local" : "ask";
+  // The server already has events with these numbers: fine only if they are this phone's.
+  const atServer = have.get(i.serverNo);
+  return i.serverNo <= i.localNo && atServer !== undefined && sameState(atServer.state, i.serverState) ? "local" : "ask";
 }
