@@ -3,6 +3,9 @@
  * Handles the server's three answers the way the web console does, plus the
  * recovery the web console lacks: after a sequence conflict, if the server
  * already holds what this phone sent, the queue is marked done instead of stuck.
+ *
+ * `flush()` is what a handover waits on: it resolves true only once the server
+ * holds every point this phone recorded.
  */
 import { api, ApiError } from "../api/client";
 import { sameState } from "@core";
@@ -19,21 +22,26 @@ export type SyncState =
 const BATCH = 50;
 
 export function createSyncer(matchId: string, deviceId: string, onState: (s: SyncState) => void, onRedBlue?: (on: boolean) => void) {
-  let running = false;
+  let inflight: Promise<void> | null = null;
   let again = false;
   let backoff = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
+  let last: SyncState = { kind: "synced" };
+  const emit = (s: SyncState) => {
+    last = s;
+    onState(s);
+  };
 
   async function once(): Promise<void> {
     const pending = await queue().pending(matchId);
     if (!pending.length) {
-      onState({ kind: "synced" });
+      emit({ kind: "synced" });
       backoff = 0;
       return;
     }
     const batch = pending.slice(0, BATCH);
-    onState({ kind: "syncing", pending: pending.length });
+    emit({ kind: "syncing", pending: pending.length });
     try {
       const r = await api<{ applied: string[]; last_event_number: number; red_blue_teams?: boolean }>(`/api/matches/${matchId}/events`, {
         who: "staff",
@@ -56,7 +64,7 @@ export function createSyncer(matchId: string, deviceId: string, onState: (s: Syn
       if (typeof r.red_blue_teams === "boolean") onRedBlue?.(r.red_blue_teams);
       backoff = 0;
       if (pending.length > batch.length) again = true;
-      else onState({ kind: "synced" });
+      else emit({ kind: "synced" });
     } catch (err) {
       const left = pending.length;
       if (err instanceof ApiError && err.status === 409) {
@@ -66,19 +74,20 @@ export function createSyncer(matchId: string, deviceId: string, onState: (s: Syn
           again = true;
           return;
         }
-        onState({ kind: "conflict", reason: body.conflict === "device_lock" ? "device_lock" : body.conflict === "sequence" ? "sequence" : "other", message: body.error ?? "The server refused these points.", pending: left });
+        const stillLeft = body.applied?.length ? Math.max(0, left - body.applied.length) : left;
+        emit({ kind: "conflict", reason: body.conflict === "device_lock" ? "device_lock" : body.conflict === "sequence" ? "sequence" : "other", message: body.error ?? "The server refused these points.", pending: stillLeft });
         return;
       }
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        onState({ kind: "signed_out", pending: left });
+        emit({ kind: "signed_out", pending: left });
         return;
       }
       if (err instanceof ApiError && err.status === 400) {
-        onState({ kind: "conflict", reason: "other", message: err.message, pending: left });
+        emit({ kind: "conflict", reason: "other", message: err.message, pending: left });
         return;
       }
       backoff = Math.min(30_000, backoff ? backoff * 2 : 3_000);
-      onState({ kind: err instanceof ApiError ? "pending" : "offline", pending: left });
+      emit({ kind: err instanceof ApiError && err.status !== 0 ? "pending" : "offline", pending: left });
     }
   }
 
@@ -98,21 +107,40 @@ export function createSyncer(matchId: string, deviceId: string, onState: (s: Syn
     return false;
   }
 
-  async function run() {
-    if (stopped) return;
-    if (running) {
+  /** One drain of the queue. A call while one is running asks it to go round again, and waits for it. */
+  function run(): Promise<void> {
+    if (stopped) return Promise.resolve();
+    if (inflight) {
       again = true;
-      return;
+      return inflight;
     }
-    running = true;
-    try {
-      do {
-        again = false;
-        await once();
-      } while (again && !stopped);
-    } finally {
-      running = false;
+    inflight = (async () => {
+      try {
+        do {
+          again = false;
+          try {
+            await once();
+          } catch {
+            // The phone's own queue could not be read or marked: go again on the next round.
+            backoff = Math.min(30_000, backoff ? backoff * 2 : 3_000);
+            emit({ kind: "pending", pending: "pending" in last ? last.pending : 0 });
+          }
+        } while (again && !stopped);
+      } finally {
+        inflight = null;
+      }
+    })();
+    return inflight;
+  }
+
+  /** Sends everything now. True only when the server holds every point this phone recorded. */
+  async function flush(): Promise<boolean> {
+    for (let i = 0; i < 10 && !stopped; i++) {
+      await run();
+      if (!(await queue().pending(matchId)).length) return true;
+      if (last.kind !== "synced" && last.kind !== "syncing") return false;
     }
+    return false;
   }
 
   function loop() {
@@ -126,6 +154,7 @@ export function createSyncer(matchId: string, deviceId: string, onState: (s: Syn
 
   return {
     syncNow: () => void run(),
+    flush,
     stop() {
       stopped = true;
       if (timer) clearTimeout(timer);

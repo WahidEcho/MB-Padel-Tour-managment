@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../../api/client";
 import { session, saveStaff } from "../../state/session";
@@ -26,9 +26,13 @@ export default function RefereeHome() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingMatches, setPendingMatches] = useState<string[]>([]);
-  useEffect(() => {
-    void queue().matchesWithPending().then(setPendingMatches);
-  }, []);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  // Looked at again on every visit: a match opened from here may have sent its points meanwhile.
+  useFocusEffect(
+    useCallback(() => {
+      void queue().matchesWithPending().then(setPendingMatches);
+    }, []),
+  );
   const list = useQuery({ queryKey: ["ref-tournaments", staff?.token], queryFn: () => api<{ tournaments: T[] }>("/api/mobile/v1/referee/tournaments", { who: "staff" }), enabled: Boolean(staff) });
   const signIn = async () => {
     setBusy(true);
@@ -44,7 +48,7 @@ export default function RefereeHome() {
     }
   };
   return (
-    <Screen tabs={false}>
+    <Screen tabs={false} onRefresh={staff ? () => list.refetch() : undefined}>
       <BackHeader label="Back" />
       <Eyebrow tone="live">Move Score · Referee</Eyebrow>
       <Display size={30} style={{ marginTop: 6 }}>Court-ready</Display>
@@ -81,8 +85,16 @@ export default function RefereeHome() {
         <>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
             <Body tone="ink2" size={13}>{`Signed in · ${staff.role}`}</Body>
-            <Body tone="blue" weight="semi" size={13} onPress={() => void saveStaff(null)}>Sign out</Body>
+            <Body tone="blue" weight="semi" size={13} onPress={() => (pendingMatches.length ? setConfirmSignOut(true) : void saveStaff(null))}>Sign out</Body>
           </View>
+          {confirmSignOut && (
+            <Card style={{ marginTop: 10, gap: 8, borderColor: t.live, borderWidth: 1 }}>
+              <Body weight="semi">{`Points from ${pendingMatches.length === 1 ? "a match" : `${pendingMatches.length} matches`} have not reached the server yet.`}</Body>
+              <Body tone="ink2" size={13}>Signed out, this phone cannot send them. They stay on the phone and send after the next sign-in.</Body>
+              <Button kind="danger" label="Sign out anyway" onPress={() => { setConfirmSignOut(false); void saveStaff(null); }} />
+              <Button kind="ghost" label="Stay signed in" onPress={() => setConfirmSignOut(false)} />
+            </Card>
+          )}
           <SectionHeader title="What are you scoring?" />
           <View style={{ gap: 8 }}>
             {list.data?.tournaments.map((x) => (
@@ -94,7 +106,9 @@ export default function RefereeHome() {
                 <Body weight="bold" size={16}>{x.name}</Body>
               </Card>
             ))}
-            {list.isError && <Empty title="Could not load tournaments" body="Check the signal and pull down to retry, or sign in again." />}
+            {list.isPending && <Body tone="ink2" size={13}>Loading tournaments…</Body>}
+            {list.isError && !list.data && <Empty title="Could not load tournaments" body="Check the signal and pull down to retry, or sign in again." />}
+            {list.data && !list.data.tournaments.length && <Empty title="No tournaments to score" body="The tournament desk has not opened one for referees yet." />}
           </View>
         </>
       )}

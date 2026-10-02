@@ -19,6 +19,8 @@ export interface LeaseView {
   myRequestPending: boolean;
   match: Match | null;
   snapshot: MatchSnapshot | null;
+  /** Goes up each time this phone gains control (a claim, an accepted handover, a re-claim on return): the console reloads the server's score then. */
+  gained: number;
 }
 
 interface StatePayload {
@@ -38,7 +40,7 @@ async function post(matchId: string, action: string, body: Record<string, unknow
 }
 
 export function useLease(matchId: string, deviceId: string, disabled: boolean) {
-  const [v, setV] = useState<LeaseView>({ ready: disabled, isController: false, heldByOther: false, holderLabel: null, incomingRequest: null, myRequestPending: false, match: null, snapshot: null });
+  const [v, setV] = useState<LeaseView>({ ready: disabled, isController: false, heldByOther: false, holderLabel: null, incomingRequest: null, myRequestPending: false, match: null, snapshot: null, gained: 0 });
   const dev = useRef(deviceId);
   dev.current = deviceId;
 
@@ -46,8 +48,9 @@ export function useLease(matchId: string, deviceId: string, disabled: boolean) {
     const l = d.lease;
     const mine = Boolean(l && l.isLive && l.deviceId === dev.current);
     const other = Boolean(l && l.isLive && l.deviceId !== dev.current);
-    setV({
+    setV((s) => ({
       ready: true,
+      gained: mine && !s.isController ? s.gained + 1 : s.gained,
       isController: mine,
       heldByOther: other,
       holderLabel: other ? (l?.deviceLabel ?? "another phone") : null,
@@ -55,7 +58,7 @@ export function useLease(matchId: string, deviceId: string, disabled: boolean) {
       myRequestPending: Boolean(other && l?.transferRequest?.deviceId === dev.current),
       match: d.match,
       snapshot: d.snapshot,
-    });
+    }));
   }, []);
 
   const poll = useCallback(async () => {
@@ -75,7 +78,7 @@ export function useLease(matchId: string, deviceId: string, disabled: boolean) {
         return offlineFallback;
       }
       if (json.controller) {
-        setV((s) => ({ ...s, ready: true, isController: true, heldByOther: false, holderLabel: null, incomingRequest: null, myRequestPending: false }));
+        setV((s) => ({ ...s, ready: true, isController: true, heldByOther: false, holderLabel: null, incomingRequest: null, myRequestPending: false, gained: s.gained + 1 }));
         return true;
       }
       const holder = json.holder as { deviceLabel?: string | null } | undefined;

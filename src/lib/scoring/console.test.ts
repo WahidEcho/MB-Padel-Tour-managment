@@ -73,3 +73,39 @@ describe("console actions", () => {
     expect(problem).toBeNull();
   });
 });
+
+describe("restoreChoice", () => {
+  const st = (n: number) => ({ n });
+  const row = (n: number, pending: boolean) => ({ n, pending, state: st(n) });
+  it("opens on the server's score when the phone never scored the match", () => {
+    expect(C.restoreChoice({ serverNo: 4, serverState: st(4), localNo: null, rows: [] })).toBe("server");
+  });
+  it("opens on the phone's score when its unsent points follow the server's", () => {
+    expect(C.restoreChoice({ serverNo: 4, serverState: st(4), localNo: 6, rows: [row(5, true), row(6, true)] })).toBe("local");
+  });
+  it("trusts points the phone already sent when the server copy at hand is older", () => {
+    expect(C.restoreChoice({ serverNo: 4, serverState: st(4), localNo: 7, rows: [row(5, false), row(6, false), row(7, true)] })).toBe("local");
+    expect(C.restoreChoice({ serverNo: 4, serverState: st(4), localNo: 6, rows: [row(5, false), row(6, false)] })).toBe("local");
+  });
+  it("takes the server's score when nothing waits and the server is level or ahead (released, or given up)", () => {
+    expect(C.restoreChoice({ serverNo: 9, serverState: st(9), localNo: 7, rows: [] })).toBe("server");
+    expect(C.restoreChoice({ serverNo: 7, serverState: st(7), localNo: 7, rows: [row(7, false)] })).toBe("server");
+  });
+  it("asks when the server moved on past the phone's unsent points", () => {
+    expect(C.restoreChoice({ serverNo: 6, serverState: { other: true }, localNo: 6, rows: [row(5, true), row(6, true)] })).toBe("ask");
+    expect(C.restoreChoice({ serverNo: 9, serverState: st(9), localNo: 6, rows: [row(5, true), row(6, true)] })).toBe("ask");
+  });
+  it("keeps the phone's points when the server already holds them (a lost reply)", () => {
+    expect(C.restoreChoice({ serverNo: 6, serverState: st(6), localNo: 6, rows: [row(5, true), row(6, true)] })).toBe("local");
+  });
+  it("asks when the unsent points have a hole, or start past a gap nobody filled", () => {
+    expect(C.restoreChoice({ serverNo: 4, serverState: st(4), localNo: 7, rows: [row(5, true), row(7, true)] })).toBe("ask");
+    expect(C.restoreChoice({ serverNo: 4, serverState: st(4), localNo: 7, rows: [row(6, true), row(7, true)] })).toBe("ask");
+  });
+  it("counts an offline result as finished, and a final score unless it needs confirming", () => {
+    const s = { ...initialScoreState("A"), matchOver: true, winner: "A" as const };
+    expect(C.isFinished("pending_sync", null, false)).toBe(true);
+    expect(C.isFinished("live", s, false)).toBe(true);
+    expect(C.isFinished("live", s, true)).toBe(false);
+  });
+});

@@ -5,7 +5,7 @@ import { getMatch, getSnapshot } from "@/lib/data";
 import { finalizeMatch, upsertSnapshotFromState, type EngineStateLike } from "@/lib/ops";
 import { claimLease, defaultDeviceLabel, getLease, isLeaseLive } from "@/lib/scoringControl";
 import type { Match } from "@/lib/types";
-import { batchProblem, shadowMismatches } from "@/lib/scoring/eventGuard";
+import { FINISHED_MATCH_STATUSES, batchProblem, finishedMatchCut, reopensMatch, shadowMismatches } from "@/lib/scoring/eventGuard";
 import { notifyMatchLive } from "@/lib/notify/hooks";
 
 interface IncomingEvent {
@@ -145,8 +145,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       expect++;
     }
   }
-  const finishedNow = ["completed", "walkover", "disqualified", "retired"].includes(match.status);
-  const reopens = finishedNow && fresh.some((e) => e.event_type === "UNDO" && !e.new_state.matchOver);
+  // A finished match takes nothing but an UNDO that reopens it: a second
+  // MATCH_ENDED or a WALKOVER after the win must not rewrite the result. The
+  // events before the first refused one are a valid run (the batch that
+  // finished the match, say) and are kept; the refusal is reported after them.
+  const finishedNow = (FINISHED_MATCH_STATUSES as readonly string[]).includes(match.status);
+  const cut = finishedMatchCut(match.status, fresh, requiresConfirmation);
+  if (cut && cut.index === 0) {
+    return NextResponse.json({ error: cut.error, conflict: "finished", applied: [] }, { status: 409 });
+  }
+  if (cut) fresh.splice(cut.index);
+  const reopens = finishedNow && fresh.some((e) => reopensMatch(e, requiresConfirmation));
   if (reopens) {
     if (match.tie_id) {
       const { canReopenRubber } = await import("@/lib/tennis/tieOps");
@@ -258,10 +267,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     if (!finalize && e.new_state.matchOver && e.new_state.winner && !requiresConfirmation) {
       finalize = { status: "completed", winner: winnerTeamId(match, e.new_state) ?? "" };
     }
-    // Undo past the end reopens the match (spec §4.5 "Match reopened")
-    if (e.event_type === "UNDO" && !e.new_state.matchOver) {
+    // Undo past the end reopens the match (spec §4.5 "Match reopened"), and so
+    // does undoing a confirmation when results need confirming.
+    if (reopensMatch(e, requiresConfirmation)) {
       finalize = null;
-      const wasFinished = ["completed", "walkover", "disqualified", "retired"].includes(match.status);
+      const wasFinished = finishedNow;
       if (wasFinished) {
         // The knockout or tie checks for this reopen already ran before any insert.
         statusUpdate = { ...statusUpdate, status: "live", winner_team_id: null, ended_at: null };
@@ -387,6 +397,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
         console.error("shadow check failed", err);
       }
     });
+  }
+
+  if (cut) {
+    return NextResponse.json(
+      { error: cut.error, conflict: "finished", applied, last_event_number: lastApplied },
+      { status: 409 },
+    );
   }
 
   return NextResponse.json({
