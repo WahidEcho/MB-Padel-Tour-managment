@@ -26,15 +26,24 @@ export default function Scan() {
     setMsg(text);
     setTimeout(() => router.replace("/pass"), 900);
   };
-  const tryCode = async (groupSlug: string, code: string) => {
+  // The camera reports the same code many times a second: a code the server just
+  // refused is not sent again until the gate shows a new one, or 10 seconds pass.
+  const rejected = useRef<{ key: string; at: number } | null>(null);
+  const tryCode = async (groupSlug: string, code: string, fromCamera = false) => {
     if (busy.current) return;
+    const key = `${groupSlug}:${code.toUpperCase()}`;
+    const last = rejected.current;
+    if (fromCamera && last && last.key === key && Date.now() - last.at < 10_000) return;
     busy.current = true;
     try {
       const r = await unlockWith(groupSlug, code);
-      done(`Stamped · ${r.stampedDay}`);
+      rejected.current = null;
+      done(r.stampedDay ? `Stamped · ${r.stampedDay}` : "On-site pass unlocked");
     } catch (e) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       setMsg(e instanceof ApiError ? e.message : "No connection. Try again in a moment.");
+      // No connection is not a refusal: the next frame may try again.
+      if (e instanceof ApiError && e.status !== 0) rejected.current = { key, at: Date.now() };
       setTimeout(() => (busy.current = false), 1500);
     }
   };
@@ -47,7 +56,7 @@ export default function Scan() {
           barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
           onBarcodeScanned={({ data }) => {
             const link = parseVenueLink(data);
-            if (link) void tryCode(link.groupSlug, link.code);
+            if (link) void tryCode(link.groupSlug, link.code, true);
           }}
         />
       ) : null}

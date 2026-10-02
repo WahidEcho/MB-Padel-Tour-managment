@@ -1,10 +1,10 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Platform, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from "react-native-svg";
-import Animated, { SensorType, useAnimatedReaction, useAnimatedSensor, useAnimatedStyle, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import Animated, { SensorType, useAnimatedReaction, useAnimatedSensor, useAnimatedStyle, useFrameCallback, useSharedValue, type SharedValue } from "react-native-reanimated";
 import type { MPass } from "@core";
 import { BALL, BALL_INK } from "../theme/palette";
 import { F } from "../theme/type";
@@ -84,27 +84,11 @@ const clamp = (v: number) => {
 };
 
 /**
- * The collectible pass. It tilts with the phone's gyroscope (not the finger): the
- * light and the foil slide across it as the phone moves. Whatever angle the phone
- * is held at counts as flat. Where there is no gyroscope (a desktop browser) it
- * sways on its own as if held in a hand. Reduce Motion keeps it still.
+ * The rotation sensor, mounted only while the card is on screen and moving:
+ * unmounting unregisters it, so a hidden or still card costs no sensor events.
  */
-export function PassCard({ pass, event, nationIso2 }: { pass: MPass; event: PassEvent; nationIso2?: string | null }) {
-  const { calm } = useTheme();
-  const onsite = Boolean(pass.onsiteUnlockedAt);
-  const staff = pass.edition === "staff";
+function TiltSensor({ gx, gy, base, gyro }: { gx: SharedValue<number>; gy: SharedValue<number>; base: SharedValue<number | null>; gyro: SharedValue<boolean> }) {
   const sensor = useAnimatedSensor(SensorType.ROTATION, { interval: 30 });
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
-  const gx = useSharedValue(0);
-  const gy = useSharedValue(0);
-  const base = useSharedValue<number | null>(null);
-  const gyro = useSharedValue(false);
-  const still = useSharedValue(calm);
-  useEffect(() => {
-    still.value = calm;
-  }, [calm, still]);
-
   useAnimatedReaction(
     () => sensor.sensor.value,
     (s) => {
@@ -116,29 +100,55 @@ export function PassCard({ pass, event, nationIso2 }: { pass: MPass; event: Pass
       gy.value = clamp((s.pitch - base.value) / 0.5);
     },
   );
+  return null;
+}
+
+/**
+ * The collectible pass. It tilts with the phone's gyroscope (not the finger): the
+ * light and the foil slide across it as the phone moves. Whatever angle the phone
+ * is held at counts as flat. Where there is no gyroscope (a desktop browser) it
+ * sways on its own as if held in a hand. Reduce Motion keeps it still, with the
+ * sensor and the frame loop off; so does leaving the screen.
+ */
+export function PassCard({ pass, event, nationIso2, today }: { pass: MPass; event: PassEvent; nationIso2?: string | null; today?: string }) {
+  const { calm } = useTheme();
+  const onsite = Boolean(pass.onsiteUnlockedAt);
+  const staff = pass.edition === "staff";
+  const [focused, setFocused] = useState(true);
+  const moving = focused && !calm;
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  const gx = useSharedValue(0);
+  const gy = useSharedValue(0);
+  const base = useSharedValue<number | null>(null);
+  const gyro = useSharedValue(false);
 
   const frame = useFrameCallback((f) => {
     let tx = gx.value;
     let ty = gy.value;
-    if (still.value) {
-      tx = 0;
-      ty = 0;
-    } else if (!gyro.value) {
+    if (!gyro.value) {
       const t = f.timeSinceFirstFrame / 1000;
       tx = Math.sin(t * 0.9) * 0.75 + Math.sin(t * 2.3) * 0.12;
       ty = Math.cos(t * 0.7) * 0.5 + Math.sin(t * 1.7) * 0.1;
     }
-    const k = still.value ? 1 : 0.12; // smoothing so sensor noise never jitters
+    const k = 0.12; // smoothing so sensor noise never jitters
     x.value += (tx - x.value) * k;
     y.value += (ty - y.value) * k;
   }, false);
   // Runs only while the pass is on screen.
   useFocusEffect(
     useCallback(() => {
-      frame.setActive(true);
-      return () => frame.setActive(false);
-    }, [frame]),
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
   );
+  useEffect(() => {
+    frame.setActive(moving);
+    if (calm) {
+      x.value = 0;
+      y.value = 0;
+    }
+  }, [moving, calm, frame, x, y]);
 
   const card = useAnimatedStyle(() => ({ transform: [{ perspective: 1100 }, { rotateY: `${x.value * 13}deg` }, { rotateX: `${-y.value * 13}deg` }] }));
   const foil = useAnimatedStyle(() => ({ transform: [{ translateX: x.value * PASS_W * 0.7 }, { translateY: y.value * PASS_H * 0.35 }, { rotate: "25deg" }] }));
@@ -151,6 +161,7 @@ export function PassCard({ pass, event, nationIso2 }: { pass: MPass; event: Pass
       accessible
       accessibilityLabel={`${staff ? "Accreditation" : onsite ? "On-site pass" : "Event pass"} for ${event.name}, number ${pass.serial}`}
     >
+      {moving && <TiltSensor gx={gx} gy={gy} base={base} gyro={gyro} />}
       <LinearGradient colors={staff ? ["#1a1a06", "#05060A"] : ["#0a1438", "#01041A"]} locations={[0, 0.7]} start={{ x: 0.41, y: 0 }} end={{ x: 0.59, y: 1 }} style={{ position: "absolute", inset: 0 }} />
       <Glows staff={staff} />
       {staff && <View style={{ position: "absolute", top: 10, left: PASS_W / 2 - 23, width: 46, height: 8, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.6)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.2)" }} />}
@@ -174,9 +185,11 @@ export function PassCard({ pass, event, nationIso2 }: { pass: MPass; event: Pass
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 16 }}>
           {event.days.map((d) => {
             const stamped = pass.stamps.includes(d);
+            // Today (the event's day, in its own time zone) gets a solid ring until it is stamped.
+            const isToday = d === today && !stamped;
             return (
-              <View key={d} style={{ width: DAY, height: DAY, borderRadius: DAY / 2, alignItems: "center", justifyContent: "center", backgroundColor: stamped ? BALL : "transparent", borderWidth: stamped ? 0 : 1, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.22)" }}>
-                <Body size={10} weight="bold" style={{ color: stamped ? BALL_INK : "#6B7590" }}>{Number(d.slice(8))}</Body>
+              <View key={d} style={{ width: DAY, height: DAY, borderRadius: DAY / 2, alignItems: "center", justifyContent: "center", backgroundColor: stamped ? BALL : "transparent", borderWidth: stamped ? 0 : isToday ? 1.5 : 1, borderStyle: isToday ? "solid" : "dashed", borderColor: isToday ? BALL : "rgba(255,255,255,0.22)" }}>
+                <Body size={10} weight="bold" style={{ color: stamped ? BALL_INK : isToday ? "#E8ECF4" : "#6B7590" }}>{Number(d.slice(8))}</Body>
               </View>
             );
           })}
