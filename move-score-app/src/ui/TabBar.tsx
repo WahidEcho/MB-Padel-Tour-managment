@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, View, type LayoutChangeEvent } from "react-native";
+import { Pressable, View, type LayoutChangeEvent, useWindowDimensions } from "react-native";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
@@ -48,6 +48,9 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   const { t, calm } = useTheme();
   const insets = useSafeAreaInsets();
   const [width, setWidth] = useState(0);
+  // On a tablet the bar keeps phone proportions, centred under the content column.
+  const win = useWindowDimensions();
+  const side = Math.max(12, (win.width - 560) / 2);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
   const n = state.routes.length;
@@ -60,7 +63,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   }, [state.index, width, slot, x, y, calm]);
   const ball = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { translateY: y.value }], opacity: state.routes[state.index]?.name === "pass" ? 0 : 1 }));
   return (
-    <View style={{ position: "absolute", left: 12, right: 12, bottom: Math.max(insets.bottom, 10), height: 70, borderRadius: 26, overflow: "hidden", borderWidth: 1, borderColor: t.line }} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}>
+    <View style={{ position: "absolute", left: side, right: side, bottom: Math.max(insets.bottom, 10), height: 70, borderRadius: 26, overflow: "hidden", borderWidth: 1, borderColor: t.line }} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}>
       <BlurView intensity={40} tint={t.scheme === "dark" ? "dark" : "light"} style={{ position: "absolute", inset: 0, backgroundColor: t.scheme === "dark" ? "rgba(10,16,34,0.78)" : "rgba(255,255,255,0.82)" }} />
       <Animated.View style={[{ position: "absolute", top: 7, width: 7, height: 7, borderRadius: 4, backgroundColor: t.ball, shadowColor: t.ball, shadowOpacity: 0.9, shadowRadius: 6, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk }, ball]} />
       <View style={{ flex: 1, flexDirection: "row" }}>
