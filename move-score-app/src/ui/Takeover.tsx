@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
@@ -22,16 +22,23 @@ export interface TakeoverMoment {
  */
 export function Takeover({ moment, onDone, onShare, calm }: { moment: TakeoverMoment | null; onDone: () => void; onShare: () => void; calm: boolean }) {
   const sweep = useSharedValue(0);
+  // The parent re-renders on every poll; the moment plays once per key, whatever it passes.
+  const latest = useRef({ onDone, calm });
   useEffect(() => {
-    if (!moment) return;
-    void Haptics.notificationAsync(moment.final ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    latest.current = { onDone, calm };
+  });
+  const key = moment?.key ?? null;
+  const final = moment?.final ?? false;
+  useEffect(() => {
+    if (!key) return;
+    void Haptics.notificationAsync(final ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning).catch(() => {});
     sweep.value = 0;
     sweep.value = withTiming(1, { duration: 2200, easing: Easing.inOut(Easing.sin) });
-    if (!moment.final) {
-      const id = setTimeout(onDone, calm ? 1200 : 2300);
+    if (!final) {
+      const id = setTimeout(() => latest.current.onDone(), latest.current.calm ? 1200 : 2300);
       return () => clearTimeout(id);
     }
-  }, [moment, onDone, sweep, calm]);
+  }, [key, final, sweep]);
   const beam = useAnimatedStyle(() => ({ transform: [{ rotate: `${-35 + sweep.value * 70}deg` }] }));
   if (!moment) return null;
   return (

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
-import { isDoneStatus, isLiveStatus, type MMatch } from "@core";
+import { isDoneStatus, type MMatch } from "@core";
 import { useBundle, useLive } from "../../api/queries";
-import { dayIn, makeView, timeIn, type View as Model } from "../../api/model";
+import { dayIn, isOnCourt, makeView, needsDay, timeIn, type View as Model } from "../../api/model";
 import { useFeaturedSlugs } from "../../api/featured";
 import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
@@ -50,7 +50,10 @@ function NextCard({ m, v, why }: { m: MMatch; v: Model; why: string }) {
       <Display size={22}>{`${v.sideLabel(m, "A")}\nv ${v.sideLabel(m, "B")}`}</Display>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
         <Body tone="ink2" size={13}>{why}</Body>
-        {hms && left! < 24 * 3600000 ? (
+        {left === 0 ? (
+          // The start time has passed but the match has not begun (the order of play runs late).
+          <Body tone="ink2" size={13} weight="semi">Starting soon</Body>
+        ) : hms && left! < 24 * 3600000 ? (
           <Body tone="ink2" size={13}>
             Starts in <Num size={20}>{hms}</Num>
           </Body>
@@ -66,14 +69,16 @@ function Section({ slug, part }: { slug: string; part: "next" | "live" | "done" 
   const r = useMine(slug);
   if (!r) return null;
   const { v, mine } = r;
-  if (part === "live") return <>{mine.filter((x) => isLiveStatus(x.m.status)).map((x) => <MatchMini key={x.m.id} m={x.m} v={v} />)}</>;
+  if (part === "live") return <>{mine.filter((x) => isOnCourt(x.m)).map((x) => <MatchMini key={x.m.id} m={x.m} v={v} />)}</>;
   if (part === "done") return <>{mine.filter((x) => isDoneStatus(x.m.status)).slice(0, 8).map((x) => <MatchMini key={x.m.id} m={x.m} v={v} />)}</>;
   const next = mine.filter((x) => x.m.status === "scheduled" || x.m.status === "ready").sort((a, b) => (a.m.scheduledTime ?? "9").localeCompare(b.m.scheduledTime ?? "9"));
   if (!next.length) return null;
+  const rest = next.slice(1, 5);
+  const withDay = needsDay(rest.map((x) => x.m.scheduledTime), v.bundle.tournament.timezone);
   return (
     <View style={{ gap: 8 }}>
       <NextCard m={next[0]!.m} v={v} why={next[0]!.why} />
-      {next.slice(1, 5).map((x) => <MatchMini key={x.m.id} m={x.m} v={v} />)}
+      {rest.map((x) => <MatchMini key={x.m.id} m={x.m} v={v} withDay={withDay} />)}
     </View>
   );
 }

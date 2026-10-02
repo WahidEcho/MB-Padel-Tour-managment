@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { View } from "react-native";
-import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from "react-native-svg";
+import Svg, { Defs, Line, LinearGradient, Path, Stop } from "react-native-svg";
 import { useTheme } from "../theme/ThemeProvider";
 import type { MTimelinePoint } from "@core";
 import { Eyebrow } from "./Text";
+
+const DOT = 10;
 
 /**
  * Who is on top, point by point: a line that swings toward whichever side is
@@ -35,9 +37,15 @@ export function Momentum({ points, aLabel, bLabel, height = 92 }: { points: MTim
         </Defs>
         <Line x1="0" y1={height / 2} x2="320" y2={height / 2} stroke={t.ink3} strokeOpacity={0.4} strokeDasharray="3 4" />
         {d ? <Path d={area} fill="url(#mg)" /> : null}
-        {d ? <Path d={d} fill="none" stroke={t.ink} strokeWidth={2} strokeLinejoin="round" /> : null}
-        {end ? <Circle cx={end[0]} cy={end[1]} r={4.5} fill={t.ball} stroke={t.ballInk} strokeWidth={1.5} /> : null}
+        {d ? <Path d={d} fill="none" stroke={t.ink} strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" /> : null}
       </Svg>
+      {/* The SVG stretches to the card's width; the end dot sits outside it so it stays round. */}
+      {end ? (
+        <View
+          pointerEvents="none"
+          style={{ position: "absolute", left: `${(end[0] / 320) * 100}%`, top: end[1] - DOT / 2, marginLeft: -DOT / 2, width: DOT, height: DOT, borderRadius: DOT / 2, backgroundColor: t.ball, borderWidth: 1.5, borderColor: t.ballInk }}
+        />
+      ) : null}
       <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
         <Eyebrow size={10} tone="ink3">{aLabel}</Eyebrow>
         <Eyebrow size={10} tone="ink3">{lead ? `${lead === "A" ? aLabel : bLabel} on top` : "No points yet"}</Eyebrow>

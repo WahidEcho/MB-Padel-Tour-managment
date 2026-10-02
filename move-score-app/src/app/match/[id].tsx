@@ -6,12 +6,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import { RUBBER_LABELS, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
 import { useBundle, useConfig, useLive, useMatch, useTimeline } from "../../api/queries";
-import { dayIn, makeView, timeIn } from "../../api/model";
+import { dayIn, isAwaitingResult, makeView, matchA11y, timeIn } from "../../api/model";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Eyebrow, Num } from "../../ui/Text";
-import { Button, Card, Chip, Flag, LivePill, ToggleButton } from "../../ui/Bits";
+import { Button, Card, Chip, Empty, Flag, LivePill, ToggleButton } from "../../ui/Bits";
+import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
 import { Rolling } from "../../ui/Rolling";
 import { Momentum } from "../../ui/Momentum";
 import { Takeover, type TakeoverMoment } from "../../ui/Takeover";
@@ -19,6 +20,8 @@ import { toggleFollow, useFollowing } from "../../state/follows";
 import { startLockScreen, lockScreenSupported } from "../../live/lockScreen";
 
 const ROW_H = 58;
+/** Doubles: both names, one per line. */
+const ROW_H_DOUBLES = 72;
 
 /** Which side just won a point, comparing two scores. */
 function scorer(prev: MMatch["score"], next: MMatch["score"]): "A" | "B" | null {
@@ -31,11 +34,12 @@ function scorer(prev: MMatch["score"], next: MMatch["score"]): "A" | "B" | null 
   return null;
 }
 
-function Board({ m, v, aLabel, bLabel, scoredBy }: { m: MMatch; v: ReturnType<typeof makeView>; aLabel: string; bLabel: string; scoredBy: "A" | "B" | null }) {
+function Board({ m, v, aNames, bNames, scoredBy }: { m: MMatch; v: ReturnType<typeof makeView>; aNames: string[]; bNames: string[]; scoredBy: "A" | "B" | null }) {
   const { t, calm } = useTheme();
   const s = m.score;
   const live = isLiveStatus(m.status);
   const sets = s?.sets ?? [];
+  const rowH = Math.max(aNames.length, bNames.length) > 1 ? ROW_H_DOUBLES : ROW_H;
   const serveY = useSharedValue(s?.serving === "B" ? 1 : 0);
   const hop = useSharedValue(0);
   useEffect(() => {
@@ -44,17 +48,19 @@ function Board({ m, v, aLabel, bLabel, scoredBy }: { m: MMatch; v: ReturnType<ty
     serveY.value = calm ? target : withSpring(target, { damping: 9, stiffness: 120 });
     if (!calm) hop.value = withSequence(withTiming(-14, { duration: 180 }), withSpring(0, { damping: 6 }));
   }, [s?.serving, serveY, hop, calm]);
-  const ball = useAnimatedStyle(() => ({ transform: [{ translateY: serveY.value * ROW_H + hop.value }], opacity: live && s?.serving ? 1 : 0 }));
+  const ball = useAnimatedStyle(() => ({ transform: [{ translateY: serveY.value * rowH + hop.value }], opacity: live && s?.serving ? 1 : 0 }));
   const row = (side: "A" | "B") => {
     const team = v.team(side === "A" ? m.a : m.b);
     const k = side === "A" ? "a" : "b";
     const won = isDoneStatus(m.status) && m.winner === (side === "A" ? m.a : m.b);
     return (
-      <View style={{ height: ROW_H, flexDirection: "row", alignItems: "center", gap: 6, borderTopWidth: side === "B" ? 1 : 0, borderColor: t.line }}>
+      <View style={{ height: rowH, flexDirection: "row", alignItems: "center", gap: 6, borderTopWidth: side === "B" ? 1 : 0, borderColor: t.line }}>
         <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0, paddingLeft: 24 }}>
           <Flag iso2={team?.iso2} code={team?.code} size={32} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Body weight="bold" size={15} numberOfLines={1}>{side === "A" ? aLabel : bLabel}</Body>
+            {(side === "A" ? aNames : bNames).map((n, i) => (
+              <Body key={i} weight="bold" size={rowH === ROW_H ? 15 : 14} numberOfLines={1}>{n}</Body>
+            ))}
             <Eyebrow size={10} tone={won ? "ink" : "ink3"}>{won ? `${team?.code ?? ""} · WON` : (team?.code ?? "")}</Eyebrow>
           </View>
         </View>
@@ -78,7 +84,7 @@ function Board({ m, v, aLabel, bLabel, scoredBy }: { m: MMatch; v: ReturnType<ty
   };
   return (
     <View>
-      <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 4, top: ROW_H / 2 - 6, width: 12, height: 12, borderRadius: 6, backgroundColor: t.ball, shadowColor: t.ball, shadowOpacity: 0.9, shadowRadius: 8, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk, zIndex: 2 }, ball]} />
+      <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 4, top: rowH / 2 - 6, width: 12, height: 12, borderRadius: 6, backgroundColor: t.ball, shadowColor: t.ball, shadowOpacity: 0.9, shadowRadius: 8, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk, zIndex: 2 }, ball]} />
       {row("A")}
       {row("B")}
     </View>
@@ -111,9 +117,12 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const l = useLive(slug, 10_000);
   const m = q.data?.match;
   const live = m ? isLiveStatus(m.status) : false;
-  const tl = useTimeline(id, live);
+  // Fetched again whenever the match moves, so the last point lands after the match leaves "live".
+  const tl = useTimeline(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
   const starred = useFollowing("match", id);
   const [moment, setMoment] = useState<TakeoverMoment | null>(null);
+  const closeMoment = useCallback(() => setMoment(null), []);
+  const played = useRef(new Set<string>());
   const [scoredBy, setScoredBy] = useState<"A" | "B" | null>(null);
   const prevScore = useRef<MMatch["score"]>(null);
   const prevSituation = useRef<string>("");
@@ -123,6 +132,12 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
   const aLabel = m && v ? v.sideLabel(m, "A") : "";
   const bLabel = m && v ? v.sideLabel(m, "B") : "";
+  // Doubles show both players in full, one per line; everyone else gets one line.
+  const names = (side: "A" | "B") => {
+    if (!m || !v) return [];
+    const ps = m.tieId ? v.sidePlayers(m, side) : [];
+    return ps.length > 1 ? ps.map((p) => p.name) : [v.sideLabel(m, side)];
+  };
   const aCode = (m && v?.team(m.a)?.code) || "A";
   const bCode = (m && v?.team(m.b)?.code) || "B";
 
@@ -142,20 +157,26 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   // Big moments: set point, match point, and the result.
   useEffect(() => {
     if (!m || !q.data || flags.takeovers === false) return;
+    // Each moment plays once, however often the screen polls or re-renders.
+    const play = (mo: TakeoverMoment) => {
+      if (played.current.has(mo.key)) return;
+      played.current.add(mo.key);
+      setMoment(mo);
+    };
     const sit = q.data.situation;
     const key = sit.kind ? `${sit.kind}:${sit.side}:${m.score?.lastEventNumber}` : "none";
     // The first look only records where the match stands: a moment plays when it happens, not on opening the screen.
     const seen = prevSituation.current !== "";
     if (seen && sit.kind && (sit.kind === "match" || sit.kind === "set") && prevSituation.current.split(":").slice(0, 2).join(":") !== `${sit.kind}:${sit.side}`) {
       const team = v?.team(sit.side === "A" ? m.a : m.b);
-      setMoment({ key, kicker: `${v?.court(m.courtId) ?? "Court"} · LIVE`, words: sit.kind === "match" ? ["Match", "point"] : ["Set", "point"], who: `${team?.code ?? ""} · ${sit.side === "A" ? aLabel : bLabel}`, final: false });
+      play({ key, kicker: `${v?.court(m.courtId) ?? "Court"} · LIVE`, words: sit.kind === "match" ? ["Match", "point"] : ["Set", "point"], who: `${team?.code ?? ""} · ${sit.side === "A" ? aLabel : bLabel}`, final: false });
     }
     prevSituation.current = key;
-    if (prevStatus.current && isLiveStatus(prevStatus.current as MMatch["status"]) && isDoneStatus(m.status) && m.winner) {
+    if (prevStatus.current && ["live", "paused", "pending_sync"].includes(prevStatus.current) && isDoneStatus(m.status) && m.winner) {
       const tie = v?.tieOf(m);
       const winnerTeam = v?.team(m.winner);
       const tieWon = tie && tie.status === "completed" && tie.winner === m.winner;
-      setMoment({
+      play({
         key: `final:${m.id}`,
         kicker: b.data?.tournament.name.toUpperCase() ?? "",
         words: tieWon ? ["Tie", "won"] : m.tieId ? ["Rubber", "won"] : ["Match", "won"],
@@ -171,13 +192,23 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
     router.push({ pathname: "/share/[matchId]", params: { matchId: id } });
   }, [id]);
 
-  if (!m || !v || !b.data) return <Screen tabs={false}><BackHeader label="Back" /><Body tone="ink2">Loading…</Body></Screen>;
+  if (!m || !v || !b.data) {
+    return (
+      <Screen tabs={false}>
+        <BackHeader label="Back" />
+        {b.isError && failedOffline(b) ? <OfflineState what="this match" onRetry={() => b.refetch()} /> : b.isError ? <Empty title="This match is not available" /> : <Body tone="ink2">Loading…</Body>}
+      </Screen>
+    );
+  }
   const tz = b.data.tournament.timezone;
   const tie = v.tieOf(m);
   const sit = q.data!.situation;
+  const awaiting = isAwaitingResult(m);
   const callText = isDoneStatus(m.status)
     ? "Final"
-    : m.status === "paused"
+    : awaiting
+      ? "Match over · awaiting confirmation"
+      : m.status === "paused"
       ? "Play suspended"
       : sit.kind === "match" || sit.kind === "set"
         ? `${sit.kind === "match" ? "Match" : "Set"} point ${sit.side === "A" ? aCode : bCode}`
@@ -190,7 +221,8 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
               : m.scheduledTime
                 ? `${dayIn(m.scheduledTime, tz)} · ${timeIn(m.scheduledTime, tz)}`
                 : "Not started";
-  const hot = sit.kind === "match" || sit.kind === "set";
+  const hot = !awaiting && (sit.kind === "match" || sit.kind === "set");
+  const summary = `${matchA11y(m, v)}${hot || sit.kind === "break" ? `. ${callText}` : ""}`;
   return (
     <View style={{ flex: 1 }}>
       <Screen tabs={false} stage={false} onRefresh={() => Promise.all([q.refetch(), tl.refetch()])}>
@@ -198,16 +230,17 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           label={tie ? `${v.team(tie.a)?.code ?? ""} v ${v.team(tie.b)?.code ?? ""}` : b.data.tournament.name.split(" ").slice(0, 2).join(" ")}
           right={<ToggleButton compact on={starred} onLabel="★ Starred" offLabel="☆ Star" onPress={() => void toggleFollow("match", id, b.data!.tournament.id)} />}
         />
+        <StaleBanner queries={[q, l]} live={live || m.status === "pending_sync"} />
         <View style={{ marginHorizontal: -18, paddingHorizontal: 18, paddingBottom: 18, overflow: "hidden" }}>
           <Animated.View pointerEvents="none" style={[{ position: "absolute", top: -220, left: "50%", marginLeft: -150, width: 300, height: 560, transformOrigin: "50% 0%" }, spotStyle]}>
             <LinearGradient colors={[t.glowA, "transparent"]} style={{ flex: 1, borderBottomLeftRadius: 150, borderBottomRightRadius: 150 }} />
           </Animated.View>
-          <View style={{ borderRadius: 26, backgroundColor: t.scheme === "dark" ? "rgba(10,16,34,0.88)" : "rgba(255,255,255,0.94)", borderWidth: 1, borderColor: t.line, paddingVertical: 14, paddingRight: 12 }}>
+          <View accessible accessibilityLabel={summary} style={{ borderRadius: 26, backgroundColor: t.scheme === "dark" ? "rgba(10,16,34,0.88)" : "rgba(255,255,255,0.94)", borderWidth: 1, borderColor: t.line, paddingVertical: 14, paddingRight: 12 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: 18, marginBottom: 6 }}>
-              {live ? <LivePill label={m.status === "paused" ? "PAUSED" : `LIVE${m.rubberType ? ` · ${m.rubberType}` : ""}`} /> : <Chip label={isDoneStatus(m.status) ? "Final" : "Up next"} />}
+              {live && !awaiting ? <LivePill label={m.status === "paused" ? "PAUSED" : `LIVE${m.rubberType ? ` · ${m.rubberType}` : ""}`} /> : <Chip label={isDoneStatus(m.status) ? "Final" : awaiting ? "Match over" : m.status === "cancelled" ? "Not played" : "Up next"} />}
               <Chip label={[v.court(m.courtId), m.rubberType ? RUBBER_LABELS[m.rubberType as keyof typeof RUBBER_LABELS] : m.round].filter(Boolean).join(" · ")} />
             </View>
-            <Board m={m} v={v} aLabel={aLabel} bLabel={bLabel} scoredBy={scoredBy} />
+            <Board m={m} v={v} aNames={names("A")} bNames={names("B")} scoredBy={scoredBy} />
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: 18, marginTop: 8 }}>
               <Body tone="ink2" size={12}>{tie ? `${v.team(tie.a)?.code} ${tie.rubbersA}–${tie.rubbersB} ${v.team(tie.b)?.code} in the tie` : (m.round ?? "")}</Body>
               <View style={{ backgroundColor: hot ? t.ball : "transparent", borderRadius: 6, paddingHorizontal: hot ? 7 : 0, paddingVertical: 3 }}>
@@ -240,7 +273,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
         </View>
         {Platform.OS === "web" ? null : <View style={{ height: 10 }} />}
       </Screen>
-      <Takeover moment={moment} calm={calm} onDone={() => setMoment(null)} onShare={share} />
+      <Takeover moment={moment} calm={calm} onDone={closeMoment} onShare={share} />
     </View>
   );
 }
@@ -249,7 +282,14 @@ export default function MatchRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const q = useMatch(id);
   const b = useBundle(q.data?.tournamentSlug);
-  if (!q.data) return <Screen tabs={false}><BackHeader label="Back" />{q.isError ? <Body tone="ink2">This match is not available.</Body> : <Body tone="ink2">Loading…</Body>}</Screen>;
+  if (!q.data) {
+    return (
+      <Screen tabs={false}>
+        <BackHeader label="Back" />
+        {q.isError && failedOffline(q) ? <OfflineState what="this match" onRetry={() => q.refetch()} /> : q.isError ? <Body tone="ink2">This match is not available.</Body> : <Body tone="ink2">Loading…</Body>}
+      </Screen>
+    );
+  }
   return (
     <SkinScope skin={b.data?.tournament.skin}>
       <MatchScreen id={id} slug={q.data.tournamentSlug} />

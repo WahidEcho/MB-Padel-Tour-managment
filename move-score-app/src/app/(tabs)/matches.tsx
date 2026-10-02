@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { MMatch } from "@core";
 import { Pressable, ScrollView, View } from "react-native";
 import { useBundle, useLive } from "../../api/queries";
-import { dayIn, finishedMatches, liveMatches, makeView, upcomingMatches } from "../../api/model";
+import { dayIn, finishedMatches, liveMatches, makeView, needsDay, upcomingMatches } from "../../api/model";
 import { useFeaturedSlugs } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -10,6 +10,7 @@ import { Segments } from "../../ui/Segments";
 import { Body, Display } from "../../ui/Text";
 import { Empty, SectionHeader } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
+import { StaleBanner } from "../../ui/Offline";
 import { useFollowsOf } from "../../state/follows";
 
 type Filter = "all" | "live" | "starred" | "results";
@@ -32,11 +33,13 @@ function TournamentMatches({ slug, filter, day }: { slug: string; filter: Filter
   if (day) list = list.filter((m) => dayIn(m.scheduledTime ?? m.startedAt, tz) === day);
   list = list.filter((m) => m.a && m.b);
   if (!list.length) return null;
+  // A chosen day already says which day; otherwise name the day once the list runs past today.
+  const withDay = !day && needsDay(list.filter((m) => m.status === "scheduled" || m.status === "ready").map((m) => m.scheduledTime), tz);
   return (
     <View style={{ gap: 8 }}>
       <SectionHeader title={b.data.tournament.name} />
       {list.slice(0, 80).map((m) => (
-        <MatchMini key={m.id} m={m} v={v} />
+        <MatchMini key={m.id} m={m} v={v} withDay={withDay} />
       ))}
     </View>
   );
@@ -59,9 +62,11 @@ export default function Matches() {
   const [filter, setFilter] = useState<Filter>("all");
   const [day, setDay] = useState<string | null>(null);
   const days = useDays(slugs);
+  const first = useLive(slugs[0]);
   return (
     <Screen>
       <Display size={26} style={{ marginTop: 8 }}>Matches</Display>
+      <StaleBanner queries={[first]} live />
       <Segments
         value={filter}
         onChange={setFilter}
