@@ -20,4 +20,17 @@ describe("venue code", async () => {
     expect(m.checkVenueCode("jtf-2026", m.dailyCode("jtf-2026", day), "Africa/Cairo", t)).toBe(true);
     expect(m.checkVenueCode("jtf-2026", m.dailyCode("jtf-2026", "2026-11-03"), "Africa/Cairo", t)).toBe(false);
   });
+  it("stamps only the event's days", () => {
+    expect(m.isEventDay("2026-11-04", "2026-11-02", "2026-11-08")).toBe(true);
+    expect(m.isEventDay("2026-11-02", "2026-11-02", "2026-11-08")).toBe(true);
+    expect(m.isEventDay("2026-11-08", "2026-11-02", "2026-11-08")).toBe(true);
+    expect(m.isEventDay("2026-11-01", "2026-11-02", "2026-11-08")).toBe(false);
+    expect(m.isEventDay("2026-11-09", "2026-11-02", "2026-11-08")).toBe(false);
+    expect(m.isEventDay("2026-11-03", "2026-11-02", null)).toBe(false);
+    expect(m.isEventDay("2026-11-03", null, null)).toBe(true);
+  });
+  it("counts the day in the event's zone, not UTC", () => {
+    // 23:30 UTC on the 3rd is already the 4th in Cairo.
+    expect(m.eventDay("Africa/Cairo", Date.parse("2026-11-03T23:30:00Z"))).toBe("2026-11-04");
+  });
 });

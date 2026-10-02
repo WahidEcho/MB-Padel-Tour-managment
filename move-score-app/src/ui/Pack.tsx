@@ -51,7 +51,21 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
   const body = useAnimatedStyle(() => ({ transform: [{ translateY: gone.value ? withTiming(560, { duration: 800 }) : 0 }], opacity: gone.value ? withTiming(0, { duration: 800 }) : 1 }));
   return (
     <GestureDetector gesture={Gesture.Exclusive(pan, tap)}>
-      <View style={{ width: PASS_W, height: PASS_H }} accessible accessibilityRole="button" accessibilityLabel="Sealed event pass. Drag across the top, or double-tap, to open it.">
+      <View
+        style={{ width: PASS_W, height: PASS_H }}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel="Sealed event pass"
+        accessibilityHint="Opens your event pass. Or drag across the top to tear it open."
+        // A screen reader's double-tap is "activate": it never reaches the gesture handlers.
+        accessibilityActions={[{ name: "activate", label: "Open the pass" }]}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName !== "activate" || gone.value) return;
+          gone.value = 1;
+          tear.value = withTiming(1);
+          open();
+        }}
+      >
         <Animated.View style={[{ height: 64, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderBottomLeftRadius: 4, borderBottomRightRadius: 4, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, top]}>
           <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Eyebrow size={11} style={{ color: BALL, letterSpacing: 3 }}>← DRAG TO OPEN →</Eyebrow>

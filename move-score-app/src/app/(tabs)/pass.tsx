@@ -1,21 +1,21 @@
 import { useMemo, useState } from "react";
-import { Linking, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Platform, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Animated, { FadeInDown, ZoomIn } from "react-native-reanimated";
 import type { MPass } from "@core";
 import { api, apiUrl, errorMessage } from "../../api/client";
 import { useBundle, useConfig } from "../../api/queries";
-import { useFeaturedGroup, useFeaturedSlugs } from "../../api/featured";
+import { useFeaturedGroup } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, SectionHeader } from "../../ui/Bits";
-import { PassCard, type PassEvent } from "../../ui/PassCard";
+import { PASS_H, PASS_W, PassCard, type PassEvent } from "../../ui/PassCard";
 import { Pack } from "../../ui/Pack";
 import { Pins } from "../../ui/Pins";
-import { session } from "../../state/session";
 import { useFollowsOf } from "../../state/follows";
+import { rememberPass, usePass } from "../../pass/usePass";
+import { eventToday } from "../../pass/day";
 
 function eventDays(a: string | null, b: string | null): string[] {
   if (!a) return [];
@@ -35,13 +35,14 @@ function dayLabel(iso: string): string {
 
 export default function PassTab() {
   const { t, calm } = useTheme();
-  const qc = useQueryClient();
   const group = useFeaturedGroup();
-  const slugs = useFeaturedSlugs();
+  // Pins are the nations of this event's own tournaments, not whatever else is on.
+  const slugs = group?.tournaments ?? [];
   const b0 = useBundle(slugs[0]?.slug);
   const b1 = useBundle(slugs[1]?.slug);
+  const b2 = useBundle(slugs[2]?.slug);
+  const b3 = useBundle(slugs[3]?.slug);
   const cfg = useConfig();
-  const installed = session.use((s) => Boolean(s.installToken));
   const supporting = useFollowsOf("nation");
   const [opening, setOpening] = useState(false);
   const [name, setName] = useState("");
@@ -49,23 +50,19 @@ export default function PassTab() {
   const [error, setError] = useState<string | null>(null);
   // A failed open reseals the pack: a new key gives a fresh, untorn Pack.
   const [packKey, setPackKey] = useState(0);
-  const q = useQuery({
-    queryKey: ["pass", group?.id],
-    queryFn: () => api<{ pass: MPass | null }>(`/api/mobile/v1/me/pass?group=${group!.id}`, { who: "me" }),
-    enabled: Boolean(group?.id && installed),
-  });
-  const pass = q.data?.pass ?? null;
+  const q = usePass(group?.id);
+  const { pass, owner } = q;
   const nations = useMemo(() => {
-    const all = [...(b0.data?.teams ?? []), ...(b1.data?.teams ?? [])].filter((x) => x.code.length === 3);
+    const all = [b0.data, b1.data, b2.data, b3.data].flatMap((b) => b?.teams ?? []).filter((x) => x.code.length === 3);
     return [...new Map(all.map((x) => [x.code, x])).values()].sort((x, y) => x.name.localeCompare(y.name));
-  }, [b0.data, b1.data]);
+  }, [b0.data, b1.data, b2.data, b3.data]);
   if (!group) return <Screen><Display size={24} style={{ marginTop: 8, marginBottom: 14 }}>My pass</Display><Empty title="No event right now" body="Your pass appears when the next event opens." /></Screen>;
   const event: PassEvent = { name: group.name, venue: group.venue, city: group.city, days: eventDays(group.startsOn, group.endsOn) };
   const open = async () => {
     setOpening(true);
     try {
       const r = await api<{ pass: MPass }>("/api/mobile/v1/me/pass", { who: "me", body: { group: group.id, nationCode: supporting[0] } });
-      qc.setQueryData(["pass", group.id], r);
+      rememberPass(group.id, r);
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -74,31 +71,66 @@ export default function PassTab() {
       setTimeout(() => setOpening(false), 600);
     }
   };
-  const update = async (patch: { holderName?: string; nationCode?: string }) => {
+  // Sends only what changed: the server leaves fields that are not in the body alone.
+  const update = async (patch: { holderName: string } | { nationCode: string }) => {
     try {
-      const r = await api<{ pass: MPass }>("/api/mobile/v1/me/pass", { who: "me", body: { group: group.id, holderName: patch.holderName ?? pass?.holderName ?? undefined, nationCode: patch.nationCode ?? pass?.nationCode ?? undefined } });
-      qc.setQueryData(["pass", group.id], r);
+      const r = await api<{ pass: MPass }>("/api/mobile/v1/me/pass", { who: "me", body: { group: group.id, ...patch } });
+      rememberPass(group.id, r);
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
     }
   };
+  const saveName = () => {
+    const next = name.trim();
+    if (next) return void update({ holderName: next });
+    if (!pass?.holderName) return;
+    // An empty box clears the name only when the fan says so.
+    if (Platform.OS === "web") {
+      if (globalThis.confirm?.("Remove your name from the pass?")) void update({ holderName: "" });
+      return;
+    }
+    Alert.alert("Remove your name?", "The pass will say “Move Score fan” instead.", [
+      { text: "Keep it", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => void update({ holderName: "" }) },
+    ]);
+  };
   const nationIso = nations.find((n) => n.code === pass?.nationCode)?.iso2 ?? null;
-  const today = new Date().toISOString().slice(0, 10);
+  // The event's day where it is played, as the server stamps it (not the phone's UTC date).
+  const today = eventToday(group.timezone);
   const stampedToday = Boolean(pass?.stamps.includes(today));
   return (
     <Screen onRefresh={() => q.refetch()}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 14 }}>
         <Display size={24}>My pass</Display>
-        <Chip label={pass ? (pass.edition === "staff" ? "Accredited" : pass.onsiteUnlockedAt ? "On-site" : "Opened") : "Sealed"} ball={Boolean(pass?.onsiteUnlockedAt || pass?.edition === "staff")} />
+        <Chip label={pass ? (pass.edition === "staff" ? "Accredited" : pass.onsiteUnlockedAt ? "On-site" : "Opened") : q.confirmedNone ? "Sealed" : "…"} ball={Boolean(pass?.onsiteUnlockedAt || pass?.edition === "staff")} />
       </View>
       <View style={{ alignItems: "center", paddingTop: 6 }}>
         {pass && !opening ? (
           <Animated.View entering={ZoomIn.springify().damping(12)}>
-            <PassCard pass={pass} event={event} nationIso2={nationIso} />
+            <PassCard pass={pass} event={event} nationIso2={nationIso} today={today} />
           </Animated.View>
-        ) : (
+        ) : q.confirmedNone || opening ? (
           <Pack key={packKey} title={group.name} onOpen={() => void open()} />
+        ) : (
+          // Until the server has answered, the pass is unknown: never a sealed pack for a pass that exists.
+          <View
+            accessible
+            accessibilityLabel={q.isError ? "Your pass could not be loaded" : "Loading your pass"}
+            style={{ width: PASS_W, height: PASS_H, borderRadius: 24, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}
+          >
+            {q.isError ? (
+              <>
+                <Body tone="ink2" size={13} style={{ textAlign: "center" }}>{errorMessage(q.error)}</Body>
+                <Button kind="ghost" label="Try again" onPress={() => void q.refetch()} />
+              </>
+            ) : (
+              <>
+                <ActivityIndicator color={t.ink3} />
+                <Body tone="ink3" size={13}>{owner ? "Loading your pass…" : "Connecting…"}</Body>
+              </>
+            )}
+          </View>
         )}
       </View>
       {error && (
@@ -131,7 +163,18 @@ export default function PassTab() {
       )}
       {pass && (
         <View style={{ marginTop: 22 }}>
-          <Body tone="blue" weight="semi" size={13} onPress={() => setEditing((e) => !e)} accessibilityRole="button" style={{ textAlign: "center" }}>
+          <Body
+            tone="blue"
+            weight="semi"
+            size={13}
+            onPress={() => {
+              // The box starts with the current name, so Save without typing changes nothing.
+              if (!editing) setName(pass.holderName ?? "");
+              setEditing((e) => !e);
+            }}
+            accessibilityRole="button"
+            style={{ textAlign: "center" }}
+          >
             {editing ? "Done" : "Edit name and nation"}
           </Body>
           {editing && (
@@ -147,7 +190,7 @@ export default function PassTab() {
                   accessibilityLabel="Name on the pass"
                   style={{ flex: 1, backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, color: t.ink, fontSize: 15 }}
                 />
-                <Button label="Save" onPress={() => void update({ holderName: name })} />
+                <Button label="Save" onPress={saveName} />
               </View>
               {nations.length > 0 && (
                 <>
@@ -166,7 +209,6 @@ export default function PassTab() {
           )}
         </View>
       )}
-      {!installed && <Body tone="ink3" size={12} style={{ marginTop: 14, textAlign: "center" }}>Connecting…</Body>}
     </Screen>
   );
 }

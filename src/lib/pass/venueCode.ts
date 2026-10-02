@@ -41,6 +41,15 @@ export function eventDay(timeZone: string, atMs = Date.now()): string {
   return parts;
 }
 
+/**
+ * Whether a day (YYYY-MM-DD, the event's zone) is one of the event's days. Without
+ * dates every day counts; with only a start, the event is that one day.
+ */
+export function isEventDay(day: string, startsOn: string | null, endsOn: string | null): boolean {
+  if (!startsOn) return true;
+  return day >= startsOn && day <= (endsOn ?? startsOn);
+}
+
 /** Accepts the current and the previous window, and today's daily code. */
 export function checkVenueCode(groupSlug: string, code: string, timeZone: string, atMs = Date.now()): boolean {
   const c = code.trim().toUpperCase();

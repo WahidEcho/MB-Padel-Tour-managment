@@ -3,6 +3,7 @@ import { db } from "@/lib/supabase";
 import { ownerOf } from "@/lib/mobile/identity";
 import { privateJson, readJson } from "@/lib/mobile/http";
 import type { FollowKind, MFollow } from "@/lib/mobile/contract";
+import { mergeCallersGuestPasses } from "@/lib/pass/server";
 
 const KINDS: FollowKind[] = ["player", "nation", "tie", "match", "tournament", "event_group"];
 const MAX_FOLLOWS = 300;
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
     const guest = await list("install", installationId);
     add.push(...guest);
     await db().from("push_devices").update({ user_id: owner.id }).eq("installation_id", installationId);
+    // The guest's event passes too. Only the install whose signed token this request carries.
+    await mergeCallersGuestPasses(request, owner);
   }
   if (add.length) {
     const current = await list(owner.kind, owner.id);
