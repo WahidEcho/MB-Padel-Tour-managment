@@ -334,8 +334,8 @@ export function getConfig(): Promise<MConfig> {
       apiVersion: API_VERSION,
       minAppVersion: typeof app.minAppVersion === "string" ? app.minAppVersion : "1.0.0",
       flags,
-      supportUrl: typeof app.supportUrl === "string" ? app.supportUrl : "https://mbeg.org/movescore/support",
-      privacyUrl: typeof app.privacyUrl === "string" ? app.privacyUrl : "https://mbeg.org/movescore/privacy",
+      supportUrl: typeof app.supportUrl === "string" ? app.supportUrl : "https://mb-tournament.vercel.app/movescore/support",
+      privacyUrl: typeof app.privacyUrl === "string" ? app.privacyUrl : "https://mb-tournament.vercel.app/movescore/privacy",
     };
   });
 }

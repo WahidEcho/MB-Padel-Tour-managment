@@ -16,6 +16,14 @@ import { Body, Display, Eyebrow } from "../ui/Text";
 import { Button, Card, SectionHeader } from "../ui/Bits";
 import { appVersion, config } from "../config";
 
+// Where the legal pages live when the server's config has not loaded yet.
+const SITE = "https://mb-tournament.vercel.app/movescore";
+
+// Google sign-in needs its client id on this platform; without one the button
+// could only fail, so it is not shown (Sign in with Apple stays on iPhone).
+const googleReady =
+  Platform.OS === "ios" ? !!config.googleIosClientId : Platform.OS === "android" ? !!config.googleWebClientId : false;
+
 const PREF_LABELS: [keyof MAlertPrefs, string, string][] = [
   ["scheduled", "Set or moved", "A court or time is set, changed or delayed"],
   ["starting", "Starting soon", "15 minutes before play"],
@@ -111,7 +119,7 @@ export default function Account() {
         <Switch value={pref.calm} onValueChange={(calm) => themePref.set((s) => ({ ...s, calm }))} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel="Reduce motion" />
       </Card>
 
-      {cfg.data?.flags.accounts !== false && (
+      {cfg.data?.flags.accounts !== false && (user || apple || googleReady) && (
         <>
           <SectionHeader title="Sign in" />
           {user ? (
@@ -147,7 +155,7 @@ export default function Account() {
                   onPress={() => void run(signInWithApple)}
                 />
               )}
-              {ageOk && Platform.OS !== "web" && <Button kind="ghost" label="Sign in with Google" onPress={() => void run(signInWithGoogle)} />}
+              {ageOk && googleReady && <Button kind="ghost" label="Sign in with Google" onPress={() => void run(signInWithGoogle)} />}
               {!ageOk && <Eyebrow tone="ink3">Under 16? Use Move Score without an account.</Eyebrow>}
             </Card>
           )}
@@ -163,8 +171,9 @@ export default function Account() {
 
       <SectionHeader title="About" />
       <Card style={{ gap: 10 }}>
-        <Body tone="blue" weight="semi" onPress={() => void Linking.openURL(cfg.data?.privacyUrl ?? "https://mbeg.org")}>Privacy policy</Body>
-        <Body tone="blue" weight="semi" onPress={() => void Linking.openURL(cfg.data?.supportUrl ?? "https://mbeg.org")}>Help and support</Body>
+        <Body tone="blue" weight="semi" onPress={() => void Linking.openURL(cfg.data?.privacyUrl ?? `${SITE}/privacy`)}>Privacy policy</Body>
+        <Body tone="blue" weight="semi" onPress={() => void Linking.openURL(`${SITE}/terms`)}>Terms of use</Body>
+        <Body tone="blue" weight="semi" onPress={() => void Linking.openURL(cfg.data?.supportUrl ?? `${SITE}/support`)}>Help and support</Body>
         <Body tone="ink3" size={12}>{`Move Score ${appVersion} · ${config.appEnv}`}</Body>
       </Card>
     </Screen>
