@@ -63,6 +63,22 @@ function kick() {
   }
 }
 
+/** Runs after the response when inside a request; at once from a script. Never throws. */
+async function later(label: string, fn: () => Promise<void>) {
+  const run = async () => {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`notify ${label} failed`, err);
+    }
+  };
+  try {
+    after(run);
+  } catch {
+    await run();
+  }
+}
+
 async function safely(label: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -281,7 +297,39 @@ export function notifyMatchFinished(matchId: string) {
         playerIds: players.map((p) => p.id),
       }),
     });
+    await later("live activity end", () => endLiveActivities(match, ctx));
   });
+}
+
+/**
+ * Ends the lock-screen scores of a finished match, whichever path finished it:
+ * the referee's last point, an admin result, a walkover or a retirement. (The
+ * scoring route also ends them on the last point; ending twice is harmless.)
+ */
+async function endLiveActivities(match: Match, ctx: Ctx) {
+  const { getConfig } = await import("../mobile/server");
+  if (!(await getConfig()).flags.live_activity) return;
+  const [{ pushLiveActivities, liveState }, { toScore }, { getSnapshot }] = await Promise.all([
+    import("./apns"),
+    import("../mobile/projection"),
+    import("../data"),
+  ]);
+  const latest = await getSnapshot(match.id);
+  const label = (teamId: string | null) => {
+    const t = teamId ? ctx.teams.get(teamId) : undefined;
+    return t?.nation_code ?? t?.team_name ?? "";
+  };
+  const status = match.status === "completed" ? "Final" : match.status.charAt(0).toUpperCase() + match.status.slice(1);
+  await pushLiveActivities(
+    match.id,
+    liveState(toScore(match, latest), {
+      a: label(match.team_a_id),
+      b: label(match.team_b_id),
+      court: match.court_id ? ctx.courts.get(match.court_id) ?? "" : "",
+      status,
+    }),
+    { end: true },
+  );
 }
 
 export function notifyMatchScheduled(matchId: string) {

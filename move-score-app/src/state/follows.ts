@@ -32,6 +32,9 @@ export async function toggleFollow(kind: FollowKind, key: string, tournamentId: 
   const on = isFollowing(kind, key);
   const f: MFollow = { kind, key, tournamentId };
   follows.set((list) => (on ? list.filter((x) => k(x.kind, x.key) !== k(kind, key)) : [...list, f]));
+  // The first follow is when alerts make sense: ask then (once per install).
+  // Loaded lazily: push/register imports this module.
+  if (!on) void import("../push/ask").then((m) => m.askForAlertsAfterFollow()).catch(() => {});
   try {
     if (session.get().installToken || session.get().user) {
       await api("/api/mobile/v1/me/follows", { who: "me", body: on ? { remove: [f] } : { add: [f] } });
