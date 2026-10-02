@@ -23,6 +23,10 @@ export async function POST(request: Request) {
   if (body?.ageConfirmed !== true) return NextResponse.json({ error: "Accounts are for people aged 16 and over." }, { status: 400 });
   if (body.provider !== "apple" && body.provider !== "google") return NextResponse.json({ error: "provider must be apple or google" }, { status: 400 });
   if (!body.idToken) return NextResponse.json({ error: "idToken required" }, { status: 400 });
+  // Apple tokens carry the hash of a one-time nonce the phone chose, so a token lifted
+  // from elsewhere cannot be replayed here. The Google Sign-In library the app uses
+  // (v16, original API) cannot set a nonce, so for Google it stays optional.
+  if (body.provider === "apple" && !body.nonce) return NextResponse.json({ error: "nonce required" }, { status: 400 });
 
   const { data, error } = await authClient().auth.signInWithIdToken({
     provider: body.provider,

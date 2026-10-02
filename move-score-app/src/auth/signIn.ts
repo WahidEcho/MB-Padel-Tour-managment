@@ -8,6 +8,7 @@ import * as Crypto from "expo-crypto";
 import { api } from "../api/client";
 import { saveUser } from "../state/session";
 import { syncFollows } from "../state/follows";
+import { registerDevice } from "../push/register";
 import { config } from "../config";
 
 interface SessionReply {
@@ -21,6 +22,8 @@ interface SessionReply {
 async function finish(r: SessionReply) {
   await saveUser({ id: r.userId, name: r.displayName, accessToken: r.accessToken, refreshToken: r.refreshToken, expiresAt: r.expiresAt });
   await syncFollows(true);
+  // Links this phone to the account, so its alerts arrive here.
+  await registerDevice(false).catch(() => undefined);
 }
 
 export async function appleAvailable(): Promise<boolean> {
@@ -50,11 +53,14 @@ export async function signInWithGoogle() {
   const res = await GoogleSignin.signIn();
   const idToken = (res as { data?: { idToken?: string | null } }).data?.idToken;
   if (!idToken) throw new Error("Google sign-in was cancelled.");
+  // No nonce: this library's original API (v16) cannot set one; the server requires it for Apple only.
   await finish(await api<SessionReply>("/api/mobile/v1/auth/session", { body: { provider: "google", idToken, ageConfirmed: true } }));
 }
 
 export async function signOut() {
   await saveUser(null);
+  // Registering again without a session unlinks this phone, so the account's alerts stop here.
+  await registerDevice(false).catch(() => undefined);
   try {
     const { GoogleSignin } = await import("@react-native-google-signin/google-signin");
     await GoogleSignin.signOut();

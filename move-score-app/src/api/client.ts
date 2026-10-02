@@ -1,7 +1,8 @@
 /**
  * Talks to the Move Score server. Public reads carry no credentials (so the
  * CDN can share them); personal calls carry the install token and, when signed
- * in, the user's session; referee calls carry the staff token.
+ * in, the user's session; referee calls carry the staff token (and the install
+ * token, so the server can say which match this phone holds).
  */
 import { config } from "../config";
 import { session, saveUser } from "../state/session";
@@ -23,7 +24,11 @@ export const OFFLINE_MESSAGE = "Can't reach Move Score right now. Check your con
 /** A message fit to show a person, whatever was thrown. */
 export const errorMessage = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE_MESSAGE);
 
-async function headersFor(who: Who): Promise<Record<string, string>> {
+// A match's state is never shared at the CDN. With the install token the server can
+// tell this phone whether it holds the scoring lease; it never shows another phone's id.
+const MATCH_STATE = /^\/api\/matches\/[^/?]+\/state(\?|$)/;
+
+async function headersFor(who: Who, path: string): Promise<Record<string, string>> {
   const s = session.get();
   const h: Record<string, string> = { Accept: "application/json" };
   if (who === "me") {
@@ -32,7 +37,15 @@ async function headersFor(who: Who): Promise<Record<string, string>> {
     if (s.staff) h["X-Staff-Token"] = s.staff.token;
   }
   if (who === "staff" && s.staff) h.Authorization = `Bearer ${s.staff.token}`;
+  if ((who === "staff" || MATCH_STATE.test(path)) && s.installToken) h["X-Install-Token"] = s.installToken;
   return h;
+}
+
+let installRejected: (() => Promise<void>) | null = null;
+let lastRecovery = 0;
+/** What to do when a personal call is refused for want of a valid install token (push/register.ts registers again). */
+export function onInstallRejected(fn: () => Promise<void>) {
+  installRejected = fn;
 }
 
 let refreshing: Promise<string> | null = null;
@@ -72,7 +85,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     try {
       res = await fetch(`${config.apiBaseUrl}${path}`, {
         method: opts.method ?? (opts.body ? "POST" : "GET"),
-        headers: { ...(await headersFor(opts.who ?? "public")), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+        headers: { ...(await headersFor(opts.who ?? "public", path)), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         signal: ctrl.signal,
       });
@@ -84,6 +97,13 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     const text = await res.text();
     const json = text ? (JSON.parse(text) as unknown) : null;
     if (!res.ok) {
+      // A guest's token the server no longer accepts (say, one minted before tokens carried
+      // a nonce): register again, at most every ten minutes, so the next call works.
+      const s = session.get();
+      if (res.status === 401 && opts.who === "me" && s.installToken && !s.user && installRejected && Date.now() - lastRecovery > 600_000) {
+        lastRecovery = Date.now();
+        void installRejected();
+      }
       const msg = (json as { error?: string } | null)?.error ?? `Request failed (${res.status})`;
       throw new ApiError(res.status, msg, json);
     }
