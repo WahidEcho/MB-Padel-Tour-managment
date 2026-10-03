@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { isDoneStatus, type MMatch } from "@core";
-import { useBundle, useLive } from "../../api/queries";
+import { refetchOnScreen, useBundle, useLive } from "../../api/queries";
 import { dayIn, isOnCourt, makeView, needsDay, timeIn, type View as Model } from "../../api/model";
-import { useFeaturedSlugs } from "../../api/featured";
+import { useFeaturedNeeds, useFeaturedSlugs } from "../../api/featured";
+import { LoadState } from "../../ui/LoadState";
 import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, SectionHeader } from "../../ui/Bits";
@@ -86,14 +87,17 @@ function Section({ slug, part }: { slug: string; part: "next" | "live" | "done" 
 export default function Following() {
   const slugs = useFeaturedSlugs();
   const count = follows.use((f) => f.length);
+  const { needs, waiting } = useFeaturedNeeds({ live: 10_000 });
   return (
-    <Screen>
+    <Screen onRefresh={refetchOnScreen}>
       <Display size={26} style={{ marginTop: 8, marginBottom: 14 }}>Following</Display>
       {count === 0 ? (
         <>
           <Empty title="Follow players, nations and matches" body="Their next match lands here, with an alert when it is set, moved, starting or finished." />
           <Button label="Find players" onPress={() => router.push("/players")} style={{ marginTop: 14 }} />
         </>
+      ) : waiting ? (
+        <LoadState queries={needs} what="the matches you follow" />
       ) : (
         <>
           {slugs.map((s) => <Section key={`n${s.slug}`} slug={s.slug} part="next" />)}

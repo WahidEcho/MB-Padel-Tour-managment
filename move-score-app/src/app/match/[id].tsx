@@ -12,7 +12,8 @@ import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, LivePill, ToggleButton } from "../../ui/Bits";
-import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
+import { StaleBanner } from "../../ui/Offline";
+import { LoadState } from "../../ui/LoadState";
 import { Rolling } from "../../ui/Rolling";
 import { Momentum } from "../../ui/Momentum";
 import { Takeover, type TakeoverMoment } from "../../ui/Takeover";
@@ -194,9 +195,9 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
 
   if (!m || !v || !b.data) {
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={() => b.refetch()}>
         <BackHeader label="Back" />
-        {b.isError && failedOffline(b) ? <OfflineState what="this match" onRetry={() => b.refetch()} /> : b.isError ? <Empty title="This match is not available" /> : <Body tone="ink2">Loading…</Body>}
+        <LoadState queries={[b]} what="this match" notFound={<Empty title="This match is not available" />} />
       </Screen>
     );
   }
@@ -284,9 +285,9 @@ export default function MatchRoute() {
   const b = useBundle(q.data?.tournamentSlug);
   if (!q.data) {
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={() => q.refetch()}>
         <BackHeader label="Back" />
-        {q.isError && failedOffline(q) ? <OfflineState what="this match" onRetry={() => q.refetch()} /> : q.isError ? <Body tone="ink2">This match is not available.</Body> : <Body tone="ink2">Loading…</Body>}
+        <LoadState queries={[q]} what="this match" notFound={<Empty title="This match is not available" body="It may have been removed from the order of play." />} />
       </Screen>
     );
   }

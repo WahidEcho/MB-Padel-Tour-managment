@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import type { MMatch } from "@core";
 import { Pressable, ScrollView, View } from "react-native";
-import { useBundle, useLive } from "../../api/queries";
+import { refetchOnScreen, useBundle, useLive } from "../../api/queries";
 import { dayIn, finishedMatches, liveMatches, makeView, needsDay, upcomingMatches } from "../../api/model";
-import { useFeaturedSlugs } from "../../api/featured";
+import { useFeaturedNeeds, useFeaturedSlugs } from "../../api/featured";
+import { LoadState } from "../../ui/LoadState";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { Segments } from "../../ui/Segments";
@@ -63,8 +64,9 @@ export default function Matches() {
   const [day, setDay] = useState<string | null>(null);
   const days = useDays(slugs);
   const first = useLive(slugs[0]);
+  const { needs, waiting } = useFeaturedNeeds();
   return (
-    <Screen>
+    <Screen onRefresh={refetchOnScreen}>
       <Display size={26} style={{ marginTop: 8 }}>Matches</Display>
       <StaleBanner queries={[first]} live />
       <Segments
@@ -89,7 +91,7 @@ export default function Matches() {
       {slugs.map((s) => (
         <TournamentMatches key={s} slug={s} filter={filter} day={day} />
       ))}
-      {!slugs.length && <Empty title="Nothing on court yet" body="Matches appear here when the featured event starts." />}
+      {waiting ? <LoadState queries={needs} what="the matches" /> : !slugs.length && <Empty title="Nothing on court yet" body="Matches appear here when the featured event starts." />}
       {filter === "starred" && <Body tone="ink3" size={12} style={{ marginTop: 14 }}>Mine shows matches you starred, and every match of the players and nations you follow.</Body>}
     </Screen>
   );

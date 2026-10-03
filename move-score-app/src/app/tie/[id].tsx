@@ -13,7 +13,8 @@ import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { TieCard } from "../../ui/Cards";
-import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
+import { StaleBanner } from "../../ui/Offline";
+import { LoadState } from "../../ui/LoadState";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { session } from "../../state/session";
 
@@ -141,17 +142,11 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
   const tie = l.data?.ties.find((x) => x.id === id);
   if (!b.data || !tie) {
     // Back is always there: loading, gone, or no signal.
-    const failed = !b.data ? b : !l.data ? l : null;
+    const gone = <Empty title="This tie is not available" body="It may have been moved or removed from the order of play." />;
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={() => Promise.all([b.refetch(), l.refetch()])}>
         <BackHeader label={b.data ? b.data.tournament.name.split(" ").slice(0, 3).join(" ") : "Back"} />
-        {failed?.isError && failedOffline(failed) ? (
-          <OfflineState what="this tie" onRetry={() => Promise.all([b.refetch(), l.refetch()])} />
-        ) : failed?.isError || (b.data && l.data && !tie) ? (
-          <Empty title="This tie is not available" body="It may have been moved or removed from the order of play." />
-        ) : (
-          <Body tone="ink2">Loading the tie…</Body>
-        )}
+        {b.data && l.data ? gone : <LoadState queries={[b, l]} what="this tie" notFound={gone} />}
       </Screen>
     );
   }
@@ -182,15 +177,9 @@ export default function TieRoute() {
   const b = useBundle(where.data?.tournamentSlug);
   if (!where.data) {
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={() => where.refetch()}>
         <BackHeader label="Back" />
-        {where.isError && failedOffline(where) ? (
-          <OfflineState what="this tie" onRetry={() => where.refetch()} />
-        ) : where.isError ? (
-          <Empty title="This tie is not available" />
-        ) : (
-          <Body tone="ink2">Loading the tie…</Body>
-        )}
+        <LoadState queries={[where]} what="this tie" notFound={<Empty title="This tie is not available" />} />
       </Screen>
     );
   }

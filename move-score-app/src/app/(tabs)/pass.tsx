@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Linking, Platform, TextInput, View } from "react-native";
+import { Alert, Linking, Platform, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import Animated, { FadeInDown, ZoomIn } from "react-native-reanimated";
 import type { MPass } from "@core";
 import { api, apiUrl, errorMessage } from "../../api/client";
-import { useBundle, useConfig } from "../../api/queries";
+import { useBundle, useConfig, useDiscover } from "../../api/queries";
+import { registerDevice } from "../../push/register";
+import { LoadState } from "../../ui/LoadState";
 import { useFeaturedGroup } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -36,6 +38,7 @@ function dayLabel(iso: string): string {
 export default function PassTab() {
   const { t, calm } = useTheme();
   const group = useFeaturedGroup();
+  const d = useDiscover();
   // Pins are the nations of this event's own tournaments, not whatever else is on.
   const slugs = group?.tournaments ?? [];
   const b0 = useBundle(slugs[0]?.slug);
@@ -56,7 +59,7 @@ export default function PassTab() {
     const all = [b0.data, b1.data, b2.data, b3.data].flatMap((b) => b?.teams ?? []).filter((x) => x.code.length === 3);
     return [...new Map(all.map((x) => [x.code, x])).values()].sort((x, y) => x.name.localeCompare(y.name));
   }, [b0.data, b1.data, b2.data, b3.data]);
-  if (!group) return <Screen><Display size={24} style={{ marginTop: 8, marginBottom: 14 }}>My pass</Display><Empty title="No event right now" body="Your pass appears when the next event opens." /></Screen>;
+  if (!group) return <Screen onRefresh={() => d.refetch()}><Display size={24} style={{ marginTop: 8, marginBottom: 14 }}>My pass</Display>{d.data ? <Empty title="No event right now" body="Your pass appears when the next event opens." /> : <LoadState queries={[d]} what="your pass" />}</Screen>;
   const event: PassEvent = { name: group.name, venue: group.venue, city: group.city, days: eventDays(group.startsOn, group.endsOn) };
   const open = async () => {
     setOpening(true);
@@ -114,22 +117,9 @@ export default function PassTab() {
           <Pack key={packKey} title={group.name} onOpen={() => void open()} />
         ) : (
           // Until the server has answered, the pass is unknown: never a sealed pack for a pass that exists.
-          <View
-            accessible
-            accessibilityLabel={q.isError ? "Your pass could not be loaded" : "Loading your pass"}
-            style={{ width: PASS_W, height: PASS_H, borderRadius: 24, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}
-          >
-            {q.isError ? (
-              <>
-                <Body tone="ink2" size={13} style={{ textAlign: "center" }}>{errorMessage(q.error)}</Body>
-                <Button kind="ghost" label="Try again" onPress={() => void q.refetch()} />
-              </>
-            ) : (
-              <>
-                <ActivityIndicator color={t.ink3} />
-                <Body tone="ink3" size={13}>{owner ? "Loading your pass…" : "Connecting…"}</Body>
-              </>
-            )}
+          <View style={{ width: PASS_W, height: PASS_H, borderRadius: 24, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
+            {/* No owner yet: this phone has not registered (it needs a connection once). */}
+            <LoadState compact queries={[q]} what="your pass" onRetry={owner ? undefined : () => registerDevice(false)} />
           </View>
         )}
       </View>

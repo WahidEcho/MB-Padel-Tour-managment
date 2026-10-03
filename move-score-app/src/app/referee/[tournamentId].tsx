@@ -10,6 +10,7 @@ import { BackHeader } from "../../ui/Header";
 import { Segments } from "../../ui/Segments";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Card, Chip, Empty, Flag, LivePill } from "../../ui/Bits";
+import { LoadState } from "../../ui/LoadState";
 
 interface Row {
   id: string;
@@ -67,8 +68,7 @@ export default function Picker() {
             </Card>
           );
         })}
-        {q.isPending && <Body tone="ink2" size={13}>Loading matches…</Body>}
-        {q.isError && !q.data && <Empty title="Could not load the matches" body="Check the signal and pull down to retry. If it keeps failing, sign in again on the referee page." />}
+        {!q.data && <LoadState compact queries={[q]} what="the matches" />}
         {q.isError && q.data ? <Body tone="live" size={12}>Could not refresh: showing the last list.</Body> : null}
         {q.data && !rows.length && <Empty title="Nothing here" body="Try another filter." />}
       </View>

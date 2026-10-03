@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
 import { router } from "expo-router";
 import type { MPlayer, MTeam } from "@core";
-import { useBundle, useLive } from "../../api/queries";
+import { refetchOnScreen, useBundle, useLive } from "../../api/queries";
 import { makeView, needsDay, whenIn } from "../../api/model";
-import { useFeaturedSlugs } from "../../api/featured";
+import { useFeaturedNeeds, useFeaturedSlugs } from "../../api/featured";
+import { LoadState } from "../../ui/LoadState";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
@@ -67,8 +68,9 @@ export default function Players() {
   const { t } = useTheme();
   const slugs = useFeaturedSlugs();
   const [query, setQuery] = useState("");
+  const { needs, waiting } = useFeaturedNeeds({ live: false });
   return (
-    <Screen>
+    <Screen onRefresh={refetchOnScreen}>
       <Display size={26} style={{ marginTop: 8 }}>Players</Display>
       <TextInput
         value={query}
@@ -86,7 +88,7 @@ export default function Players() {
       {slugs.map((s) => (
         <PlayerList key={s.slug} slug={s.slug} query={query} />
       ))}
-      {!slugs.length && <Empty title="No players yet" body="Players appear when the featured event publishes its line-ups." />}
+      {waiting ? <LoadState queries={needs} what="the players" /> : !slugs.length && <Empty title="No players yet" body="Players appear when the featured event publishes its line-ups." />}
     </Screen>
   );
 }

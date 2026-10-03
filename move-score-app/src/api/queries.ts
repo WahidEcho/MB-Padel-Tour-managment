@@ -3,12 +3,13 @@
  * while the screen is on and focused, so the CDN can share one copy between
  * everyone in the venue.
  */
-import { QueryClient, focusManager, onlineManager, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MBundle, MConfig, MDiscover, MLive, MMatchDetail, MStandings, MTimeline } from "@core";
 import { ApiError, api } from "./client";
+import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
 
 /** A 404 will not fix itself by asking again; network failures and 5xx might. */
@@ -28,12 +29,19 @@ export const isOffline = (e: unknown) => e instanceof ApiError && e.status === 0
 
 // Foreground/background drives polling: nothing is fetched while the app is in a pocket.
 if (Platform.OS !== "web") {
-  AppState.addEventListener("change", (s) => focusManager.setFocused(s === "active"));
+  AppState.addEventListener("change", (s) => {
+    // Back in the hand: ask about the connection again (a change can be missed asleep).
+    if (s === "active") void checkNetwork();
+    focusManager.setFocused(s === "active");
+  });
 }
-// No connectivity package is installed, so React Query is told it is always online and
-// keeps polling; a failed poll keeps the last answer on screen and the screens show an
-// "Offline · showing scores from …" banner from the query's error (ui/Offline.tsx).
-onlineManager.setOnline(true);
+// With no signal, reads pause instead of failing and run again the moment the phone is
+// back online (api/network.ts). Saved answers stay on screen under an "Offline · showing
+// scores from …" banner (ui/Offline.tsx); a page with nothing saved shows ui/LoadState.tsx.
+watchNetwork();
+
+/** Pull-to-refresh on a page built from several tournaments: every read on screen, again. */
+export const refetchOnScreen = () => queryClient.refetchQueries({ type: "active" });
 
 /** Polls only while this screen is focused. */
 export function useScreenFocused(): boolean {

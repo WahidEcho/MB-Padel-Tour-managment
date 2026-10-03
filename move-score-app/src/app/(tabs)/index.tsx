@@ -10,6 +10,7 @@ import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Card, Chip, Empty, LivePill, SectionHeader, Wordmark } from "../../ui/Bits";
 import { MatchMini, TieRow } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
+import { LoadState } from "../../ui/LoadState";
 import { Pressable } from "react-native";
 
 /**
@@ -144,7 +145,7 @@ export default function Discover() {
       <View style={{ gap: 8 }}>{data?.upcoming.map((c) => <TournamentLine key={c.id} c={c} />)}</View>
       {(data?.past.length ?? 0) > 0 && <SectionHeader title="Results" />}
       <View style={{ gap: 8 }}>{data?.past.slice(0, 12).map((c) => <TournamentLine key={c.id} c={c} />)}</View>
-      {!data && d.isError && <Empty title="No connection" body="Move Score shows the last scores it saw. Pull down to try again." />}
+      {!data && <LoadState queries={[d]} what="the latest events" />}
       {data && !featured.length && !data.live.length && !data.upcoming.length && !data.past.length && <Empty title="No tournaments yet" body="Events appear here as soon as the organiser publishes them." />}
     </Screen>
   );

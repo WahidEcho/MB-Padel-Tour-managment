@@ -11,7 +11,8 @@ import { Body, Display, Eyebrow, Num } from "../../../ui/Text";
 import { Card, Empty, Flag, LivePill, SectionHeader, ToggleButton } from "../../../ui/Bits";
 import { MatchMini, TieCard, TieRow } from "../../../ui/Cards";
 import { SponsorBand } from "../../../ui/Sponsors";
-import { OfflineState, StaleBanner, failedOffline } from "../../../ui/Offline";
+import { StaleBanner } from "../../../ui/Offline";
+import { LoadState } from "../../../ui/LoadState";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
 
 type Tab = "ties" | "matches" | "groups" | "nations";
@@ -27,15 +28,9 @@ function Hub({ slug }: { slug: string }) {
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
   if (!b.data || !v) {
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={() => b.refetch()}>
         <BackHeader label="Discover" />
-        {b.isError && failedOffline(b) ? (
-          <OfflineState what="this tournament" onRetry={() => Promise.all([b.refetch(), l.refetch()])} />
-        ) : b.isError ? (
-          <Empty title="This tournament is not available" body="It may not be public yet." />
-        ) : (
-          <Body tone="ink2">Loading…</Body>
-        )}
+        <LoadState queries={[b]} what="this tournament" notFound={<Empty title="This tournament is not available" body="It may not be public yet." />} />
       </Screen>
     );
   }

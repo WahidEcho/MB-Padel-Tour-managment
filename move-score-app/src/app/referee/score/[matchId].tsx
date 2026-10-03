@@ -17,6 +17,7 @@ import type { SyncState } from "../../../referee/sync";
 import { Body, Display, Eyebrow, Num } from "../../../ui/Text";
 import { Button, Card, Chip, Flag } from "../../../ui/Bits";
 import { BackHeader } from "../../../ui/Header";
+import { LoadState, type LoadQuery } from "../../../ui/LoadState";
 
 type Sheet =
   | { kind: "confirm-point"; team: TeamKey; what: string }
@@ -597,7 +598,7 @@ export default function ScoreRoute() {
   if (!boot.data) {
     return (
       <SchemeScope scheme={sunlight ? "light" : "dark"}>
-        <Waiting error={boot.isError} />
+        <Opening boot={boot} />
       </SchemeScope>
     );
   }
@@ -622,6 +623,17 @@ function SignInHere() {
     <View style={{ flex: 1, backgroundColor: t.floor, justifyContent: "center", gap: 12, padding: 24 }}>
       <Display size={22}>Referee code needed</Display>
       <StaffCodeForm note="Points already on this phone are kept, and send once you are signed in." />
+      <Button kind="ghost" label="Back" onPress={() => router.back()} />
+    </View>
+  );
+}
+
+/** The match is not on this phone yet: opening, no signal, or refused. Points already queued are untouched. */
+function Opening({ boot }: { boot: LoadQuery }) {
+  const { t } = useTheme();
+  return (
+    <View style={{ flex: 1, backgroundColor: t.floor, justifyContent: "center", gap: 12, padding: 24 }}>
+      <LoadState queries={[boot]} what="the match" errorNote={boot.error instanceof ApiError && boot.error.status >= 400 && boot.error.status < 500 ? `${boot.error.message} Points already on this phone are safe.` : "Points already on this phone are safe. Try again in a moment."} />
       <Button kind="ghost" label="Back" onPress={() => router.back()} />
     </View>
   );

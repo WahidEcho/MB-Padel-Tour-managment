@@ -6,7 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import { isDoneStatus, isLiveStatus } from "@core";
-import { isOffline, useBundle, useConfig, useLive, useMatch } from "../../api/queries";
+import { useBundle, useConfig, useLive, useMatch } from "../../api/queries";
 import { isAwaitingResult, makeView, whenIn } from "../../api/model";
 import { useFeaturedGroup } from "../../api/featured";
 import { usePass } from "../../pass/usePass";
@@ -14,6 +14,8 @@ import { BALL } from "../../theme/palette";
 import { F } from "../../theme/type";
 import { Body, Eyebrow, Num } from "../../ui/Text";
 import { Button, Flag } from "../../ui/Bits";
+import { LoadState } from "../../ui/LoadState";
+import { SchemeScope } from "../../theme/ThemeProvider";
 import { config } from "../../config";
 
 const W = 270;
@@ -35,20 +37,24 @@ function MatchStory({ id }: { id: string }) {
   const b = useBundle(q.data?.tournamentSlug);
   const l = useLive(q.data?.tournamentSlug, 20_000);
   if (!q.data || !b.data) {
-    const failed = q.isError ? q : b.isError ? b : null;
-    if (!failed) return <Story><Body style={{ color: "#9AA4B8" }}>Loading…</Body></Story>;
-    const offline = isOffline(failed.error);
+    // The card is dark whatever the theme, so the state is drawn dark too.
     return (
       <Story>
-        <View style={{ flex: 1, justifyContent: "center", gap: 10 }}>
-          <Body weight="bold" style={{ color: "#E8ECF4" }}>{offline ? "You're offline" : "This match is not available"}</Body>
-          <Body size={13} style={{ color: "#9AA4B8" }}>{offline ? "The card needs the latest score. Check your connection and try again." : "It may have been removed from the order of play."}</Body>
-          {offline ? (
-            <Pressable accessibilityRole="button" onPress={() => void Promise.all([q.refetch(), b.refetch()])} style={{ alignSelf: "flex-start", marginTop: 6, backgroundColor: BALL, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10 }}>
-              <Body weight="bold" style={{ color: "#01041A" }}>Retry</Body>
-            </Pressable>
-          ) : null}
-        </View>
+        <SchemeScope scheme="dark">
+          <View style={{ flex: 1, justifyContent: "center" }}>
+            <LoadState
+              compact
+              queries={q.data ? [b] : [q]}
+              what="the latest score"
+              notFound={
+                <View style={{ gap: 10 }}>
+                  <Body weight="bold" style={{ color: "#E8ECF4" }}>This match is not available</Body>
+                  <Body size={13} style={{ color: "#9AA4B8" }}>It may have been removed from the order of play.</Body>
+                </View>
+              }
+            />
+          </View>
+        </SchemeScope>
       </Story>
     );
   }
