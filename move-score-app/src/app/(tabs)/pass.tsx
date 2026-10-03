@@ -158,7 +158,7 @@ export default function PassTab() {
         <>
           <SectionHeader title="Nation pins" action={`${pass?.pins.length ?? 0} of ${nations.length}`} />
           <Pins nations={nations.map((n) => ({ code: n.code, iso2: n.iso2, name: n.name }))} got={pass?.pins ?? []} />
-          <Body tone="ink3" size={12} style={{ marginTop: 12, textAlign: "center" }}>Follow a nation, or support it on-site, to collect its pin.</Body>
+          <Body tone="ink3" size={12} style={{ marginTop: 12, textAlign: "center" }}>Tap a pin to open its nation. Follow a nation, or support it on-site, to collect its pin.</Body>
         </>
       )}
       {pass && (
