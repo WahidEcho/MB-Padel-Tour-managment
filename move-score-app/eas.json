@@ -1,31 +1,55 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": { "APP_ENV": "development" },
+      "env": {
+        "APP_ENV": "development"
+      },
       "channel": "development"
     },
     "staging": {
       "distribution": "internal",
-      "env": { "APP_ENV": "staging" },
+      "env": {
+        "APP_ENV": "staging"
+      },
       "channel": "staging",
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      }
     },
     "preview": {
       "distribution": "internal",
       "environment": "preview",
-      "env": { "APP_ENV": "production" },
+      "env": {
+        "APP_ENV": "production"
+      },
       "channel": "preview",
-      "ios": { "simulator": false },
-      "android": { "buildType": "apk" }
+      "ios": {
+        "simulator": false
+      },
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {
       "autoIncrement": true,
       "environment": "production",
-      "env": { "APP_ENV": "production" },
+      "env": {
+        "APP_ENV": "production"
+      },
       "channel": "production"
+    },
+    "apk": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {
@@ -35,7 +59,10 @@
         "appleTeamId": "33C2U7Q76F",
         "sku": "movescore-ios"
       },
-      "android": { "track": "internal", "releaseStatus": "draft" }
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
     }
   }
 }
