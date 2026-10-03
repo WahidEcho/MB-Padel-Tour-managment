@@ -7,13 +7,14 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTi
 import { BALL } from "../theme/palette";
 import { F } from "../theme/type";
 import { Eyebrow } from "./Text";
-import { PASS_H, PASS_W } from "./PassCard";
+import { usePassSize } from "./PassCard";
 
 /**
  * The pass arrives sealed. Drag a finger along the perforation to tear it open;
- * the top flies off and the pass rises out (see the Pass tab).
+ * the top flies off and the pass rises out (see the Pass tab). Same size as the pass.
  */
 export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
+  const { w: PASS_W, h: PASS_H } = usePassSize();
   const tear = useSharedValue(0);
   const gone = useSharedValue(0);
   const ticks = useSharedValue(0);

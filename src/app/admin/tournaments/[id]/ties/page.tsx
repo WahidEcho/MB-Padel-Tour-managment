@@ -79,6 +79,11 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
                   {side(r.team_a_player_ids, a)} <span className="text-muted">v</span> {side(r.team_b_player_ids, b)}
                 </span>
                 <span className="font-mono text-xs tabular-nums">{r.status === "cancelled" ? "not played" : score || r.status}</span>
+                {r.status !== "cancelled" && (
+                  <a href={`/qr/match/${r.id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-accent" title="Printable code fans scan at the court to check in">
+                    Check-in QR
+                  </a>
+                )}
               </li>
             );
           })}

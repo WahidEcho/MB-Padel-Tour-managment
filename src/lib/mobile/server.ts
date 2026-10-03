@@ -35,6 +35,7 @@ import {
   type TournamentRow,
 } from "./projection";
 import { memo } from "./http";
+import { appleWalletConfigured, googleWalletConfigured } from "../pass/wallet";
 import { authProviders } from "../auth/users";
 
 const CARD_COLUMNS =
@@ -318,7 +319,10 @@ export const DEFAULT_FLAGS: Record<string, boolean> = {
   supporter_mode: false,
   pins: false,
   momentum: true,
+  // Legacy: the generic "Add to Wallet" button of builds before the Apple Wallet badge.
   wallet: false,
+  // The "Add to Apple Wallet" badge on the pass (iOS). Not in the stored flags yet, so this default applies.
+  apple_wallet: true,
   recap: false,
   share_stories: true,
   accounts: true,
@@ -336,6 +340,7 @@ export function getConfig(): Promise<MConfig> {
       apiVersion: API_VERSION,
       minAppVersion: typeof app.minAppVersion === "string" ? app.minAppVersion : "1.0.0",
       flags,
+      walletReady: { apple: appleWalletConfigured(), google: googleWalletConfigured() },
       supportUrl: typeof app.supportUrl === "string" ? app.supportUrl : "https://mb-tournament.vercel.app/movescore/support",
       privacyUrl: typeof app.privacyUrl === "string" ? app.privacyUrl : "https://mb-tournament.vercel.app/movescore/privacy",
       signIn,

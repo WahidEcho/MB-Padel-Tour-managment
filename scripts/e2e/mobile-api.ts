@@ -2,7 +2,9 @@
  * The Move Score app's API, end to end: a phone registers, follows a nation,
  * a referee signs in with the code and scores a rubber through the hardened
  * events route, the alert outbox fills, the shadow check catches a bad point,
- * and the pass unlocks with the venue code. Creates and deletes its own data.
+ * the pass unlocks with the venue code (always the attendee's, never a referee's),
+ * fans check in to matches for points, and the Apple Wallet route answers. Creates
+ * and deletes its own data.
  *
  *   npm run localdb                         # in another terminal
  *   npx tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts
@@ -11,7 +13,7 @@ import { createHash, createHmac, randomUUID } from "crypto";
 import { db } from "../../src/lib/supabase";
 import { awardPoint, initialScoreState, type ScoreState } from "../../src/lib/scoring/engine";
 import { DEFAULT_SCORING_CONFIG } from "../../src/lib/types";
-import { rotatingCode } from "../../src/lib/pass/venueCode";
+import { matchPrintedCode, matchScreenCode, rotatingCode } from "../../src/lib/pass/venueCode";
 import { BASE_URL } from "./lib/session";
 
 let failed = 0;
@@ -261,7 +263,74 @@ async function main() {
       headers: { "x-install-token": (await call("POST", "/api/mobile/v1/devices", { body: { installationId: `e2e-${randomUUID()}`, platform: "android" } })).json.installToken, "x-staff-token": staff.json.token },
       body: { group: group!.id },
     });
-    check(staffPass.json?.pass?.edition === "staff" && staffPass.json.pass.staffRole === "referee", "A referee's phone gets the accreditation edition");
+    check(
+      staffPass.status === 200 && staffPass.json?.pass?.edition === "spectator" && staffPass.json.pass.staffRole === null,
+      "A phone signed in to the referee console still gets the attendee's pass, never a referee accreditation",
+      staffPass.json?.pass?.edition,
+    );
+    // A pass an older server turned into an accreditation is served as the attendee's.
+    await db().from("event_passes").update({ edition: "staff", staff_role: "referee" }).eq("id", pass.json.pass.id);
+    const oldStaff = await call("GET", `/api/mobile/v1/me/pass?group=${group!.id}`, { headers: inst });
+    check(oldStaff.json?.pass?.edition === "spectator" && oldStaff.json.pass.staffRole === null, "Every pass reads as the attendee's");
+
+    // ---- match check-in (court TV code, printed code), points and the pass's list
+    const now = Date.now();
+    const wrongCode = await call("POST", `/api/mobile/v1/matches/${mid}/checkin`, { headers: inst, body: { c: "AAAAAAAA" } });
+    check(wrongCode.status === 400 && wrongCode.json.code === "bad_code", "A wrong match code is refused", wrongCode.json);
+    const oldCode = await call("POST", `/api/mobile/v1/matches/${mid}/checkin`, { headers: inst, body: { c: matchScreenCode(mid, now - 5 * 60_000) } });
+    check(oldCode.status === 410 && oldCode.json.code === "code_expired", "A court TV code from five minutes ago has expired", oldCode.json);
+    const tvQr = await call("GET", `/api/matches/${mid}/checkin-qr`);
+    check(tvQr.json?.open === true && String(tvQr.json.url).includes(`/m/${mid}?c=`) && String(tvQr.json.svg).startsWith("<svg"), "The court TV gets the live rubber's check-in QR", tvQr.json?.url);
+    check(/no-store/.test(tvQr.cache), "The TV's check-in code is never cached");
+    const tvCode = new URL(tvQr.json.url).searchParams.get("c")!;
+    const checkin = await call("POST", `/api/mobile/v1/matches/${mid}/checkin`, { headers: inst, body: { c: tvCode } });
+    check(checkin.status === 200 && checkin.json.status === "checked_in" && checkin.json.points === 10, "Scanning the court TV checks the pass in to the live rubber for 10 points", checkin.json?.points);
+    const att = checkin.json?.pass?.attendance;
+    check(att?.matches === 1 && att.points === 10 && att.list[0]?.matchId === mid && /singles/i.test(att.list[0].label) && att.list[0].a?.code === "EGY", "The pass lists the match attended and its score", att?.list?.[0]);
+    const twice = await call("POST", `/api/mobile/v1/matches/${mid}/checkin`, { headers: inst, body: { c: tvCode } });
+    check(twice.status === 200 && twice.json.status === "already_checked_in" && twice.json.pass.attendance.points === 10, "Scanning again says already checked in and adds nothing");
+    const noPhone = await call("POST", `/api/mobile/v1/matches/${mid}/checkin`, { body: { c: tvCode } });
+    check(noPhone.status === 401, "Check-in needs a registered phone");
+
+    // A final whose other rubbers are 1-1: the deciding doubles is worth 10 + 10 + 5.
+    const { data: finalTie } = await db()
+      .from("ties")
+      .insert({ tournament_id: tid, stage: "placement", round_no: 3, tie_order: 1, round_name: "Final", places_from: 1, places_to: 2, team_a_id: egy.id, team_b_id: jpn.id, court_id: court!.id, status: "live" })
+      .select("*")
+      .single();
+    const finalRubber = (no: number, type: string, extra: Record<string, unknown>) => ({ tournament_id: tid, stage: "placement", round_name: `Final · ${type}`, match_order: no, team_a_id: egy.id, team_b_id: jpn.id, tie_id: finalTie!.id, rubber_no: no, rubber_type: type, ...extra });
+    const { data: finalRubbers } = await db()
+      .from("matches")
+      .insert([
+        finalRubber(1, "S2", { status: "completed", winner_team_id: egy.id, ended_at: new Date(now - 3 * 3600_000).toISOString() }),
+        finalRubber(2, "S1", { status: "completed", winner_team_id: jpn.id, ended_at: new Date(now - 2 * 3600_000).toISOString() }),
+        finalRubber(3, "D", { status: "live" }),
+      ])
+      .select("id, rubber_type");
+    const s2 = finalRubbers!.find((r) => r.rubber_type === "S2")!.id as string;
+    const dbl = finalRubbers!.find((r) => r.rubber_type === "D")!.id as string;
+    const decider = await call("POST", `/api/mobile/v1/matches/${dbl}/checkin`, { headers: inst, body: { p: matchPrintedCode(dbl) } });
+    check(decider.status === 200 && decider.json.points === 25 && decider.json.parts.length === 3, "The printed code at the final's deciding doubles is worth 25", decider.json?.parts);
+    check(decider.json?.pass?.attendance?.matches === 2 && decider.json.pass.attendance.points === 35, "The pass now shows 2 matches and 35 points", decider.json?.pass?.attendance);
+    const late = await call("POST", `/api/mobile/v1/matches/${s2}/checkin`, { headers: inst, body: { p: matchPrintedCode(s2) } });
+    check(late.status === 409 && late.json.code === "closed", "A rubber that ended hours ago is closed for check-in", late.json);
+    const { data: later } = await db()
+      .from("matches")
+      .insert({ tournament_id: tid, stage: "group", round_name: "Group A · S2", match_order: 9, team_a_id: egy.id, team_b_id: jpn.id, status: "scheduled", scheduled_time: new Date(now + 3 * 3600_000).toISOString() })
+      .select("id")
+      .single();
+    const early = await call("POST", `/api/mobile/v1/matches/${later!.id}/checkin`, { headers: inst, body: { p: matchPrintedCode(later!.id) } });
+    check(early.status === 409 && early.json.code === "too_early" && typeof early.json.opensAt === "string", "A match three hours away is too early, with the time check-in opens", early.json);
+    const closedQr = await call("GET", `/api/matches/${later!.id}/checkin-qr`);
+    check(closedQr.json?.open === false, "The TV gets no code for a match that isn't on");
+
+    // ---- wallet
+    const cfgReply = await call("GET", "/api/mobile/v1/config");
+    check(cfgReply.json?.flags?.apple_wallet === true && cfgReply.json.walletReady?.apple === false, "Config shows the Apple Wallet badge and says the server can't sign passes here", cfgReply.json?.walletReady);
+    const head = await fetch(`${BASE_URL}/api/mobile/v1/passes/${pass.json.pass.id}/apple`, { method: "HEAD" });
+    check(head.status === 503, "Without certificates the Apple pass route says 'not set up' (the app shows a calm note)", head.status);
+    const headMissing = await fetch(`${BASE_URL}/api/mobile/v1/passes/${randomUUID()}/apple`, { method: "HEAD" });
+    check(headMissing.status === 404, "An unknown pass is not found");
 
     // ---- cheers
     const cheer = await call("POST", `/api/mobile/v1/ties/${tie!.id}/cheer`, { headers: inst, body: { nation: "EGY", n: 12 } });

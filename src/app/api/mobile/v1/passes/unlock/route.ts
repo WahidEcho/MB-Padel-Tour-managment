@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "That code has expired. Scan the screen at the gate again." }, { status: 400 });
   }
   await mergeCallersGuestPasses(request, owner);
-  const pass = (await loadPass(group.id, owner)) ?? (await createPass(group.id, owner, { holderName: null, nationCode: null, staffRole: null }));
+  const pass = (await loadPass(group.id, owner)) ?? (await createPass(group.id, owner, { holderName: null, nationCode: null }));
   if (!pass) return NextResponse.json({ error: "Could not open the pass" }, { status: 500 });
   const day = eventDay(timeZone);
   const stamp = isEventDay(day, group.starts_on, group.ends_on);

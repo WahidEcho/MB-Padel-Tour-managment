@@ -6,6 +6,7 @@
  */
 import { config } from "../config";
 import { session, saveUser } from "../state/session";
+import { credentialHeaders, type Who } from "./headers";
 
 export class ApiError extends Error {
   constructor(
@@ -17,28 +18,16 @@ export class ApiError extends Error {
   }
 }
 
-type Who = "public" | "me" | "staff";
-
 export const OFFLINE_MESSAGE = "Can't reach Move Score right now. Check your connection and try again.";
 
 /** A message fit to show a person, whatever was thrown. */
 export const errorMessage = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE_MESSAGE);
 
-// A match's state is never shared at the CDN. With the install token the server can
-// tell this phone whether it holds the scoring lease; it never shows another phone's id.
-const MATCH_STATE = /^\/api\/matches\/[^/?]+\/state(\?|$)/;
-
+/** What each call carries: see headers.ts (personal calls never carry the staff token). */
 async function headersFor(who: Who, path: string): Promise<Record<string, string>> {
   const s = session.get();
-  const h: Record<string, string> = { Accept: "application/json" };
-  if (who === "me") {
-    if (s.installToken) h["X-Install-Token"] = s.installToken;
-    if (s.user) h.Authorization = `Bearer ${await freshUserToken()}`;
-    if (s.staff) h["X-Staff-Token"] = s.staff.token;
-  }
-  if (who === "staff" && s.staff) h.Authorization = `Bearer ${s.staff.token}`;
-  if ((who === "staff" || MATCH_STATE.test(path)) && s.installToken) h["X-Install-Token"] = s.installToken;
-  return h;
+  const userToken = who === "me" && s.user ? await freshUserToken() : null;
+  return credentialHeaders(who, path, { installToken: s.installToken, userToken, staffToken: s.staff?.token ?? null });
 }
 
 let installRejected: (() => Promise<void>) | null = null;
