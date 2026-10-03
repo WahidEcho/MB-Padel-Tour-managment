@@ -1,6 +1,8 @@
 import { db } from "../supabase";
 import { verifyInstallToken, type Owner } from "../mobile/identity";
-import type { MPass } from "../mobile/contract";
+import type { MAttendedMatch, MPass, MPassAttendance } from "../mobile/contract";
+import { RUBBER_LABELS } from "../tennis/ties";
+import type { RubberType } from "../types";
 import { allocateSerial } from "./serial";
 
 interface PassRow {
@@ -28,42 +30,77 @@ export async function loadPass(groupId: string, owner: Owner): Promise<MPass | n
     .maybeSingle();
   const p = data as PassRow | null;
   if (!p) return null;
-  const [{ data: stamps }, { data: pins }] = await Promise.all([
+  const [{ data: stamps }, { data: pins }, attendance] = await Promise.all([
     db().from("pass_stamps").select("day").eq("pass_id", p.id).order("day"),
     db().from("pass_pins").select("pin_code").eq("pass_id", p.id),
+    loadAttendance(p.id),
   ]);
   return {
     id: p.id,
     eventGroupId: p.event_group_id,
     serial: p.serial,
-    edition: p.edition,
-    staffRole: p.staff_role,
+    // The pass is the attendee's, whatever an older server wrote (see migration 0019).
+    edition: "spectator",
+    staffRole: null,
     nationCode: p.nation_code,
     holderName: p.holder_name,
     onsiteUnlockedAt: p.onsite_unlocked_at,
     stamps: ((stamps ?? []) as { day: string }[]).map((s) => s.day),
     pins: ((pins ?? []) as { pin_code: string }[]).map((s) => s.pin_code),
+    attendance,
   };
 }
 
-/**
- * A spectator pass becomes the accreditation once the phone shows a valid staff
- * token. Never the other way: an expired staff token leaves the pass as it is.
- */
-async function upgradeToStaff(pass: MPass, staffRole: string | null): Promise<MPass> {
-  if (!staffRole || pass.edition !== "spectator") return pass;
-  const { error } = await db().from("event_passes").update({ edition: "staff", staff_role: staffRole }).eq("id", pass.id).eq("edition", "spectator");
-  return error ? pass : { ...pass, edition: "staff", staffRole };
+const LIST_LIMIT = 50;
+
+/** Matches the pass checked in to (newest first) and its points. */
+async function loadAttendance(passId: string): Promise<MPassAttendance> {
+  const [{ data: rows, count }, { data: points }] = await Promise.all([
+    db().from("pass_attendances").select("match_id, created_at", { count: "exact" }).eq("pass_id", passId).order("created_at", { ascending: false }).limit(LIST_LIMIT),
+    db().from("pass_points").select("kind, ref_id, points").eq("pass_id", passId),
+  ]);
+  const attended = (rows ?? []) as { match_id: string; created_at: string }[];
+  const ledger = (points ?? []) as { kind: string; ref_id: string; points: number }[];
+  const pointsFor = new Map(ledger.filter((r) => r.kind === "attendance").map((r) => [r.ref_id, r.points]));
+  const total = ledger.reduce((n, r) => n + r.points, 0);
+  if (!attended.length) return { matches: count ?? 0, points: total, list: [] };
+  const { data: ms } = await db()
+    .from("matches")
+    .select("id, team_a_id, team_b_id, rubber_type, round_name, tie_id")
+    .in("id", attended.map((a) => a.match_id));
+  const matches = (ms ?? []) as { id: string; team_a_id: string | null; team_b_id: string | null; rubber_type: RubberType | null; round_name: string | null; tie_id: string | null }[];
+  const teamIds = [...new Set(matches.flatMap((m) => [m.team_a_id, m.team_b_id]).filter(Boolean) as string[])];
+  const tieIds = [...new Set(matches.map((m) => m.tie_id).filter(Boolean) as string[])];
+  const [{ data: ts }, { data: ties }] = await Promise.all([
+    teamIds.length ? db().from("teams").select("id, team_name, nation_code").in("id", teamIds) : Promise.resolve({ data: [] }),
+    tieIds.length ? db().from("ties").select("id, round_name").in("id", tieIds) : Promise.resolve({ data: [] }),
+  ]);
+  const team = new Map(((ts ?? []) as { id: string; team_name: string; nation_code: string | null }[]).map((t) => [t.id, { name: t.team_name, code: t.nation_code }]));
+  const tieRound = new Map(((ties ?? []) as { id: string; round_name: string | null }[]).map((t) => [t.id, t.round_name]));
+  const byId = new Map(matches.map((m) => [m.id, m]));
+  const list: MAttendedMatch[] = attended.map((a) => {
+    const m = byId.get(a.match_id);
+    const round = m?.tie_id ? tieRound.get(m.tie_id) : m?.round_name;
+    const label = [m?.rubber_type ? RUBBER_LABELS[m.rubber_type] : null, round].filter(Boolean).join(" · ");
+    return {
+      matchId: a.match_id,
+      checkedInAt: a.created_at,
+      points: pointsFor.get(a.match_id) ?? 0,
+      a: (m?.team_a_id && team.get(m.team_a_id)) || null,
+      b: (m?.team_b_id && team.get(m.team_b_id)) || null,
+      label: label || "Match",
+    };
+  });
+  return { matches: count ?? list.length, points: total, list };
 }
 
-/** Creates the pass on first open (serials count up per event from 1), or returns the one there is. */
-export async function createPass(
-  groupId: string,
-  owner: Owner,
-  fields: { holderName: string | null; nationCode: string | null; staffRole: string | null },
-): Promise<MPass | null> {
+/**
+ * Creates the pass on first open (serials count up per event from 1), or returns the
+ * one there is. Always the attendee's pass: no staff token reaches it.
+ */
+export async function createPass(groupId: string, owner: Owner, fields: { holderName: string | null; nationCode: string | null }): Promise<MPass | null> {
   const existing = await loadPass(groupId, owner);
-  if (existing) return upgradeToStaff(existing, fields.staffRole);
+  if (existing) return existing;
   await allocateSerial({
     highest: async () => {
       const { data } = await db().from("event_passes").select("serial").eq("event_group_id", groupId).order("serial", { ascending: false }).limit(1).maybeSingle();
@@ -75,8 +112,7 @@ export async function createPass(
         owner_kind: owner.kind,
         owner_id: owner.id,
         serial,
-        edition: fields.staffRole ? "staff" : "spectator",
-        staff_role: fields.staffRole,
+        edition: "spectator",
         nation_code: fields.nationCode,
         holder_name: fields.holderName,
       });
@@ -85,8 +121,7 @@ export async function createPass(
     },
     ownerHasPass: async () => Boolean(await loadPass(groupId, owner)),
   });
-  const pass = await loadPass(groupId, owner);
-  return pass ? upgradeToStaff(pass, fields.staffRole) : null;
+  return loadPass(groupId, owner);
 }
 
 /**
@@ -117,20 +152,23 @@ export async function mergeInstallPasses(installationId: string, userId: string)
       if (!mine) continue;
     }
     const target = mine.id;
-    const [{ data: stamps }, { data: pins }] = await Promise.all([
+    const [{ data: stamps }, { data: pins }, { data: attended }, { data: points }] = await Promise.all([
       db().from("pass_stamps").select("day").eq("pass_id", guest.id),
       db().from("pass_pins").select("pin_code, source").eq("pass_id", guest.id),
+      db().from("pass_attendances").select("match_id, via, created_at").eq("pass_id", guest.id),
+      db().from("pass_points").select("kind, ref_id, points, detail, created_at").eq("pass_id", guest.id),
     ]);
     const dayRows = ((stamps ?? []) as { day: string }[]).map((s) => ({ pass_id: target, day: s.day }));
     const pinRows = ((pins ?? []) as { pin_code: string; source: string }[]).map((p) => ({ pass_id: target, pin_code: p.pin_code, source: p.source }));
+    const attendRows = ((attended ?? []) as { match_id: string; via: string; created_at: string }[]).map((a) => ({ ...a, pass_id: target }));
+    // A match both passes attended keeps the account's points: the ledger's unique key skips the guest's.
+    const pointRows = ((points ?? []) as { kind: string; ref_id: string; points: number; detail: unknown; created_at: string }[]).map((r) => ({ ...r, pass_id: target }));
     if (dayRows.length) await db().from("pass_stamps").upsert(dayRows, { onConflict: "pass_id,day", ignoreDuplicates: true });
     if (pinRows.length) await db().from("pass_pins").upsert(pinRows, { onConflict: "pass_id,pin_code", ignoreDuplicates: true });
+    if (attendRows.length) await db().from("pass_attendances").upsert(attendRows, { onConflict: "pass_id,match_id", ignoreDuplicates: true });
+    if (pointRows.length) await db().from("pass_points").upsert(pointRows, { onConflict: "pass_id,kind,ref_id", ignoreDuplicates: true });
     const patch: Record<string, string> = {};
     if (!mine.onsiteUnlockedAt && guest.onsite_unlocked_at) patch.onsite_unlocked_at = guest.onsite_unlocked_at;
-    if (mine.edition === "spectator" && guest.edition === "staff") {
-      patch.edition = "staff";
-      if (guest.staff_role) patch.staff_role = guest.staff_role;
-    }
     if (!mine.holderName && guest.holder_name) patch.holder_name = guest.holder_name;
     if (!mine.nationCode && guest.nation_code) patch.nation_code = guest.nation_code;
     if (Object.keys(patch).length) await db().from("event_passes").update(patch).eq("id", target);

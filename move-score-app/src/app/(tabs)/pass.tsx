@@ -1,23 +1,55 @@
 import { useMemo, useState } from "react";
-import { Alert, Linking, Platform, TextInput, View } from "react-native";
+import { Alert, Platform, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import Animated, { FadeInDown, ZoomIn } from "react-native-reanimated";
-import type { MPass } from "@core";
-import { api, apiUrl, errorMessage } from "../../api/client";
+import type { MAttendedMatch, MPass } from "@core";
+import { api, errorMessage } from "../../api/client";
 import { useBundle, useConfig, useDiscover } from "../../api/queries";
 import { registerDevice } from "../../push/register";
 import { LoadState } from "../../ui/LoadState";
 import { useFeaturedGroup } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
-import { Body, Display, Eyebrow } from "../../ui/Text";
+import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, SectionHeader } from "../../ui/Bits";
-import { PASS_H, PASS_W, PassCard, type PassEvent } from "../../ui/PassCard";
+import { PassCard, usePassSize, type PassEvent } from "../../ui/PassCard";
 import { Pack } from "../../ui/Pack";
 import { Pins } from "../../ui/Pins";
+import { AppleWalletButton } from "../../ui/AppleWalletButton";
 import { useFollowsOf } from "../../state/follows";
 import { rememberPass, usePass } from "../../pass/usePass";
 import { eventToday } from "../../pass/day";
+import { addToAppleWallet, addToGoogleWallet, walletButton } from "../../pass/wallet";
+
+/** One row of "Matches you attended": the sides, what was played, the points. Tap for the match. */
+function AttendedRow({ m, iso2Of }: { m: MAttendedMatch; iso2Of: (code: string | null) => string | null }) {
+  const { t } = useTheme();
+  const side = (s: MAttendedMatch["a"]) => (s ? (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      {s.code ? <Flag iso2={iso2Of(s.code)} code={s.code} size={18} /> : null}
+      <Body weight="semi" size={14}>{s.code ?? s.name}</Body>
+    </View>
+  ) : <Body weight="semi" size={14}>TBD</Body>);
+  return (
+    <Card
+      onPress={() => router.push({ pathname: "/match/[id]", params: { id: m.matchId } })}
+      accessibilityLabel={`${m.a?.name ?? "To be decided"} against ${m.b?.name ?? "to be decided"}, ${m.label}. ${m.points} points.`}
+      style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12 }}
+    >
+      <View style={{ flex: 1, gap: 3 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {side(m.a)}
+          <Body tone="ink3" size={13}>v</Body>
+          {side(m.b)}
+        </View>
+        <Body tone="ink3" size={12}>{m.label}</Body>
+      </View>
+      <View style={{ backgroundColor: t.chip, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5 }}>
+        <Num size={15} tone="ink">{`+${m.points}`}</Num>
+      </View>
+    </Card>
+  );
+}
 
 function eventDays(a: string | null, b: string | null): string[] {
   if (!a) return [];
@@ -53,6 +85,9 @@ export default function PassTab() {
   const [error, setError] = useState<string | null>(null);
   // A failed open reseals the pack: a new key gives a fresh, untorn Pack.
   const [packKey, setPackKey] = useState(0);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const [walletNote, setWalletNote] = useState<string | null>(null);
+  const size = usePassSize();
   const q = usePass(group?.id);
   const { pass, owner } = q;
   const nations = useMemo(() => {
@@ -102,22 +137,34 @@ export default function PassTab() {
   // The event's day where it is played, as the server stamps it (not the phone's UTC date).
   const today = eventToday(group.timezone);
   const stampedToday = Boolean(pass?.stamps.includes(today));
+  const wallet = walletButton(cfg.data?.flags);
+  const addApple = async () => {
+    if (!pass) return;
+    setWalletBusy(true);
+    try {
+      setWalletNote(await addToAppleWallet(pass.id, cfg.data?.walletReady?.apple));
+    } finally {
+      setWalletBusy(false);
+    }
+  };
+  const attended = pass?.attendance?.list ?? [];
+  const iso2Of = (code: string | null) => (code ? (nations.find((n) => n.code === code)?.iso2 ?? null) : null);
   return (
     <Screen onRefresh={() => q.refetch()}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 14 }}>
         <Display size={24}>My pass</Display>
-        <Chip label={pass ? (pass.edition === "staff" ? "Accredited" : pass.onsiteUnlockedAt ? "On-site" : "Opened") : q.confirmedNone ? "Sealed" : "…"} ball={Boolean(pass?.onsiteUnlockedAt || pass?.edition === "staff")} />
+        <Chip label={pass ? (pass.onsiteUnlockedAt ? "On-site" : "Opened") : q.confirmedNone ? "Sealed" : "…"} ball={Boolean(pass?.onsiteUnlockedAt)} />
       </View>
       <View style={{ alignItems: "center", paddingTop: 6 }}>
         {pass && !opening ? (
           <Animated.View entering={ZoomIn.springify().damping(12)}>
-            <PassCard pass={pass} event={event} nationIso2={nationIso} today={today} />
+            <PassCard pass={pass} event={event} nationIso2={nationIso} today={today} width={size.w} />
           </Animated.View>
         ) : q.confirmedNone || opening ? (
           <Pack key={packKey} title={group.name} onOpen={() => void open()} />
         ) : (
           // Until the server has answered, the pass is unknown: never a sealed pack for a pass that exists.
-          <View style={{ width: PASS_W, height: PASS_H, borderRadius: 24, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
+          <View style={{ width: size.w, height: size.h, borderRadius: 24, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
             {/* No owner yet: this phone has not registered (it needs a connection once). */}
             <LoadState compact queries={[q]} what="your pass" onRetry={owner ? undefined : () => registerDevice(false)} />
           </View>
@@ -130,19 +177,43 @@ export default function PassTab() {
       )}
       {pass && (
         <Animated.View entering={FadeInDown.delay(250)} style={{ gap: 8, marginTop: 18 }}>
+          {wallet === "apple" && (
+            <View style={{ gap: 8, marginBottom: 6 }}>
+              <AppleWalletButton busy={walletBusy} onPress={() => void addApple()} />
+              {walletNote ? (
+                <Body tone="ink2" size={13} style={{ textAlign: "center" }} accessibilityRole="alert">
+                  {walletNote}
+                </Body>
+              ) : null}
+            </View>
+          )}
           {!calm && (
             <Eyebrow tone="ink3" style={{ textAlign: "center", letterSpacing: 1.5 }}>
               {"📱  Tilt your phone"}
             </Eyebrow>
           )}
-          <Button label={stampedToday ? `Stamped · ${dayLabel(today)}` : "Scan the venue code"} onPress={() => router.push("/scan")} />
+          <Button label={stampedToday ? `Stamped · ${dayLabel(today)} · Scan a match` : "Scan the venue code"} onPress={() => router.push("/scan")} />
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Button kind="ghost" label="Share pass" onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: "pass" } })} style={{ flex: 1 }} />
-            {cfg.data?.flags.wallet ? (
-              <Button kind="ghost" label="Add to Wallet" onPress={() => void Linking.openURL(apiUrl(`/api/mobile/v1/passes/${pass.id}/${process.env.EXPO_OS === "android" ? "google" : "apple"}`))} style={{ flex: 1 }} />
-            ) : null}
+            {wallet === "google" ? <Button kind="ghost" label="Add to Google Wallet" onPress={() => void addToGoogleWallet(pass.id)} style={{ flex: 1 }} /> : null}
           </View>
         </Animated.View>
+      )}
+      {pass && (
+        <>
+          <SectionHeader title="Matches you attended" action={`${pass.attendance?.matches ?? 0} · ${pass.attendance?.points ?? 0} pts`} />
+          {attended.length ? (
+            <View style={{ gap: 8 }}>
+              {attended.map((m) => (
+                <AttendedRow key={m.matchId} m={m} iso2Of={iso2Of} />
+              ))}
+            </View>
+          ) : (
+            <Body tone="ink3" size={13} style={{ textAlign: "center" }}>
+              At a match, scan the code on the court screen to check in. Every match adds 10 points; finals and deciding rubbers add more.
+            </Body>
+          )}
+        </>
       )}
       {nations.length > 0 && (
         <>

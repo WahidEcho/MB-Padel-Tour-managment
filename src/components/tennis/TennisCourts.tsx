@@ -11,6 +11,7 @@ import { classifyPointChange, type ScoreFrame } from "@/lib/tv/pointBeat";
 import type { CompletedSet, MatchRules, RubberType } from "@/lib/types";
 import { useLive } from "@/components/broadcast/LiveFeedProvider";
 import Face, { Flag, flagSrc, splitName } from "./Face";
+import CheckInQr from "./CheckInQr";
 import s from "./tennis.module.css";
 
 const display = Big_Shoulders({ subsets: ["latin", "latin-ext"], variable: "--tennis-display", display: "swap" });
@@ -514,6 +515,7 @@ function LiveScene({ matchId, ctx }: { matchId: string; ctx: Ctx }) {
       )}
       <div className={s.meta}>{r.rules.decidingPoint ? "No-ad · " : ""}{r.rules.matchTiebreak ? `Match tie-break to ${r.rules.matchTiebreakPoints ?? 10} in place of a final set` : `Best of ${totalSets} sets`}</div>
       {m.status === "paused" && <div className={s.pausedTag}>PLAY SUSPENDED</div>}
+      <CheckInQr matchId={matchId} />
     </>
   );
 }
