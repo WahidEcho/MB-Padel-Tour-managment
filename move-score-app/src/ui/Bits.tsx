@@ -79,20 +79,65 @@ export function Flag({ iso2, code, size = 22 }: { iso2: string | null | undefine
   return <Image source={{ uri: `${config.apiBaseUrl}/flags/${iso2}.svg` }} style={{ width: size, height: h, borderRadius: 3 }} contentFit="cover" cachePolicy="disk" accessibilityLabel={code ?? iso2} />;
 }
 
-export function SectionHeader({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+export function SectionHeader({ title, action, onAction, onTitlePress, titleLabel }: { title: string; action?: string; onAction?: () => void; onTitlePress?: () => void; titleLabel?: string }) {
+  const heading = (
+    <Body weight="bold" size={14} style={{ textTransform: "uppercase", letterSpacing: 0.6, flexShrink: 1 }} numberOfLines={onTitlePress ? 1 : undefined}>
+      {title}
+      {onTitlePress ? <Body tone="ink3" weight="bold" size={14}>{"  ›"}</Body> : null}
+    </Body>
+  );
   return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginTop: 26, marginBottom: 10 }}>
-      <Body weight="bold" size={14} style={{ textTransform: "uppercase", letterSpacing: 0.6 }}>
-        {title}
-      </Body>
+    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginTop: 26, marginBottom: 10, gap: 12 }}>
+      {onTitlePress ? (
+        <Pressable
+          onPress={onTitlePress}
+          hitSlop={10}
+          accessibilityRole="link"
+          accessibilityLabel={titleLabel ?? `Open ${title}`}
+          style={({ pressed }) => [{ flexShrink: 1 }, pressed && { opacity: 0.6 }]}
+        >
+          {heading}
+        </Pressable>
+      ) : (
+        <View accessibilityRole="header" style={{ flexShrink: 1 }}>{heading}</View>
+      )}
       {action ? (
-        <Pressable onPress={onAction} hitSlop={10} accessibilityRole="button">
-          <Body tone="blue" weight="semi" size={13}>
+        <Pressable onPress={onAction} disabled={!onAction} hitSlop={10} accessibilityRole={onAction ? "button" : "text"} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+          <Body tone={onAction ? "blue" : "ink2"} weight="semi" size={13}>
             {action}
           </Body>
         </Pressable>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * A small pill that opens another page: a nation, a team, a tournament, a tie.
+ * Reads as tappable (chevron, outline) and dims while pressed.
+ */
+export function LinkChip({ label, onPress, leading, accessibilityLabel, style }: { label: string; onPress: () => void; leading?: ReactNode; accessibilityLabel?: string; style?: StyleProp<ViewStyle> }) {
+  const { t } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={accessibilityLabel ?? label}
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => [
+        { flexDirection: "row", alignItems: "center", gap: 7, alignSelf: "flex-start", minHeight: 34, paddingLeft: leading ? 8 : 12, paddingRight: 10, borderRadius: 999, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, maxWidth: "100%" },
+        pressed && { opacity: 0.7, transform: [{ scale: 0.97 }] },
+        style,
+      ]}
+    >
+      {leading}
+      <Body weight="semi" size={13} numberOfLines={1} style={{ flexShrink: 1 }}>
+        {label}
+      </Body>
+      <Body weight="bold" size={14} tone="ink3">
+        ›
+      </Body>
+    </Pressable>
   );
 }
 
@@ -132,6 +177,7 @@ export function ToggleButton({ on, onLabel, offLabel, onPress, compact }: { on: 
       accessibilityRole="switch"
       accessibilityState={{ checked: on }}
       hitSlop={6}
+      style={({ pressed }) => pressed && { opacity: 0.75 }}
       onPress={() => {
         if (!on) {
           s.value = withSequence(withSpring(1.14, { damping: 6 }), withSpring(1));

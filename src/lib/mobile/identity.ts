@@ -53,13 +53,42 @@ export function deviceHandle(deviceId: string): string {
 }
 
 /**
+ * Who is looking at a scoring lease. `deviceId` is the id the caller says it
+ * scores with (the `X-Device-Id` header): the same id it already sends in every
+ * claim, renew and events body, so echoing it back to that caller reveals
+ * nothing it did not know, and saying "that is you" needs no install token.
+ */
+export interface LeaseViewer {
+  installationId: string | null;
+  deviceId?: string | null;
+  staff: boolean;
+}
+
+/** The scoring device id a caller presents in `X-Device-Id`, or null. */
+export function presentedDeviceId(headers: Headers): string | null {
+  const v = headers.get("x-device-id")?.trim();
+  return v && v.length <= 100 ? v : null;
+}
+
+/**
+ * Whether a lease or request held by `deviceId` is this viewer's own. The lease
+ * routes key everything on the body's device id, so the match-state read must
+ * recognise a console by that same id: before, a phone whose install token was
+ * missing or stale saw its own lease as another device's and gave control up.
+ */
+export function isViewersDevice(deviceId: string, viewer: LeaseViewer): boolean {
+  if (viewer.installationId && deviceId === viewer.installationId) return true;
+  return Boolean(viewer.deviceId) && deviceId === viewer.deviceId;
+}
+
+/**
  * A scoring-lease device id as one viewer may see it. A phone sees its own id
  * (it compares against it to know it holds control); staff see web consoles'
  * browser ids, which the web console compares against; everyone else, and every
  * other phone's id, gets a handle.
  */
-export function shownDeviceId(deviceId: string, viewer: { installationId: string | null; staff: boolean }): string {
-  if (viewer.installationId && deviceId === viewer.installationId) return deviceId;
+export function shownDeviceId(deviceId: string, viewer: LeaseViewer): string {
+  if (isViewersDevice(deviceId, viewer)) return deviceId;
   if (viewer.staff && BROWSER_DEVICE_ID.test(deviceId)) return deviceId;
   return deviceHandle(deviceId);
 }

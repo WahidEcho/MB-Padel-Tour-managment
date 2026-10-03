@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
-import { router } from "expo-router";
 import type { MPlayer, MTeam } from "@core";
 import { refetchOnScreen, useBundle, useLive } from "../../api/queries";
 import { makeView, needsDay, whenIn } from "../../api/model";
@@ -11,6 +10,7 @@ import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { toggleFollow, useFollowsOf } from "../../state/follows";
+import { openPlayer, openTournament } from "../../nav/links";
 
 function initials(name: string) {
   return name
@@ -44,9 +44,9 @@ function PlayerList({ slug, query }: { slug: string; query: string }) {
   };
   return (
     <View>
-      <SectionHeader title={b.data.tournament.name} />
+      <SectionHeader title={b.data.tournament.name} onTitlePress={() => openTournament(slug)} />
       {rows.map(({ p, team }) => (
-        <Card key={p.id} onPress={() => router.push({ pathname: "/player/[id]", params: { id: p.id, slug } })} style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <Card key={p.id} onPress={() => openPlayer(p.id, slug)} accessibilityLabel={[p.name, team.name, next(p.id)].filter(Boolean).join(", ")} style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
             <View style={{ position: "absolute", opacity: 0.4 }}>
               <Flag iso2={team.iso2} code={team.code} size={60} />

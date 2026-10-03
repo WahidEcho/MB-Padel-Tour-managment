@@ -82,7 +82,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
                 const e = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
                 if (!focused && !e.defaultPrevented) navigation.navigate(route.name);
               }}
-              style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 4 }}
+              style={({ pressed }) => ({ flex: 1, alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed ? 0.65 : 1 })}
             >
               {isPass ? (
                 <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: t.btnBg, alignItems: "center", justifyContent: "center", marginTop: -4 }}>{ICONS.pass!(t.btnInk)}</View>

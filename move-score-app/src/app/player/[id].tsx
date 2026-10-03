@@ -8,11 +8,12 @@ import { SkinScope } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
-import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
+import { Card, Empty, Flag, LinkChip, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
 import { LoadState } from "../../ui/LoadState";
 import { toggleFollow, useFollowing } from "../../state/follows";
+import { isNation, openTeam, openTournament } from "../../nav/links";
 
 function PlayerScreen({ id, slug }: { id: string; slug: string }) {
   const b = useBundle(slug);
@@ -27,7 +28,7 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
     const missing = !slug || Boolean(b.data && !p && b.dataUpdatedAt > 0);
     return (
       <Screen tabs={false} onRefresh={slug ? () => Promise.all([b.refetch(), l.refetch()]) : undefined}>
-        <BackHeader label="Players" />
+        <BackHeader label="Players" fallback="/players" />
         {/* No bundle, or a saved one without this player: either way nothing to show until the server answers. */}
         {missing ? notFound : <LoadState queries={[{ ...b, data: undefined }]} what="this player" notFound={notFound} />}
       </Screen>
@@ -54,7 +55,7 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
   const nextWithDay = needsDay(next.slice(0, 3).filter((m) => !isOnCourt(m)).map((m) => m.scheduledTime), b.data.tournament.timezone);
   return (
     <Screen tabs={false} onRefresh={() => l.refetch()}>
-      <BackHeader label="Players" right={<ToggleButton compact on={following} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("player", id, b.data!.tournament.id)} />} />
+      <BackHeader label="Players" fallback="/players" right={<ToggleButton compact on={following} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("player", id, b.data!.tournament.id)} />} />
       <StaleBanner queries={[l]} live />
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center", marginTop: 4 }}>
         <Flag iso2={p.team.iso2} code={p.team.code} size={40} />
@@ -62,6 +63,15 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
           <Display size={24}>{p.name}</Display>
           <Body tone="ink2" size={13}>{`${p.team.name} · ${b.data.tournament.name}`}</Body>
         </View>
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        <LinkChip
+          label={p.team.name}
+          accessibilityLabel={`${p.team.name}, ${isNation(p.team, b.data.tournament.isTies) ? "nation" : "team"} page`}
+          onPress={() => openTeam(p.team, slug, b.data!.tournament.isTies)}
+          leading={<Flag iso2={p.team.iso2} code={p.team.code} size={18} />}
+        />
+        <LinkChip label={b.data.tournament.name} accessibilityLabel={`${b.data.tournament.name}, tournament page`} onPress={() => openTournament(slug)} />
       </View>
       <View style={{ flexDirection: "row", gap: 8, marginTop: 18 }}>
         {[

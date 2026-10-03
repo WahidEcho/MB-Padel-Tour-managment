@@ -43,7 +43,7 @@ export function Takeover({ moment, onDone, onShare, calm }: { moment: TakeoverMo
   if (!moment) return null;
   return (
     <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(220)} style={[StyleSheet.absoluteFill, styles.wrap]}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onDone} accessibilityLabel="Close" />
+      <Pressable style={StyleSheet.absoluteFill} onPress={onDone} accessibilityRole="button" accessibilityLabel="Close" />
       {!calm && (
         <Animated.View pointerEvents="none" style={[styles.beam, beam]}>
           <LinearGradient colors={["rgba(252,252,0,0.0)", "rgba(252,252,0,0.45)", "rgba(252,252,0,0.0)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />

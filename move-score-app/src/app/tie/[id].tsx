@@ -11,12 +11,13 @@ import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
-import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
+import { Card, Empty, Flag, LinkChip, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { TieCard } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
 import { LoadState } from "../../ui/LoadState";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { session } from "../../state/session";
+import { openTeam, openTournament } from "../../nav/links";
 
 /** The server takes at most this many taps per call. */
 const MAX_PER_BATCH = 30;
@@ -145,7 +146,7 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
     const gone = <Empty title="This tie is not available" body="It may have been moved or removed from the order of play." />;
     return (
       <Screen tabs={false} onRefresh={() => Promise.all([b.refetch(), l.refetch()])}>
-        <BackHeader label={b.data ? b.data.tournament.name.split(" ").slice(0, 3).join(" ") : "Back"} />
+        <BackHeader label={b.data ? b.data.tournament.name.split(" ").slice(0, 3).join(" ") : "Back"} fallback={{ pathname: "/t/[slug]", params: { slug } }} />
         {b.data && l.data ? gone : <LoadState queries={[b, l]} what="this tie" notFound={gone} />}
       </Screen>
     );
@@ -156,11 +157,17 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
   const tz = b.data.tournament.timezone;
   return (
     <Screen tabs={false} onRefresh={() => l.refetch()}>
-      <BackHeader label={b.data.tournament.name.split(" ").slice(0, 3).join(" ")} right={<ToggleButton compact on={starred} onLabel="★ Following" offLabel="☆ Follow tie" onPress={() => void toggleFollow("tie", id, b.data!.tournament.id)} />} />
+      <BackHeader label={b.data.tournament.name.split(" ").slice(0, 3).join(" ")} fallback={{ pathname: "/t/[slug]", params: { slug } }} right={<ToggleButton compact on={starred} onLabel="★ Following" offLabel="☆ Follow tie" onPress={() => void toggleFollow("tie", id, b.data!.tournament.id)} />} />
       <StaleBanner queries={[l]} live={tie.status === "live"} />
       <Eyebrow>{[tie.roundName ?? (tie.stage === "group" ? "Group stage" : "Placement"), v.court(tie.courtId), tie.scheduledTime ? `${dayIn(tie.scheduledTime, tz)} ${timeIn(tie.scheduledTime, tz)}` : null].filter(Boolean).join(" · ")}</Eyebrow>
       <Display size={24} style={{ marginTop: 6, marginBottom: 14 }}>{`${a?.name ?? "TBD"} v ${bb?.name ?? "TBD"}`}</Display>
       <TieCard tie={tie} v={v} />
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        {[a, bb].map((team) =>
+          team ? <LinkChip key={team.id} label={team.name} accessibilityLabel={`${team.name}, nation page`} onPress={() => openTeam(team, slug, b.data!.tournament.isTies)} leading={<Flag iso2={team.iso2} code={team.code} size={18} />} /> : null,
+        )}
+        <LinkChip label={b.data.tournament.name} accessibilityLabel={`${b.data.tournament.name}, tournament page`} onPress={() => openTournament(slug)} />
+      </View>
       {cfg.data?.flags.supporter_mode && a && bb && tie.status !== "completed" && (
         <>
           <SectionHeader title="Support" />

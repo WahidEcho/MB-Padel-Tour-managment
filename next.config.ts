@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
     const cors = [
       { key: "Access-Control-Allow-Origin", value: "*" },
       { key: "Access-Control-Allow-Methods", value: "GET, POST, PATCH, DELETE, OPTIONS" },
-      { key: "Access-Control-Allow-Headers", value: "Authorization, Content-Type, X-Install-Token, X-Staff-Token" },
+      { key: "Access-Control-Allow-Headers", value: "Authorization, Content-Type, X-Install-Token, X-Staff-Token, X-Device-Id" },
       { key: "Access-Control-Max-Age", value: "86400" },
     ];
     return [

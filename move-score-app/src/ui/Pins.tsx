@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from "react-native-svg";
 import Animated, { Easing, cancelAnimation, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useTheme } from "../theme/ThemeProvider";
 import { F } from "../theme/type";
 import { Flag } from "./Bits";
+import { openNation } from "../nav/links";
 
 export interface PinNation {
   code: string;
@@ -33,7 +34,7 @@ function Sheen({ d }: { d: number }) {
   );
 }
 
-function Pin({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
+function PinFace({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
   const { t } = useTheme();
   const flag = Math.round(d * 0.46);
   const code = (
@@ -42,8 +43,6 @@ function Pin({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
   if (!got) {
     return (
       <View
-        accessible
-        accessibilityLabel={`${n.name} pin, not collected yet`}
         style={{ width: d, height: d, borderRadius: d / 2, alignItems: "center", justifyContent: "center", backgroundColor: t.chip, borderWidth: 1, borderStyle: "dashed", borderColor: t.line }}
       >
         <View style={{ opacity: 0.35 }}>
@@ -54,7 +53,7 @@ function Pin({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
     );
   }
   return (
-    <View accessible accessibilityLabel={`${n.name} pin, collected`} style={{ width: d, height: d, borderRadius: d / 2, boxShadow: `0 4px 0 ${GOLD_RIM}, 0 10px 20px rgba(0,0,0,0.3)` }}>
+    <View style={{ width: d, height: d, borderRadius: d / 2, boxShadow: `0 4px 0 ${GOLD_RIM}, 0 10px 20px rgba(0,0,0,0.3)` }}>
       <View style={{ flex: 1, borderRadius: d / 2, overflow: "hidden", alignItems: "center", justifyContent: "center" }}>
         <LinearGradient colors={["#FFE066", "#C9A400"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ position: "absolute", inset: 0 }} />
         <Svg width={d} height={d} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
@@ -73,6 +72,21 @@ function Pin({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
         <Sheen d={d} />
       </View>
     </View>
+  );
+}
+
+/** A pin opens its nation: collected, to see its ties; not yet, to follow it and collect the pin. */
+function Pin({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={got ? `${n.name} pin, collected` : `${n.name} pin, not collected yet`}
+      accessibilityHint={got ? `Opens ${n.name}` : `Opens ${n.name}, where following it collects the pin`}
+      onPress={() => openNation(n.code)}
+      style={({ pressed }) => ({ borderRadius: d / 2, opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] })}
+    >
+      <PinFace n={n} got={got} d={d} />
+    </Pressable>
   );
 }
 

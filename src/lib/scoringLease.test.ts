@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { LEASE_RENEW_MS, LEASE_TTL_MS, defaultDeviceLabel, isLeaseLive, sanitizeLabel } from "./scoringLease";
+import {
+  LEASE_RENEW_MS,
+  LEASE_TTL_MS,
+  NO_LEASE_VIEW,
+  claimedLeaseView,
+  createLeaseOrder,
+  defaultDeviceLabel,
+  isLeaseLive,
+  nextLeaseView,
+  sanitizeLabel,
+  type LeaseSideView,
+  type SeenLease,
+} from "./scoringLease";
 import type { ScoringLease } from "./types";
 
 const NOW = Date.parse("2026-09-22T12:00:00.000Z");
@@ -91,5 +103,104 @@ describe("sanitizeLabel", () => {
   it("never exceeds the database's 60-character check constraint", () => {
     const long = "x".repeat(500);
     expect(sanitizeLabel(long, "device-1234").length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("nextLeaseView: one console's side of the lease", () => {
+  const ME = "ios-me";
+  const seen = (over: Partial<SeenLease> = {}): SeenLease => ({
+    deviceId: ME,
+    deviceLabel: "iPhone · app",
+    isLive: true,
+    transferRequest: null,
+    ...over,
+  });
+  const scoring: LeaseSideView = { ...NO_LEASE_VIEW, isController: true, gained: 1 };
+
+  it("keeps control when the server says the lease is this phone's, even under a handle (no install token)", () => {
+    // The reported bug: the phone's own lease came back as "d-…" and every poll took control away.
+    const v = nextLeaseView(scoring, seen({ deviceId: "d-uT0VRq1NxldFP6AI", heldByYou: true }), ME);
+    expect(v.isController).toBe(true);
+    expect(v.heldByOther).toBe(false);
+    expect(v.lostTo).toBeNull();
+    expect(v.gained).toBe(1); // still the same spell of control: no second reload
+  });
+
+  it("still recognises its own raw id from an older server without heldByYou", () => {
+    expect(nextLeaseView(NO_LEASE_VIEW, seen(), ME).isController).toBe(true);
+  });
+
+  it("counts a gain once per spell of control", () => {
+    const a = nextLeaseView(NO_LEASE_VIEW, seen({ heldByYou: true }), ME);
+    const b = nextLeaseView(a, seen({ heldByYou: true }), ME);
+    expect([a.gained, b.gained]).toEqual([1, 1]);
+  });
+
+  it("says control moved when another device holds the match it was scoring, and keeps saying it until regained or freed", () => {
+    const moved = nextLeaseView(scoring, seen({ deviceId: "d-other", deviceLabel: "Web console", heldByYou: false }), ME);
+    expect(moved).toMatchObject({ isController: false, heldByOther: true, holderLabel: "Web console", lostTo: "Web console" });
+    const again = nextLeaseView(moved, seen({ deviceId: "d-other", deviceLabel: "Web console", heldByYou: false }), ME);
+    expect(again.lostTo).toBe("Web console");
+    expect(nextLeaseView(again, seen({ isLive: false, deviceId: "d-other" }), ME).lostTo).toBeNull();
+    expect(nextLeaseView(again, seen({ heldByYou: true }), ME)).toMatchObject({ isController: true, lostTo: null, gained: 2 });
+  });
+
+  it("is plain read-only (no 'moved') for a phone that never held the match", () => {
+    const v = nextLeaseView(NO_LEASE_VIEW, seen({ deviceId: "d-other", deviceLabel: "Pixel · app", heldByYou: false }), ME);
+    expect(v).toMatchObject({ isController: false, heldByOther: true, lostTo: null });
+  });
+
+  it("shows a request to the holder, and a pending ask to the asker (by heldByYou/requestedByYou)", () => {
+    const holder = nextLeaseView(scoring, seen({ heldByYou: true, transferRequest: { deviceId: "d-b", deviceLabel: "Pixel · app" } }), ME);
+    expect(holder.incomingRequest?.deviceLabel).toBe("Pixel · app");
+    const asker = nextLeaseView(NO_LEASE_VIEW, seen({ deviceId: "d-a", heldByYou: false, transferRequest: { deviceId: "d-me", deviceLabel: "x" }, requestedByYou: true }), ME);
+    expect(asker.myRequestPending).toBe(true);
+    expect(asker.incomingRequest).toBeNull();
+  });
+
+  it("a lapsed lease is nobody's", () => {
+    expect(nextLeaseView(scoring, seen({ isLive: false, heldByYou: true }), ME)).toMatchObject({ isController: false, heldByOther: false, lostTo: null });
+    expect(nextLeaseView(scoring, null, ME).isController).toBe(false);
+  });
+});
+
+describe("claimedLeaseView", () => {
+  it("a re-claim by the phone already scoring is not a new gain (re-opening never fights itself)", () => {
+    const s: LeaseSideView = { ...NO_LEASE_VIEW, isController: true, gained: 3 };
+    expect(claimedLeaseView(s, true, null)).toMatchObject({ isController: true, gained: 3 });
+    expect(claimedLeaseView(NO_LEASE_VIEW, true, null)).toMatchObject({ isController: true, gained: 1 });
+  });
+
+  it("a refused re-claim (back from the background after a takeover) says control moved, never steals", () => {
+    const s: LeaseSideView = { ...NO_LEASE_VIEW, isController: true, gained: 1 };
+    expect(claimedLeaseView(s, false, "Web console")).toMatchObject({ isController: false, heldByOther: true, lostTo: "Web console" });
+    expect(claimedLeaseView(NO_LEASE_VIEW, false, null)).toMatchObject({ heldByOther: true, holderLabel: "another device", lostTo: null });
+  });
+});
+
+describe("createLeaseOrder: a stale poll never undoes a claim", () => {
+  it("drops a poll that left before a claim came back", () => {
+    const o = createLeaseOrder();
+    const before = o.ask(); // poll leaves: the lease is free
+    o.changed(); // claim goes out
+    o.changed(); // claim comes back: this phone holds it
+    expect(o.fresh(before)).toBe(false);
+    expect(o.fresh(o.ask())).toBe(true);
+  });
+
+  it("drops a poll that left while a claim was on its way", () => {
+    const o = createLeaseOrder();
+    o.changed();
+    const during = o.ask();
+    o.changed();
+    expect(o.fresh(during)).toBe(false);
+  });
+
+  it("applies polls in order: an older answer arriving late is dropped", () => {
+    const o = createLeaseOrder();
+    const first = o.ask();
+    const second = o.ask();
+    expect(o.fresh(second)).toBe(true);
+    expect(o.fresh(first)).toBe(false);
   });
 });

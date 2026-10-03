@@ -5,7 +5,7 @@ import { getDeviceId } from "@/lib/offline/db";
 // From the pure module, never from "@/lib/scoringControl" — that file imports
 // db() at module scope, which would pull the Supabase client (and the
 // non-public key it reads) into this client bundle. See scoringLease.ts.
-import { LEASE_RENEW_MS, defaultDeviceLabel } from "@/lib/scoringLease";
+import { LEASE_RENEW_MS, createLeaseOrder, defaultDeviceLabel } from "@/lib/scoringLease";
 import type { Match, MatchSnapshot } from "@/lib/types";
 
 /**
@@ -50,7 +50,9 @@ interface StatePayload {
         renewedAt: string;
         expiresAt: string;
         isLive: boolean;
+        heldByYou?: boolean;
         transferRequest: TransferRequestInfo | null;
+        requestedByYou?: boolean;
       };
 }
 
@@ -110,6 +112,8 @@ export function useScoringControl(
   const { initialMatch = null, initialSnapshot = null, disabled = false, intervalMs = 3_000 } = opts;
   const deviceIdRef = useRef<string>("");
   const labelRef = useRef<string>("");
+  // A poll that left before a claim, release, request or answer came back must not undo it.
+  const order = useRef(createLeaseOrder()).current;
 
   const [state, setState] = useState<ScoringControlState>({
     ready: disabled,
@@ -125,15 +129,16 @@ export function useScoringControl(
   const applyLease = useCallback((data: StatePayload) => {
     const deviceId = deviceIdRef.current;
     const lease = data.lease;
-    const isController = Boolean(lease && lease.isLive && lease.deviceId === deviceId);
-    const heldByOther = Boolean(lease && lease.isLive && lease.deviceId !== deviceId);
+    // The server's own "that is you" (from the X-Device-Id the poll sends) wins over comparing shown ids.
+    const isController = Boolean(lease && lease.isLive && (lease.heldByYou === true || lease.deviceId === deviceId));
+    const heldByOther = Boolean(lease && lease.isLive && !isController);
     setState({
       ready: true,
       isController,
       heldByOther,
       holder: heldByOther && lease ? { deviceId: lease.deviceId, deviceLabel: lease.deviceLabel, renewedAt: lease.renewedAt } : null,
       incomingRequest: isController && lease?.transferRequest ? lease.transferRequest : null,
-      myRequestPending: Boolean(heldByOther && lease?.transferRequest?.deviceId === deviceId),
+      myRequestPending: Boolean(heldByOther && (lease?.requestedByYou === true || lease?.transferRequest?.deviceId === deviceId)),
       match: data.match,
       snapshot: data.snapshot,
     });
@@ -148,8 +153,21 @@ export function useScoringControl(
    * it knows whether this device already has unsynced local state for the
    * match — the strongest signal that it was the one scoring it.
    */
+  /** Runs a claim, release, request or answer: polls already on their way describe the lease from before it. */
+  const change = useCallback(
+    async <T,>(fn: () => Promise<T>): Promise<T> => {
+      order.changed();
+      try {
+        return await fn();
+      } finally {
+        order.changed();
+      }
+    },
+    [order],
+  );
+
   const claim = useCallback(async (offlineFallback = false): Promise<boolean> => {
-    const { ok, json } = await post(matchId, "claim", { deviceId: deviceIdRef.current, deviceLabel: labelRef.current });
+    const { ok, json } = await change(() => post(matchId, "claim", { deviceId: deviceIdRef.current, deviceLabel: labelRef.current }));
     if (!ok || !json) {
       setState((s) => ({ ...s, ready: true, isController: offlineFallback, heldByOther: false, holder: null }));
       return offlineFallback;
@@ -167,35 +185,37 @@ export function useScoringControl(
       holder: holder ? { deviceId: holder.deviceId, deviceLabel: holder.deviceLabel, renewedAt: holder.renewedAt } : null,
     }));
     return false;
-  }, [matchId]);
+  }, [matchId, change]);
 
   const poll = useCallback(async () => {
     if (disabled) return;
+    const ticket = order.ask();
     try {
-      const res = await fetch(`/api/matches/${matchId}/state`, { cache: "no-store" });
+      const res = await fetch(`/api/matches/${matchId}/state`, { cache: "no-store", headers: { "X-Device-Id": deviceIdRef.current } });
       if (!res.ok) return; // Keep the last good look rather than blank the page over a blip.
-      applyLease((await res.json()) as StatePayload);
+      const data = (await res.json()) as StatePayload;
+      if (order.fresh(ticket)) applyLease(data);
     } catch {
       // Offline or unreachable — keep whatever the last successful poll said.
     }
-  }, [matchId, disabled, applyLease]);
+  }, [matchId, disabled, applyLease, order]);
 
   const release = useCallback(async () => {
-    await post(matchId, "release-lease", { deviceId: deviceIdRef.current });
+    await change(() => post(matchId, "release-lease", { deviceId: deviceIdRef.current }));
     void poll();
-  }, [matchId, poll]);
+  }, [matchId, poll, change]);
 
   const requestControl = useCallback(async () => {
-    const { ok } = await post(matchId, "request-control", { deviceId: deviceIdRef.current, deviceLabel: labelRef.current });
+    const { ok } = await change(() => post(matchId, "request-control", { deviceId: deviceIdRef.current, deviceLabel: labelRef.current }));
     if (ok) setState((s) => ({ ...s, myRequestPending: true }));
-  }, [matchId]);
+  }, [matchId, change]);
 
   const respond = useCallback(
     async (accept: boolean) => {
-      await post(matchId, "respond-control", { deviceId: deviceIdRef.current, accept });
+      await change(() => post(matchId, "respond-control", { deviceId: deviceIdRef.current, accept }));
       void poll();
     },
-    [matchId, poll],
+    [matchId, poll, change],
   );
 
   // ---------------- a self-re-arming poll loop ----------------

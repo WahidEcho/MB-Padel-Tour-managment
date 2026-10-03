@@ -11,6 +11,8 @@ import { Card, Chip, Empty, LivePill, SectionHeader, Wordmark } from "../../ui/B
 import { MatchMini, TieRow } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
 import { LoadState } from "../../ui/LoadState";
+import { ProfileButton } from "../../ui/Header";
+import { openTournament } from "../../nav/links";
 import { Pressable } from "react-native";
 
 /**
@@ -46,7 +48,13 @@ function Hero({ g }: { g: MEventGroup }) {
         </Body>
         <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
           {g.tournaments.map((tr, i) => (
-            <Pressable key={tr.id} accessibilityRole="button" onPress={() => router.push({ pathname: "/t/[slug]", params: { slug: tr.slug } })} style={{ flex: 1, borderRadius: 18, padding: 12, gap: 6, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" }}>
+            <Pressable
+              key={tr.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${tr.name}, ${tr.liveCount ? `${tr.liveCount} live` : `${tr.teamCount} ${tr.teamCount === 1 ? "team" : "teams"}`}`}
+              onPress={() => openTournament(tr.slug)}
+              style={({ pressed }) => [{ flex: 1, borderRadius: 18, padding: 12, gap: 6, backgroundColor: pressed ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" }, pressed && { transform: [{ scale: 0.98 }] }]}
+            >
               <View style={{ height: 3, borderRadius: 3, backgroundColor: tr.skin.seedA ?? (i ? "#8a4fff" : "#d8572a") }} />
               <Eyebrow size={11.5} style={{ color: "#E8ECF4", letterSpacing: 0.4 }} numberOfLines={3}>
                 {tr.name}
@@ -89,7 +97,7 @@ function FeaturedFeed({ slug, section }: { slug: string; section: "live" | "next
 
 function TournamentLine({ c }: { c: MTournamentCard }) {
   return (
-    <Card onPress={() => router.push({ pathname: "/t/[slug]", params: { slug: c.slug } })} style={{ gap: 4 }}>
+    <Card onPress={() => openTournament(c.slug)} accessibilityLabel={[c.name, c.liveCount ? `${c.liveCount} live` : null, [c.venue, c.city].filter(Boolean).join(", ")].filter(Boolean).join(". ")} style={{ gap: 4 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         {c.liveCount ? <LivePill label={`${c.liveCount} LIVE`} /> : <Chip label={c.status === "completed" ? "Results" : dateRange(c.startsOn, c.endsOn) || "Upcoming"} />}
         <Eyebrow size={10}>{c.sport}</Eyebrow>
@@ -109,9 +117,7 @@ export default function Discover() {
     <Screen onRefresh={() => d.refetch()}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 40, marginBottom: 14 }}>
         <Wordmark />
-        <Pressable accessibilityRole="button" accessibilityLabel="Account and settings" onPress={() => router.push("/account")} hitSlop={10}>
-          <Eyebrow tone="ink2">Account</Eyebrow>
-        </Pressable>
+        <ProfileButton />
       </View>
       <StaleBanner queries={[d]} />
       <Display size={34} style={{ marginBottom: 6 }}>

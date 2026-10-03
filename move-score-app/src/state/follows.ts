@@ -7,6 +7,7 @@ import type { FollowKind, MFollow } from "@core";
 import { createStore } from "./store";
 import { getJson, setJson } from "./kv";
 import { api } from "../api/client";
+import { queryClient } from "../api/queries";
 import { session } from "./session";
 
 const KEY = "ms.follows";
@@ -38,6 +39,8 @@ export async function toggleFollow(kind: FollowKind, key: string, tournamentId: 
   try {
     if (session.get().installToken || session.get().user) {
       await api("/api/mobile/v1/me/follows", { who: "me", body: on ? { remove: [f] } : { add: [f] } });
+      // A followed nation's pin is added when the pass is next read: read it now so the binder shows it.
+      if (!on && kind === "nation") void queryClient.invalidateQueries({ queryKey: ["pass"] });
     }
   } catch {
     // Kept locally; the next sync sends it.

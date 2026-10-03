@@ -248,15 +248,23 @@ export async function alertsAllowed(): Promise<boolean> {
   return (await readPermission()) === "allowed";
 }
 
-/** movescore://match/<id>, movescore://tie/<id>, movescore://t/<id or slug> → the screen. */
+/**
+ * movescore://match/<id>, tie/<id>, t/<slug>, nation/<code>[?slug=], player/<id>?slug=, pass → the screen.
+ * (Opened from outside, the same links are handled by Expo Router's file routes.)
+ */
 export function openLink(url: string | undefined) {
   if (!url) return;
-  const m = /^movescore:\/\/(match|tie|t|pass|discover)\/?([^/?#]*)/.exec(url);
+  const m = /^movescore:\/\/(match|tie|t|pass|discover|nation|player)\/?([^/?#]*)(?:\?([^#]*))?/.exec(url);
   if (!m) return;
-  const [, kind, id] = m;
+  const [, kind, id, query] = m;
+  // No URLSearchParams: React Native's is incomplete.
+  const q = /(?:^|&)slug=([^&]*)/.exec(query ?? "");
+  const slug = q?.[1] ? decodeURIComponent(q[1]) : undefined;
   if (kind === "match" && id) router.push({ pathname: "/match/[id]", params: { id } });
   else if (kind === "tie" && id) router.push({ pathname: "/tie/[id]", params: { id } });
   else if (kind === "t" && id) router.push({ pathname: "/t/[slug]", params: { slug: id } });
+  else if (kind === "nation" && id) router.push({ pathname: "/nation/[code]", params: slug ? { code: id, slug } : { code: id } });
+  else if (kind === "player" && id && slug) router.push({ pathname: "/player/[id]", params: { id, slug } });
   else if (kind === "pass") router.push("/pass");
   else router.push("/");
 }
