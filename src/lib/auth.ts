@@ -110,6 +110,8 @@ const PERMISSIONS: Record<string, Role[]> = {
   manage_players: ["admin", "manager"],
   manage_seasons: ["admin", "manager"],
   check_in_session: ["admin", "manager", "referee"],
+  // Announcements: email and WhatsApp to players (Admin → Announcements).
+  send_messages: ["admin", "manager"],
 };
 
 export function can(role: Role | null, action: keyof typeof PERMISSIONS): boolean {

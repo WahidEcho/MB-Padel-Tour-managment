@@ -58,3 +58,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `scripts/e2e/mobile-api.ts`. No age question at sign-in.
 - Database gate (still open): `supabase/gate/close_open_access.sql` — apply only after
   production's `SUPABASE_KEY` is the secret key and `/api/health/db` reports `"key":"secret"`.
+- Messaging (Admin → Announcements): email via Resend and WhatsApp Cloud API, one `message_deliveries` row per
+  recipient per channel, chunked drain (`api/internal/messages/drain`, cron `supabase/ops/messaging_cron.sql`),
+  webhooks `api/webhooks/resend|whatsapp`, `sendTransactional` in `src/lib/messaging/queue.ts`. Docs, env vars and
+  WhatsApp templates to submit: `docs/messaging.md`. Never send for real from tests: `MESSAGING_DRY_RUN=1`;
+  gate `npm run e2e:messaging` (stand-in, dry run).

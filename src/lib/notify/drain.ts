@@ -61,6 +61,17 @@ interface Ticket {
 
 export async function recipientsFor(targets: Target[], category: keyof MAlertPrefs): Promise<DeviceRow[]> {
   if (!targets.length) return [];
+  const cols = "id, installation_id, user_id, expo_push_token, prefs";
+  const wants = (d: DeviceRow) => d.expo_push_token && ({ ...DEFAULT_ALERT_PREFS, ...(d.prefs ?? {}) })[category] !== false;
+  if (targets.some((t) => t.kind === "all")) {
+    const all: DeviceRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data } = await db().from("push_devices").select(cols).is("disabled_at", null).not("expo_push_token", "is", null).order("created_at").range(from, from + 999);
+      all.push(...((data ?? []) as DeviceRow[]));
+      if ((data ?? []).length < 1000) break;
+    }
+    return all.filter(wants);
+  }
   const owners = { install: new Set<string>(), user: new Set<string>() };
   const byKind = new Map<string, string[]>();
   for (const t of targets) byKind.set(t.kind, [...(byKind.get(t.kind) ?? []), t.key]);
@@ -69,7 +80,6 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
     for (const f of (data ?? []) as { owner_kind: "install" | "user"; owner_id: string }[]) owners[f.owner_kind].add(f.owner_id);
   }
   const devices = new Map<string, DeviceRow>();
-  const cols = "id, installation_id, user_id, expo_push_token, prefs";
   const installs = [...owners.install];
   const users = [...owners.user];
   for (let i = 0; i < installs.length; i += 200) {
@@ -80,7 +90,7 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
     const { data } = await db().from("push_devices").select(cols).in("user_id", users.slice(i, i + 200)).is("disabled_at", null);
     for (const d of (data ?? []) as DeviceRow[]) devices.set(d.id, d);
   }
-  return [...devices.values()].filter((d) => d.expo_push_token && ({ ...DEFAULT_ALERT_PREFS, ...(d.prefs ?? {}) })[category] !== false);
+  return [...devices.values()].filter(wants);
 }
 
 function expoHeaders(): Record<string, string> {
