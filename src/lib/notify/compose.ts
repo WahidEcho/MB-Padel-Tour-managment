@@ -30,7 +30,8 @@ export const CATEGORY: Record<AlertKind, keyof MAlertPrefs> = {
 };
 
 export interface Target {
-  kind: "player" | "nation" | "tie" | "match" | "tournament" | "event_group";
+  /** "all" (key "all") is every phone with alerts on: a console announcement to all app users. */
+  kind: "player" | "nation" | "tie" | "match" | "tournament" | "event_group" | "all";
   key: string;
 }
 
