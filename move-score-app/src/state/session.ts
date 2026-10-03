@@ -11,7 +11,17 @@ export interface Session {
   ready: boolean;
   installationId: string | null;
   installToken: string | null;
-  user: { id: string; name: string | null; accessToken: string; refreshToken: string; expiresAt: number | null } | null;
+  user: {
+    id: string;
+    name: string | null;
+    /** Shown on the account screen; absent on sessions saved before they were kept. */
+    email?: string | null;
+    avatarUrl?: string | null;
+    provider?: "apple" | "google" | null;
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number | null;
+  } | null;
   staff: { role: string; token: string; expiresAt: string } | null;
 }
 
