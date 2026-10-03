@@ -9,6 +9,7 @@ export { scoringConfigForMatch, isDoublesMatch, describeMatchRules } from "../..
 export { batchProblem, sameState, SCORE_EVENT_TYPES, MAX_EVENTS_PER_BATCH } from "../../../src/lib/scoring/eventGuard";
 export * from "../../../src/lib/mobile/contract";
 export * from "../../../src/lib/mobile/alertsSwitch";
+export * from "../../../src/lib/mobile/oauth";
 export { LEASE_TTL_MS, LEASE_RENEW_MS } from "../../../src/lib/scoringLease";
 export { RUBBER_LABELS, RUBBER_SHORT } from "../../../src/lib/tennis/ties";
 export { NATIONS, nationByCode } from "../../../src/lib/tennis/nations";
