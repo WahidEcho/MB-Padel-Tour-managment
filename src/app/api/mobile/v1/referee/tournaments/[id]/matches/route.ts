@@ -3,7 +3,7 @@ import { can, currentRole } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { getCourts, getMatches, getTeams } from "@/lib/data";
 import { getLiveLeasesByMatch } from "@/lib/scoringControl";
-import { shownDeviceId, verifyInstallToken } from "@/lib/mobile/identity";
+import { isViewersDevice, presentedDeviceId, shownDeviceId, verifyInstallToken } from "@/lib/mobile/identity";
 
 /**
  * The referee's match picker: every match with its court, time, sides and who
@@ -13,7 +13,7 @@ import { shownDeviceId, verifyInstallToken } from "@/lib/mobile/identity";
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const role = await currentRole();
   if (!can(role, "score_match")) return NextResponse.json({ error: "Sign in with the referee code" }, { status: 403 });
-  const viewer = { installationId: verifyInstallToken(request.headers.get("x-install-token")), staff: true };
+  const viewer = { installationId: verifyInstallToken(request.headers.get("x-install-token")), deviceId: presentedDeviceId(request.headers), staff: true };
   const { id } = await params;
   const [{ data: t }, matches, teams, courts, leases] = await Promise.all([
     db().from("tournaments").select("id, name, sport, timezone").eq("id", id).maybeSingle(),
@@ -55,7 +55,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
               ? {
                   deviceId: shownDeviceId(lease.device_id, viewer),
                   deviceLabel: lease.device_label,
-                  heldByYou: Boolean(viewer.installationId) && lease.device_id === viewer.installationId,
+                  heldByYou: isViewersDevice(lease.device_id, viewer),
                 }
               : null,
           };

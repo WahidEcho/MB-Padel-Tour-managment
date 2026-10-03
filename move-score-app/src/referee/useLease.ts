@@ -3,30 +3,29 @@
  * handoff and heartbeat as the web console (useScoringControl.ts), over the same
  * routes. Re-claims when the app returns to the foreground, because the phone
  * stops timers in the background and the lease may have lapsed meanwhile.
+ *
+ * The phone is recognised by one id everywhere: the device id its claims,
+ * renewals and events carry, sent as `X-Device-Id` on the state poll too, so
+ * the server's `heldByYou` never depends on the install token. (Comparing the
+ * shown id alone made a phone with a missing or stale install token see its own
+ * lease as another device's: it stopped renewing and lost control every poll.)
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 import * as Device from "expo-device";
-import { LEASE_RENEW_MS, type MatchSnapshot, type Match } from "@core";
+import { LEASE_RENEW_MS, NO_LEASE_VIEW, claimedLeaseView, createLeaseOrder, nextLeaseView, type LeaseSideView, type SeenLease, type MatchSnapshot, type Match } from "@core";
 import { api } from "../api/client";
 
-export interface LeaseView {
+export interface LeaseView extends LeaseSideView {
   ready: boolean;
-  isController: boolean;
-  heldByOther: boolean;
-  holderLabel: string | null;
-  incomingRequest: { deviceId: string; deviceLabel: string | null } | null;
-  myRequestPending: boolean;
   match: Match | null;
   snapshot: MatchSnapshot | null;
-  /** Goes up each time this phone gains control (a claim, an accepted handover, a re-claim on return): the console reloads the server's score then. */
-  gained: number;
 }
 
 interface StatePayload {
   match: Match;
   snapshot: MatchSnapshot | null;
-  lease: { deviceId: string; deviceLabel: string | null; isLive: boolean; transferRequest: { deviceId: string; deviceLabel: string | null } | null } | null;
+  lease: SeenLease | null;
 }
 
 const label = () => `${Device.modelName ?? (Platform.OS === "ios" ? "iPhone" : "Android")} · app`;
@@ -40,71 +39,74 @@ async function post(matchId: string, action: string, body: Record<string, unknow
 }
 
 export function useLease(matchId: string, deviceId: string, disabled: boolean) {
-  const [v, setV] = useState<LeaseView>({ ready: disabled, isController: false, heldByOther: false, holderLabel: null, incomingRequest: null, myRequestPending: false, match: null, snapshot: null, gained: 0 });
+  const [v, setV] = useState<LeaseView>({ ...NO_LEASE_VIEW, ready: disabled, match: null, snapshot: null });
   const dev = useRef(deviceId);
   dev.current = deviceId;
-
-  const apply = useCallback((d: StatePayload) => {
-    const l = d.lease;
-    const mine = Boolean(l && l.isLive && l.deviceId === dev.current);
-    const other = Boolean(l && l.isLive && l.deviceId !== dev.current);
-    setV((s) => ({
-      ready: true,
-      gained: mine && !s.isController ? s.gained + 1 : s.gained,
-      isController: mine,
-      heldByOther: other,
-      holderLabel: other ? (l?.deviceLabel ?? "another phone") : null,
-      incomingRequest: mine && l?.transferRequest ? l.transferRequest : null,
-      myRequestPending: Boolean(other && l?.transferRequest?.deviceId === dev.current),
-      match: d.match,
-      snapshot: d.snapshot,
-    }));
-  }, []);
+  // One order for every look at the lease, so a poll that left before a claim or an answer never undoes it.
+  const order = useRef(createLeaseOrder()).current;
 
   const poll = useCallback(async () => {
     if (disabled) return;
+    const ticket = order.ask();
     try {
-      apply(await api<StatePayload>(`/api/matches/${matchId}/state`));
+      const d = await api<StatePayload>(`/api/matches/${matchId}/state`, { headers: { "X-Device-Id": dev.current } });
+      if (!order.fresh(ticket)) return;
+      setV((s) => ({ ...s, ...nextLeaseView(s, d.lease, dev.current), ready: true, match: d.match, snapshot: d.snapshot }));
     } catch {
       /* keep the last good look */
     }
-  }, [matchId, disabled, apply]);
+  }, [matchId, disabled, order]);
+
+  /** Runs a claim, release, request or answer: polls already on their way describe the lease from before it. */
+  const change = useCallback(
+    async <T,>(fn: () => Promise<T>): Promise<T> => {
+      order.changed();
+      try {
+        return await fn();
+      } finally {
+        order.changed();
+      }
+    },
+    [order],
+  );
 
   const claim = useCallback(
-    async (offlineFallback = false): Promise<boolean> => {
-      const { ok, json } = await post(matchId, "claim", { deviceId: dev.current, deviceLabel: label() });
-      if (!ok || !json) {
-        setV((s) => ({ ...s, ready: true, isController: offlineFallback, heldByOther: false, holderLabel: null }));
-        return offlineFallback;
-      }
-      if (json.controller) {
-        setV((s) => ({ ...s, ready: true, isController: true, heldByOther: false, holderLabel: null, incomingRequest: null, myRequestPending: false, gained: s.gained + 1 }));
-        return true;
-      }
-      const holder = json.holder as { deviceLabel?: string | null } | undefined;
-      setV((s) => ({ ...s, ready: true, isController: false, heldByOther: true, holderLabel: holder?.deviceLabel ?? "another phone" }));
-      return false;
-    },
-    [matchId],
+    (offlineFallback = false): Promise<boolean> =>
+      change(async () => {
+        const { ok, json } = await post(matchId, "claim", { deviceId: dev.current, deviceLabel: label() });
+        if (!ok || !json) {
+          setV((s) => ({ ...s, ready: true, isController: offlineFallback, heldByOther: false, holderLabel: null }));
+          return offlineFallback;
+        }
+        const holder = json.holder as { deviceLabel?: string | null } | undefined;
+        setV((s) => ({ ...s, ...claimedLeaseView(s, Boolean(json.controller), holder?.deviceLabel ?? null), ready: true }));
+        return Boolean(json.controller);
+      }),
+    [matchId, change],
   );
 
   const release = useCallback(async () => {
-    await post(matchId, "release-lease", { deviceId: dev.current });
+    await change(() => post(matchId, "release-lease", { deviceId: dev.current }));
     void poll();
-  }, [matchId, poll]);
+  }, [matchId, poll, change]);
 
   const requestControl = useCallback(async () => {
-    const { ok } = await post(matchId, "request-control", { deviceId: dev.current, deviceLabel: label() });
+    const { ok } = await change(() => post(matchId, "request-control", { deviceId: dev.current, deviceLabel: label() }));
     if (ok) setV((s) => ({ ...s, myRequestPending: true }));
-  }, [matchId]);
+    // Refused (this phone holds it already, or nobody does): the poll says which.
+    else void poll();
+  }, [matchId, poll, change]);
 
   const respond = useCallback(
     async (accept: boolean) => {
-      await post(matchId, "respond-control", { deviceId: dev.current, accept });
+      await change(() => post(matchId, "respond-control", { deviceId: dev.current, accept }));
       void poll();
     },
-    [matchId, poll],
+    [matchId, poll, change],
   );
+
+  /** Clears "Control moved to …" once read. */
+  const dismissLost = useCallback(() => setV((s) => ({ ...s, lostTo: null })), []);
 
   useEffect(() => {
     if (disabled) return;
@@ -125,6 +127,7 @@ export function useLease(matchId: string, deviceId: string, disabled: boolean) {
     if (disabled || !v.isController) return;
     const id = setInterval(async () => {
       const { ok, json } = await post(matchId, "renew-lease", { deviceId: dev.current });
+      // Not the holder any more (handed over, or the lease ran out and someone claimed it): the poll says who, and the heartbeat stops.
       if (ok && json && json.renewed === false) void poll();
     }, LEASE_RENEW_MS);
     return () => clearInterval(id);
@@ -139,5 +142,5 @@ export function useLease(matchId: string, deviceId: string, disabled: boolean) {
     return () => sub.remove();
   }, [claim]);
 
-  return { ...v, claim, release, requestControl, respond, poll };
+  return { ...v, claim, release, requestControl, respond, poll, dismissLost };
 }
