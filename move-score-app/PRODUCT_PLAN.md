@@ -3037,6 +3037,14 @@ Referees continue offline.
 
 Public spectators may see stale scores until connectivity restores.
 
+In the app: a page with saved data keeps showing it under an "Offline · showing scores from …" banner.
+A page with nothing saved shows one shared state in the middle of the page (`src/ui/LoadState.tsx`):
+"You're offline", "Connect to the internet and try again." and a Try again button, never a blank page or an
+endless spinner. React Query follows the phone's connection (`src/api/network.ts`, expo-network; browser
+online/offline events on web), so reads pause with no signal and every page reloads by itself once the phone
+is back online. A server error says "Something went wrong" with Try again; a 404 keeps the page's own
+"not available" message. Referee scoring and its queue are unaffected (they do not go through React Query).
+
 ### One referee phone dies
 
 Release control and move to replacement device.

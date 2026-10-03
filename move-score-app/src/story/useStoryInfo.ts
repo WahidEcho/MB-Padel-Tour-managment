@@ -5,6 +5,7 @@
 import type { MBundle, MEventGroup, MMatch, MTeam, MTie } from "@core";
 import { isDoneStatus, isLiveStatus } from "@core";
 import { isOffline, useBundle, useLive, useMatch } from "../api/queries";
+import { useOnline } from "../api/network";
 import { isAwaitingResult, makeView, whenIn, type View } from "../api/model";
 import { useFeaturedGroup } from "../api/featured";
 import { usePass } from "../pass/usePass";
@@ -19,6 +20,10 @@ export interface StoryState {
 }
 
 const loading = (retry: () => void): StoryState => ({ info: null, problem: null, retry });
+
+/** With no connection a read pauses rather than fails: still loading, but offline. */
+const waiting = (online: boolean, retry: () => void, ...qs: { data: unknown; fetchStatus: string }[]): StoryState =>
+  !online || qs.some((q) => q.data === undefined && q.fetchStatus === "paused") ? { info: null, problem: "offline", retry } : loading(retry);
 
 /** The phone's pass, when the featured event holds this tournament. */
 function usePassFor(group: MEventGroup | null, bundle: MBundle | undefined, slug: string | undefined): StoryPass | null {
@@ -53,10 +58,11 @@ export function useMatchStory(id: string): StoryState {
   const l = useLive(slug, 20_000);
   const group = useFeaturedGroup();
   const pass = usePassFor(group, b.data, slug);
+  const online = useOnline();
   const retry = () => void Promise.all([q.refetch(), b.refetch()]);
   if (!q.data || !b.data) {
     const failed = q.isError ? q : b.isError ? b : null;
-    if (!failed) return loading(retry);
+    if (!failed) return waiting(online, retry, q, b);
     return { info: null, problem: isOffline(failed.error) ? "offline" : "gone", retry };
   }
   const v = makeView(b.data, l.data);
@@ -109,13 +115,14 @@ export function useTieStory(tieId: string, slug: string | undefined): StoryState
   const l = useLive(slug, 20_000);
   const group = useFeaturedGroup();
   const pass = usePassFor(group, b.data, slug);
+  const online = useOnline();
   const retry = () => void Promise.all([b.refetch(), l.refetch()]);
   const tie: MTie | undefined = l.data?.ties.find((x) => x.id === tieId);
   if (!b.data || !l.data || !tie) {
     const failed = b.isError ? b : l.isError ? l : null;
     if (failed) return { info: null, problem: isOffline(failed.error) ? "offline" : "gone", retry };
     if (!slug || (b.data && l.data && !tie)) return { info: null, problem: "gone", retry };
-    return loading(retry);
+    return waiting(online, retry, b, l);
   }
   const v = makeView(b.data, l.data);
   const t = b.data.tournament;
@@ -155,11 +162,12 @@ export function usePassStory(): StoryState {
   const b = useBundle(first);
   const q = usePass(group?.id);
   const pass = usePassFor(group, b.data, undefined);
+  const online = useOnline();
   const retry = () => void q.refetch();
   if (!group) return { info: null, problem: null, retry };
   if (!pass) {
     if (q.isError) return { info: null, problem: isOffline(q.error) ? "offline" : "gone", retry };
-    return q.confirmedNone ? { info: null, problem: "gone", retry } : loading(retry);
+    return q.confirmedNone ? { info: null, problem: "gone", retry } : waiting(online, retry, q);
   }
   const p = pass.pass;
   const onsite = Boolean(p.onsiteUnlockedAt);

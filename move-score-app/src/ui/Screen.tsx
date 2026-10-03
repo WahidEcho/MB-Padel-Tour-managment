@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { RefreshControl, ScrollView, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { checkNetwork } from "../api/network";
 import { useTheme } from "../theme/ThemeProvider";
 import { StageLight } from "./StageLight";
 
@@ -27,7 +28,10 @@ export function Screen({ children, onRefresh, stage = true, tabs = true, style }
               onRefresh={async () => {
                 setRefreshing(true);
                 try {
-                  await onRefresh();
+                  // With no signal a refetch waits for the connection: let go of the spinner
+                  // (the offline banner or state says why) rather than spin until then.
+                  const online = await checkNetwork();
+                  await Promise.race([onRefresh(), new Promise((r) => setTimeout(r, online ? 15_000 : 800))]);
                 } finally {
                   setRefreshing(false);
                 }

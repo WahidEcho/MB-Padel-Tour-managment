@@ -4,9 +4,9 @@ import { useBundle } from "../../api/queries";
 import { SkinScope } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
-import { Body, Display, Eyebrow } from "../../ui/Text";
+import { Display, Eyebrow } from "../../ui/Text";
 import { Empty, Flag } from "../../ui/Bits";
-import { OfflineState, failedOffline } from "../../ui/Offline";
+import { LoadState } from "../../ui/LoadState";
 import { TeamSection } from "../../ui/TeamSection";
 
 /** A team of a club event (not a nation): its matches and players in that tournament. */
@@ -15,16 +15,11 @@ export default function TeamScreen() {
   const b = useBundle(slug);
   const team = b.data?.teams.find((x) => x.id === id);
   if (!b.data || !team) {
+    const notFound = <Empty title="Team not found" body="Open the team again from the tournament page." />;
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={slug ? () => b.refetch() : undefined}>
         <BackHeader label="Back" fallback={slug ? { pathname: "/t/[slug]", params: { slug } } : "/"} />
-        {slug && !b.data && failedOffline(b) ? (
-          <OfflineState what="this team" onRetry={() => b.refetch()} />
-        ) : !slug || b.isError || b.data ? (
-          <Empty title="Team not found" body="Open the team again from the tournament page." />
-        ) : (
-          <Body tone="ink2">Loading…</Body>
-        )}
+        {!slug || b.data ? notFound : <LoadState queries={[b]} what="this team" notFound={notFound} />}
       </Screen>
     );
   }

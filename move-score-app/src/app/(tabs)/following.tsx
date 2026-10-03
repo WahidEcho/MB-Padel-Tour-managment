@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { isDoneStatus, type MFollow, type MMatch } from "@core";
-import { useBundle, useLive } from "../../api/queries";
+import { refetchOnScreen, useBundle, useLive } from "../../api/queries";
 import { dayIn, isOnCourt, makeView, needsDay, timeIn, type View as Model } from "../../api/model";
-import { useFeaturedSlugs } from "../../api/featured";
+import { useFeaturedNeeds, useFeaturedSlugs } from "../../api/featured";
+import { LoadState } from "../../ui/LoadState";
 import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, LinkChip, SectionHeader } from "../../ui/Bits";
@@ -142,8 +143,9 @@ function FollowedChips({ slugs }: { slugs: string[] }) {
 export default function Following() {
   const slugs = useFeaturedSlugs();
   const count = follows.use((f) => f.length);
+  const { needs, waiting } = useFeaturedNeeds({ live: 10_000 });
   return (
-    <Screen>
+    <Screen onRefresh={refetchOnScreen}>
       <Display size={26} style={{ marginTop: 8, marginBottom: 14 }}>Following</Display>
       {count === 0 ? (
         <>
@@ -151,6 +153,8 @@ export default function Following() {
           <Button label="Find players" onPress={() => router.push("/players")} style={{ marginTop: 14 }} />
           {slugs[0] ? <Button kind="ghost" label="Pick a nation" onPress={() => openTournament(slugs[0]!.slug, "nations")} style={{ marginTop: 8 }} /> : null}
         </>
+      ) : waiting ? (
+        <LoadState queries={needs} what="the matches you follow" />
       ) : (
         <>
           {slugs.map((s) => <Section key={`n${s.slug}`} slug={s.slug} part="next" />)}

@@ -11,7 +11,7 @@ import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag } from "../../ui/Bits";
-import { OfflineState, failedOffline } from "../../ui/Offline";
+import { LoadState } from "../../ui/LoadState";
 import { TeamSection } from "../../ui/TeamSection";
 
 /**
@@ -46,18 +46,13 @@ export default function NationScreen() {
   const [busy, setBusy] = useState(false);
 
   if (!first) {
-    const loading = bundles.some((b) => b.isPending && b.fetchStatus !== "idle") || (!slugs.length && discover.isPending);
-    const failed = bundles.find((b) => !b.data && b.isError) ?? (!slugs.length && discover.isError ? discover : undefined);
+    // Not found only once every event it could be in has answered; until then, loading, offline or an error.
+    const missing = slugs.length ? bundles.filter((b) => b.data === undefined) : discover.data ? [] : [discover];
+    const notFound = <Empty title="Nation not found" body={`${code || "This nation"} is not playing in the events on now.`} />;
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={() => Promise.all([discover.refetch(), ...bundles.map((b) => b.refetch())])}>
         <BackHeader label="Back" />
-        {failed && failedOffline(failed) ? (
-          <OfflineState what="this nation" onRetry={() => Promise.all([discover.refetch(), ...bundles.map((b) => b.refetch())])} />
-        ) : loading ? (
-          <Body tone="ink2">Loading…</Body>
-        ) : (
-          <Empty title="Nation not found" body={`${code || "This nation"} is not playing in the events on now.`} />
-        )}
+        {missing.length ? <LoadState queries={missing} what="this nation" notFound={notFound} /> : notFound}
       </Screen>
     );
   }

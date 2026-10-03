@@ -10,7 +10,8 @@ import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Card, Empty, Flag, LinkChip, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
-import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
+import { StaleBanner } from "../../ui/Offline";
+import { LoadState } from "../../ui/LoadState";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { isNation, openTeam, openTournament } from "../../nav/links";
 import { useMyPlayer } from "../../player/me";
@@ -27,18 +28,14 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
   const p = v?.player(id);
   if (!v || !p || !b.data) {
     // Still loading, or nothing to show (an old link, or a player no longer in the tournament).
-    const offline = Boolean(slug) && !b.data && failedOffline(b);
-    const missing = !slug || b.isError || (b.data && l.data && !p);
+    const notFound = <Empty title="Player not found" body="Open the player again from the tournament's Players list." />;
+    // A saved bundle can predate the player: only a fresh one can say they are not in it.
+    const missing = !slug || Boolean(b.data && !p && b.dataUpdatedAt > 0);
     return (
-      <Screen tabs={false}>
+      <Screen tabs={false} onRefresh={slug ? () => Promise.all([b.refetch(), l.refetch()]) : undefined}>
         <BackHeader label="Players" fallback="/players" />
-        {offline ? (
-          <OfflineState what="this player" onRetry={() => Promise.all([b.refetch(), l.refetch()])} />
-        ) : missing ? (
-          <Empty title="Player not found" body="Open the player again from the tournament's Players list." />
-        ) : (
-          <Body tone="ink2">Loading…</Body>
-        )}
+        {/* No bundle, or a saved one without this player: either way nothing to show until the server answers. */}
+        {missing ? notFound : <LoadState queries={[{ ...b, data: undefined }]} what="this player" notFound={notFound} />}
       </Screen>
     );
   }

@@ -10,6 +10,7 @@ import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, SectionHeader } from "../../ui/Bits";
+import { LoadState } from "../../ui/LoadState";
 
 interface T {
   id: string;
@@ -106,8 +107,7 @@ export default function RefereeHome() {
                 <Body weight="bold" size={16}>{x.name}</Body>
               </Card>
             ))}
-            {list.isPending && <Body tone="ink2" size={13}>Loading tournaments…</Body>}
-            {list.isError && !list.data && <Empty title="Could not load tournaments" body="Check the signal and pull down to retry, or sign in again." />}
+            {!list.data && <LoadState compact queries={[list]} what="the tournaments" />}
             {list.data && !list.data.tournaments.length && <Empty title="No tournaments to score" body="The tournament desk has not opened one for referees yet." />}
           </View>
         </>

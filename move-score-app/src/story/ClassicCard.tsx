@@ -1,12 +1,14 @@
 /** The branded 9:16 card without a photo ("Share without photo"): the original share card. */
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { BALL } from "../theme/palette";
 import { F } from "../theme/type";
 import { Body, Eyebrow, Num } from "../ui/Text";
 import { Flag } from "../ui/Bits";
+import { LoadState } from "../ui/LoadState";
+import { SchemeScope } from "../theme/ThemeProvider";
 import type { StoryInfo } from "./model";
 
 export const CARD_W = 270;
@@ -27,19 +29,25 @@ const Wordmark = () => <Image source={require("../../assets/brand/movescore-word
 
 export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null; problem: "offline" | "gone" | null; onRetry: () => void }) {
   if (!info) {
-    if (!problem) return <Frame><Body style={{ color: "#9AA4B8" }}>Loading…</Body></Frame>;
-    const offline = problem === "offline";
+    // The card is dark whatever the theme, so the shared load state is drawn dark too.
     return (
       <Frame>
-        <View style={{ flex: 1, justifyContent: "center", gap: 10 }}>
-          <Body weight="bold" style={{ color: "#E8ECF4" }}>{offline ? "You're offline" : "This is not available"}</Body>
-          <Body size={13} style={{ color: "#9AA4B8" }}>{offline ? "The card needs the latest score. Check your connection and try again." : "It may have been removed from the order of play."}</Body>
-          {offline ? (
-            <Pressable accessibilityRole="button" onPress={onRetry} style={{ alignSelf: "flex-start", marginTop: 6, backgroundColor: BALL, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10 }}>
-              <Body weight="bold" style={{ color: "#01041A" }}>Retry</Body>
-            </Pressable>
-          ) : null}
-        </View>
+        <SchemeScope scheme="dark">
+          <View style={{ flex: 1, justifyContent: "center" }}>
+            <LoadState
+              compact
+              kind={problem === "offline" ? "offline" : problem === "gone" ? "notFound" : "loading"}
+              onRetry={onRetry}
+              what="the latest score"
+              notFound={
+                <View style={{ gap: 10 }}>
+                  <Body weight="bold" style={{ color: "#E8ECF4" }}>This is not available</Body>
+                  <Body size={13} style={{ color: "#9AA4B8" }}>It may have been removed from the order of play.</Body>
+                </View>
+              }
+            />
+          </View>
+        </SchemeScope>
       </Frame>
     );
   }

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { isOffline } from "../api/queries";
+import { useOnline } from "../api/network";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "./Text";
-import { Button, Card } from "./Bits";
+import { LoadState } from "./LoadState";
 
 /** Data on a live screen counts as old after this long without a fresh answer. */
 const OLD_AFTER_MS = 30_000;
@@ -24,26 +25,9 @@ const clock = (ms: number) => {
   }
 };
 
-/** No phone signal (or the server is unreachable) and nothing saved to show: say so, offer a retry. */
+/** No phone signal (or the server is unreachable) and nothing saved to show. Prefer <LoadState queries={…} />, which reads the queries itself. */
 export function OfflineState({ onRetry, what = "this page" }: { onRetry: () => unknown; what?: string }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <Card style={{ alignItems: "center", paddingVertical: 28, gap: 6 }}>
-      <Body weight="semi">{"You're offline"}</Body>
-      <Body tone="ink2" size={13} style={{ textAlign: "center" }}>
-        {`Move Score can't reach the server to load ${what}. Check your connection and try again.`}
-      </Body>
-      <Button
-        label={busy ? "Trying…" : "Retry"}
-        disabled={busy}
-        onPress={() => {
-          setBusy(true);
-          void Promise.resolve(onRetry()).finally(() => setBusy(false));
-        }}
-        style={{ marginTop: 10, alignSelf: "stretch" }}
-      />
-    </Card>
-  );
+  return <LoadState kind="offline" onRetry={onRetry} what={what} />;
 }
 
 /** Offline when the query failed for want of a network; otherwise a real error (404, 500…). */
@@ -53,11 +37,12 @@ export function failedOffline(...qs: QueryLike[]): boolean {
 
 /**
  * "Offline · showing scores from 14:05" while a screen shows saved or old data:
- * a poll failed but the last answer is still on screen, or (on live screens) no
- * fresh answer has arrived for 30 seconds.
+ * the phone has no connection, a poll failed but the last answer is still on
+ * screen, or (on live screens) no fresh answer has arrived for 30 seconds.
  */
 export function StaleBanner({ queries, live = false }: { queries: QueryLike[]; live?: boolean }) {
   const { t } = useTheme();
+  const online = useOnline();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!live) return;
@@ -65,7 +50,8 @@ export function StaleBanner({ queries, live = false }: { queries: QueryLike[]; l
     return () => clearInterval(id);
   }, [live]);
   const shown = queries.filter((q) => q.data !== undefined);
-  const failed = shown.filter((q) => q.isError);
+  // With no connection, reads pause rather than fail: everything on screen is as old as its last answer.
+  const failed = online ? shown.filter((q) => q.isError) : shown;
   const old = live ? shown.filter((q) => q.dataUpdatedAt > 0 && now - q.dataUpdatedAt > OLD_AFTER_MS) : [];
   if (!failed.length && !old.length) return null;
   // The oldest answer on screen is the honest one to name. 0 = saved on the phone before this visit.
