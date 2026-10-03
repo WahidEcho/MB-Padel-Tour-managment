@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { Linking, Platform, Switch, View } from "react-native";
 import { router } from "expo-router";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { DEFAULT_ALERT_PREFS, type MAlertPrefs } from "@core";
-import { api } from "../api/client";
+import { Image } from "expo-image";
+import { alertsNotice, type MAlertPrefs } from "@core";
 import { useConfig } from "../api/queries";
 import { themePref, useTheme, type ModePref } from "../theme/ThemeProvider";
 import { session } from "../state/session";
-import { alertsAllowed, registerDevice } from "../push/register";
+import { alerts, refreshAlerts, turnAlertsOff, turnAlertsOn } from "../push/register";
+import { alertPrefs, changeAlertPref, refreshPrefs } from "../push/prefs";
 import { appleAvailable, deleteAccount, signInWithApple, signInWithGoogle, signOut } from "../auth/signIn";
+import { GoogleButton } from "../auth/GoogleButton";
 import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
 import { Segments } from "../ui/Segments";
@@ -18,11 +20,6 @@ import { appVersion, config } from "../config";
 
 // Where the legal pages live when the server's config has not loaded yet.
 const SITE = "https://mb-tournament.vercel.app/movescore";
-
-// Google sign-in needs its client id on this platform; without one the button
-// could only fail, so it is not shown (Sign in with Apple stays on iPhone).
-const googleReady =
-  Platform.OS === "ios" ? !!config.googleIosClientId : Platform.OS === "android" ? !!config.googleWebClientId : false;
 
 const PREF_LABELS: [keyof MAlertPrefs, string, string][] = [
   ["scheduled", "Set or moved", "A court or time is set, changed or delayed"],
@@ -39,24 +36,22 @@ export default function Account() {
   const pref = themePref.use((s) => s);
   const user = session.use((s) => s.user);
   const staff = session.use((s) => s.staff);
-  const [alerts, setAlerts] = useState(false);
-  const [prefs, setPrefs] = useState<MAlertPrefs>(DEFAULT_ALERT_PREFS);
+  const alertState = alerts.use((s) => s);
+  const prefs = alertPrefs.use((s) => s.prefs);
+  const notice = alertsNotice(alertState);
   const [apple, setApple] = useState(false);
   const [ageOk, setAgeOk] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  // Google signs in through Supabase in the in-app browser sheet; the server says
+  // when the provider is switched on there (Sign in with Apple stays on iPhone).
+  const googleReady = cfg.data?.signIn?.google === true;
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => {
-    void alertsAllowed().then(setAlerts);
+    void refreshAlerts();
+    void refreshPrefs();
     void appleAvailable().then(setApple);
-    void api<{ prefs: MAlertPrefs }>("/api/mobile/v1/me/prefs", { who: "me" })
-      .then((r) => setPrefs(r.prefs))
-      .catch(() => {});
   }, []);
-  const setPref = (k: keyof MAlertPrefs, on: boolean) => {
-    const next = { ...prefs, [k]: on };
-    setPrefs(next);
-    void api("/api/mobile/v1/me/prefs", { method: "PATCH", who: "me", body: next }).catch(() => {});
-  };
   const run = async (fn: () => Promise<void>) => {
     setMsg(null);
     try {
@@ -79,24 +74,28 @@ export default function Account() {
             <Body tone="ink2" size={12.5}>For the players, nations and matches you follow.</Body>
           </View>
           <Switch
-            value={alerts}
-            onValueChange={(on) => {
-              if (on) void registerDevice(true).then((r) => setAlerts(r.alerts));
-              else void Linking.openSettings();
-            }}
+            value={alertState.want}
+            onValueChange={(on) => void (on ? turnAlertsOn() : turnAlertsOff())}
             trackColor={{ true: t.ball, false: t.chip }}
             thumbColor={Platform.OS === "android" ? t.ink : undefined}
             accessibilityLabel="Alerts on this phone"
           />
         </View>
-        {alerts &&
+        {notice && (
+          <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
+            <Body tone={alertState.reason ? "live" : "ink2"} size={13}>{notice.text}</Body>
+            {notice.action === "settings" && <Button kind="ghost" label="Open Settings" onPress={() => void Linking.openSettings()} />}
+            {notice.action === "retry" && <Button kind="ghost" label="Try again" onPress={() => void turnAlertsOn()} />}
+          </View>
+        )}
+        {alertState.want &&
           PREF_LABELS.map(([k, label, hint]) => (
             <View key={k} style={{ flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderColor: t.line, paddingTop: 12 }}>
               <View style={{ flex: 1 }}>
                 <Body size={14}>{label}</Body>
                 <Body tone="ink3" size={12}>{hint}</Body>
               </View>
-              <Switch value={prefs[k]} onValueChange={(on) => setPref(k, on)} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel={label} />
+              <Switch value={prefs[k]} onValueChange={(on) => changeAlertPref(k, on)} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel={label} />
             </View>
           ))}
       </Card>
@@ -124,7 +123,23 @@ export default function Account() {
           <SectionHeader title="Sign in" />
           {user ? (
             <Card style={{ gap: 10 }}>
-              <Body weight="semi">{user.name ? `Signed in as ${user.name}` : "Signed in"}</Body>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                {user.avatarUrl ? (
+                  <Image source={{ uri: user.avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.chip }} contentFit="cover" accessibilityLabel="Your profile picture" />
+                ) : (
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.chip, alignItems: "center", justifyContent: "center" }}>
+                    <Body weight="bold" size={17}>{(user.name || user.email || "?").trim().charAt(0).toUpperCase()}</Body>
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Body weight="semi" numberOfLines={1}>{user.name ? `Signed in as ${user.name}` : "Signed in"}</Body>
+                  {user.email || user.provider ? (
+                    <Body tone="ink2" size={12.5} numberOfLines={1}>
+                      {[user.email, user.provider === "google" ? "Google" : user.provider === "apple" ? "Apple" : null].filter(Boolean).join(" · ")}
+                    </Body>
+                  ) : null}
+                </View>
+              </View>
               <Body tone="ink2" size={12.5}>Your follows and pass are saved to your account and come with you to a new phone.</Body>
               <Button kind="ghost" label="Sign out" onPress={() => void run(signOut)} />
               {confirmDelete ? (
@@ -155,7 +170,15 @@ export default function Account() {
                   onPress={() => void run(signInWithApple)}
                 />
               )}
-              {ageOk && googleReady && <Button kind="ghost" label="Sign in with Google" onPress={() => void run(signInWithGoogle)} />}
+              {ageOk && googleReady && (
+                <GoogleButton
+                  busy={googleBusy}
+                  onPress={() => {
+                    setGoogleBusy(true);
+                    void run(signInWithGoogle).finally(() => setGoogleBusy(false));
+                  }}
+                />
+              )}
               {!ageOk && <Eyebrow tone="ink3">Under 16? Use Move Score without an account.</Eyebrow>}
             </Card>
           )}

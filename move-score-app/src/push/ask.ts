@@ -6,6 +6,7 @@
  */
 import { Alert, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
+import { alertsPermission, type AlertsPermission } from "@core";
 import { getJson, setJson } from "../state/kv";
 import { registerDevice } from "./register";
 
@@ -14,15 +15,15 @@ const ASKED = "ms.alertsAsked";
 export async function askForAlertsAfterFollow(): Promise<void> {
   if (Platform.OS === "web") return;
   if (getJson<boolean>(ASKED, false)) return;
-  let status: Notifications.PermissionStatus;
+  let permission: AlertsPermission;
   try {
-    status = (await Notifications.getPermissionsAsync()).status;
+    permission = alertsPermission(await Notifications.getPermissionsAsync());
   } catch {
     return;
   }
-  // Already allowed or refused (the system will not prompt again): nothing to ask.
+  // Already allowed (iOS provisional counts) or refused (the system will not prompt again): nothing to ask.
   setJson(ASKED, true);
-  if (status !== Notifications.PermissionStatus.UNDETERMINED) return;
+  if (permission !== "undetermined") return;
   Alert.alert(
     "Get alerts for what you follow?",
     "Move Score can tell you when matches you follow are scheduled, about to start and finished. You can change this any time in Account.",
