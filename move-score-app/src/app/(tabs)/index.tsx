@@ -13,6 +13,7 @@ import { StaleBanner } from "../../ui/Offline";
 import { LoadState } from "../../ui/LoadState";
 import { ProfileButton } from "../../ui/Header";
 import { openTournament } from "../../nav/links";
+import { RegistrationBanner } from "../../auth/RegistrationBanner";
 import { Pressable } from "react-native";
 
 /**
@@ -120,6 +121,7 @@ export default function Discover() {
         <ProfileButton />
       </View>
       <StaleBanner queries={[d]} />
+      <RegistrationBanner style={{ marginBottom: 14 }} />
       <Display size={34} style={{ marginBottom: 6 }}>
         {"Every court.\nEvery point."}
       </Display>

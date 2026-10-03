@@ -14,7 +14,7 @@ export const SUPPORT_EMAIL = "mohamed.wahid.gm@gmail.com";
 export const OPERATOR = "Move Beyond";
 export const OPERATOR_SITE = "https://mbeg.org";
 // Change when the wording of the privacy policy or terms changes.
-export const LAST_UPDATED = "2 October 2026";
+export const LAST_UPDATED = "3 October 2026";
 
 export const PAGES = [
   ["/movescore", "Move Score"],

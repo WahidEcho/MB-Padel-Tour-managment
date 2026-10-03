@@ -18,7 +18,7 @@ import type { Match, MatchSnapshot } from "@/lib/types";
 import { ACCESS_CODE_LENGTH, isValidAccessCode, newAccessCode, normalizeAccessCode } from "./accessCode";
 import { linkedRows, normalizePersonName, type PersonKey } from "./identity";
 
-interface PlayerRow extends PersonKey {
+export interface PlayerRow extends PersonKey {
   tournament_id: string;
   team_id: string;
   access_code: string | null;
@@ -43,14 +43,15 @@ async function failuresSoFar(key: string): Promise<number> {
 }
 
 export interface ClaimCaller {
-  userId: string;
+  /** Null for a player-code sign-in, which has no account yet. */
+  userId: string | null;
   installationId: string | null;
   ip: string;
 }
 
 const failKeys = (c: ClaimCaller) =>
   [
-    [`pcode:u:${c.userId}`, FAIL_LIMITS.user],
+    c.userId ? [`pcode:u:${c.userId}`, FAIL_LIMITS.user] : null,
     c.installationId ? [`pcode:i:${c.installationId}`, FAIL_LIMITS.install] : null,
     [`pcode:ip:${c.ip}`, FAIL_LIMITS.ip],
   ].filter(Boolean) as [string, number][];
@@ -80,7 +81,13 @@ function sameCode(stored: string | null, typed: string): boolean {
   return equal && stored !== null && stored === typed;
 }
 
-export async function claimPlayerCode(caller: ClaimCaller, rawCode: string): Promise<ClaimResult> {
+export type FoundPlayer = { ok: true; row: PlayerRow } | { ok: false; status: number; error: string };
+
+/**
+ * The player whose code this is, or the generic refusal (a failure counts towards
+ * the caller's brake). Looked up by the code, then compared in constant time.
+ */
+export async function findPlayerByCode(caller: ClaimCaller, rawCode: string): Promise<FoundPlayer> {
   const code = normalizeAccessCode(rawCode);
   let row: PlayerRow | null = null;
   if (isValidAccessCode(code)) {
@@ -91,7 +98,33 @@ export async function claimPlayerCode(caller: ClaimCaller, rawCode: string): Pro
     await recordFailure(caller);
     return { ok: false, status: 400, error: GENERIC_CODE_ERROR };
   }
+  return { ok: true, row };
+}
 
+/** The account a player is linked to, or null. */
+export async function playerHolder(playerId: string): Promise<string | null> {
+  const { data } = await db().from("player_claims").select("user_id").eq("player_id", playerId).maybeSingle();
+  return (data as { user_id: string } | null)?.user_id ?? null;
+}
+
+/**
+ * Lets an account go of every player it holds, keeping the players' photos (the
+ * player carries on with another account). Used when a player signs in with their
+ * code on a new phone before they registered: the link moves to the new account.
+ */
+export async function releaseClaims(userId: string): Promise<void> {
+  await db().from("player_claims").delete().eq("user_id", userId);
+}
+
+export async function claimPlayerCode(caller: ClaimCaller & { userId: string }, rawCode: string): Promise<ClaimResult> {
+  const found = await findPlayerByCode(caller, rawCode);
+  if (!found.ok) return found;
+  return linkPlayer(caller.userId, found.row);
+}
+
+/** Links an account to the player (and the same person in other tournaments): what a claim does once the code is right. */
+export async function linkPlayer(userId: string, row: PlayerRow): Promise<ClaimResult> {
+  const caller = { userId };
   // One account per player.
   const { data: holder } = await db().from("player_claims").select("user_id").eq("player_id", row.id).maybeSingle();
   const heldBy = (holder as { user_id: string } | null)?.user_id ?? null;

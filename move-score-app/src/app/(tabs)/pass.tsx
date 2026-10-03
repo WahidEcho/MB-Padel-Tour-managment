@@ -15,6 +15,7 @@ import { Button, Card, Chip, Empty, Flag, SectionHeader } from "../../ui/Bits";
 import { PassCard, usePassSize, type PassEvent } from "../../ui/PassCard";
 import { Pack } from "../../ui/Pack";
 import { Pins } from "../../ui/Pins";
+import { RegistrationBanner } from "../../auth/RegistrationBanner";
 import { AppleWalletButton } from "../../ui/AppleWalletButton";
 import { useFollowsOf } from "../../state/follows";
 import { rememberPass, usePass } from "../../pass/usePass";
@@ -155,6 +156,7 @@ export default function PassTab() {
         <Display size={24}>My pass</Display>
         <Chip label={pass ? (pass.onsiteUnlockedAt ? "On-site" : "Opened") : q.confirmedNone ? "Sealed" : "…"} ball={Boolean(pass?.onsiteUnlockedAt)} />
       </View>
+      <RegistrationBanner style={{ marginBottom: 14 }} />
       <View style={{ alignItems: "center", paddingTop: 6 }}>
         {pass && !opening ? (
           <Animated.View entering={ZoomIn.springify().damping(12)}>

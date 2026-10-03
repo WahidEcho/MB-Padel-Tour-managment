@@ -257,7 +257,8 @@ export interface MConfig {
    * Sign-in providers switched on in Supabase Auth. Google signs in through the
    * in-app browser sheet, so its button shows as soon as this is true.
    */
-  signIn: { google: boolean; apple: boolean };
+  /** email and playerCode are absent from servers older than email sign-in. */
+  signIn: { google: boolean; apple: boolean; email?: boolean; playerCode?: boolean };
 }
 
 /* ---------- personal (never cached) ---------- */

@@ -1,11 +1,19 @@
 /**
  * Who this phone is to the server: its installation (always), a signed-in user
- * (optional, Apple or Google), and a staff role (when a referee code was entered).
+ * (optional: Apple, Google, email, or a player code), and a staff role (when a
+ * referee code was entered).
+ *
+ * The user's session (access + refresh token) lives in the keychain (SecureStore)
+ * and stays until the person signs out or deletes the account: see
+ * src/auth/keepAlive.ts and api/client.ts for when it is refreshed and the one
+ * case (the server says the refresh token is revoked) in which it is dropped.
  */
 import { Platform } from "react-native";
 import * as Crypto from "expo-crypto";
 import { createStore } from "./store";
 import { getSecret, setSecret } from "./kv";
+
+export type UserProvider = "apple" | "google" | "email" | "player_code";
 
 export interface Session {
   ready: boolean;
@@ -17,7 +25,11 @@ export interface Session {
     /** Shown on the account screen; absent on sessions saved before they were kept. */
     email?: string | null;
     avatarUrl?: string | null;
-    provider?: "apple" | "google" | null;
+    provider?: UserProvider | null;
+    /** False only for a player-code account that has not confirmed an email yet. */
+    registrationComplete?: boolean;
+    /** The email a player added that is waiting for confirmation. */
+    pendingEmail?: string | null;
     accessToken: string;
     refreshToken: string;
     expiresAt: number | null;
@@ -35,15 +47,50 @@ export async function loadSession() {
     installationId = freshInstallationId();
     await setSecret("ms.install.id", installationId);
   }
-  const [installToken, user, staff] = await Promise.all([getSecret("ms.install.token"), getSecret("ms.user"), getSecret("ms.staff")]);
+  const [installToken, user, staff] = await Promise.all([readSecret("ms.install.token"), readUserSecret(), readSecret("ms.staff")]);
   const staffParsed = staff ? (JSON.parse(staff) as Session["staff"]) : null;
+  let savedUser: Session["user"] = null;
+  try {
+    savedUser = user ? (JSON.parse(user) as Session["user"]) : null;
+  } catch {
+    savedUser = null; // unreadable: guest, rather than a crash at launch
+  }
   session.set({
     ready: true,
     installationId,
     installToken,
-    user: user ? JSON.parse(user) : null,
+    user: savedUser,
     staff: staffParsed && Date.parse(staffParsed.expiresAt) > Date.now() ? staffParsed : null,
   });
+}
+
+const readSecret = (key: string) => getSecret(key).catch(() => null);
+
+// The keychain can refuse a read (a launch in the background before the phone was
+// first unlocked). That is not a sign-out: the saved session is read again later.
+let userUnread = false;
+async function readUserSecret(): Promise<string | null> {
+  try {
+    const v = await getSecret("ms.user");
+    userUnread = false;
+    return v;
+  } catch {
+    userUnread = true;
+    return null;
+  }
+}
+
+/** Reads the saved session again if the keychain refused it at launch. */
+export async function reloadUserIfUnread() {
+  if (!userUnread || session.get().user) return;
+  const raw = await readUserSecret();
+  if (!raw) return;
+  try {
+    const user = JSON.parse(raw) as Session["user"];
+    session.set((s) => (s.user ? s : { ...s, user }));
+  } catch {
+    /* unreadable */
+  }
 }
 
 export async function saveInstallToken(token: string) {
@@ -65,6 +112,13 @@ export async function resetInstallation() {
 export async function saveUser(user: Session["user"]) {
   await setSecret("ms.user", user ? JSON.stringify(user) : null);
   session.set((s) => ({ ...s, user }));
+}
+
+/** Changes some fields of the signed-in user (no-op when signed out or another user took over). */
+export async function patchUser(userId: string, patch: Partial<NonNullable<Session["user"]>>) {
+  const u = session.get().user;
+  if (!u || u.id !== userId) return;
+  await saveUser({ ...u, ...patch });
 }
 
 export async function saveStaff(staff: Session["staff"]) {

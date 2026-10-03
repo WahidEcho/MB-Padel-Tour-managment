@@ -67,3 +67,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   signature). Supabase Auth templates are generated into `supabase/email-templates/` by
   `npx tsx scripts/email/build-auth-templates.ts` (test fails when stale); dashboard + SMTP steps in `docs/email.md`.
   Resend sends as `Move Score <no-reply@mbeg.org>`, reply-to `info@mbeg.org` (env overrides).
+- Move Score email + player-code sign-in: routes `api/mobile/v1/auth/{email/*,player-code,complete}`, `GET /me`
+  (registrationComplete), web pages `/movescore/auth/{confirm,reset}`, server logic `src/lib/auth/{accounts,links,limits}.ts`,
+  shared rules `src/lib/auth/{password,sessionRules}.ts` (exported to the app via `@core`). Migration `0021_email_accounts`.
+  The stand-in emulates sign-up, confirmation, password sign-in, recovery, OTP, anonymous users and its mailbox
+  (`GET /auth/v1/_localdb/mail?to=`). Gates: `npm run e2e:mobile-signin` and the mobile-api E2E (player codes).

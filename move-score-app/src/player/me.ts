@@ -16,7 +16,7 @@ import { getJson, setJson, removeKey } from "../state/kv";
 const KEY = "ms.myPlayer";
 const qk = (userId: string | undefined) => ["me-player", userId ?? "guest"] as const;
 
-function remember(userId: string, player: MMyPlayer | null) {
+export function remember(userId: string, player: MMyPlayer | null) {
   queryClient.setQueryData(qk(userId), player);
   if (player) setJson(KEY, { userId, player });
   else removeKey(KEY);

@@ -52,7 +52,7 @@ export default function DeleteAccount() {
 
       <Section title="If you cannot use the app">
         <p>
-          Email <Mail subject="Delete my Move Score account" /> from the address linked to your Apple or Google sign-in (for a
+          Email <Mail subject="Delete my Move Score account" /> from the address you sign in with (Apple, Google or email; for a
           hidden Apple address, write from any address and tell us the date you signed up). {OPERATOR} confirms the request and
           deletes the account and its data within 30 days, and replies when it is done.
         </p>

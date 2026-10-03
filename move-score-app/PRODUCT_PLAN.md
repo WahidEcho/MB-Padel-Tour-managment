@@ -169,6 +169,24 @@ Not chosen: predict-the-tie. Parked: home-screen widget, "I'm at…" photo stick
   Supabase Auth using a per-request client (never the shared `db()` client) and returns the session; the
   Google button shows when `config.signIn.google` is true. Setup: `docs/google-sign-in.md`; `auth/refresh`; `DELETE /me` with Apple token revocation; a web deletion page for Play.
   No age question (removed with player codes). No Supabase key in the binary.
+- Email (3 Oct): `auth/email/{signup,signin,resend,forgot,verify}`. Sign-up sends Supabase's confirmation
+  email (branded template → `/movescore/auth/confirm?token_hash=…&type=email`, verified server-side) or the
+  6-digit code is typed in the app (`verify`); an unconfirmed sign-in answers 403 `email_not_confirmed`
+  with Resend. Forgot → `/movescore/auth/reset` (token spent on submit). Resend/forgot/sign-up answers never
+  say whether an address has an account; all rate-limited per network and per (hashed) email. Password
+  rules: `src/lib/auth/password.ts` (8+, lower, upper, digit, ≤72 bytes, not the email), same as the
+  Supabase dashboard, shown live in the app.
+- Player code sign-in (3 Oct): `auth/player-code {code}` makes a Supabase anonymous user, links the player like
+  a claim and returns a session (`registrationComplete: false`). The app then shows "Complete your
+  registration" (Account, Discover, Pass) → `auth/complete {email, password}` adds the email to the same user;
+  the password is sealed (AUTH_SECRET) until the email is confirmed, then set (confirm page, code, or the next
+  `GET /me`). A code whose player is held by a registered (or confirming) account is refused; one held by
+  another phone's unregistered account moves to the new account (no admin API can sign in as that user).
+- Staying signed in (3 Oct): session in SecureStore; `src/auth/keepAlive.ts` refreshes at launch, on
+  foreground and 5 min before expiry; the app drops the session only on Sign out, Delete, or `auth/refresh`
+  answering 401 `session_revoked` (never on offline / 5xx / 429, which answer `session_retry`).
+- Deletion without the secret key: app data deleted, every session revoked with the user's own token
+  (`/logout?scope=global`), the account queued in `app_user_deletions` for staff to purge from Supabase Auth.
 - Guests: `POST /api/mobile/v1/devices` registers an install id and push token and returns a signed install token.
 
 ### 5.3 Public read API (`/api/mobile/v1/…`)

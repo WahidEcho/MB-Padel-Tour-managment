@@ -53,13 +53,18 @@ export async function exchangeOAuthCode(code: string, codeVerifier: string) {
 export interface AuthProviders {
   google: boolean;
   apple: boolean;
+  /** Email + password sign-up and sign-in (Supabase's Email provider). */
+  email: boolean;
+  /** Player-code sign-in, which needs Supabase's anonymous sign-ins. */
+  playerCode: boolean;
 }
 
 let providersCache: { at: number; value: Promise<AuthProviders> } | null = null;
 
 /**
  * Which sign-in providers are switched on in Supabase Auth (its public settings),
- * so the app shows the Google button as soon as the provider is enabled there.
+ * so the app shows the Google button, the email forms and "I have a player code"
+ * as soon as each is enabled there (player codes need anonymous sign-ins).
  * Unknown (unreachable, stand-in without auth) reads as off.
  */
 export function authProviders(): Promise<AuthProviders> {
@@ -67,15 +72,20 @@ export function authProviders(): Promise<AuthProviders> {
   const value = (async (): Promise<AuthProviders> => {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_KEY;
-    if (!url || !key) return { google: false, apple: false };
+    if (!url || !key) return { google: false, apple: false, email: false, playerCode: false };
     try {
       const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key }, signal: AbortSignal.timeout(3000), cache: "no-store" });
       if (!res.ok) throw new Error(`settings ${res.status}`);
       const j = (await res.json()) as { external?: Record<string, unknown> };
-      return { google: j.external?.google === true, apple: j.external?.apple === true };
+      return {
+        google: j.external?.google === true,
+        apple: j.external?.apple === true,
+        email: j.external?.email === true,
+        playerCode: j.external?.anonymous_users === true,
+      };
     } catch {
       providersCache = null; // try again on the next request
-      return { google: false, apple: false };
+      return { google: false, apple: false, email: false, playerCode: false };
     }
   })();
   providersCache = { at: Date.now(), value };

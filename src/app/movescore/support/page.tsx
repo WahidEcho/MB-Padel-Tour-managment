@@ -10,8 +10,9 @@ const FAQ: [string, React.ReactNode][] = [
   [
     "Do I need an account?",
     <>
-      No. Everything works as a guest. Signing in with Apple or Google only keeps your follows and pass when you
-      change phones. Open <strong>Account</strong> (top right of the Discover tab) to sign in.
+      No. Everything works as a guest. Signing in (Apple, Google, or your email and a password) only keeps your follows and
+      pass when you change phones, and you stay signed in until you sign out. Players can sign in with the player code the
+      tournament sent them. Open <strong>Account</strong> (top right of the Discover tab) to sign in.
     </>,
   ],
   [
