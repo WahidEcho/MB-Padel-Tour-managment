@@ -36,6 +36,10 @@ const PRIVACY_MANIFEST = {
   ],
 };
 
+// One camera string for both uses (story photo, venue code), set the same way by every plugin.
+const CAMERA_USAGE = "Take a photo for your Move Score story. The camera also scans the venue code that stamps your event pass.";
+const PHOTOS_USAGE = "Choose a photo for your Move Score story.";
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   ...(OWNER ? { owner: OWNER } : {}),
@@ -58,7 +62,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // CMMotionManager device motion, which needs no permission; nothing uses
     // motion activity or the pedometer.
     infoPlist: {
-      NSCameraUsageDescription: "Move Score uses the camera to scan the venue code that stamps your event pass.",
+      NSCameraUsageDescription: CAMERA_USAGE,
+      NSPhotoLibraryUsageDescription: PHOTOS_USAGE,
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
@@ -91,13 +96,24 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-localization",
     "expo-web-browser",
     "expo-apple-authentication",
-    // Camera only reads the venue QR code: no microphone permission on either platform.
+    // The camera takes story photos and reads the venue QR code; it never records
+    // video, so there is no microphone permission on either platform.
     [
       "expo-camera",
       {
-        cameraPermission: "Move Score uses the camera to scan the venue code that stamps your event pass.",
+        cameraPermission: CAMERA_USAGE,
         microphonePermission: false,
         recordAudioAndroid: false,
+      },
+    ],
+    // Story photos from the library. The system picker needs no library permission on
+    // iOS 14+ / Android 13+; the string covers older systems. No microphone (no video).
+    [
+      "expo-image-picker",
+      {
+        photosPermission: PHOTOS_USAGE,
+        cameraPermission: CAMERA_USAGE,
+        microphonePermission: false,
       },
     ],
     ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00" }],

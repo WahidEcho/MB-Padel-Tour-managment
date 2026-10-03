@@ -110,14 +110,17 @@ function TiltSensor({ gx, gy, base, gyro }: { gx: SharedValue<number>; gy: Share
  * sways on its own as if held in a hand. Reduce Motion keeps it still, with the
  * sensor and the frame loop off; so does leaving the screen.
  */
-export function PassCard({ pass, event, nationIso2, today }: { pass: MPass; event: PassEvent; nationIso2?: string | null; today?: string }) {
+export function PassCard({ pass, event, nationIso2, today, pose }: { pass: MPass; event: PassEvent; nationIso2?: string | null; today?: string; pose?: { x: number; y: number } }) {
   const { calm } = useTheme();
   const onsite = Boolean(pass.onsiteUnlockedAt);
   const staff = pass.edition === "staff";
   const [focused, setFocused] = useState(true);
-  const moving = focused && !calm;
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
+  // `pose` holds the card flat with the foil and light frozen at that tilt (the story
+  // sticker, which is captured as an image): no sensor and no frame loop.
+  const still = Boolean(pose);
+  const moving = focused && !calm && !still;
+  const x = useSharedValue(pose?.x ?? 0);
+  const y = useSharedValue(pose?.y ?? 0);
   const gx = useSharedValue(0);
   const gy = useSharedValue(0);
   const base = useSharedValue<number | null>(null);
@@ -144,13 +147,13 @@ export function PassCard({ pass, event, nationIso2, today }: { pass: MPass; even
   );
   useEffect(() => {
     frame.setActive(moving);
-    if (calm) {
+    if (calm && !still) {
       x.value = 0;
       y.value = 0;
     }
-  }, [moving, calm, frame, x, y]);
+  }, [moving, calm, still, frame, x, y]);
 
-  const card = useAnimatedStyle(() => ({ transform: [{ perspective: 1100 }, { rotateY: `${x.value * 13}deg` }, { rotateX: `${-y.value * 13}deg` }] }));
+  const card = useAnimatedStyle(() => (still ? {} : { transform: [{ perspective: 1100 }, { rotateY: `${x.value * 13}deg` }, { rotateX: `${-y.value * 13}deg` }] }));
   const foil = useAnimatedStyle(() => ({ transform: [{ translateX: x.value * PASS_W * 0.7 }, { translateY: y.value * PASS_H * 0.35 }, { rotate: "25deg" }] }));
   const glare = useAnimatedStyle(() => ({ transform: [{ translateX: PASS_W * (0.5 + x.value * 0.45) - GLARE / 2 }, { translateY: PASS_H * (0.35 + y.value * 0.45) - GLARE / 2 }] }));
 

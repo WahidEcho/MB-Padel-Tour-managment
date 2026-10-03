@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring } from "react-native-reanimated";
@@ -11,7 +11,7 @@ import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
-import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
+import { Button, Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { TieCard } from "../../ui/Cards";
 import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
 import { toggleFollow, useFollowing } from "../../state/follows";
@@ -166,6 +166,7 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
       <Eyebrow>{[tie.roundName ?? (tie.stage === "group" ? "Group stage" : "Placement"), v.court(tie.courtId), tie.scheduledTime ? `${dayIn(tie.scheduledTime, tz)} ${timeIn(tie.scheduledTime, tz)}` : null].filter(Boolean).join(" · ")}</Eyebrow>
       <Display size={24} style={{ marginTop: 6, marginBottom: 14 }}>{`${a?.name ?? "TBD"} v ${bb?.name ?? "TBD"}`}</Display>
       <TieCard tie={tie} v={v} />
+      <Button kind="ghost" label={tie.status === "completed" ? "Share the result" : "Share · I'm here"} onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: id, kind: "tie", slug } })} style={{ marginTop: 12 }} />
       {cfg.data?.flags.supporter_mode && a && bb && tie.status !== "completed" && (
         <>
           <SectionHeader title="Support" />
