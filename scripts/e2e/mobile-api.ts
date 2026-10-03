@@ -497,9 +497,123 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
   const { data: photoLeft } = await db().from("players").select("photo_url").eq("id", ctx.pA.id).single();
   check(!photoLeft?.photo_url, "…and removes the photo the player uploaded");
 
+  await playerCodeSignIn({ ...ctx, code: fresh, omarCode: omar.access_code as string, adam2Id: adam2.id as string });
+
   // Sign-in no longer asks for an age.
   const signin = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", idToken: "x.y.z" } });
   check(signin.status !== 400 || !/16/.test(signin.json?.error ?? ""), "Sign-in no longer refuses for want of an age confirmation", signin.json?.error);
+}
+
+/**
+ * Signing in with a player code (no sign-up): the code makes a player-code account
+ * linked to the player; it moves to a new phone until the player registers; the
+ * player completes registration with an email + password (confirmation email,
+ * confirm page) and keeps the same account; afterwards the code no longer signs
+ * in; a code linked to a registered account is refused; a wrong code is generic.
+ */
+async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: string }; code: string; omarCode: string; adam2Id: string }) {
+  const made: string[] = [];
+  const auth = `${process.env.SUPABASE_URL}/auth/v1`;
+  const mailTo = async (to: string) => {
+    const r = await fetch(`${auth}/_localdb/mail?to=${encodeURIComponent(to)}`);
+    return r.ok ? ((await r.json()) as { kind: string; link: string; otp: string }[]).at(-1) ?? null : null;
+  };
+  try {
+    const started = Date.now();
+    const wrong = await call("POST", "/api/mobile/v1/auth/player-code", { headers: ctx.inst, body: { code: "ZZZZ-2222" } });
+    check(wrong.status === 400 && /didn't work/.test(wrong.json?.error ?? "") && Date.now() - started >= 340, "Code sign-in: a wrong code gets the generic answer, in the fixed minimum time", wrong.json?.error);
+
+    const a = await call("POST", "/api/mobile/v1/auth/player-code", { headers: ctx.inst, body: { code: ctx.code.toLowerCase() } });
+    if (a.json?.userId) made.push(a.json.userId);
+    check(
+      a.status === 200 && a.json?.provider === "player_code" && a.json?.registrationComplete === false && a.json?.displayName === "Adam Hassan" && !!a.json?.refreshToken,
+      "The player code alone signs Adam in, with his name, and registration still to complete",
+      { status: a.status, provider: a.json?.provider, name: a.json?.displayName, error: a.json?.error },
+    );
+    check(a.json?.player?.playerId === ctx.pA.id && a.json?.linked === 2, "…and links his player (and his row in the other tournament) like a claim", a.json?.linked);
+    const asA = { Authorization: `Bearer ${a.json?.accessToken}` };
+    const meA = await call("GET", "/api/mobile/v1/me", { headers: asA });
+    check(meA.status === 200 && meA.json?.user?.registrationComplete === false && meA.json?.user?.provider === "player_code", "GET /me: registration not complete", meA.json?.user);
+    const playerA = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
+    check(playerA.json?.player?.name === "Adam Hassan" && !!playerA.json?.player?.phone, "His player profile (name, phone) is there without signing up", playerA.json?.player?.phone);
+
+    // Another phone, before he registered: the link moves to a new account there.
+    const b = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.code } });
+    if (b.json?.userId) made.push(b.json.userId);
+    const leftA = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
+    check(b.status === 200 && b.json?.userId !== a.json?.userId && leftA.json?.player === null, "On a second phone before registering, the code signs in again and the player moves to that account", { status: b.status, firstStill: leftA.json?.player?.name ?? null });
+    const asB = { Authorization: `Bearer ${b.json?.accessToken}` };
+
+    // Complete the registration.
+    const email = `e2e.adam.${randomUUID().slice(0, 6)}@example.com`;
+    const weak = await call("POST", "/api/mobile/v1/auth/complete", { headers: asB, body: { email, password: "adam" } });
+    check(weak.status === 400 && weak.json?.code === "weak_password", "Completing registration enforces the password rules", weak.json?.error);
+    const noSession = await call("POST", "/api/mobile/v1/auth/complete", { body: { email, password: "Adam2026x" } });
+    check(noSession.status === 401, "Completing registration needs the player-code session", noSession.status);
+    const done = await call("POST", "/api/mobile/v1/auth/complete", { headers: asB, body: { email, password: "Adam2026x" } });
+    check(done.status === 200 && done.json?.status === "confirm" && /Check your inbox to confirm/.test(done.json?.message ?? ""), "Complete your registration → 'Check your inbox to confirm <email>'", done.json);
+    const mail = await mailTo(email);
+    const link = new URL(mail?.link ?? "http://x");
+    check(mail?.kind === "email_change" && link.pathname === "/movescore/auth/confirm" && link.searchParams.get("type") === "email_change", "Supabase emails the confirmation to the new address, linking to the confirm page", mail?.link);
+    const { data: held } = await db().from("app_users").select("pending_email, pending_password_enc, registration_complete").eq("auth_user_id", b.json?.userId).maybeSingle();
+    check(held?.pending_email === email && !!held?.pending_password_enc && !held.pending_password_enc.includes("Adam2026x") && held.registration_complete === false, "The chosen password waits sealed (never in plain text) until the email is confirmed", { pending: held?.pending_email });
+    const meWaiting = await call("GET", "/api/mobile/v1/me", { headers: asB });
+    check(meWaiting.json?.user?.pendingEmail === email && meWaiting.json?.user?.registrationComplete === false, "GET /me shows the email waiting for confirmation", meWaiting.json?.user);
+    const third = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.code } });
+    check(third.status === 409 && third.json?.code === "code_pending_email", "While the email waits for confirmation, the code no longer signs in another phone", third.json?.error);
+    const early = await call("POST", "/api/mobile/v1/auth/email/signin", { body: { email, password: "Adam2026x" } });
+    check(early.status === 401, "Before confirming, the email cannot sign in yet", early.status);
+
+    const pageRes = await fetch(mail!.link);
+    const html = await pageRes.text();
+    check(pageRes.status === 200 && html.includes("Email confirmed") && html.includes("registration is complete"), "The confirm page completes the registration", pageRes.status);
+    const meDone = await call("GET", "/api/mobile/v1/me", { headers: asB });
+    check(meDone.json?.user?.registrationComplete === true && meDone.json?.user?.email === email && meDone.json?.user?.provider === "email", "GET /me: registration complete, email confirmed", meDone.json?.user);
+    const signin = await call("POST", "/api/mobile/v1/auth/email/signin", { body: { email, password: "Adam2026x" } });
+    check(signin.status === 200 && signin.json?.userId === b.json?.userId, "He now signs in with his email and the password he chose: the same account", signin.status);
+    const stillPlayer = await call("GET", "/api/mobile/v1/me/player", { headers: { Authorization: `Bearer ${signin.json?.accessToken}` } });
+    check(stillPlayer.json?.player?.playerId === ctx.pA.id, "…still linked to his player", stillPlayer.json?.player?.name);
+    const refreshB = await call("POST", "/api/mobile/v1/auth/refresh", { body: { refreshToken: b.json?.refreshToken } });
+    check(refreshB.status === 200, "The phone that registered stays signed in", refreshB.status);
+
+    const taken = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.code } });
+    check(taken.status === 409 && taken.json?.error === "This player code is already registered. Sign in with your email.", "Once registered, the code cannot sign in (or take over the account)", taken.json?.error);
+
+    // A code already linked to a Google account is refused too.
+    const tokC = await userToken(`e2e.omar.${randomUUID().slice(0, 6)}@example.com`);
+    const claimC = await call("POST", "/api/mobile/v1/me/player/claim", { headers: { authorization: `Bearer ${tokC}` }, body: { code: ctx.omarCode } });
+    const omarCode = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.omarCode } });
+    check(claimC.status === 200 && omarCode.status === 409 && omarCode.json?.code === "code_registered", "A code linked to a Google/Apple account cannot sign in", omarCode.json?.error);
+    if (tokC) await call("DELETE", "/api/mobile/v1/me/player", { headers: { authorization: `Bearer ${tokC}` } });
+
+    // Deleting a player-code account works without the secret key.
+    const c = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.omarCode } });
+    if (c.json?.userId) made.push(c.json.userId);
+    const delC = await call("DELETE", "/api/mobile/v1/me/account", { headers: { Authorization: `Bearer ${c.json?.accessToken}` } });
+    const { data: freed } = await db().from("player_claims").select("user_id").eq("player_id", (await db().from("players").select("id").eq("access_code", ctx.omarCode).single()).data!.id).maybeSingle();
+    const deadC = await call("POST", "/api/mobile/v1/auth/refresh", { body: { refreshToken: c.json?.refreshToken } });
+    check(c.status === 200 && delC.status === 200 && delC.json?.deleted === true && !freed && deadC.json?.code === "session_revoked", "A player-code account can be deleted: player released, sessions revoked", { c: c.status, del: delC.json });
+
+    // Completing with the six-digit code from the email instead of the link.
+    const d = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.omarCode } });
+    if (d.json?.userId) made.push(d.json.userId);
+    const emailD = `e2e.omar.${randomUUID().slice(0, 6)}@example.com`;
+    await call("POST", "/api/mobile/v1/auth/complete", { headers: { Authorization: `Bearer ${d.json?.accessToken}` }, body: { email: emailD, password: "Omar2026x" } });
+    const otp = (await mailTo(emailD))?.otp ?? "";
+    const viaCode = await call("POST", "/api/mobile/v1/auth/email/verify", { body: { email: emailD, code: otp, purpose: "complete" } });
+    const pwD = await call("POST", "/api/mobile/v1/auth/email/signin", { body: { email: emailD, password: "Omar2026x" } });
+    check(
+      viaCode.status === 200 && viaCode.json?.userId === d.json?.userId && viaCode.json?.registrationComplete === true && pwD.status === 200,
+      "The six-digit code completes the registration too (same account, password set)",
+      { verify: viaCode.status, signin: pwD.status },
+    );
+  } finally {
+    for (const id of made) {
+      await db().from("player_claims").delete().eq("user_id", id);
+      await db().from("app_users").delete().eq("auth_user_id", id);
+      await db().from("app_user_deletions").delete().eq("auth_user_id", id);
+    }
+  }
 }
 
 void main();

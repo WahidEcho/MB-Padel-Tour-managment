@@ -20,3 +20,5 @@ export * as Console from "../../../src/lib/scoring/console";
 export { OFFENCE_LABELS, PENALTY_LABELS } from "../../../src/lib/scoring/conduct";
 export { normalizeAccessCode, formatAccessCode, isValidAccessCode, ACCESS_CODE_LENGTH } from "../../../src/lib/players/accessCode";
 export { toE164, displayPhone } from "../../../src/lib/players/phone";
+export * from "../../../src/lib/auth/password";
+export { isSessionRevoked, REFRESH_AHEAD_SECONDS, SESSION_REVOKED } from "../../../src/lib/auth/sessionRules";

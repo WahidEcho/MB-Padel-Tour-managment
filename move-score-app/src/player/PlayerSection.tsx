@@ -8,6 +8,7 @@ import { Pressable, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { displayPhone, toE164 } from "@core";
 import { ApiError } from "../api/client";
+import { useConfig } from "../api/queries";
 import { session } from "../state/session";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display, Eyebrow } from "../ui/Text";
@@ -20,6 +21,8 @@ const failed = (e: unknown) =>
 
 export function PlayerSection() {
   const user = session.use((s) => s.user);
+  const cfg = useConfig();
+  const codeSignIn = cfg.data?.signIn?.playerCode === true;
   const q = useMyPlayer();
   const [prompt, setPrompt] = useState(false);
   const prevUser = useRef(user?.id);
@@ -58,7 +61,11 @@ export function PlayerSection() {
         <Card onPress={openCode} style={{ gap: 4 }} accessibilityLabel="Player code">
           <Body weight="semi">Player code</Body>
           <Body tone="ink2" size={12.5}>
-            {user ? "Playing? Enter the code the tournament sent you to see your matches and add your photo." : "Playing? Sign in above, then enter the code the tournament sent you."}
+            {user
+              ? "Playing? Enter the code the tournament sent you to see your matches and add your photo."
+              : codeSignIn
+                ? "Playing? Enter the code the tournament sent you. It signs you in, no account needed."
+                : "Playing? Sign in above, then enter the code the tournament sent you."}
           </Body>
         </Card>
       )}

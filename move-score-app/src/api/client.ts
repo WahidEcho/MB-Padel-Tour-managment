@@ -6,6 +6,7 @@
  */
 import { config } from "../config";
 import { session, saveUser } from "../state/session";
+import { isSessionRevoked } from "@core";
 import { credentialHeaders, type Who } from "./headers";
 
 export class ApiError extends Error {
@@ -37,32 +38,63 @@ export function onInstallRejected(fn: () => Promise<void>) {
   installRejected = fn;
 }
 
-let refreshing: Promise<string> | null = null;
-/** Refresh tokens are single-use, so concurrent calls share one refresh. */
-async function freshUserToken(): Promise<string> {
-  const u = session.get().user!;
-  if (!u.expiresAt || u.expiresAt * 1000 - Date.now() > 60_000) return u.accessToken;
+let refreshing: Promise<RefreshOutcome> | null = null;
+
+export type RefreshOutcome = "fresh" | "refreshed" | "revoked" | "failed" | "signed-out";
+
+/**
+ * Trades the refresh token for a new session. Refresh tokens are single-use, so
+ * concurrent callers share one refresh. The session is dropped only when the
+ * server says the refresh token is revoked (401 session_revoked); offline, a
+ * timeout, a rate limit or a server error leave it as it is, to try again later.
+ *
+ * `aheadSeconds`: refresh only if the access token expires within this many seconds.
+ */
+export async function refreshUserSession(aheadSeconds = 60): Promise<RefreshOutcome> {
+  const u = session.get().user;
+  if (!u) return "signed-out";
+  if (u.expiresAt && u.expiresAt * 1000 - Date.now() > aheadSeconds * 1000) return "fresh";
   if (!refreshing) {
-    refreshing = (async () => {
+    refreshing = (async (): Promise<RefreshOutcome> => {
       try {
-        const res = await fetch(`${config.apiBaseUrl}/api/mobile/v1/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken: u.refreshToken }),
-        });
-        if (!res.ok) {
-          await saveUser(null);
-          return "";
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15_000);
+        let res: Response;
+        try {
+          res = await fetch(`${config.apiBaseUrl}/api/mobile/v1/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refreshToken: u.refreshToken }),
+            signal: ctrl.signal,
+          });
+        } finally {
+          clearTimeout(timer);
         }
-        const j = (await res.json()) as { accessToken: string; refreshToken: string; expiresAt: number | null };
-        await saveUser({ ...u, accessToken: j.accessToken, refreshToken: j.refreshToken, expiresAt: j.expiresAt });
-        return j.accessToken;
+        const body = (await res.json().catch(() => null)) as { accessToken?: string; refreshToken?: string; expiresAt?: number | null; code?: string } | null;
+        // Someone signed out (or in as someone else) while this was in flight: leave their session alone.
+        const now = session.get().user;
+        if (!now || now.id !== u.id || now.refreshToken !== u.refreshToken) return "failed";
+        if (isSessionRevoked(res.status, body)) {
+          await saveUser(null);
+          return "revoked";
+        }
+        if (!res.ok || !body?.accessToken || !body.refreshToken) return "failed";
+        await saveUser({ ...now, accessToken: body.accessToken, refreshToken: body.refreshToken, expiresAt: body.expiresAt ?? null });
+        return "refreshed";
+      } catch {
+        return "failed"; // offline or timed out: keep the session
       } finally {
         setTimeout(() => (refreshing = null), 0);
       }
     })();
   }
   return refreshing;
+}
+
+/** The access token to send: refreshed first when it is about to expire. Never signs out on a failed refresh. */
+async function freshUserToken(): Promise<string> {
+  await refreshUserSession(60);
+  return session.get().user?.accessToken ?? "";
 }
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; who?: Who; timeoutMs?: number; signal?: AbortSignal; headers?: Record<string, string> } = {}): Promise<T> {

@@ -1,6 +1,7 @@
 /**
- * Apple and Google sign-in. No database key is in the app: the server turns
- * what the phone brings back into a Move Score session.
+ * Apple and Google sign-in (email and player codes: ./email.ts). No database key
+ * is in the app: the server turns what the phone brings back into a Move Score
+ * session, which then stays on the phone until the person signs out.
  *
  * - Apple (iPhone): the system's native Sign in with Apple sheet; its identity token goes to the server.
  * - Google: Supabase Auth's OAuth flow inside the in-app browser sheet
@@ -15,21 +16,23 @@ import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { authRedirectMessage, readAuthRedirect, type BrowserSignInProvider } from "@core";
 import { api } from "../api/client";
-import { saveUser } from "../state/session";
+import { saveUser, type UserProvider } from "../state/session";
 import { getSecret, setSecret } from "../state/kv";
 import { syncFollows } from "../state/follows";
 import { registerDevice } from "../push/register";
 import { config } from "../config";
 
-interface SessionReply {
+export interface SessionReply {
   userId: string;
   displayName: string | null;
   email?: string | null;
   avatarUrl?: string | null;
-  provider?: "apple" | "google";
+  provider?: UserProvider;
   accessToken: string;
   refreshToken: string;
   expiresAt: number | null;
+  /** False only for a player-code account that has not confirmed an email yet. */
+  registrationComplete?: boolean;
 }
 
 /** Thrown when the person backs out; the account screen stays quiet about it. */
@@ -39,13 +42,16 @@ export class SignInCancelled extends Error {
   }
 }
 
-async function finish(r: SessionReply) {
+/** The same last step for every way in: keep the session, sync follows, link this phone. */
+export async function finish(r: SessionReply) {
   await saveUser({
     id: r.userId,
     name: r.displayName,
     email: r.email ?? null,
     avatarUrl: r.avatarUrl ?? null,
     provider: r.provider ?? null,
+    registrationComplete: r.registrationComplete ?? true,
+    pendingEmail: null,
     accessToken: r.accessToken,
     refreshToken: r.refreshToken,
     expiresAt: r.expiresAt,

@@ -88,6 +88,13 @@ export default function PrivacyPolicy() {
           you to a new phone.
         </p>
         <p>
+          You can also sign up with your email address and a password. Your email and password are held by our sign-in provider
+          (the password only as a one-way hash) and the email is used only to confirm your address, reset your password and
+          send you account notices. A player can also sign in with the player code the organiser sent them; they are then asked
+          to add an email to complete their registration. Until that email is confirmed, the password they chose is kept
+          encrypted and is deleted as soon as it is set.
+        </p>
+        <p>
           Players can link their account to their tournament profile with the private player code the organiser sends them.
           The app then shows them their name, nation and matches, and lets them add a phone number and a photo. The phone number
           is seen only by the player and the organisers, never in the app&apos;s public screens or on public pages. The photo is

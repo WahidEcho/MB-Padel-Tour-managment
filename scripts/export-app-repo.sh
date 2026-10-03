@@ -18,6 +18,8 @@ PUSH="${2:-}"
 
 # Everything src/core/index.ts reaches in src/lib (checked below with tsc in the export).
 SHARED=(
+  auth/password.ts
+  auth/sessionRules.ts
   mobile/contract.ts
   mobile/alertsSwitch.ts
   mobile/oauth.ts

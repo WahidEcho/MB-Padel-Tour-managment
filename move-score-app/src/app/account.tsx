@@ -18,9 +18,12 @@ import { Body, Display } from "../ui/Text";
 import { Button, Card, SectionHeader } from "../ui/Bits";
 import { appVersion, config } from "../config";
 import { PlayerSection } from "../player/PlayerSection";
+import { RegistrationBanner } from "../auth/RegistrationBanner";
 
 // Where the legal pages live when the server's config has not loaded yet.
 const SITE = "https://mb-tournament.vercel.app/movescore";
+
+const PROVIDER_LABEL: Record<string, string> = { google: "Google", apple: "Apple", email: "Email", player_code: "Player code" };
 
 const PREF_LABELS: [keyof MAlertPrefs, string, string][] = [
   ["scheduled", "Set or moved", "A court or time is set, changed or delayed"],
@@ -46,7 +49,13 @@ export default function Account() {
   // Google signs in through Supabase in the in-app browser sheet; the server says
   // when the provider is switched on there (Sign in with Apple stays on iPhone).
   const googleReady = cfg.data?.signIn?.google === true;
+  const emailReady = cfg.data?.signIn?.email === true;
+  const codeReady = cfg.data?.signIn?.playerCode === true && cfg.data?.flags.player_claim !== false;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  // A player-code account with no email yet cannot be signed back into except with the code
+  // (as a new account): say so before signing out.
+  const unregistered = user?.registrationComplete === false;
   useEffect(() => {
     void refreshAlerts();
     void refreshPrefs();
@@ -118,7 +127,7 @@ export default function Account() {
         <Switch value={pref.calm} onValueChange={(calm) => themePref.set((s) => ({ ...s, calm }))} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel="Reduce motion" />
       </Card>
 
-      {cfg.data?.flags.accounts !== false && (user || apple || googleReady) && (
+      {cfg.data?.flags.accounts !== false && (user || apple || googleReady || emailReady || codeReady) && (
         <>
           <SectionHeader title="Sign in" />
           {user ? (
@@ -135,13 +144,26 @@ export default function Account() {
                   <Body weight="semi" numberOfLines={1}>{user.name ? `Signed in as ${user.name}` : "Signed in"}</Body>
                   {user.email || user.provider ? (
                     <Body tone="ink2" size={12.5} numberOfLines={1}>
-                      {[user.email, user.provider === "google" ? "Google" : user.provider === "apple" ? "Apple" : null].filter(Boolean).join(" · ")}
+                      {[user.email, PROVIDER_LABEL[user.provider ?? ""] ?? null].filter(Boolean).join(" · ")}
                     </Body>
                   ) : null}
                 </View>
               </View>
-              <Body tone="ink2" size={12.5}>Your follows and pass are saved to your account and come with you to a new phone.</Body>
-              <Button kind="ghost" label="Sign out" onPress={() => void run(signOut)} />
+              <RegistrationBanner />
+              <Body tone="ink2" size={12.5}>Your follows and pass are saved to your account and come with you to a new phone. You stay signed in until you sign out.</Body>
+              {confirmSignOut ? (
+                <View style={{ gap: 8 }}>
+                  <Body size={13}>
+                    You haven&apos;t added an email yet. After signing out you can sign in again with your player code, but this account&apos;s follows and pass stay behind.
+                  </Body>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Button kind="ghost" label="Stay" onPress={() => setConfirmSignOut(false)} style={{ flex: 1 }} />
+                    <Button kind="danger" label="Sign out" onPress={() => void run(signOut).then(() => setConfirmSignOut(false))} style={{ flex: 1 }} />
+                  </View>
+                </View>
+              ) : (
+                <Button kind="ghost" label="Sign out" onPress={() => (unregistered ? setConfirmSignOut(true) : void run(signOut))} />
+              )}
               {confirmDelete ? (
                 <View style={{ gap: 8 }}>
                   <Body size={13}>This deletes your account, your follows and your pass. It cannot be undone.</Body>
@@ -174,6 +196,17 @@ export default function Account() {
                     void run(signInWithGoogle).finally(() => setGoogleBusy(false));
                   }}
                 />
+              )}
+              {emailReady && (
+                <>
+                  <Button kind="ghost" label="Sign in with email" onPress={() => router.push({ pathname: "/auth/email", params: { mode: "signin" } })} />
+                  <Button kind="ghost" label="Sign up with email" onPress={() => router.push({ pathname: "/auth/email", params: { mode: "signup" } })} />
+                </>
+              )}
+              {codeReady && (
+                <Body tone="blue" weight="semi" size={14} style={{ textAlign: "center", paddingVertical: 4 }} onPress={() => router.push("/player-code")} accessibilityRole="button">
+                  I have a player code
+                </Body>
               )}
             </Card>
           )}

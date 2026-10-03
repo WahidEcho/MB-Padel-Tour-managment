@@ -15,6 +15,7 @@ import { loadSession } from "../state/session";
 import { openLink, registerDevice } from "../push/register";
 import { getJson, setJson } from "../state/kv";
 import { startMonitoring } from "../monitoring";
+import { startSessionKeeper } from "../auth/keepAlive";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 startMonitoring();
@@ -70,6 +71,8 @@ export default function RootLayout() {
   useEffect(() => {
     void loadSession().then(() => {
       setReady(true);
+      // Refreshes the session at launch, on every return to the foreground and before it expires.
+      startSessionKeeper();
       void registerDevice(false);
     });
   }, []);

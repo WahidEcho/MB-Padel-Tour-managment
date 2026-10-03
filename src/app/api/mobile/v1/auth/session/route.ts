@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { Session, User } from "@supabase/supabase-js";
-import { db } from "@/lib/supabase";
 import { checkRateLimit, clientIpFrom } from "@/lib/ratelimit";
 import { appleRefreshToken, authClient, exchangeOAuthCode, sealToken } from "@/lib/auth/users";
+import { finishSignIn } from "@/lib/auth/accounts";
 import { readJson } from "@/lib/mobile/http";
 import { isBrowserSignInProvider, isCodeVerifier } from "@/lib/mobile/oauth";
 
@@ -58,33 +58,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign-in was not accepted. Try again." }, { status: 401 });
   }
   const { session, user } = signedIn;
-
-  const meta = (user.user_metadata ?? {}) as { full_name?: string; name?: string; avatar_url?: string; picture?: string };
-  const displayName = (body.displayName || meta.full_name || meta.name || "").trim().slice(0, 60) || null;
-  const avatar = meta.avatar_url || meta.picture || null;
-  const avatarUrl = typeof avatar === "string" && /^https:\/\//.test(avatar) ? avatar : null;
-  const row: Record<string, unknown> = {
-    auth_user_id: user.id,
-    provider: body.provider,
-    updated_at: new Date().toISOString(),
-  };
-  if (displayName) row.display_name = displayName;
+  const extraRow: Record<string, unknown> = {};
   if (body.provider === "apple" && body.authorizationCode) {
     const refresh = await appleRefreshToken(body.authorizationCode);
-    if (refresh) row.apple_refresh_token_enc = sealToken(refresh);
+    if (refresh) extraRow.apple_refresh_token_enc = sealToken(refresh);
   }
-  await db().from("app_users").upsert(row, { onConflict: "auth_user_id" });
-  return NextResponse.json(
-    {
-      userId: user.id,
-      displayName,
-      email: user.email ?? null,
-      avatarUrl,
-      provider: body.provider,
-      accessToken: session.access_token,
-      refreshToken: session.refresh_token,
-      expiresAt: session.expires_at ?? null,
-    },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  const reply = await finishSignIn({ session, user, provider: body.provider, displayName: body.displayName, extraRow });
+  return NextResponse.json(reply, { headers: { "Cache-Control": "no-store" } });
 }
