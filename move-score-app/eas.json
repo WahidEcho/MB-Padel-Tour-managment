@@ -69,6 +69,14 @@
         "track": "internal",
         "releaseStatus": "draft"
       }
+    },
+    "testflight": {
+      "extends": "production",
+      "ios": {
+        "ascApiKeyPath": "/Users/wahid/.appstoreconnect/private_keys/AuthKey_HB63F354UW.p8",
+        "ascApiKeyId": "HB63F354UW",
+        "ascApiKeyIssuerId": "e07e7416-7902-48a0-9239-6b66f0ad3cdb"
+      }
     }
   }
 }
