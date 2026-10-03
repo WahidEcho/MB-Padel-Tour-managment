@@ -162,9 +162,11 @@ Not chosen: predict-the-tie. Parked: home-screen widget, "I'm at…" photo stick
 - Staff: `POST /api/mobile/v1/staff/session {code}` → the existing HMAC role token in the body, 7-day life;
   `currentRole()` in `src/lib/auth.ts` accepts `Authorization: Bearer` then the cookie; timing-safe compare;
   rate limit with `src/lib/ratelimit.ts` (also on the web login).
-- Users: the app sends the Apple / Google identity token to `POST /api/mobile/v1/auth/session`; the server
-  signs in with Supabase Auth using a per-request client (never the shared `db()` client) and returns the
-  session; `auth/refresh`; `DELETE /me` with Apple token revocation; a web deletion page for Play.
+- Users: Apple (iPhone, native sheet) sends its identity token to `POST /api/mobile/v1/auth/session`; Google
+  runs Supabase's OAuth flow in the in-app browser sheet with PKCE (`GET auth/oauth/google` → Supabase →
+  `movescore://auth/callback?code=`) and sends code + verifier to the same route. The server signs in with
+  Supabase Auth using a per-request client (never the shared `db()` client) and returns the session; the
+  Google button shows when `config.signIn.google` is true. Setup: `docs/google-sign-in.md`; `auth/refresh`; `DELETE /me` with Apple token revocation; a web deletion page for Play.
   Birth-year screen before the sign-in buttons; under 16 continues as guest. No Supabase key in the binary.
 - Guests: `POST /api/mobile/v1/devices` registers an install id and push token and returns a signed install token.
 
@@ -389,8 +391,8 @@ unchanged except for the additive database migration (below).
 1. **Free disk space on the Mac.** The iOS build stopped with "No space left on device" (about 200 MB free). Free at least 15 GB (Xcode's DerivedData alone is 4.2 GB), then:
    `cd move-score-app && APP_ENV=development npx expo run:ios`
 2. **Close the database gate**, in this order: copy the project's secret key (Supabase → Settings → API keys) → set `SUPABASE_KEY` in Vercel for Production and Preview → redeploy → open `/api/health/db` and wait for `"key":"secret"` → run `supabase/gate/close_open_access.sql` in the SQL editor → run `scripts/smoke.ts`. Rollback: `supabase/gate/reopen_open_access.sql`.
-3. **Accounts to create this week:** Google Play (personal; add 15–20 testers' Gmail addresses), Expo account + EAS project (`npx eas-cli init`, then set `EAS_PROJECT_ID`), Firebase project for Android push (`google-services.json`), Apple: app record, Sign in with Apple key, APNs key, Pass Type ID certificate; Google Cloud OAuth clients (web, iOS, Android with Play signing SHA-1); Meta app id for Stories; Google Wallet issuer. Put each value in Vercel / EAS env (names in `.env.example` and `app.config.ts`).
-4. **Supabase Auth:** enable Apple and Google providers (client ids = bundle id / OAuth client ids).
+3. **Accounts to create this week:** Google Play (personal; add 15–20 testers' Gmail addresses), Expo account + EAS project (`npx eas-cli init`, then set `EAS_PROJECT_ID`), Firebase project for Android push (`google-services.json`), Apple: app record, Sign in with Apple key, APNs key, Pass Type ID certificate; Google Cloud OAuth web client for Supabase (see `docs/google-sign-in.md`; no iOS/Android clients needed); Meta app id for Stories; Google Wallet issuer. Put each value in Vercel / EAS env (names in `.env.example` and `app.config.ts`).
+4. **Supabase Auth:** enable Apple (client id = bundle id) and Google (web client id + secret), and add `movescore://auth/callback` to the redirect URLs — exact list in `docs/google-sign-in.md`.
 5. **Vercel:** add `CRON_SECRET`; apply `supabase/ops/notification_cron.sql` with the site URL and that secret.
 6. **First builds:** `npx eas-cli build --profile production --platform android` → upload to the Play closed test **by 5 October**; same for iOS → TestFlight.
 7. **Set up the event** in admin → App tab: event group "Junior Team Finals 2026", featured order 1, venue, dates, Africa/Cairo, skin colours; then print or open `/venue/<event>/qr` on the gate tablet.

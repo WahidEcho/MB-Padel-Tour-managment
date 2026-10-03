@@ -10,6 +10,8 @@
  * loudly (400, "unsupported") on anything else so a gap cannot pass silently.
  *
  *   node scripts/localdb/server.mjs            # listens on :54321, in memory
+ *
+ * Sign-in (Supabase Auth) is emulated in ./auth.mjs: settings, PKCE OAuth, JWKS.
  *   SUPABASE_URL=http://localhost:54321 npm run dev
  */
 import http from "node:http";
@@ -17,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { handleAuth } from "./auth.mjs";
 
 const PORT = Number(process.env.LOCALDB_PORT ?? 54321);
 // fileURLToPath, not .pathname: a checkout under a folder with spaces would otherwise read as %20.
@@ -394,6 +397,7 @@ const server = http.createServer((req, res) => {
           return send(res, 200, results.at(-1)?.rows ?? []);
         }
         if (url.pathname.startsWith("/storage/v1/")) return send(res, 200, { Key: "local" });
+        if (handleAuth({ req, url, body, res, send, port: PORT })) return;
         const m = url.pathname.match(/^\/rest\/v1\/([a-z_0-9]+)$/);
         if (!m) return send(res, 404, { message: `no route ${url.pathname}` });
         const table = m[1];
