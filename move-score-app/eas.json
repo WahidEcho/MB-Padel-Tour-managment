@@ -50,6 +50,12 @@
       "android": {
         "buildType": "apk"
       }
+    },
+    "production-local-creds": {
+      "extends": "production",
+      "ios": {
+        "credentialsSource": "local"
+      }
     }
   },
   "submit": {
