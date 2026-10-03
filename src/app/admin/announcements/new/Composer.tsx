@@ -18,6 +18,10 @@ type Initial = {
   audience: Audience;
 };
 
+const SOURCE_LABEL: Record<string, string> = { player: "player", profile: "profile", team: "team contact" };
+const fmtSources = (m: Record<string, number>) =>
+  Object.keys(m).length ? Object.entries(m).map(([k, n]) => `${n} ${SOURCE_LABEL[k] ?? k}`).join(", ") : "none";
+
 const CHANNEL_LABEL: Record<ComposeChannel, string> = { email: "Email", whatsapp: "WhatsApp", push: "App push (Move Score)" };
 
 export default function Composer({
@@ -333,9 +337,19 @@ export default function Composer({
             {preview.rejectedLines.length > 0 && (
               <p className="text-xs text-warning">Lines with no email or phone: {preview.rejectedLines.join(" | ")}</p>
             )}
+            {preview.sources && (
+              <p className="text-xs text-muted" data-testid="preview-sources">
+                Contact from: phones — {fmtSources(preview.sources.phone)}; emails — {fmtSources(preview.sources.email)}
+              </p>
+            )}
             {preview.sample.length > 0 && (
               <ul className="text-xs text-muted">
-                {preview.sample.map((s, i) => <li key={i}>{s.name || "(no name)"} · {s.email ?? "no email"} · {s.phone ?? "no phone"}{s.code ? ` · code ${s.code}` : ""}</li>)}
+                {preview.sample.map((s, i) => (
+                  <li key={i}>
+                    {s.name || "(no name)"} · {s.email ?? "no email"}{s.emailFrom ? ` (${s.emailFrom})` : ""} · {s.phone ?? "no phone"}{s.phoneFrom ? ` (${s.phoneFrom})` : ""}
+                    {s.code ? ` · code ${s.code}` : ""}
+                  </li>
+                ))}
               </ul>
             )}
             {preview.errors.length > 0 && <ul className="text-xs text-danger">{preview.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
