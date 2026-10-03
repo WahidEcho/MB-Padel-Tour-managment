@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View } from "react-native";
+import { Linking, Platform, Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useBundle, useLive, useStandings } from "../../../api/queries";
 import { dateRange, dayIn, finishedMatches, isAwaitingResult, liveMatches, makeView, needsDay, upcomingMatches } from "../../../api/model";
@@ -13,16 +13,24 @@ import { MatchMini, TieCard, TieRow } from "../../../ui/Cards";
 import { SponsorBand } from "../../../ui/Sponsors";
 import { OfflineState, StaleBanner, failedOffline } from "../../../ui/Offline";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
+import { isNation, openTeam } from "../../../nav/links";
 
 type Tab = "ties" | "matches" | "groups" | "nations";
+const TABS: Tab[] = ["ties", "matches", "groups", "nations"];
 
-function Hub({ slug }: { slug: string }) {
+/** The venue in the phone's maps app. */
+function openMaps(place: string) {
+  const q = encodeURIComponent(place);
+  void Linking.openURL(Platform.OS === "ios" ? `https://maps.apple.com/?q=${q}` : `https://www.google.com/maps/search/?api=1&query=${q}`).catch(() => {});
+}
+
+function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
   const { t } = useTheme();
   const b = useBundle(slug);
   const l = useLive(slug);
   const s = useStandings(slug);
   const isTies = b.data?.tournament.isTies ?? false;
-  const [tab, setTab] = useState<Tab>("ties");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "ties");
   const following = useFollowsOf("nation");
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
   if (!b.data || !v) {
@@ -66,7 +74,17 @@ function Hub({ slug }: { slug: string }) {
       <Eyebrow>{[tr.sport, `${b.data.teams.length} ${isTies ? "nations" : "teams"}`].join(" · ")}</Eyebrow>
       <Display size={27} style={{ marginTop: 6 }}>{tr.name}</Display>
       <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-        {tr.venue ? <Body tone="ink2" size={13}>{tr.venue}</Body> : null}
+        {tr.venue ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`${tr.venue}, open in maps`}
+            onPress={() => openMaps([tr.venue, tr.city].filter(Boolean).join(", "))}
+            hitSlop={8}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}
+          >
+            <Body tone="blue" size={13} weight="semi">{`${tr.venue} ›`}</Body>
+          </Pressable>
+        ) : null}
         {tr.startsOn ? <Body tone="ink2" size={13}>{dateRange(tr.startsOn, tr.endsOn)}</Body> : null}
         {liveCount ? <LivePill label={`${liveCount} LIVE`} /> : null}
       </View>
@@ -75,7 +93,7 @@ function Hub({ slug }: { slug: string }) {
       {current === "ties" && (
         <View style={{ gap: 10 }}>
           {liveTies.map((x) => (
-            <TieCard key={x.id} tie={x} v={v} />
+            <TieCard key={x.id} tie={x} v={v} linkTie />
           ))}
           {nextByDay.map((g, i) => (
             <View key={g.day} style={{ gap: 10 }}>
@@ -123,7 +141,14 @@ function Hub({ slug }: { slug: string }) {
                 const team = v.team(r.teamId);
                 const q = r.status === "qualified";
                 return (
-                  <View key={r.teamId} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: t.line, borderLeftWidth: 3, borderLeftColor: q ? t.skinA : "transparent" }}>
+                  <Pressable
+                    key={r.teamId}
+                    disabled={!team}
+                    onPress={() => team && openTeam(team, slug, isTies)}
+                    accessibilityRole="link"
+                    accessibilityLabel={`${r.rank}. ${team?.name ?? "TBD"}, ${r.won} won, ${r.lost} lost, ${r.points} points${q ? ", qualified" : ""}`}
+                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: t.line, borderLeftWidth: 3, borderLeftColor: q ? t.skinA : "transparent", backgroundColor: pressed ? t.chip : "transparent" })}
+                  >
                     <Num size={14} tone="ink3" style={{ width: 20 }}>{r.rank}</Num>
                     <View style={{ flex: 1, flexDirection: "row", gap: 8, alignItems: "center" }}>
                       <Flag iso2={team?.iso2} code={team?.code} />
@@ -132,7 +157,7 @@ function Hub({ slug }: { slug: string }) {
                     <Num size={15} style={{ width: 52, textAlign: "right" }}>{`${r.won}–${r.lost}`}</Num>
                     {isTies && <Num size={15} style={{ width: 62, textAlign: "right" }}>{`${r.rubbersWon ?? 0}–${r.rubbersLost ?? 0}`}</Num>}
                     <Num size={15} style={{ width: 40, textAlign: "right" }}>{r.points}</Num>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
@@ -141,10 +166,11 @@ function Hub({ slug }: { slug: string }) {
           {s.data?.placings.map((p) => {
             const team = v.team(p.teamId);
             return (
-              <Card key={p.teamId} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Card key={p.teamId} onPress={team ? () => openTeam(team, slug, isTies) : undefined} accessibilityLabel={`Place ${p.place}, ${team?.name ?? "TBD"}`} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Num size={18} style={{ width: 34 }}>{p.place}</Num>
                 <Flag iso2={team?.iso2} code={team?.code} />
-                <Body weight="semi">{team?.name}</Body>
+                <Body weight="semi" style={{ flex: 1 }}>{team?.name}</Body>
+                {team ? <Body tone="ink3" weight="bold">›</Body> : null}
               </Card>
             );
           })}
@@ -157,16 +183,26 @@ function Hub({ slug }: { slug: string }) {
           {[...b.data.teams]
             .sort((x, y) => (x.seed ?? 99) - (y.seed ?? 99) || x.name.localeCompare(y.name))
             .map((team) => (
-              <Card key={team.id} style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <Flag iso2={team.iso2} code={team.code} size={34} />
-                <View style={{ flex: 1 }}>
-                  <Body weight="bold">{team.name}</Body>
-                  <Body tone="ink2" size={12} numberOfLines={1}>
-                    {[team.seed ? `Seed ${team.seed}` : null, team.players.map((p) => p.name.split(" ").slice(-1)[0]).join(", ")].filter(Boolean).join(" · ")}
-                  </Body>
-                </View>
-                {isTies && team.code.length === 3 ? (
-                  <ToggleButton compact on={following.includes(team.code)} onLabel="Supporting" offLabel="Support" onPress={() => void toggleFollow("nation", team.code, tr.id)} />
+              <Card key={team.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 }}>
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel={`${team.name}${team.seed ? `, seed ${team.seed}` : ""}, ${isNation(team, isTies) ? "nation" : "team"} page`}
+                  onPress={() => openTeam(team, slug, isTies)}
+                  style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 }, pressed && { opacity: 0.6 }]}
+                >
+                  <Flag iso2={team.iso2} code={team.code} size={34} />
+                  <View style={{ flex: 1 }}>
+                    <Body weight="bold" numberOfLines={1}>
+                      {team.name}
+                      <Body tone="ink3" weight="bold">{" ›"}</Body>
+                    </Body>
+                    <Body tone="ink2" size={12} numberOfLines={1}>
+                      {[team.seed ? `Seed ${team.seed}` : null, team.players.map((p) => p.name.split(" ").slice(-1)[0]).join(", ")].filter(Boolean).join(" · ")}
+                    </Body>
+                  </View>
+                </Pressable>
+                {isNation(team, isTies) ? (
+                  <ToggleButton compact on={following.includes(team.code)} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("nation", team.code, tr.id)} />
                 ) : null}
               </Card>
             ))}
@@ -178,11 +214,11 @@ function Hub({ slug }: { slug: string }) {
 }
 
 export default function HubScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>();
+  const { slug, tab } = useLocalSearchParams<{ slug: string; tab?: string }>();
   const b = useBundle(slug);
   return (
     <SkinScope skin={b.data?.tournament.skin}>
-      <Hub slug={slug} />
+      <Hub slug={slug} initialTab={TABS.find((x) => x === tab)} />
     </SkinScope>
   );
 }

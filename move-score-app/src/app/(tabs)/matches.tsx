@@ -12,6 +12,7 @@ import { Empty, SectionHeader } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
 import { useFollowsOf } from "../../state/follows";
+import { openTournament } from "../../nav/links";
 
 type Filter = "all" | "live" | "starred" | "results";
 
@@ -37,7 +38,7 @@ function TournamentMatches({ slug, filter, day }: { slug: string; filter: Filter
   const withDay = !day && needsDay(list.filter((m) => m.status === "scheduled" || m.status === "ready").map((m) => m.scheduledTime), tz);
   return (
     <View style={{ gap: 8 }}>
-      <SectionHeader title={b.data.tournament.name} />
+      <SectionHeader title={b.data.tournament.name} onTitlePress={() => openTournament(slug)} />
       {list.slice(0, 80).map((m) => (
         <MatchMini key={m.id} m={m} v={v} withDay={withDay} />
       ))}
@@ -80,7 +81,7 @@ export default function Matches() {
       {days.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ marginBottom: 6 }}>
           {[null, ...days].map((d) => (
-            <Pressable key={d ?? "all"} onPress={() => setDay(d)} accessibilityRole="button" accessibilityState={{ selected: day === d }} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: day === d ? t.ball : t.chip }}>
+            <Pressable key={d ?? "all"} onPress={() => setDay(d)} accessibilityRole="button" accessibilityState={{ selected: day === d }} hitSlop={4} style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, backgroundColor: day === d ? t.ball : t.chip, opacity: pressed ? 0.7 : 1 })}>
               <Body weight="bold" size={12.5} style={{ color: day === d ? t.ballInk : t.ink }}>{d ?? "Every day"}</Body>
             </Pressable>
           ))}

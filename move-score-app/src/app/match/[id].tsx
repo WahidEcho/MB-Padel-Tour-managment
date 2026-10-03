@@ -11,13 +11,14 @@ import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Eyebrow, Num } from "../../ui/Text";
-import { Button, Card, Chip, Empty, Flag, LivePill, ToggleButton } from "../../ui/Bits";
+import { Button, Card, Chip, Empty, Flag, LinkChip, LivePill, ToggleButton } from "../../ui/Bits";
 import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
 import { Rolling } from "../../ui/Rolling";
 import { Momentum } from "../../ui/Momentum";
 import { Takeover, type TakeoverMoment } from "../../ui/Takeover";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { startLockScreen, lockScreenSupported } from "../../live/lockScreen";
+import { openPlayer, openTeam, openTie, openTournament } from "../../nav/links";
 
 const ROW_H = 58;
 /** Doubles: both names, one per line. */
@@ -105,6 +106,33 @@ function Feed({ points, aCode, bCode }: { points: MTimelinePoint[]; aCode: strin
         </View>
       ))}
     </View>
+  );
+}
+
+/** Everyone and everything this match belongs to, each opening its own page. */
+function MatchLinks({ m, v, slug }: { m: MMatch; v: ReturnType<typeof makeView>; slug: string }) {
+  const tr = v.bundle.tournament;
+  const tie = v.tieOf(m);
+  const sides = (["A", "B"] as const).map((side) => ({ team: v.team(side === "A" ? m.a : m.b), players: v.sidePlayers(m, side) }));
+  const players = sides.flatMap((s) => s.players.map((p) => ({ p, team: s.team })));
+  return (
+    <Card style={{ marginTop: 12, gap: 10 }}>
+      <Eyebrow>In this match</Eyebrow>
+      {players.length > 0 && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {players.map(({ p, team }) => (
+            <LinkChip key={p.id} label={p.name} accessibilityLabel={`${p.name}, player page`} onPress={() => openPlayer(p.id, slug)} leading={team ? <Flag iso2={team.iso2} code={team.code} size={18} /> : undefined} />
+          ))}
+        </View>
+      )}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {sides.map(({ team }) =>
+          team ? <LinkChip key={team.id} label={team.name} accessibilityLabel={`${team.name}, ${tr.isTies ? "nation" : "team"} page`} onPress={() => openTeam(team, slug, tr.isTies)} leading={<Flag iso2={team.iso2} code={team.code} size={18} />} /> : null,
+        )}
+        {tie ? <LinkChip label={`${v.team(tie.a)?.code ?? "TBD"} v ${v.team(tie.b)?.code ?? "TBD"} · the tie`} accessibilityLabel="The whole tie" onPress={() => openTie(tie.id)} /> : null}
+        <LinkChip label={tr.name} accessibilityLabel={`${tr.name}, tournament page`} onPress={() => openTournament(slug)} />
+      </View>
+    </Card>
   );
 }
 
@@ -228,6 +256,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
       <Screen tabs={false} stage={false} onRefresh={() => Promise.all([q.refetch(), tl.refetch()])}>
         <BackHeader
           label={tie ? `${v.team(tie.a)?.code ?? ""} v ${v.team(tie.b)?.code ?? ""}` : b.data.tournament.name.split(" ").slice(0, 2).join(" ")}
+          fallback={tie ? { pathname: "/tie/[id]", params: { id: tie.id } } : { pathname: "/t/[slug]", params: { slug } }}
           right={<ToggleButton compact on={starred} onLabel="★ Starred" offLabel="☆ Star" onPress={() => void toggleFollow("match", id, b.data!.tournament.id)} />}
         />
         <StaleBanner queries={[q, l]} live={live || m.status === "pending_sync"} />
@@ -259,6 +288,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           <Eyebrow style={{ marginBottom: 10 }}>Game by game</Eyebrow>
           <Feed points={tl.data?.points ?? []} aCode={aCode} bCode={bCode} />
         </Card>
+        <MatchLinks m={m} v={v} slug={slug} />
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
           <Button kind="ghost" label="Share card" onPress={share} style={{ flex: 1 }} />
           {live && flags.live_activity && lockScreenSupported() ? (
