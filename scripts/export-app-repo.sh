@@ -19,6 +19,11 @@ PUSH="${2:-}"
 # Everything src/core/index.ts reaches in src/lib (checked below with tsc in the export).
 SHARED=(
   mobile/contract.ts
+  mobile/alertsSwitch.ts
+  mobile/oauth.ts
+  friendly/mobile.ts
+  players/accessCode.ts
+  players/phone.ts
   scoring/conduct.ts
   scoring/console.ts
   scoring/engine.ts
