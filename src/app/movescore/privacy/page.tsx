@@ -185,14 +185,6 @@ export default function PrivacyPolicy() {
         </p>
       </Section>
 
-      <Section title="Children">
-        <p>
-          Everyone can use every feature as a guest, which does not ask for a name or email. Children under 16 should sign in,
-          and link a player code, only with a parent&apos;s or guardian&apos;s permission; at junior events the organisers send
-          player codes to a parent or guardian. If you believe a child has an account without that permission, contact us and
-          we will delete it.
-        </p>
-      </Section>
 
       <Section title="Security">
         <p>

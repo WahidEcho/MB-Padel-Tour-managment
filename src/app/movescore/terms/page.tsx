@@ -37,8 +37,7 @@ export default function Terms() {
 
       <Section title="2. Accounts">
         <p>
-          You can use Move Score without an account. Accounts are through Sign in with Apple or Google; under 16s
-          need a parent&apos;s or guardian&apos;s permission. A player code links an account to that player only: keep it to
+          You can use Move Score without an account. Accounts are through Sign in with Apple or Google. A player code links an account to that player only: keep it to
           yourself. You are responsible for activity under your account and can delete it at any time in the app (
           <InlineLink href="/movescore/delete-account">how</InlineLink>).
         </p>
