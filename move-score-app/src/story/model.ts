@@ -78,7 +78,7 @@ export interface Layout {
 /** Layout styles in rail order. The sticker starts where the layout puts it; the fan can move it. */
 export const LAYOUTS: Layout[] = [
   { id: "scoreboard", label: "Scoreboard", hint: "A glass score sticker", pose: { x: 0.5, y: 0.7, s: 1, r: 0 } },
-  { id: "pass", label: "Pass", hint: "Your event pass, foil and all", pose: { x: 0.5, y: 0.62, s: 1, r: -0.06 } },
+  { id: "pass", label: "Pass", hint: "Your event pass, foil and all", pose: { x: 0.5, y: 0.56, s: 0.94, r: -0.06 } },
   { id: "minimal", label: "Minimal", hint: "Just the words, big", pose: { x: 0.5, y: 0.66, s: 1, r: 0 } },
   { id: "ticket", label: "Ticket stub", hint: "A torn ticket stub", pose: { x: 0.5, y: 0.73, s: 1, r: -0.05 } },
 ];
