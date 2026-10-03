@@ -7,8 +7,9 @@ import SessionRowNotice from "../SessionRowNotice";
 import { formatAccessCode } from "@/lib/players/accessCode";
 import { displayPhone, toE164 } from "@/lib/players/phone";
 import { codeEmailSubject, codeMessage, codesCsv, mailtoLink, whatsAppLink } from "@/lib/players/share";
-import { CopyButton, CsvTools } from "./CodeTools";
-import { fillCodes, resetCode, savePlayerContact } from "./actions";
+import { CopyButton, CsvTools, SendCodeButtons } from "./CodeTools";
+import { fillCodes, resetCode, savePlayerContact, sendCode } from "./actions";
+import { STATUS_LABEL, type DeliveryStatus } from "@/lib/messaging/status";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ interface PlayerRow {
   access_code: string | null;
   phone: string | null;
   email: string | null;
+  player_profile_id: string | null;
 }
 
 /**
@@ -44,13 +46,34 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
 
   const [{ data: teamData }, { data: playerData }] = await Promise.all([
     db().from("teams").select("id, team_name, nation_code, iso2, phone, seed_number").eq("tournament_id", id).order("team_name"),
-    db().from("players").select("id, team_id, full_name, player_order, access_code, phone, email").eq("tournament_id", id).order("player_order"),
+    db().from("players").select("id, team_id, full_name, player_order, access_code, phone, email, player_profile_id").eq("tournament_id", id).order("player_order"),
   ]);
   const teams = (teamData ?? []) as TeamRow[];
   const players = (playerData ?? []) as PlayerRow[];
   const { data: claimData } = players.length
     ? await db().from("player_claims").select("player_id, created_at").in("player_id", players.map((p) => p.id))
     : { data: [] };
+  // Profile contacts (fallback for Send code) and the last code message each player got per channel.
+  const profileIds = [...new Set(players.map((p) => p.player_profile_id).filter((x): x is string => !!x))];
+  const [{ data: profData }, { data: sentData }] = await Promise.all([
+    profileIds.length ? db().from("player_profiles").select("id, mobile_normalized, email").in("id", profileIds) : Promise.resolve({ data: [] }),
+    players.length
+      ? db()
+          .from("message_deliveries")
+          .select("recipient_id, channel, status, error_code, error_reason, created_at")
+          .eq("recipient_kind", "player")
+          .in("recipient_id", players.map((p) => p.id))
+          .in("purpose", ["access_code", "access_codes"])
+          .order("created_at", { ascending: false })
+          .limit(2000)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const profileOf = new Map(((profData ?? []) as { id: string; mobile_normalized: string | null; email: string | null }[]).map((p) => [p.id, p]));
+  const lastSent = new Map<string, { status: string; error_code: string | null; error_reason: string | null; created_at: string }>();
+  for (const d of (sentData ?? []) as { recipient_id: string; channel: string; status: string; error_code: string | null; error_reason: string | null; created_at: string }[]) {
+    const k = `${d.recipient_id}:${d.channel}`;
+    if (!lastSent.has(k)) lastSent.set(k, d);
+  }
   const linkedAt = new Map(((claimData ?? []) as { player_id: string; created_at: string }[]).map((c) => [c.player_id, c.created_at]));
   const sortedTeams = [...teams].sort((a, b) => (a.seed_number ?? 999) - (b.seed_number ?? 999) || a.team_name.localeCompare(b.team_name));
   const missing = players.filter((p) => !p.access_code).length;
@@ -107,6 +130,10 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
                 const code = p.access_code;
                 const message = code ? codeMessage({ playerName: p.full_name, tournamentName: tournament.name, code }) : "";
                 const waTo = p.phone ?? teamPhone;
+                const prof = p.player_profile_id ? profileOf.get(p.player_profile_id) : undefined;
+                const sends = (["email", "whatsapp"] as const)
+                  .map((ch) => ({ ch, d: lastSent.get(`${p.id}:${ch}`) }))
+                  .filter((x): x is { ch: "email" | "whatsapp"; d: NonNullable<typeof x.d> } => !!x.d);
                 const when = linkedAt.get(p.id);
                 return (
                   <div key={p.id} className="space-y-2 rounded-xl border border-border p-3" data-testid="player-code-row">
@@ -155,6 +182,26 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
                         </form>
                       </div>
                     </div>
+                    {code && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SendCodeButtons
+                          tournamentId={id}
+                          playerId={p.id}
+                          canEmail={Boolean(p.email || prof?.email)}
+                          canWhatsApp={Boolean(p.phone || prof?.mobile_normalized || teamPhone)}
+                          action={sendCode}
+                        />
+                        {sends.map(({ ch, d }) => (
+                          <span key={ch} className="text-xs text-muted" title={d.error_reason ?? ""} data-testid="code-send-status">
+                            {ch === "email" ? "Email" : "WhatsApp"}:{" "}
+                            <b className={["failed", "bounced", "complained"].includes(d.status) ? "text-danger" : d.status === "skipped" ? "text-warning" : "text-success"}>
+                              {d.status === "failed" && d.error_code === "131026" ? "Not on WhatsApp" : STATUS_LABEL[d.status as DeliveryStatus] ?? d.status}
+                            </b>{" "}
+                            · {new Date(d.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <form action={savePlayerContact} className="flex flex-wrap items-end gap-2">
                       <input type="hidden" name="tournament_id" value={id} />
                       <input type="hidden" name="player_id" value={p.id} />

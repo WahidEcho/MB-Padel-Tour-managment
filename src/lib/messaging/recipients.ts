@@ -16,6 +16,8 @@ export interface Recipient {
   /** Raw phone as stored; normalised here. */
   phone: string | null;
   vars: Vars;
+  /** Where the email and phone came from (tournament players): player row, profile or team contact. */
+  sources?: { email: "player" | "profile" | null; phone: "player" | "profile" | "team" | null };
   /** Channels this person said no to (player_consents granted = false). */
   optedOut?: Channel[];
 }

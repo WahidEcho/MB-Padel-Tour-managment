@@ -54,7 +54,7 @@ export const PRESETS: Record<"access_codes" | "new_tournament", { title: (t: str
   access_codes: {
     title: () => "Your Move Score player code",
     body: () =>
-      "Hi {first_name},\n\nHere is your personal player code for {tournament}. Open the Move Score app, choose \"I'm a player\" and enter the code to link your matches and profile.\n\nKeep it to yourself.\n\nGet the app: {app_link}",
+      "Hi {first_name},\n\nHere is your personal Move Score player code for {tournament}. Get the app, sign in, open Account, tap Player code and enter it: you'll see your matches, and you can add your photo and phone number.\n\nKeep it to yourself: it links your player profile to your account.\n\nGet the app: {app_link}",
     cta: { label: "Open Move Score", url: "{app_link}" },
   },
   new_tournament: {

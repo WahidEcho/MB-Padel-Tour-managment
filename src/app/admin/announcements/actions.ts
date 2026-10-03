@@ -63,7 +63,9 @@ export interface PreviewResult {
   channels: Partial<Record<Channel, ChannelPreview>>;
   pushDevices: number | null;
   rejectedLines: string[];
-  sample: { name: string; email: string | null; phone: string | null; code: string | null }[];
+  sample: { name: string; email: string | null; phone: string | null; code: string | null; emailFrom: string | null; phoneFrom: string | null }[];
+  /** How many phones / emails came from the player row, the profile and the team contact. */
+  sources: { phone: Record<string, number>; email: Record<string, number> } | null;
   missingMergeFields: string[];
   ready: Partial<Record<Channel, { ok: boolean; why?: string }>>;
   transport: "dry-run" | "live";
@@ -75,7 +77,7 @@ export async function previewAction(raw: ComposeInput): Promise<PreviewResult> {
   try {
     input = clean(raw);
   } catch (err) {
-    return { ok: false, errors: [err instanceof Error ? err.message : String(err)], people: 0, channels: {}, pushDevices: null, rejectedLines: [], sample: [], missingMergeFields: [], ready: {}, transport: transportMode() };
+    return { ok: false, errors: [err instanceof Error ? err.message : String(err)], people: 0, channels: {}, pushDevices: null, rejectedLines: [], sample: [], sources: null, missingMergeFields: [], ready: {}, transport: transportMode() };
   }
   const errors = validateCompose(input, await specFor(input));
   const { recipients, rejected } = await recipientsOf({ audience: input.audience, tournament_id: input.tournamentId });
@@ -97,7 +99,19 @@ export async function previewAction(raw: ComposeInput): Promise<PreviewResult> {
       email: r.email,
       phone: r.phone ? (toE164(r.phone) ? maskPhone(toE164(r.phone)) : `${r.phone} (invalid)`) : null,
       code: r.vars.code ? "•••" + String(r.vars.code).slice(-2) : null,
+      emailFrom: r.sources?.email ?? null,
+      phoneFrom: r.sources?.phone ?? null,
     })),
+    sources: recipients.some((r) => r.sources)
+      ? recipients.reduce(
+          (acc, r) => {
+            if (r.sources?.phone) acc.phone[r.sources.phone] = (acc.phone[r.sources.phone] ?? 0) + 1;
+            if (r.sources?.email) acc.email[r.sources.email] = (acc.email[r.sources.email] ?? 0) + 1;
+            return acc;
+          },
+          { phone: {} as Record<string, number>, email: {} as Record<string, number> },
+        )
+      : null,
     missingMergeFields: [...missing],
     ready: Object.fromEntries(channels.map((c) => [c, channelReady(c)])),
     transport: transportMode(),

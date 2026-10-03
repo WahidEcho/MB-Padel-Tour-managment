@@ -15,7 +15,8 @@
  * plus the same three webhook secrets as the dev server; the script refuses to
  * run otherwise.
  */
-import { randomUUID } from "crypto";
+import { randomInt, randomUUID } from "crypto";
+import { newAccessCode } from "../../src/lib/players/accessCode";
 import { db } from "../../src/lib/supabase";
 import { signSvix } from "../../src/lib/messaging/email";
 import { signMeta } from "../../src/lib/messaging/whatsapp";
@@ -111,9 +112,9 @@ async function main() {
     await db()
       .from("players")
       .insert([
-        { tournament_id: tid, team_id: ta!.id, player_order: 1, full_name: `Omar ${tag}`, player_profile_id: byName.get("Omar"), access_code: `OM${tag}`.toUpperCase() },
-        { tournament_id: tid, team_id: ta!.id, player_order: 2, full_name: `Sara ${tag}`, player_profile_id: byName.get("Sara"), access_code: null },
-        { tournament_id: tid, team_id: tb!.id, player_order: 1, full_name: `Guest ${tag}`, player_profile_id: null, access_code: `GU${tag}`.toUpperCase() },
+        { tournament_id: tid, team_id: ta!.id, player_order: 1, full_name: `Omar ${tag}`, player_profile_id: byName.get("Omar"), access_code: newAccessCode(randomInt), email: `own-omar-${tag}@x.test`, phone: null },
+        { tournament_id: tid, team_id: ta!.id, player_order: 2, full_name: `Sara ${tag}`, player_profile_id: byName.get("Sara"), access_code: null, email: null, phone: null },
+        { tournament_id: tid, team_id: tb!.id, player_order: 1, full_name: `Guest ${tag}`, player_profile_id: null, access_code: newAccessCode(randomInt), email: null, phone: null },
       ]);
 
     // ---- announcement to this tournament's players, email + WhatsApp
@@ -152,6 +153,8 @@ async function main() {
     check(omarWa?.status === "sent" && !!omarWa.provider_message_id?.startsWith("wamid."), "Omar's WhatsApp is sent with a wamid", omarWa?.status);
     check(guestWa?.status === "failed" && guestWa.error_code === "131009", "Guest's bad template parameter failed at send time", guestWa);
     check(saraEmail?.status === "skipped" && saraEmail.error_code === "no_code", "Sara has no code: recorded as not sent", saraEmail?.error_reason);
+    const omarEmailRow = r.find((x) => x.channel === "email" && x.recipient_name.startsWith("Omar"));
+    check(omarEmailRow?.address === `own-omar-${tag}@x.test`, "the player's own email (players.email) wins over the profile's", omarEmailRow?.address);
     const { data: a1 } = await db().from("message_announcements").select("status, recipients_total").eq("id", announcementId).single();
     check((a1 as { status: string }).status === "sent", "announcement is marked sent when nothing is left", a1);
 
