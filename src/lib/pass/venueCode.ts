@@ -61,3 +61,54 @@ export function checkVenueCode(groupSlug: string, code: string, timeZone: string
 export function venueUrl(siteOrigin: string, groupSlug: string, code: string): string {
   return `${siteOrigin.replace(/\/$/, "")}/v/${encodeURIComponent(groupSlug)}?c=${encodeURIComponent(code)}`;
 }
+
+/* ---------- match check-in ----------
+ * The same signed codes, scoped to one match. The court TV shows a code that
+ * rotates every MATCH_WINDOW_SECONDS (?c=); a printed code at the court can't
+ * rotate, so it is fixed per match (?p=) and only the server's check-in window
+ * (src/lib/pass/attendance.ts) bounds when it works.
+ *
+ *   https://<site>/m/<match id>?c=<8 chars>   court TV
+ *   https://<site>/m/<match id>?p=<10 chars>  printed
+ */
+
+export const MATCH_WINDOW_SECONDS = 60;
+/** How far back an old TV code is still recognised, to say "expired" rather than "wrong". */
+const MATCH_EXPIRED_LOOKBACK_WINDOWS = 180;
+
+function letters(input: string, n: number): string {
+  const b = mac(input);
+  let s = "";
+  for (let i = 0; i < n; i++) s += ALPHABET[b[i]! % ALPHABET.length];
+  return s;
+}
+
+const matchWindow = (atMs: number) => Math.floor(atMs / 1000 / MATCH_WINDOW_SECONDS);
+
+export function matchScreenCode(matchId: string, atMs = Date.now()): string {
+  return letters(`match:${matchId}:${matchWindow(atMs)}`, 8);
+}
+
+export function matchPrintedCode(matchId: string): string {
+  return letters(`match:${matchId}:print`, 10);
+}
+
+export type MatchCodeCheck = { ok: true; via: "screen" | "printed" } | { ok: false; reason: "bad_code" | "code_expired" };
+
+/** Accepts the TV's current and previous code, or the printed one. */
+export function checkMatchCode(matchId: string, code: { c?: string | null; p?: string | null }, atMs = Date.now()): MatchCodeCheck {
+  const p = String(code.p ?? "").trim().toUpperCase();
+  if (p) return p === matchPrintedCode(matchId) ? { ok: true, via: "printed" } : { ok: false, reason: "bad_code" };
+  const c = String(code.c ?? "").trim().toUpperCase();
+  if (!c) return { ok: false, reason: "bad_code" };
+  const w = matchWindow(atMs);
+  const at = (k: number) => letters(`match:${matchId}:${w - k}`, 8);
+  if (c === at(0) || c === at(1)) return { ok: true, via: "screen" };
+  for (let k = 2; k <= MATCH_EXPIRED_LOOKBACK_WINDOWS; k++) if (c === at(k)) return { ok: false, reason: "code_expired" };
+  return { ok: false, reason: "bad_code" };
+}
+
+export function matchCheckinUrl(siteOrigin: string, matchId: string, code: { c: string } | { p: string }): string {
+  const [k, v] = "c" in code ? ["c", code.c] : ["p", code.p];
+  return `${siteOrigin.replace(/\/$/, "")}/m/${encodeURIComponent(matchId)}?${k}=${encodeURIComponent(v)}`;
+}

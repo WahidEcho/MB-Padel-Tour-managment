@@ -54,7 +54,20 @@ export async function walletData(passId: string): Promise<WalletPassData | null>
   };
 }
 
-const editionLabel = (d: WalletPassData) => (d.edition === "staff" ? (d.staffRole ?? "staff").toUpperCase() : d.onsite ? "ON-SITE" : "SPECTATOR");
+// The pass is the attendee's: never a staff role, whatever an old row says.
+const editionLabel = (d: WalletPassData) => (d.onsite ? "ON-SITE" : "SPECTATOR");
+
+/** Whether this server can sign Apple Wallet passes (the certificates are set). */
+export function appleWalletConfigured(): boolean {
+  const { APPLE_PASS_CERT, APPLE_PASS_KEY, APPLE_WWDR_CERT, APPLE_PASS_TYPE_ID, APPLE_TEAM_ID } = process.env;
+  return Boolean(APPLE_PASS_CERT && APPLE_PASS_KEY && APPLE_WWDR_CERT && APPLE_PASS_TYPE_ID && APPLE_TEAM_ID);
+}
+
+/** Whether this server can make Google Wallet save links (the issuer account is set). */
+export function googleWalletConfigured(): boolean {
+  const { GOOGLE_WALLET_ISSUER_ID, GOOGLE_WALLET_SA_EMAIL, GOOGLE_WALLET_SA_KEY } = process.env;
+  return Boolean(GOOGLE_WALLET_ISSUER_ID && GOOGLE_WALLET_SA_EMAIL && GOOGLE_WALLET_SA_KEY);
+}
 
 export async function applePass(d: WalletPassData): Promise<Buffer | null> {
   const { APPLE_PASS_CERT, APPLE_PASS_KEY, APPLE_WWDR_CERT, APPLE_PASS_TYPE_ID, APPLE_TEAM_ID } = process.env;

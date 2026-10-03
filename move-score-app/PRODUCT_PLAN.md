@@ -119,7 +119,7 @@ generated from the seeds and contrast-checked when the admin saves it; live, war
 
 | # | Feature | What it is |
 |---|---|---|
-| 1 | Event pass | Collectible pass per event. Scanning the QR at the venue upgrades it to the foil "On-site" edition and stamps each day. Staff and referees get an accreditation edition from their access code. Apple / Google Wallet |
+| 1 | Event pass | Collectible pass per event. Scanning the QR at the venue upgrades it to the foil "On-site" edition and stamps each day. Attendees only (Oct 2026: no staff edition; staff access stays in the referee console). Scanning a match's check-in code (court TV corner or printed) records the match and adds points. Apple Wallet badge (Google Wallet hidden for now) |
 | 2 | Share cards | Finished rubber or tie → branded 9:16 image for Stories, plus the share sheet |
 | 3 | Lock-screen live score | iPhone Live Activity and Dynamic Island for a followed rubber. Android's version needs Android 16; after the event |
 | 4 | Takeovers | On the live match screen, share button on the last frame |
@@ -216,10 +216,23 @@ Not chosen: predict-the-tie. Parked: home-screen widget, "I'm at…" photo stick
   switched off and is finished after the event. The widget target is in the binary either way.
 
 ### 5.7 Pass, stamps, pins, cheers
-- Tables: `event_passes`, `pass_stamps`, `pass_pins`, `tie_cheers`.
+- Tables: `event_passes`, `pass_stamps`, `pass_pins`, `tie_cheers`, `pass_attendances`, `pass_points` (0019).
+- The pass is the attendee's only. Personal calls never carry the referee console's staff token (the bug that
+  turned a tester's pass into "Referee · All courts"); the server ignores it and 0019 reset the old rows.
+- Match check-in: `https://<site>/m/<match>?c=<8>` (court TV corner, rotates every 60 s, current + previous
+  accepted) or `?p=<10>` (printed per match from the admin ties page, `/qr/match/<id>`); HMACs of
+  VENUE_QR_SECRET like the venue code. `POST /api/mobile/v1/matches/{id}/checkin` (contract `MCheckInReply`):
+  once per pass per match, open from 20 min before the match's time (or "ready") until 30 min after it ends,
+  30 tries per phone per 10 min; it also unlocks on-site and stamps the day. Points (`src/lib/pass/attendance.ts`):
+  10 a match, +10 at a final, +5 at a deciding rubber. Known limit: the TV code is on a public page, so it
+  proves "looking at the court screen", not presence; fine for a light mini-game.
+- Pass card: width = screen − 2 × 18 gutters (max 420 phone / 460 tablet), height × 1.58, prototype layout scaled.
 - Venue QR: a link whose code rotates every 30–60 s, shown on a gate tablet page
   (`src/app/venue/[event]/qr/page.tsx`); a photo of it posted online stops working. Printed posters use a daily staff-set code.
 - Wallet passes are generated on the server and opened by link, so they can arrive after the store build.
+  The "Add to Apple Wallet" badge shows on Apple devices when flag `apple_wallet` is on (default on);
+  config `walletReady.apple` says whether certificates are set. The app HEADs the route, then hands the URL to
+  Safari, which shows the Add Pass sheet; "not set up" gets a calm note. Google: `GOOGLE_WALLET_BUTTON = false`.
 - Every native module any later feature needs is in the first store binary: Skia, Reanimated, Gesture
   Handler, camera, haptics, view-shot, sharing, Stories share, notifications, Apple and Google sign-in,
   SQLite, SecureStore, keep-awake, widgets, updates, Sentry. Features then switch on by app update and server flag.
@@ -275,7 +288,7 @@ Nothing is left unassigned. "Update" means it can arrive by app update without a
 | Referee | Staff code login, match picker, full tennis and padel console, offline queue, lease and handoff, sunlight (light) theme, web fallback drill | Store build |
 | Player layer | Player code claim and My Matches built, **switched off** | Store build, flag off |
 | Themes | Light and dark everywhere; Reduce Motion; large text; screen-reader labels | Store build |
-| Show-off 1 | Event pass: pack-opening, tilt foil, venue QR unlock, day stamps; staff / referee accreditation edition | Store build |
+| Show-off 1 | Event pass: pack-opening, tilt foil, venue QR unlock, day stamps, match check-in points | Store build |
 | Show-off 2 | Share cards for rubbers and ties: Instagram Stories + share sheet | Store build |
 | Show-off 3 | iPhone lock-screen live score and Dynamic Island | Store build, on only if the 12–13 Oct spike passes |
 | Show-off 4 | Big-moment takeovers | Update |
@@ -382,7 +395,7 @@ unchanged except for the additive database migration (below).
 | Public API | discover, bundle, live, standings, match (with engine-computed set / match / break point), timeline, ties, cheers, config — CDN-cacheable | `src/app/api/mobile/v1`, `src/lib/mobile/*` | E2E: shapes, no private fields, cache headers |
 | Alerts | Outbox hooks in scheduling, line-ups, match start, finish, tie result, announcements; one alert per phone per event; Cairo-time wording; drain route + database cron template | `src/lib/notify/*`, `supabase/ops/notification_cron.sql` | E2E: outbox rows, one-phone dedupe, preference filtering |
 | Lock screen | Server sender (direct Apple push) and the app's Live Activity | `src/lib/notify/apns.ts`, `move-score-app/src/live` | Not on a device yet (flag `live_activity` off) |
-| Pass | Pass, serials, staff edition, rotating venue code + daily staff code, stamps, pins, Wallet generators, gate tablet page | `src/lib/pass/*`, `/venue/[slug]/qr`, `/v/[slug]` | E2E: unlock, stamp, wrong code, staff edition. Wallet needs certificates |
+| Pass | Pass (attendees only), serials, rotating venue code + daily staff code, stamps, pins, match check-in codes and points, Wallet generators, gate tablet page | `src/lib/pass/*`, `/venue/[slug]/qr`, `/v/[slug]` | E2E: unlock, stamp, wrong code, never a staff pass, check-in (TV, printed, expired, too early, closed, final + deciding = 25). Wallet needs certificates |
 | Web | Public Ties page with nations and flags; public pages cached (4–10 s) instead of rendered per visit; region pinned to Dublin; admin App tab (venue, dates, time zone, skin, event group + featured, announcements, player codes); match times entered in event time | `src/app/t/[slug]/(public)`, `src/app/admin/tournaments/[id]/app`, `vercel.json` | Build, lint, 624 tests, tennis-week E2E |
 | App | Expo SDK 57: Discover, hub (ties / groups / nations), tie (crowd meter), live match (rolling score, serve ball, stage light swing, momentum, game feed, takeovers), matches, players, player page, following, pass (pack opening, tilt foil, QR, stamps, pins), venue scanner, share cards (Stories + share sheet), account (alerts, theme, motion, sign-in, deletion), referee (code, picker, full console on SQLite with lease handoff, sunlight mode, hand-over) | `move-score-app/src` | Type-check clean; web build driven headlessly: browse, open pass, live match, referee signed in and scored 3 points that reached the server with 0 engine mismatches |
 | Shared logic | Console actions shared with the web console's behaviour | `src/lib/scoring/console.ts` | Unit tests |

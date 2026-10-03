@@ -10,7 +10,8 @@
 export const dynamic = "force-static";
 
 const APP_ID = "33C2U7Q76F.org.mbeg.movescore";
-const PATHS = ["/v/*"];
+// /v/<event>: the venue code. /m/<match>: a match's check-in code (court TV or printed).
+const PATHS = ["/v/*", "/m/*"];
 
 const AASA = {
   applinks: {
@@ -20,7 +21,7 @@ const AASA = {
       {
         // iOS 13 and later.
         appIDs: [APP_ID],
-        components: PATHS.map((p) => ({ "/": p, comment: "Venue code: opens the event pass" })),
+        components: PATHS.map((p) => ({ "/": p, comment: "Venue and match codes: open the event pass" })),
         // iOS 12 and earlier.
         appID: APP_ID,
         paths: PATHS,
