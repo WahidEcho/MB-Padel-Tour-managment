@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 const PADEL_TABS = [
   ["", "Dashboard"],
   ["/teams", "Teams"],
+  ["/players", "Player codes"],
   ["/groups", "Groups"],
   ["/matches", "Matches"],
   ["/leaderboard", "Leaderboard"],
@@ -20,6 +21,7 @@ const PADEL_TABS = [
 const TIE_TABS = [
   ["", "Dashboard"],
   ["/nations", "Nations"],
+  ["/players", "Player codes"],
   ["/groups", "Groups"],
   ["/ties", "Ties"],
   ["/leaderboard", "Leaderboard"],
@@ -34,6 +36,7 @@ const TIE_TABS = [
 const CHESS_TABS = [
   ["", "Dashboard"],
   ["/teams", "Players"],
+  ["/players", "Player codes"],
   ["/bracket", "Bracket"],
   ["/matches", "Games"],
   ["/screens", "Screens"],

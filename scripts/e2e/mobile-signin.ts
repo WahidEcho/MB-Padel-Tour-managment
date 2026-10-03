@@ -98,33 +98,31 @@ async function main() {
     const back = readAuthRedirect(trip.landed ?? "");
     check(!!back.code && !back.error, "Supabase sends the sheet back to movescore://auth/callback with a code", trip.landed);
 
-    const wrong = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: back.code, codeVerifier: pkce().verifier, ageConfirmed: true } });
+    const wrong = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: back.code, codeVerifier: pkce().verifier } });
     check(wrong.status === 401, "The code is useless with another phone's verifier", wrong.status);
 
     const b = pkce();
     const trip2 = await browse(startUrl("google", REDIRECT, b.challenge));
     const code2 = readAuthRedirect(trip2.landed ?? "").code;
-    const noAge = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: code2, codeVerifier: b.verifier } });
-    check(noAge.status === 400, "Without the 16+ confirmation there is no account", noAge.status);
-    const apple = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "apple", code: code2, codeVerifier: b.verifier, ageConfirmed: true } });
+    const apple = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "apple", code: code2, codeVerifier: b.verifier } });
     check(apple.status === 400, "Apple does not take the browser-code path", apple.status);
-    const ok = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: code2, codeVerifier: b.verifier, ageConfirmed: true } });
+    const ok = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: code2, codeVerifier: b.verifier } });
     userId = ok.json?.userId ?? null;
     check(
       ok.status === 200 && !!ok.json?.accessToken && !!ok.json?.refreshToken && ok.json?.provider === "google",
-      "Code + the right verifier make a Move Score session",
+      "Code + the right verifier make a Move Score session, with no age question",
       { status: ok.status, error: ok.json?.error },
     );
     check(!!ok.json?.displayName && /@/.test(ok.json?.email ?? "") && /^https:\/\//.test(ok.json?.avatarUrl ?? ""), "The session carries name, email and avatar for the account screen", {
       name: ok.json?.displayName,
       email: ok.json?.email,
     });
-    const replay = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: code2, codeVerifier: b.verifier, ageConfirmed: true } });
+    const replay = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code: code2, codeVerifier: b.verifier } });
     check(replay.status === 401, "The same code cannot be used twice", replay.status);
 
     const bearer = { Authorization: `Bearer ${ok.json?.accessToken}`, "x-install-token": installToken };
     const { data: row } = await db().from("app_users").select("provider, display_name, age_confirmed_at").eq("auth_user_id", userId!).maybeSingle();
-    check(row?.provider === "google" && !!row?.display_name && !!row?.age_confirmed_at, "The account row is written like Apple's", row);
+    check(row?.provider === "google" && !!row?.display_name && !row?.age_confirmed_at, "The account row is written like Apple's, with nothing about age", row);
     const me = await call("GET", "/api/mobile/v1/me/account", { headers: bearer });
     check(me.status === 200 && me.json?.user?.id === userId, "The access token is accepted on personal routes", me.json?.user);
 

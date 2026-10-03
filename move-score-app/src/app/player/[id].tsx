@@ -13,11 +13,16 @@ import { MatchMini } from "../../ui/Cards";
 import { OfflineState, StaleBanner, failedOffline } from "../../ui/Offline";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { isNation, openTeam, openTournament } from "../../nav/links";
+import { useMyPlayer } from "../../player/me";
+import { PlayerAvatar } from "../../player/ui";
 
 function PlayerScreen({ id, slug }: { id: string; slug: string }) {
   const b = useBundle(slug);
   const l = useLive(slug, 10_000);
   const following = useFollowing("player", id);
+  // A player looking at their own page sees their own photo, whatever the event shows everyone else.
+  const me = useMyPlayer().data;
+  const ownPhoto = me?.entries.some((e) => e.playerId === id) ? me.photoUrl : null;
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
   const p = v?.player(id);
   if (!v || !p || !b.data) {
@@ -61,7 +66,7 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
       <BackHeader label="Players" fallback="/players" right={<ToggleButton compact on={following} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("player", id, b.data!.tournament.id)} />} />
       <StaleBanner queries={[l]} live />
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center", marginTop: 4 }}>
-        <Flag iso2={p.team.iso2} code={p.team.code} size={40} />
+        {ownPhoto || p.photoUrl ? <PlayerAvatar player={{ name: p.name, photoUrl: ownPhoto ?? p.photoUrl }} size={56} /> : <Flag iso2={p.team.iso2} code={p.team.code} size={40} />}
         <View style={{ flex: 1 }}>
           <Display size={24}>{p.name}</Display>
           <Body tone="ink2" size={13}>{`${p.team.name} · ${b.data.tournament.name}`}</Body>

@@ -14,9 +14,10 @@ import { GoogleButton } from "../auth/GoogleButton";
 import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
 import { Segments } from "../ui/Segments";
-import { Body, Display, Eyebrow } from "../ui/Text";
+import { Body, Display } from "../ui/Text";
 import { Button, Card, SectionHeader } from "../ui/Bits";
 import { appVersion, config } from "../config";
+import { PlayerSection } from "../player/PlayerSection";
 
 // Where the legal pages live when the server's config has not loaded yet.
 const SITE = "https://mb-tournament.vercel.app/movescore";
@@ -40,7 +41,6 @@ export default function Account() {
   const prefs = alertPrefs.use((s) => s.prefs);
   const notice = alertsNotice(alertState);
   const [apple, setApple] = useState(false);
-  const [ageOk, setAgeOk] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
   // Google signs in through Supabase in the in-app browser sheet; the server says
@@ -157,11 +157,7 @@ export default function Account() {
           ) : (
             <Card style={{ gap: 12 }}>
               <Body tone="ink2" size={13}>Optional. Everything works without an account; signing in keeps your follows and pass when you change phones.</Body>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <Switch value={ageOk} onValueChange={setAgeOk} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel="I am 16 or older" />
-                <Body size={14} style={{ flex: 1 }}>I am 16 or older</Body>
-              </View>
-              {apple && ageOk && (
+              {apple && (
                 <AppleAuthentication.AppleAuthenticationButton
                   buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
                   buttonStyle={t.scheme === "dark" ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
@@ -170,7 +166,7 @@ export default function Account() {
                   onPress={() => void run(signInWithApple)}
                 />
               )}
-              {ageOk && googleReady && (
+              {googleReady && (
                 <GoogleButton
                   busy={googleBusy}
                   onPress={() => {
@@ -179,12 +175,13 @@ export default function Account() {
                   }}
                 />
               )}
-              {!ageOk && <Eyebrow tone="ink3">Under 16? Use Move Score without an account.</Eyebrow>}
             </Card>
           )}
         </>
       )}
       {msg ? <Body tone="live" size={13} style={{ marginTop: 10 }}>{msg}</Body> : null}
+
+      {cfg.data?.flags.player_claim !== false && <PlayerSection />}
 
       <SectionHeader title="Staff" />
       <Card onPress={() => router.push("/referee")} style={{ gap: 4 }}>
