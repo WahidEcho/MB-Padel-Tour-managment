@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { deviceHandle, mintInstallToken, shownDeviceId, verifyInstallToken } from "./identity";
+import { deviceHandle, isViewersDevice, mintInstallToken, presentedDeviceId, shownDeviceId, verifyInstallToken } from "./identity";
 
 const SECRET = "test-secret-for-install-tokens";
 const ID = "ios-6f1c1a52-3f43-4f0e-9a51-1d2b6c7e8f90";
@@ -68,5 +68,32 @@ describe("shownDeviceId", () => {
     expect(deviceHandle(ID)).toBe(deviceHandle(ID));
     expect(deviceHandle(ID)).not.toBe(deviceHandle(browser));
     expect(deviceHandle(ID)).not.toContain(ID.slice(4, 12));
+  });
+});
+
+describe("a scoring console recognises its own lease", () => {
+  it("by the device id it scores with, with no install token (the 'it takes control from me' bug)", () => {
+    // A phone whose install token is missing or stale: before, its own lease came back as a handle.
+    const viewer = { installationId: null, deviceId: ID, staff: true };
+    expect(isViewersDevice(ID, viewer)).toBe(true);
+    expect(shownDeviceId(ID, viewer)).toBe(ID);
+  });
+
+  it("by its install token, as before", () => {
+    expect(isViewersDevice(ID, { installationId: ID, staff: false })).toBe(true);
+  });
+
+  it("never as someone else's, and another phone's id stays a handle", () => {
+    const viewer = { installationId: null, deviceId: "android-other-install-id", staff: true };
+    expect(isViewersDevice(ID, viewer)).toBe(false);
+    expect(shownDeviceId(ID, viewer)).toBe(deviceHandle(ID));
+    expect(isViewersDevice(ID, { installationId: null, deviceId: null, staff: true })).toBe(false);
+    expect(isViewersDevice(ID, { installationId: null, deviceId: "", staff: true })).toBe(false);
+  });
+
+  it("reads X-Device-Id, bounded", () => {
+    expect(presentedDeviceId(new Headers({ "x-device-id": ` ${ID} ` }))).toBe(ID);
+    expect(presentedDeviceId(new Headers())).toBeNull();
+    expect(presentedDeviceId(new Headers({ "x-device-id": "x".repeat(101) }))).toBeNull();
   });
 });

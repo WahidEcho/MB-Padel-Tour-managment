@@ -23,7 +23,7 @@ interface Row {
   a: { name: string; code: string | null; iso2: string | null; checkedIn: boolean };
   b: { name: string; code: string | null; iso2: string | null; checkedIn: boolean };
   lineupsMissing: boolean;
-  heldBy: { deviceId: string; deviceLabel: string | null } | null;
+  heldBy: { deviceId: string; deviceLabel: string | null; heldByYou?: boolean } | null;
 }
 
 export default function Picker() {
@@ -32,7 +32,7 @@ export default function Picker() {
   const [f, setF] = useState<"ready" | "live" | "all" | "done">("ready");
   const q = useQuery({
     queryKey: ["ref-matches", tournamentId],
-    queryFn: () => api<{ tournament: { name: string; timezone: string | null }; matches: Row[] }>(`/api/mobile/v1/referee/tournaments/${tournamentId}/matches`, { who: "staff" }),
+    queryFn: () => api<{ tournament: { name: string; timezone: string | null }; matches: Row[] }>(`/api/mobile/v1/referee/tournaments/${tournamentId}/matches`, { who: "staff", headers: me ? { "X-Device-Id": me } : undefined }),
     refetchInterval: 10_000,
   });
   const tz = q.data?.tournament.timezone ?? "Africa/Cairo";
@@ -47,7 +47,7 @@ export default function Picker() {
       <Segments value={f} onChange={setF} options={[{ key: "ready", label: "To score" }, { key: "live", label: "Live" }, { key: "all", label: "All" }, { key: "done", label: "Done" }]} />
       <View style={{ gap: 8 }}>
         {rows.map((m) => {
-          const mine = m.heldBy?.deviceId === me;
+          const mine = Boolean(m.heldBy && (m.heldBy.heldByYou || m.heldBy.deviceId === me));
           return (
             <Card key={m.id} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: m.id } })} style={{ gap: 8 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>

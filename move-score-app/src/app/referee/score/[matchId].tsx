@@ -311,7 +311,14 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       {/* Control: who is scoring this match. A finished match has nothing to hand over (as on the web). */}
       {readOnly && lease.ready && !finished && (
         <Card style={{ marginTop: 10, gap: 8, borderColor: t.warning, borderWidth: 1 }}>
-          <Body weight="semi">{lease.heldByOther ? `Read-only: ${lease.holderLabel} is scoring` : "Not scoring yet"}</Body>
+          <Body weight="semi">{lease.lostTo ? `Control moved to ${lease.lostTo}` : lease.heldByOther ? `Read-only: ${lease.holderLabel} is scoring` : "Not scoring yet"}</Body>
+          {lease.lostTo ? (
+            <Body tone="ink2" size={12.5}>
+              {pendingN > 0
+                ? `This phone is read-only now. Unsent points on it: ${pendingN}. They are kept; ask for control to send them.`
+                : "This phone is read-only now. Ask for control to score again."}
+            </Body>
+          ) : null}
           {lease.heldByOther ? (
             <Button label={lease.myRequestPending ? "Waiting for a reply… ask again" : "Request control"} kind="ghost" onPress={() => void lease.requestControl()} />
           ) : (

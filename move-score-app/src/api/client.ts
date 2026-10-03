@@ -76,7 +76,7 @@ async function freshUserToken(): Promise<string> {
   return refreshing;
 }
 
-export async function api<T>(path: string, opts: { method?: string; body?: unknown; who?: Who; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+export async function api<T>(path: string, opts: { method?: string; body?: unknown; who?: Who; timeoutMs?: number; signal?: AbortSignal; headers?: Record<string, string> } = {}): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 12_000);
   opts.signal?.addEventListener("abort", () => ctrl.abort());
@@ -85,7 +85,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     try {
       res = await fetch(`${config.apiBaseUrl}${path}`, {
         method: opts.method ?? (opts.body ? "POST" : "GET"),
-        headers: { ...(await headersFor(opts.who ?? "public", path)), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+        headers: { ...(await headersFor(opts.who ?? "public", path)), ...(opts.headers ?? {}), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         signal: ctrl.signal,
       });
