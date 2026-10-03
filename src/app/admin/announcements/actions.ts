@@ -7,7 +7,7 @@ import { db } from "@/lib/supabase";
 import { parseAudience } from "@/lib/messaging/audience";
 import { validateCompose, type ComposeInput } from "@/lib/messaging/compose";
 import { whatsappTemplates } from "@/lib/messaging/data";
-import { maskPhone } from "@/lib/messaging/phone";
+import { maskPhone, toE164 } from "@/lib/messaging/phone";
 import { drainMessages, finishIfDone, recipientsOf, retryFailed, sendTestMessage, startAnnouncement, type AnnouncementRow } from "@/lib/messaging/queue";
 import { planDeliveries, type ChannelPreview } from "@/lib/messaging/recipients";
 import { missingFields } from "@/lib/messaging/render";
@@ -95,7 +95,7 @@ export async function previewAction(raw: ComposeInput): Promise<PreviewResult> {
     sample: recipients.slice(0, 6).map((r) => ({
       name: r.name,
       email: r.email,
-      phone: r.phone ? maskPhone(r.phone) : null,
+      phone: r.phone ? (toE164(r.phone) ? maskPhone(toE164(r.phone)) : `${r.phone} (invalid)`) : null,
       code: r.vars.code ? "•••" + String(r.vars.code).slice(-2) : null,
     })),
     missingMergeFields: [...missing],

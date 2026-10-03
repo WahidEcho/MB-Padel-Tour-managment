@@ -22,7 +22,8 @@
     "e2e:tennis-ties": "tsx --env-file=.env.local scripts/e2e/tennis-ties.ts",
     "e2e:mobile-api": "tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts",
     "e2e:mobile-signin": "tsx --env-file=.env.localdb scripts/e2e/mobile-signin.ts",
-    "localdb:seed-app": "tsx --env-file=.env.localdb scripts/localdb/seed-app-demo.ts"
+    "localdb:seed-app": "tsx --env-file=.env.localdb scripts/localdb/seed-app-demo.ts",
+    "e2e:messaging": "tsx --env-file=.env.e2e-messaging scripts/e2e/messaging.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
