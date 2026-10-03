@@ -5,9 +5,10 @@ import { appleRefreshToken, authClient, sealToken } from "@/lib/auth/users";
 import { readJson } from "@/lib/mobile/http";
 
 /**
- * Sign in with Apple or Google. Accounts are for people aged 16 and over (the
- * app asks first); younger fans use the app as a guest, which keeps every feature
- * except syncing across phones.
+ * Sign in with Apple or Google. Optional: guests keep every feature except
+ * syncing across phones and linking a player code. There is no age question (it
+ * was dropped with player codes, which junior players use); an older build's
+ * `ageConfirmed` field is ignored, and nothing about age is stored.
  */
 export async function POST(request: Request) {
   const rl = await checkRateLimit({ key: `signin:${clientIpFrom(request.headers)}`, limit: 60, windowSeconds: 600 });
@@ -17,10 +18,9 @@ export async function POST(request: Request) {
     idToken?: string;
     nonce?: string;
     authorizationCode?: string;
-    ageConfirmed?: boolean;
     displayName?: string;
   }>(request);
-  if (body?.ageConfirmed !== true) return NextResponse.json({ error: "Accounts are for people aged 16 and over." }, { status: 400 });
+  if (!body) return NextResponse.json({ error: "provider must be apple or google" }, { status: 400 });
   if (body.provider !== "apple" && body.provider !== "google") return NextResponse.json({ error: "provider must be apple or google" }, { status: 400 });
   if (!body.idToken) return NextResponse.json({ error: "idToken required" }, { status: 400 });
   // Apple tokens carry the hash of a one-time nonce the phone chose, so a token lifted
@@ -41,7 +41,6 @@ export async function POST(request: Request) {
   const row: Record<string, unknown> = {
     auth_user_id: data.user.id,
     provider: body.provider,
-    age_confirmed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
   if (displayName) row.display_name = displayName;

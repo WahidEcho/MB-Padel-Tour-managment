@@ -1249,6 +1249,9 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
         player_order: p.player_order,
         full_name: p.full_name,
         player_profile_id: p.player_profile_id ?? null,
+        // The same person's contact (once migration 0018 added it); the copy gets a code of its own.
+        ...(p.phone !== undefined ? { phone: p.phone } : {}),
+        ...(p.email !== undefined ? { email: p.email } : {}),
         // The framing travels with the photo, or a copied portrait would be
         // re-cropped from the centre and lose the face it was aimed at.
         photo_url: opts.copyPhotos ? p.photo_url : null,

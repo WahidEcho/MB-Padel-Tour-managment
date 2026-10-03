@@ -25,6 +25,10 @@ export interface PublicPlayer {
   portrait_url: string | null;
   focal_x: number;
   focal_y: number;
+  // Present only so a full Player row (private code, phone, email) is not assignable here.
+  access_code?: never;
+  phone?: never;
+  email?: never;
 }
 
 export interface PublicTeam {

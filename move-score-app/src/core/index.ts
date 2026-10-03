@@ -15,3 +15,5 @@ export { DEFAULT_SCORING_CONFIG } from "../../../src/lib/types";
 export type { ScoringConfig, Match, MatchSnapshot, CompletedSet, MatchStatus } from "../../../src/lib/types";
 export * as Console from "../../../src/lib/scoring/console";
 export { OFFENCE_LABELS, PENALTY_LABELS } from "../../../src/lib/scoring/conduct";
+export { normalizeAccessCode, formatAccessCode, isValidAccessCode, ACCESS_CODE_LENGTH } from "../../../src/lib/players/accessCode";
+export { toE164, displayPhone } from "../../../src/lib/players/phone";

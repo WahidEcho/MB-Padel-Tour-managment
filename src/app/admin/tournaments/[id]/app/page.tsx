@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
-import { getTeams, getTournament } from "@/lib/data";
+import { getTournament } from "@/lib/data";
 import { requireRole } from "@/lib/guard";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
-import { deleteAnnouncement, makeClaimCodes, postAnnouncement, saveAppSettings, saveEventGroup } from "./actions";
+import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,19 +28,13 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
   await requireRole(["admin", "manager"], `/admin/tournaments/${id}/app`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
-  const [{ data: groups }, { data: ann }, teams, { data: codesRow }] = await Promise.all([
+  const [{ data: groups }, { data: ann }] = await Promise.all([
     db().from("event_groups").select("*").order("created_at", { ascending: false }),
     db().from("announcements").select("id, title, body, level, published_at, tournament_id").or(`tournament_id.eq.${id}${tournament.event_group_id ? `,event_group_id.eq.${tournament.event_group_id}` : ""}`).order("published_at", { ascending: false }).limit(20),
-    getTeams(id),
-    db().from("platform_settings").select("value_json").eq("key", `claim-codes:${id}`).maybeSingle(),
   ]);
   const allGroups = (groups ?? []) as GroupRow[];
   const group = allGroups.find((g) => g.id === tournament.event_group_id) ?? null;
   const skin = tournament.app_skin ?? {};
-  // Freshly issued player codes are shown once, then forgotten.
-  const issued = (codesRow as { value_json?: { at: number; codes: { player_id: string; code: string }[] } } | null)?.value_json;
-  if (issued) await db().from("platform_settings").delete().eq("key", `claim-codes:${id}`);
-  const playerName = new Map(teams.flatMap((t) => (t.players ?? []).map((p) => [p.id, `${p.full_name} · ${t.nation_code ?? t.team_name}`] as const)));
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -140,26 +134,13 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
         </ul>
       </section>
 
-      <section className="card space-y-3">
+      <section className="card space-y-2">
         <h2 className="font-bold">Player codes</h2>
         <p className="text-sm text-muted">
-          One-time codes that let a player link their account to their profile. Switched off in the app for the Junior Finals; issue
-          codes only for an adult event. Issuing again cancels any unused codes.
+          Every player has a private code that links their app account to their profile, matches, phone and photo. Copy, share on
+          WhatsApp or email, and reset codes on the{" "}
+          <Link className="text-accent underline" href={`/admin/tournaments/${id}/players`}>Player codes</Link> tab.
         </p>
-        <form action={makeClaimCodes}>
-          <input type="hidden" name="tournament_id" value={id} />
-          <ConfirmSubmit className="btn-secondary" message="Issue a new code for every player? Unused codes stop working.">Issue codes for all players</ConfirmSubmit>
-        </form>
-        {issued && (
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-warning">Copy these now. They are not shown again.</p>
-            <ul className="max-h-72 overflow-auto rounded-lg bg-background p-2 font-mono text-xs">
-              {issued.codes.map((c) => (
-                <li key={c.player_id}>{c.code} · {playerName.get(c.player_id) ?? c.player_id}</li>
-              ))}
-            </ul>
-          </div>
-        )}
       </section>
     </div>
   );

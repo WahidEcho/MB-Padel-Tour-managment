@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
 import { router } from "expo-router";
+import { Image } from "expo-image";
 import type { MPlayer, MTeam } from "@core";
 import { useBundle, useLive } from "../../api/queries";
 import { makeView, needsDay, whenIn } from "../../api/model";
@@ -51,6 +52,7 @@ function PlayerList({ slug, query }: { slug: string; query: string }) {
               <Flag iso2={team.iso2} code={team.code} size={60} />
             </View>
             <Num size={15}>{initials(p.name)}</Num>
+            {p.photoUrl ? <Image source={{ uri: p.photoUrl }} style={{ position: "absolute", width: 44, height: 44 }} contentFit="cover" /> : null}
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Body weight="bold" numberOfLines={1}>{p.name}</Body>

@@ -41,7 +41,7 @@ export async function signInWithApple() {
   const name = [c.fullName?.givenName, c.fullName?.familyName].filter(Boolean).join(" ") || undefined;
   await finish(
     await api<SessionReply>("/api/mobile/v1/auth/session", {
-      body: { provider: "apple", idToken: c.identityToken, nonce: raw, authorizationCode: c.authorizationCode, ageConfirmed: true, displayName: name },
+      body: { provider: "apple", idToken: c.identityToken, nonce: raw, authorizationCode: c.authorizationCode, displayName: name },
     }),
   );
 }
@@ -54,7 +54,7 @@ export async function signInWithGoogle() {
   const idToken = (res as { data?: { idToken?: string | null } }).data?.idToken;
   if (!idToken) throw new Error("Google sign-in was cancelled.");
   // No nonce: this library's original API (v16) cannot set one; the server requires it for Apple only.
-  await finish(await api<SessionReply>("/api/mobile/v1/auth/session", { body: { provider: "google", idToken, ageConfirmed: true } }));
+  await finish(await api<SessionReply>("/api/mobile/v1/auth/session", { body: { provider: "google", idToken } }));
 }
 
 export async function signOut() {

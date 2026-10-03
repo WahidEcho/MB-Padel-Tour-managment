@@ -281,6 +281,55 @@ export interface MAlertPrefs {
   major: boolean;
 }
 
+/** One tournament the signed-in player is entered in. */
+export interface MMyPlayerEntry {
+  playerId: string;
+  tournamentId: string;
+  tournamentSlug: string;
+  tournamentName: string;
+  sport: string;
+  /** The tournament's own time zone, for match times. */
+  timezone: string;
+  teamId: string;
+  teamName: string;
+  /** ITF nation code (EGY) at nation events; null otherwise. */
+  nationCode: string | null;
+  iso2: string | null;
+}
+
+/** A match of the signed-in player, with the names a list row needs. */
+export interface MMyMatch extends MMatch {
+  tournamentSlug: string;
+  tournamentName: string;
+  aName: string | null;
+  bName: string | null;
+  /** The player's own side. */
+  mySide: SideKey | null;
+}
+
+/**
+ * The player an account is linked to with a player code (GET /me/player).
+ * Private: carries the player's own phone, never shown to anyone else.
+ */
+export interface MMyPlayer {
+  /** The player row whose code was entered. */
+  playerId: string;
+  name: string;
+  nationCode: string | null;
+  iso2: string | null;
+  teamName: string;
+  /** E.164, e.g. +201001234567. */
+  phone: string | null;
+  photoUrl: string | null;
+  /** Every tournament this person is linked in, newest first. */
+  entries: MMyPlayerEntry[];
+  /** Soonest first; finished matches last. */
+  matches: MMyMatch[];
+}
+
+/** Photo upload limits, shared so the app resizes to what the server accepts. */
+export const PLAYER_PHOTO = { maxBytes: 1_500_000, maxSide: 2048, targetSide: 512, types: ["image/jpeg", "image/png", "image/webp"] } as const;
+
 export const DEFAULT_ALERT_PREFS: MAlertPrefs = {
   scheduled: true,
   starting: true,

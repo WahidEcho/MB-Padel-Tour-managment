@@ -258,7 +258,13 @@ async function main() {
     const { data: sched } = await db().from("notification_events").select("kind, payload, fire_at").eq("tie_id", tie!.id);
     const s = (sched ?? []).find((r) => r.kind === "tie_scheduled" || r.kind === "tie_rescheduled");
     check(Boolean(s) && /15:30/.test(s!.payload.body), "Scheduling the tie queues an alert in Cairo time", s?.payload?.body);
+
+    // ---- player codes (needs the stand-in's sign-in keys: npm run localdb)
+    await playerCodes({ tid, slug: t!.slug, egyId: egy.id, pA, mid, inst });
   } finally {
+    await db().from("tournaments").delete().like("slug", "e2e-codes-%");
+    await db().from("request_counters").delete().like("bucket_key", "pcode:%");
+    await db().from("request_counters").delete().like("bucket_key", "pphoto:%");
     await db().from("tournaments").delete().eq("id", tid);
     await db().from("event_groups").delete().eq("id", group!.id);
     await db().from("push_devices").delete().like("installation_id", "e2e-%");
@@ -266,6 +272,141 @@ async function main() {
   }
   console.log(failed ? `\n${failed} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
   process.exit(failed ? 1 : 0);
+}
+
+/** A signed-in app user, minted by the stand-in (its own key pair, published at the JWKS path). */
+async function userToken(sub: string): Promise<string | null> {
+  const res = await fetch(`${process.env.SUPABASE_URL}/__auth/token`, {
+    method: "POST",
+    body: JSON.stringify({ sub, iss: `${process.env.SUPABASE_URL}/auth/v1` }),
+  }).catch(() => null);
+  if (!res?.ok) return null;
+  return ((await res.json()) as { token: string }).token;
+}
+
+/**
+ * Player codes: every player has one; a signed-in phone claims it and sees the
+ * player's matches; the same person in another tournament comes along (same name
+ * and phone) but a sibling on the parent's phone does not; phone and photo
+ * updates; one account per player; brute force is stopped; an admin reset
+ * unlinks; nothing private reaches public feeds or pages.
+ */
+async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: { id: string }; mid: string; inst: Record<string, string> }) {
+  const userA = randomUUID();
+  const userB = randomUUID();
+  const tokA = await userToken(userA);
+  const tokB = await userToken(userB);
+  if (!tokA || !tokB) {
+    console.log("⚠️  Skipping player codes: this database cannot mint test sign-ins (run against npm run localdb).");
+    return;
+  }
+  const asA = { ...ctx.inst, authorization: `Bearer ${tokA}` };
+  const asB = { authorization: `Bearer ${tokB}` };
+  const { ACCESS_CODE_ALPHABET, formatAccessCode, isValidAccessCode } = await import("../../src/lib/players/accessCode");
+  const { resetPlayerCode } = await import("../../src/lib/players/claims");
+
+  await db().from("players").update({ phone: "+201001234567", email: "adam@example.com" }).eq("id", ctx.pA.id);
+  const { data: row } = await db().from("players").select("access_code").eq("id", ctx.pA.id).single();
+  const code = row!.access_code as string;
+  check(isValidAccessCode(code), "A new player gets an 8-character code by default", code);
+
+  // The same Adam in last year's event (same name and phone), and his brother on the same phone.
+  const tag2 = `e2e-codes-${randomUUID().slice(0, 6)}`;
+  const { data: t2 } = await db().from("tournaments").insert({ name: `E2E Codes ${tag2}`, slug: tag2, sport: "tennis", kind: "tournament", status: "completed" }).select("*").single();
+  const { data: team2 } = await db().from("teams").insert({ tournament_id: t2!.id, team_name: "Egypt", nation_code: "EGY", iso2: "eg" }).select("*").single();
+  const { data: p2 } = await db()
+    .from("players")
+    .insert([
+      { tournament_id: t2!.id, team_id: team2!.id, full_name: "adam  hassan", player_order: 1, phone: "+201001234567" },
+      { tournament_id: t2!.id, team_id: team2!.id, full_name: "Omar Hassan", player_order: 2, phone: "+201001234567" },
+    ])
+    .select("*");
+  const adam2 = p2!.find((p) => p.player_order === 1)!;
+  const omar = p2!.find((p) => p.player_order === 2)!;
+  check(adam2.access_code !== code && isValidAccessCode(adam2.access_code), "Each tournament's row has its own code");
+
+  // Nothing private in public feeds or pages.
+  const bundle = await call("GET", `/api/mobile/v1/t/${ctx.slug}/bundle`);
+  const pub = JSON.stringify(bundle.json);
+  check(!pub.includes(code) && !pub.includes("+201001234567") && !pub.includes("adam@example.com"), "The app bundle carries no player code, phone or email");
+  const page = await fetch(`${BASE_URL}/t/${ctx.slug}`).then((r) => r.text());
+  check(!page.includes(code) && !page.includes("201001234567"), "The public tournament page carries no player code or phone");
+
+  // Claim.
+  const guest = await call("POST", "/api/mobile/v1/me/player/claim", { headers: ctx.inst, body: { code } });
+  check(guest.status === 401, "A guest phone is asked to sign in first", guest.status);
+  const wrongCode = [...code].map((c) => (c === "2" ? "3" : "2")).join("");
+  const wrong = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asA, body: { code: wrongCode } });
+  check(wrong.status === 400 && /didn't work/.test(wrong.json?.error), "A wrong code gets the generic answer", wrong.json?.error);
+  const typed = formatAccessCode(code).toLowerCase();
+  const started = Date.now();
+  const claim = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asA, body: { code: `Your code: ${typed}` } });
+  check(claim.status === 200 && claim.json.player.name === "Adam Hassan", "The code, pasted in lower case inside a message, links Adam", claim.json?.player?.name ?? claim.json);
+  check(Date.now() - started >= 340, "The claim answer takes its fixed minimum time");
+  check(/no-store/.test(claim.cache), "The profile is never cached", claim.cache);
+  const entries = (claim.json?.player?.entries ?? []) as { playerId: string; timezone: string }[];
+  check(entries.length === 2 && entries.some((e) => e.playerId === adam2.id) && !entries.some((e) => e.playerId === omar.id), "Adam's row in the other tournament is linked; his brother on the same phone is not", entries.map((e) => e.playerId));
+  check(claim.json?.linked === 2, "The claim reports two linked rows", claim.json?.linked);
+  const rubber = (claim.json?.player?.matches ?? []).find((m: { id: string }) => m.id === ctx.mid);
+  check(rubber?.aName === "Egypt" && rubber?.mySide === "A" && rubber?.tournamentSlug === ctx.slug, "His matches include the rubber, with names and his side", rubber && { a: rubber.aName, side: rubber.mySide });
+  check(claim.json?.player?.phone === "+201001234567" && claim.json?.player?.iso2 === "eg", "He sees his phone and nation");
+  const again = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asA, body: { code } });
+  check(again.status === 200, "Entering the same code again is harmless");
+
+  // Profile, phone, photo.
+  const me = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
+  check(me.status === 200 && me.json.player.playerId === ctx.pA.id, "GET /me/player returns the linked player");
+  const noUser = await call("GET", "/api/mobile/v1/me/player", { headers: ctx.inst });
+  check(noUser.status === 401, "GET /me/player needs a signed-in account");
+  const phone = await call("PATCH", "/api/mobile/v1/me/player", { headers: asA, body: { phone: "0100 765 4321" } });
+  check(phone.status === 200 && phone.json.player.phone === "+201007654321", "His phone is saved in E.164", phone.json?.player?.phone);
+  const { data: both } = await db().from("players").select("phone").in("id", [ctx.pA.id, adam2.id]);
+  check((both ?? []).every((r) => r.phone === "+201007654321"), "…on every linked row");
+  const badPhone = await call("PATCH", "/api/mobile/v1/me/player", { headers: asA, body: { phone: "call me" } });
+  check(badPhone.status === 400, "A phone that is not a number is refused", badPhone.json?.error);
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(600, 7), Buffer.from([0xff, 0xd9])]).toString("base64");
+  const photo = await call("POST", "/api/mobile/v1/me/player/photo", { headers: asA, body: { image: jpeg } });
+  check(photo.status === 200 && /\/media\/players\/self\//.test(photo.json?.player?.photoUrl ?? "") && /\/render\/image\/|\.jpg/.test(photo.json.player.photoUrl), "A JPEG photo is stored and shown", photo.json?.player?.photoUrl ?? photo.json);
+  const fake = await call("POST", "/api/mobile/v1/me/player/photo", { headers: asA, body: { image: Buffer.from("<svg onload=alert(1)>").toString("base64") } });
+  check(fake.status === 400, "A file that is not a photo is refused", fake.json?.error);
+  const huge = await call("POST", "/api/mobile/v1/me/player/photo", { headers: asA, body: { image: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(1_600_000)]).toString("base64") } });
+  check(huge.status === 400 || huge.status === 413, "A photo over the size limit is refused", huge.status);
+
+  // One account per player; brute force stops.
+  const stolen = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asB, body: { code } });
+  check(stolen.status === 409, "A second account cannot take a linked player", stolen.json?.error);
+  let last = 0;
+  for (let i = 0; i < 8; i++) {
+    const guess = Array.from({ length: 8 }, (_, j) => ACCESS_CODE_ALPHABET[(i * 7 + j * 3) % ACCESS_CODE_ALPHABET.length]).join("");
+    last = (await call("POST", "/api/mobile/v1/me/player/claim", { headers: asB, body: { code: guess } })).status;
+  }
+  const blocked = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asB, body: { code: omar.access_code } });
+  check(last === 400 && blocked.status === 429, "After eight wrong codes the account is stopped, even with a right one", blocked.status);
+
+  // Admin page shows the code and the share links.
+  const { sessionToken, COOKIE_NAME } = await import("./lib/session");
+  const admin = await fetch(`${BASE_URL}/admin/tournaments/${ctx.tid}/players`, { headers: { cookie: `${COOKIE_NAME}=${sessionToken("admin")}` } });
+  const html = await admin.text();
+  check(admin.status === 200 && html.includes(formatAccessCode(code)) && html.includes("wa.me/201007654321") && html.includes("Linked"), "The admin Player codes page lists the code, a WhatsApp link to his number and that he is linked", admin.status);
+
+  // Reset: the old code dies, the account lets go of everything that code linked.
+  const fresh = await resetPlayerCode(ctx.pA.id);
+  check(fresh !== code && isValidAccessCode(fresh), "Reset makes a new code");
+  const after = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
+  check(after.status === 200 && after.json.player === null, "Reset unlinks the account from this player and the rows its code linked", after.json?.player?.entries?.length);
+  const old = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asA, body: { code } });
+  check(old.status === 400, "The old code no longer works");
+  const relink = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asA, body: { code: fresh } });
+  check(relink.status === 200, "The new code links again");
+  const unlink = await call("DELETE", "/api/mobile/v1/me/player", { headers: asA });
+  const gone = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
+  check(unlink.status === 200 && gone.json.player === null, "'Not you? Unlink' lets go of the player");
+  const { data: photoLeft } = await db().from("players").select("photo_url").eq("id", ctx.pA.id).single();
+  check(!photoLeft?.photo_url, "…and removes the photo the player uploaded");
+
+  // Sign-in no longer asks for an age.
+  const signin = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", idToken: "x.y.z" } });
+  check(signin.status !== 400 || !/16/.test(signin.json?.error ?? ""), "Sign-in no longer refuses for want of an age confirmation", signin.json?.error);
 }
 
 void main();

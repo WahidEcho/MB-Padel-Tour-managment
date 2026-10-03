@@ -311,7 +311,7 @@ export function getTimeline(matchId: string): Promise<MTimeline | null> {
 }
 
 export const DEFAULT_FLAGS: Record<string, boolean> = {
-  player_claim: false,
+  player_claim: true,
   live_activity: false,
   takeovers: true,
   supporter_mode: false,

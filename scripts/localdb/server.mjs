@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
 
 const PORT = Number(process.env.LOCALDB_PORT ?? 54321);
 // fileURLToPath, not .pathname: a checkout under a folder with spaces would otherwise read as %20.
@@ -63,6 +64,27 @@ async function loadCatalog() {
     where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = 'public' order by kcu.ordinal_position`);
   PKS = {};
   for (const r of pks.rows) (PKS[r.table_name] ??= []).push(r.column_name);
+}
+
+/* ---------------- sign-in stand-in ---------------- */
+// Signed-in app routes verify a user's Supabase session against the project's
+// public keys (src/lib/mobile/identity.ts). The stand-in has its own key pair:
+// it publishes the public half at the same path, and mints sessions for test
+// users at POST /__auth/token { sub, iss } so E2E scripts can act as an account.
+const authKeys = generateKeyPair("ES256", { extractable: true }).then(async ({ publicKey, privateKey }) => ({
+  privateKey,
+  jwk: { ...(await exportJWK(publicKey)), kid: "localdb", alg: "ES256", use: "sig" },
+}));
+async function mintUserToken(sub, iss) {
+  const { privateKey } = await authKeys;
+  return new SignJWT({ role: "authenticated" })
+    .setProtectedHeader({ alg: "ES256", kid: "localdb" })
+    .setSubject(sub)
+    .setIssuer(iss)
+    .setAudience("authenticated")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(privateKey);
 }
 
 /* ---------------- helpers ---------------- */
@@ -392,6 +414,11 @@ const server = http.createServer((req, res) => {
         if (url.pathname === "/__sql" && req.method === "POST") {
           const results = await pg.exec(JSON.parse(body).query);
           return send(res, 200, results.at(-1)?.rows ?? []);
+        }
+        if (url.pathname === "/auth/v1/.well-known/jwks.json") return send(res, 200, { keys: [(await authKeys).jwk] });
+        if (url.pathname === "/__auth/token" && req.method === "POST") {
+          const { sub, iss } = JSON.parse(body || "{}");
+          return send(res, 200, { token: await mintUserToken(String(sub), String(iss)) });
         }
         if (url.pathname.startsWith("/storage/v1/")) return send(res, 200, { Key: "local" });
         const m = url.pathname.match(/^\/rest\/v1\/([a-z_0-9]+)$/);

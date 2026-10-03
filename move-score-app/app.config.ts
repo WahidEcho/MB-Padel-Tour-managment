@@ -36,6 +36,9 @@ const PRIVACY_MANIFEST = {
   ],
 };
 
+// The camera scans the venue code and, for a player, takes their profile photo.
+const CAMERA_USE = "Move Score uses the camera to scan the venue code that stamps your event pass, and to take your player photo if you choose to.";
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   ...(OWNER ? { owner: OWNER } : {}),
@@ -58,7 +61,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // CMMotionManager device motion, which needs no permission; nothing uses
     // motion activity or the pedometer.
     infoPlist: {
-      NSCameraUsageDescription: "Move Score uses the camera to scan the venue code that stamps your event pass.",
+      NSCameraUsageDescription: CAMERA_USE,
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
@@ -95,9 +98,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-camera",
       {
-        cameraPermission: "Move Score uses the camera to scan the venue code that stamps your event pass.",
+        cameraPermission: CAMERA_USE,
         microphonePermission: false,
         recordAudioAndroid: false,
+      },
+    ],
+    // Player photo: the system picker (no photo library access needed on iOS 14+) or the camera; no microphone.
+    [
+      "expo-image-picker",
+      {
+        photosPermission: "Move Score opens your photos so you can choose your player photo.",
+        cameraPermission: CAMERA_USE,
+        microphonePermission: false,
       },
     ],
     ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00" }],
