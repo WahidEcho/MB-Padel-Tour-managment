@@ -46,7 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_ENV === "production" ? "Move Score" : `Move Score ${APP_ENV === "staging" ? "Staging" : "Dev"}`,
   slug: "move-score",
   scheme: "movescore",
-  version: "1.0.0",
+  version: "1.0.1",
   orientation: "default",
   icon: "./assets/brand/icon.png",
   userInterfaceStyle: "automatic",
