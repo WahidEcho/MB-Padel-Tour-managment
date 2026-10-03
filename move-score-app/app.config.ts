@@ -75,7 +75,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         action: "VIEW",
         autoVerify: true,
-        data: [{ scheme: "https", host: WEB_HOST, pathPrefix: "/v/" }],
+        // /v/: the venue code; /m/: a match's check-in code.
+        data: [
+          { scheme: "https", host: WEB_HOST, pathPrefix: "/v/" },
+          { scheme: "https", host: WEB_HOST, pathPrefix: "/m/" },
+        ],
         category: ["BROWSABLE", "DEFAULT"],
       },
     ],

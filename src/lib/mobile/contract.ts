@@ -245,6 +245,12 @@ export interface MConfig {
   /** Builds older than this are asked to update. */
   minAppVersion: string;
   flags: Record<string, boolean>;
+  /**
+   * Whether the server can make each wallet's pass (its certificates are set).
+   * Showing a wallet button is the flag's call (`apple_wallet`; Google is hidden in
+   * the app for now); this only decides what tapping it does. Missing on older servers.
+   */
+  walletReady?: { apple: boolean; google: boolean };
   supportUrl: string;
   privacyUrl: string;
 }
@@ -259,6 +265,11 @@ export interface MFollow {
   tournamentId: string | null;
 }
 
+/**
+ * The attendee's event pass. Staff accreditation is not on it (that is the referee
+ * console): the server always answers edition "spectator" and staffRole null; both
+ * stay in the shape for builds that still read them.
+ */
 export interface MPass {
   id: string;
   eventGroupId: string;
@@ -270,7 +281,48 @@ export interface MPass {
   onsiteUnlockedAt: string | null;
   stamps: string[];
   pins: string[];
+  /** Matches checked in to with the match code. Missing from answers saved by older builds. */
+  attendance?: MPassAttendance;
 }
+
+export interface MPassAttendance {
+  /** Matches attended. */
+  matches: number;
+  /** All points on the pass (attendance today; the mini-game adds its own later). */
+  points: number;
+  /** Newest first, at most 50. */
+  list: MAttendedMatch[];
+}
+
+export interface MAttendedMatch {
+  matchId: string;
+  checkedInAt: string;
+  points: number;
+  /** "EGY v JPN" style sides, as the bundle names them. */
+  a: { name: string; code: string | null } | null;
+  b: { name: string; code: string | null } | null;
+  /** "Singles 1 · Final" */
+  label: string;
+}
+
+/** POST /api/mobile/v1/matches/{matchId}/checkin, body { c } (court TV) or { p } (printed code). */
+export interface MCheckInReply {
+  status: "checked_in" | "already_checked_in";
+  matchId: string;
+  /** Points this check-in earned (0 when already checked in). */
+  points: number;
+  parts: { label: string; points: number }[];
+  /** The event day stamped on the way (null outside the event's days or when already stamped). */
+  stampedDay: string | null;
+  pass: MPass;
+}
+
+/**
+ * Refusals carry { error, code }: 400 bad_code, 410 code_expired, 409 too_early
+ * (with opensAt, or null when the match has no time yet), 409 closed, 409 no_event,
+ * 404 not_found, 429 rate_limited, 500 failed, 401 when the phone is not registered.
+ */
+export type MCheckInRefusal = "bad_code" | "code_expired" | "too_early" | "closed" | "no_event" | "not_found" | "rate_limited" | "failed";
 
 export interface MAlertPrefs {
   scheduled: boolean;

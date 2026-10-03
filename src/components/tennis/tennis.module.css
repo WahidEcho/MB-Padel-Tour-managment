@@ -764,3 +764,45 @@
     transition: none !important;
   }
 }
+
+/* The live score's check-in QR (CheckInQr.tsx): small, in the bottom-right corner. */
+.checkin {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 8px 8px 18px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.checkinText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.checkinText b {
+  font-size: 22px;
+  color: var(--optic);
+}
+.checkinText span {
+  font-size: 15px;
+  color: var(--mute);
+}
+.checkinCode {
+  width: 112px;
+  height: 112px;
+  padding: 6px;
+  border-radius: 10px;
+  background: #fff;
+}
+.checkinCode svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

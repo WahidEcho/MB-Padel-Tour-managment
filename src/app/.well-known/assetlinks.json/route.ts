@@ -1,6 +1,6 @@
 /**
  * Android App Links for Move Score: lets the app verify it may open
- * https://<this host>/v/* (the venue QR code; see the intentFilters entry in
+ * https://<this host>/v/* and /m/* (the venue and match check-in QR codes; see the intentFilters entry in
  * move-score-app/app.config.ts, which sets autoVerify).
  *
  * OWNER TO FILL: SHA256_CERT_FINGERPRINTS is empty until the Play app signing key
