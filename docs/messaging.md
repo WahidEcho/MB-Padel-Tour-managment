@@ -39,8 +39,10 @@ nation it alerts that nation's followers; to "App users" every phone with announ
 
 Audiences: all players (profiles approved or pending, not merged/rejected), a tournament's players, a
 nation's players (teams with that nation code), app users (push only), a pasted list
-(`name, email, phone` per line). Contact details come from `player_profiles` (email, mobile); a tournament
-player without a profile falls back to the team's phone. A `player_consents` row with `granted = false`
+(`name, email, phone` per line). For a tournament's or nation's players the contact is the player's own
+`players.phone` / `players.email` (set on the Player codes page or by the player in the app), else their
+platform profile's, else the team's contact phone; the preview says which source each came from. "All
+players" uses `player_profiles` (email, mobile). A `player_consents` row with `granted = false`
 for email/WhatsApp is honoured ("The player has not agreed to this channel"). A WhatsApp number that sends
 **STOP** (or إلغاء / توقف) is opted out (`whatsapp_contacts`); **START** opts back in.
 
@@ -135,7 +137,7 @@ Create; language **English (en)**; variables cannot contain line breaks — the 
    `https://mb-tournament.vercel.app/t/spring-open`. Optional IMAGE header (poster). Mapping: first name,
    tournament, message, link.
 3. **`mb_access_code`** — Utility
-   Body: `Hi {{1}}, your Move Score player code is {{2}}. Open the app, choose "I'm a player" and enter the code to link your matches. Get the app: {{3}} Keep this code private.`
+   Body: `Hi {{1}}, your Move Score player code is {{2}}. Get the app, sign in, open Account, tap Player code and enter it. Get the app: {{3}} Keep this code private.`
    Samples: `Omar` / `MB7Q2K` / `https://mb-tournament.vercel.app/movescore`. Mapping: first name, code, app
    link. (Meta may recategorise code messages as Authentication; if so, keep Utility wording about linking
    matches, not logging in.)

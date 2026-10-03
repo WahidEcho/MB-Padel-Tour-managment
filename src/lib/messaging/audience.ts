@@ -5,8 +5,8 @@
  *   awaiting approval (not rejected, not merged away). Contact details live on
  *   the profile (email, mobile_normalized).
  * - tournament / nation: the players entered in a tournament, or in every team
- *   carrying a nation code. Their contact details come from the linked profile;
- *   a player without one falls back to the team's contact phone.
+ *   carrying a nation code. Contact: the player's own phone/email (players.phone,
+ *   players.email), else their linked profile's, else the team's contact phone.
  * - app_users: Move Score app installs; reachable by push only.
  * - list: pasted names, emails and phone numbers.
  *
@@ -14,6 +14,7 @@
  * channel is not messaged on it (recorded as "not sent", with the reason).
  */
 import { db } from "../supabase";
+import { formatAccessCode } from "../players/accessCode";
 import { appLink, tournamentLink } from "./links";
 import { parsePastedList, type Recipient } from "./recipients";
 import type { Channel } from "./status";
@@ -34,6 +35,9 @@ interface PlayerRow {
   tournament_id: string;
   player_profile_id: string | null;
   access_code?: string | null;
+  /** The player's own contact (0018), set by organisers or by the player in the app. */
+  phone?: string | null;
+  email?: string | null;
 }
 
 const PAGE = 1000;
@@ -74,12 +78,34 @@ async function declined(profileIds: string[]): Promise<Map<string, Channel[]>> {
 
 /** players.access_code may not exist yet (migration 0018/0020 not applied): treat as no codes. */
 async function selectPlayers(filter: (cols: string) => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<PlayerRow[]> {
-  const withCode = await filter("id, full_name, team_id, tournament_id, player_profile_id, access_code");
-  if (!withCode.error) return (withCode.data ?? []) as PlayerRow[];
-  if (!/access_code/.test(withCode.error.message)) throw new Error(withCode.error.message);
-  const plain = await filter("id, full_name, team_id, tournament_id, player_profile_id");
-  if (plain.error) throw new Error(plain.error.message);
-  return (plain.data ?? []) as PlayerRow[];
+  // Newest schema first; older databases (before 0018/0020) lack the contact and code columns.
+  const base = "id, full_name, team_id, tournament_id, player_profile_id";
+  const tries = [`${base}, access_code, phone, email`, `${base}, access_code`, base];
+  let last = "";
+  for (const cols of tries) {
+    const r = await filter(cols);
+    if (!r.error) return (r.data ?? []) as PlayerRow[];
+    last = r.error.message;
+    if (!/access_code|phone|email|column/.test(last)) break;
+  }
+  throw new Error(last);
+}
+
+/** Where a contact came from, best first: the player row, their platform profile, the team contact. */
+export function pickContact(
+  p: { phone?: string | null; email?: string | null },
+  prof: { mobile_normalized: string | null; email: string | null } | undefined,
+  teamPhone: string | null | undefined,
+) {
+  const email = p.email ? { value: p.email, source: "player" as const } : prof?.email ? { value: prof.email, source: "profile" as const } : null;
+  const phone = p.phone
+    ? { value: p.phone, source: "player" as const }
+    : prof?.mobile_normalized
+      ? { value: prof.mobile_normalized, source: "profile" as const }
+      : teamPhone
+        ? { value: teamPhone, source: "team" as const }
+        : null;
+  return { email, phone };
 }
 
 async function playersToRecipients(players: PlayerRow[]): Promise<Recipient[]> {
@@ -100,13 +126,15 @@ async function playersToRecipients(players: PlayerRow[]): Promise<Recipient[]> {
     .map((p) => {
       const prof = p.player_profile_id ? profOf.get(p.player_profile_id) : undefined;
       const t = tOf.get(p.tournament_id);
+      const c = pickContact(p, prof, teamOf.get(p.team_id)?.phone);
       return {
         kind: "player" as const,
         id: p.id,
         name: p.full_name,
-        email: prof?.email ?? null,
-        phone: prof?.mobile_normalized ?? teamOf.get(p.team_id)?.phone ?? null,
-        vars: { name: p.full_name, code: p.access_code ?? null, tournament: t?.name ?? null, link: t ? tournamentLink(t.slug) : null, app_link: appLink() },
+        email: c.email?.value ?? null,
+        phone: c.phone?.value ?? null,
+        sources: { email: c.email?.source ?? null, phone: c.phone?.source ?? null },
+        vars: { name: p.full_name, code: p.access_code ? formatAccessCode(p.access_code) : null, tournament: t?.name ?? null, link: t ? tournamentLink(t.slug) : null, app_link: appLink() },
         optedOut: p.player_profile_id ? optOut.get(p.player_profile_id) : undefined,
       };
     });
@@ -137,7 +165,7 @@ export async function resolveAudience(a: Audience): Promise<Resolved> {
           .range(from, to),
       ).catch(() => [] as PlayerRow[]);
       const codeOf = new Map<string, string>();
-      for (const p of coded) if (p.access_code && p.player_profile_id && !codeOf.has(p.player_profile_id)) codeOf.set(p.player_profile_id, p.access_code);
+      for (const p of coded) if (p.access_code && p.player_profile_id && !codeOf.has(p.player_profile_id)) codeOf.set(p.player_profile_id, formatAccessCode(p.access_code));
       return {
         recipients: profiles.map((p) => ({
           kind: "player_profile",

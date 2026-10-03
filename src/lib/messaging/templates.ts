@@ -87,12 +87,12 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
   access_code: {
     email: () => ({
       title: "Your Move Score player code",
-      body: "Hi {first_name},\n\nHere is your personal player code. Open the Move Score app, choose \"I'm a player\" and enter it to link your matches and profile.\n\nKeep it to yourself — it works once.\n\nGet the app: {app_link}",
+      body: "Hi {first_name},\n\nHere is your personal Move Score player code{tournament_suffix}. Get the app, sign in, open Account, tap Player code and enter it: you'll see your matches, and you can add your photo and phone number.\n\nKeep it to yourself: it links your player profile to your account.\n\nGet the app: {app_link}",
       code: "{code}",
       cta: { label: "Open Move Score", url: "{app_link}" },
     }),
     whatsapp: { name: "mb_access_code", language: "en", params: ["first_name", "code", "app_link"] },
-    text: () => "Hi {first_name}, your Move Score player code is {code}. Open the app ({app_link}), choose \"I'm a player\" and enter it. Keep it private.",
+    text: () => "Hi {first_name}, your Move Score player code is {code}. Get the app ({app_link}), sign in, open Account, tap Player code and enter it. Keep it to yourself.",
   },
   confirmation: {
     email: () => ({
@@ -119,7 +119,8 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
   },
 };
 
-export function transactionalEmail(template: TransactionalTemplate, vars: Vars): EmailContent {
+export function transactionalEmail(template: TransactionalTemplate, given: Vars): EmailContent {
+  const vars: Vars = { ...given, tournament_suffix: given.tournament ? ` for ${given.tournament}` : "" };
   const input = TRANSACTIONAL[template].email(vars);
   // Two passes: catalogue placeholders such as {message} may themselves hold merge fields.
   const once = (s: string) => fillVars(fillVars(s, vars), vars);

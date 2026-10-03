@@ -20,6 +20,8 @@ import { parsePastedList, planDeliveries, type Recipient } from "./recipients";
 import { announcementTemplate, defaultParams, transactionalEmail, transactionalWhatsApp } from "./templates";
 import { validateCompose, type ComposeInput } from "./compose";
 import { parseAudience, channelsFor } from "./audienceSpec";
+// audience.ts reaches the database only when called; pickContact is pure.
+import { pickContact } from "./audience";
 
 describe("phone", () => {
   it("normalises Egyptian numbers to E.164", () => {
@@ -344,5 +346,22 @@ describe("transport (dry run)", () => {
     expect((calls[0]!.body as { from: string }[])[0]!.from).toBe("Move Beyond <news@mbeg.org>");
     expect(calls[1]!.headers["Idempotency-Key"]).toBe("delivery-d1");
     expect((calls[1]!.body as { tags: unknown }).tags).toEqual([{ name: "delivery", value: "d1" }]);
+  });
+});
+
+describe("contact source", () => {
+  it("prefers the player's own contact, then the profile, then the team phone", () => {
+    const prof = { mobile_normalized: "+201001234567", email: "prof@x.test" };
+    expect(pickContact({ phone: "+201112223334", email: "own@x.test" }, prof, "+201228887776")).toEqual({
+      email: { value: "own@x.test", source: "player" },
+      phone: { value: "+201112223334", source: "player" },
+    });
+    expect(pickContact({}, prof, "+201228887776")).toEqual({ email: { value: "prof@x.test", source: "profile" }, phone: { value: "+201001234567", source: "profile" } });
+    expect(pickContact({}, undefined, "01228887776")).toEqual({ email: null, phone: { value: "01228887776", source: "team" } });
+  });
+  it("formats access codes for messages", async () => {
+    const e = transactionalEmail("access_code", { name: "Sara Ali", code: "ABCD-EFGH", tournament: "Spring Open", app_link: "https://a.test" });
+    expect(e.text).toContain("player code for Spring Open");
+    expect(e.text).toContain("open Account, tap Player code");
   });
 });
