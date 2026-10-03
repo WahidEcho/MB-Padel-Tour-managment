@@ -18,6 +18,7 @@ export async function PATCH(request: Request) {
   const body = await readJson<Partial<MAlertPrefs>>(request);
   const prefs: MAlertPrefs = { ...DEFAULT_ALERT_PREFS };
   for (const k of Object.keys(prefs) as (keyof MAlertPrefs)[]) if (typeof body?.[k] === "boolean") prefs[k] = body[k] as boolean;
-  await db().from("push_devices").update({ prefs }).eq("installation_id", installationId);
+  const { error } = await db().from("push_devices").update({ prefs }).eq("installation_id", installationId);
+  if (error) return NextResponse.json({ error: "Could not save alert settings" }, { status: 500 });
   return privateJson({ prefs });
 }
