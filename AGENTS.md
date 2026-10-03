@@ -72,3 +72,4 @@ This version has breaking changes — APIs, conventions, and file structure may 
   shared rules `src/lib/auth/{password,sessionRules}.ts` (exported to the app via `@core`). Migration `0021_email_accounts`.
   The stand-in emulates sign-up, confirmation, password sign-in, recovery, OTP, anonymous users and its mailbox
   (`GET /auth/v1/_localdb/mail?to=`). Gates: `npm run e2e:mobile-signin` and the mobile-api E2E (player codes).
+- Vercel skips a deploy when the pushed head commit only touches `move-score-app/` (vercel.json ignoreCommand diffs HEAD^..HEAD). When a push ends with an app-only commit (e.g. a version bump) after server changes, push a commit that touches the server too, or redeploy from the Vercel dashboard.
