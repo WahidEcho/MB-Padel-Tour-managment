@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Linking, Platform, Switch, View } from "react-native";
 import { router } from "expo-router";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { DEFAULT_ALERT_PREFS, type MAlertPrefs } from "@core";
-import { api } from "../api/client";
+import { alertsNotice, type MAlertPrefs } from "@core";
 import { useConfig } from "../api/queries";
 import { themePref, useTheme, type ModePref } from "../theme/ThemeProvider";
 import { session } from "../state/session";
-import { alertsAllowed, registerDevice } from "../push/register";
+import { alerts, refreshAlerts, turnAlertsOff, turnAlertsOn } from "../push/register";
+import { alertPrefs, changeAlertPref, refreshPrefs } from "../push/prefs";
 import { appleAvailable, deleteAccount, signInWithApple, signInWithGoogle, signOut } from "../auth/signIn";
 import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
@@ -39,24 +39,18 @@ export default function Account() {
   const pref = themePref.use((s) => s);
   const user = session.use((s) => s.user);
   const staff = session.use((s) => s.staff);
-  const [alerts, setAlerts] = useState(false);
-  const [prefs, setPrefs] = useState<MAlertPrefs>(DEFAULT_ALERT_PREFS);
+  const alertState = alerts.use((s) => s);
+  const prefs = alertPrefs.use((s) => s.prefs);
+  const notice = alertsNotice(alertState);
   const [apple, setApple] = useState(false);
   const [ageOk, setAgeOk] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => {
-    void alertsAllowed().then(setAlerts);
+    void refreshAlerts();
+    void refreshPrefs();
     void appleAvailable().then(setApple);
-    void api<{ prefs: MAlertPrefs }>("/api/mobile/v1/me/prefs", { who: "me" })
-      .then((r) => setPrefs(r.prefs))
-      .catch(() => {});
   }, []);
-  const setPref = (k: keyof MAlertPrefs, on: boolean) => {
-    const next = { ...prefs, [k]: on };
-    setPrefs(next);
-    void api("/api/mobile/v1/me/prefs", { method: "PATCH", who: "me", body: next }).catch(() => {});
-  };
   const run = async (fn: () => Promise<void>) => {
     setMsg(null);
     try {
@@ -79,24 +73,28 @@ export default function Account() {
             <Body tone="ink2" size={12.5}>For the players, nations and matches you follow.</Body>
           </View>
           <Switch
-            value={alerts}
-            onValueChange={(on) => {
-              if (on) void registerDevice(true).then((r) => setAlerts(r.alerts));
-              else void Linking.openSettings();
-            }}
+            value={alertState.want}
+            onValueChange={(on) => void (on ? turnAlertsOn() : turnAlertsOff())}
             trackColor={{ true: t.ball, false: t.chip }}
             thumbColor={Platform.OS === "android" ? t.ink : undefined}
             accessibilityLabel="Alerts on this phone"
           />
         </View>
-        {alerts &&
+        {notice && (
+          <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
+            <Body tone={alertState.reason ? "live" : "ink2"} size={13}>{notice.text}</Body>
+            {notice.action === "settings" && <Button kind="ghost" label="Open Settings" onPress={() => void Linking.openSettings()} />}
+            {notice.action === "retry" && <Button kind="ghost" label="Try again" onPress={() => void turnAlertsOn()} />}
+          </View>
+        )}
+        {alertState.want &&
           PREF_LABELS.map(([k, label, hint]) => (
             <View key={k} style={{ flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderColor: t.line, paddingTop: 12 }}>
               <View style={{ flex: 1 }}>
                 <Body size={14}>{label}</Body>
                 <Body tone="ink3" size={12}>{hint}</Body>
               </View>
-              <Switch value={prefs[k]} onValueChange={(on) => setPref(k, on)} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel={label} />
+              <Switch value={prefs[k]} onValueChange={(on) => changeAlertPref(k, on)} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel={label} />
             </View>
           ))}
       </Card>
