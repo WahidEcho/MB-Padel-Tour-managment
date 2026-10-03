@@ -5,7 +5,6 @@ import { db } from "@/lib/supabase";
 import { requirePermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { notifyAnnouncement } from "@/lib/notify/hooks";
-import { hashClaimCode, newClaimCode } from "@/lib/pass/claim";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -122,28 +121,5 @@ export async function deleteAnnouncement(formData: FormData) {
   // A friendly session's hidden row has no app settings of its own.
   refuse(await tournamentRowRefusal(id));
   await db().from("announcements").delete().eq("id", String(formData.get("announcement_id")));
-  revalidatePath(path(id));
-}
-
-/** One-time player codes, shown once. Only their hashes are stored. */
-export async function makeClaimCodes(formData: FormData): Promise<void> {
-  const role = await requirePermission("manage_players");
-  const id = String(formData.get("tournament_id"));
-  // A friendly session's hidden row has no app settings of its own.
-  refuse(await tournamentRowRefusal(id));
-  const { data } = await db().from("players").select("id").eq("tournament_id", id);
-  const players = (data ?? []) as { id: string }[];
-  const rows: { player_id: string; code_hash: string; created_by_role: string }[] = [];
-  const shown: { player_id: string; code: string }[] = [];
-  for (const p of players) {
-    const code = newClaimCode();
-    rows.push({ player_id: p.id, code_hash: hashClaimCode(code), created_by_role: role });
-    shown.push({ player_id: p.id, code });
-  }
-  await db().from("player_claim_codes").update({ revoked_at: new Date().toISOString() }).in("player_id", players.map((p) => p.id)).is("used_at", null);
-  if (rows.length) await db().from("player_claim_codes").insert(rows);
-  await audit({ tournament_id: id, actor_role: role, action: "PLAYER_CODES_ISSUED", entity_type: "tournament", entity_id: id, new_value: { count: rows.length } });
-  // Shown on the next render only: kept in a short-lived row the page reads and deletes.
-  await db().from("platform_settings").upsert({ key: `claim-codes:${id}`, value_json: { at: Date.now(), codes: shown } }, { onConflict: "key" });
   revalidatePath(path(id));
 }

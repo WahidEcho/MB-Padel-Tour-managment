@@ -70,7 +70,7 @@ export async function signInWithApple() {
   const name = [c.fullName?.givenName, c.fullName?.familyName].filter(Boolean).join(" ") || undefined;
   await finish(
     await api<SessionReply>("/api/mobile/v1/auth/session", {
-      body: { provider: "apple", idToken: c.identityToken, nonce: raw, authorizationCode: c.authorizationCode, ageConfirmed: true, displayName: name },
+      body: { provider: "apple", idToken: c.identityToken, nonce: raw, authorizationCode: c.authorizationCode, displayName: name },
     }),
   );
 }
@@ -116,7 +116,7 @@ async function exchange(url: string, pending: Pending) {
   }
   await finish(
     await api<SessionReply>("/api/mobile/v1/auth/session", {
-      body: { provider: pending.provider, code: back.code, codeVerifier: pending.verifier, ageConfirmed: true },
+      body: { provider: pending.provider, code: back.code, codeVerifier: pending.verifier },
     }),
   );
 }

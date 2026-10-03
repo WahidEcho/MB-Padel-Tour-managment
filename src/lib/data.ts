@@ -30,18 +30,23 @@ export async function getTournamentBySlug(slug: string): Promise<Tournament | nu
 /**
  * Teams with their players, each player's portrait already resolved.
  *
- * The profile embed lists its four columns rather than using `*`: this feeds
- * public pages and the venue screen, and `player_profiles` holds the mobile
- * number, which is the identity key and must never leave the server.
+ * The embeds list their columns rather than using `*`: this feeds public pages,
+ * the venue screen and referee phones. `player_profiles` holds the mobile number,
+ * which is the identity key, and `players` holds each player's private access
+ * code, phone and email (src/lib/players/), none of which may leave the server.
+ * The admin Player codes page reads those itself.
  *
  * The profile's values are folded onto the player row and the embed dropped, so
  * every caller keeps seeing a plain `Player` and nothing has to know that a
  * friendly-session player's photo lives somewhere else.
  */
+const PUBLIC_PLAYER_COLUMNS =
+  "id, tournament_id, team_id, player_order, full_name, photo_url, portrait_url, focal_x, focal_y, player_profile_id, created_at, updated_at";
+
 export async function getTeams(tournamentId: string): Promise<Team[]> {
   const { data } = await db()
     .from("teams")
-    .select("*, players(*, player_profiles(photo_url, portrait_url, focal_x, focal_y))")
+    .select(`*, players(${PUBLIC_PLAYER_COLUMNS}, player_profiles(photo_url, portrait_url, focal_x, focal_y))`)
     .eq("tournament_id", tournamentId)
     .order("team_name");
   const teams = (data ?? []) as Team[];

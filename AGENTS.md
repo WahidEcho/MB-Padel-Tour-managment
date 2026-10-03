@@ -51,5 +51,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `api/mobile/v1/auth/oauth/[provider]`, code exchange in `auth/session`); external setup in
   `move-score-app/docs/google-sign-in.md`. The stand-in emulates Supabase Auth (`scripts/localdb/auth.mjs`);
   gate `npm run e2e:mobile-signin`.
+- Player codes (migration 0018, not yet on the live project): `players.access_code` / `phone` / `email` are private
+  — `getTeams` lists player columns explicitly so they never reach public pages, screens or referee phones; keep
+  it that way. Logic in `src/lib/players/` (claim, same-person rule, E.164, share links); admin tab
+  `admin/tournaments/[id]/players`; app API `/me/player`, `/me/player/claim`, `/me/player/photo`; checked in
+  `scripts/e2e/mobile-api.ts`. No age question at sign-in.
 - Database gate (still open): `supabase/gate/close_open_access.sql` — apply only after
   production's `SUPABASE_KEY` is the secret key and `/api/health/db` reports `"key":"secret"`.
+- Messaging (Admin → Announcements): email via Resend and WhatsApp Cloud API, one `message_deliveries` row per
+  recipient per channel, chunked drain (`api/internal/messages/drain`, cron `supabase/ops/messaging_cron.sql`),
+  webhooks `api/webhooks/resend|whatsapp`, `sendTransactional` in `src/lib/messaging/queue.ts`. Docs, env vars and
+  WhatsApp templates to submit: `docs/messaging.md`. Never send for real from tests: `MESSAGING_DRY_RUN=1`;
+  gate `npm run e2e:messaging` (stand-in, dry run).

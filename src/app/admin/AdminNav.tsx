@@ -14,6 +14,7 @@ const SECTIONS = [
   { href: "/admin/players", label: "Players" },
   { href: "/admin/seasons", label: "Seasons" },
   { href: "/admin/rankings", label: "Rankings" },
+  { href: "/admin/announcements", label: "Announcements" },
 ];
 
 export default function AdminNav() {

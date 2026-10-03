@@ -7,9 +7,10 @@ import { readJson } from "@/lib/mobile/http";
 import { isBrowserSignInProvider, isCodeVerifier } from "@/lib/mobile/oauth";
 
 /**
- * Sign in with Apple or Google. Accounts are for people aged 16 and over (the
- * app asks first); younger fans use the app as a guest, which keeps every feature
- * except syncing across phones.
+ * Sign in with Apple or Google. Optional: guests keep every feature except
+ * syncing across phones and linking a player code. There is no age question (it
+ * was dropped with player codes, which junior players use); an older build's
+ * `ageConfirmed` field is ignored, and nothing about age is stored.
  *
  * Two ways in:
  * - `{ provider: "apple", idToken, nonce, authorizationCode }` — native Sign in with Apple (iPhone).
@@ -27,10 +28,9 @@ export async function POST(request: Request) {
     authorizationCode?: string;
     code?: string;
     codeVerifier?: string;
-    ageConfirmed?: boolean;
     displayName?: string;
   }>(request);
-  if (body?.ageConfirmed !== true) return NextResponse.json({ error: "Accounts are for people aged 16 and over." }, { status: 400 });
+  if (!body) return NextResponse.json({ error: "provider must be apple or google" }, { status: 400 });
   if (body.provider !== "apple" && body.provider !== "google") return NextResponse.json({ error: "provider must be apple or google" }, { status: 400 });
 
   let signedIn: { session: Session | null; user: User | null } | null = null;
@@ -66,7 +66,6 @@ export async function POST(request: Request) {
   const row: Record<string, unknown> = {
     auth_user_id: user.id,
     provider: body.provider,
-    age_confirmed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
   if (displayName) row.display_name = displayName;

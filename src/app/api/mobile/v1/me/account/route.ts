@@ -4,6 +4,7 @@ import { audit } from "@/lib/audit";
 import { ownerOf } from "@/lib/mobile/identity";
 import { authClient, openToken, revokeApple } from "@/lib/auth/users";
 import { privateJson } from "@/lib/mobile/http";
+import { unlinkMe } from "@/lib/players/claims";
 
 export async function GET(request: Request) {
   const { owner } = await ownerOf(request);
@@ -30,7 +31,8 @@ export async function DELETE(request: Request) {
   await db().from("event_passes").delete().eq("owner_kind", "user").eq("owner_id", owner.id);
   await db().from("push_devices").update({ user_id: null }).eq("user_id", owner.id);
   await db().from("player_profiles").update({ auth_user_id: null, claim_status: "unclaimed" }).eq("auth_user_id", owner.id);
-  await db().from("player_claims").delete().eq("user_id", owner.id);
+  // Lets go of the linked player; a photo the player uploaded is deleted with it.
+  await unlinkMe(owner.id);
   await db().from("app_users").delete().eq("auth_user_id", owner.id);
   // Deleting the identity needs the secret key; until the gate closes it is queued for staff.
   const { error } = await authClient().auth.admin.deleteUser(owner.id);

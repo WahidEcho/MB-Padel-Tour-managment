@@ -12,7 +12,7 @@ App ──► GET  /api/mobile/v1/auth/oauth/google?redirect_to=movescore://auth
         → Google account chooser and consent
         → https://dwyztzywuscljqklhqij.supabase.co/auth/v1/callback
         → movescore://auth/callback?code=…     (the sheet closes; the app has the URL)
-App ──► POST /api/mobile/v1/auth/session { provider: "google", code, codeVerifier, ageConfirmed: true }
+App ──► POST /api/mobile/v1/auth/session { provider: "google", code, codeVerifier }
         → Move Score session (same as Apple), then the phone is linked to the account
 ```
 
@@ -104,7 +104,7 @@ already in `app.config.ts`.
    You should get Google's account chooser for "Move Score". After you choose an account, the browser tries
    to open `movescore://auth/callback?code=…`, which shows that Supabase accepted the redirect. If you get
    `error=provider_disabled`, the provider is still off.
-3. On a phone, go to Account, turn on "I am 16 or older", then tap "Sign in with Google". The sheet opens
+3. On a phone, go to Account and tap "Sign in with Google". The sheet opens
    over the app. The account card should then show your Google name, email and picture.
 
 ## What people see

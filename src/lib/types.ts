@@ -353,6 +353,11 @@ export interface Player extends PhotoFields {
   full_name: string;
   /** Link to a persistent profile. Null for tournament players not yet matched. */
   player_profile_id?: string | null;
+  /** Private code that links an app account to this player (migration 0018). Never public. */
+  access_code?: string | null;
+  /** The player's own contact, E.164 phone. Never public. */
+  phone?: string | null;
+  email?: string | null;
 }
 
 export interface Court {

@@ -380,3 +380,25 @@ export function notifyAnnouncement(announcementId: string) {
     });
   });
 }
+
+/**
+ * A console announcement (Announcements → App push) to everyone following a
+ * nation, or to every app user. Tournament audiences go through the in-app
+ * announcement and notifyAnnouncement instead, so they also appear in the feed.
+ */
+export function notifyBroadcast(o: { id: string; title: string; body: string; target: { kind: "nation"; code: string } | { kind: "all" } }) {
+  return safely("broadcast", async () => {
+    await enqueue({
+      kind: "announcement",
+      tournamentId: null,
+      dedupeKey: `broadcast:${o.id}`,
+      payload: {
+        title: o.title.slice(0, 120),
+        body: o.body.slice(0, 600),
+        url: "movescore://discover",
+        targets: [o.target.kind === "all" ? { kind: "all", key: "all" } : { kind: "nation", key: o.target.code }],
+        category: "major",
+      },
+    });
+  });
+}

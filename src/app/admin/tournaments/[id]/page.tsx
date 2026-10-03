@@ -82,6 +82,23 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
         </p>
       </div>
 
+      <div className="card space-y-3" data-testid="announce-card">
+        <h2 className="label">Tell the players</h2>
+        {tournament.status === "active" ? (
+          <p className="text-sm">This tournament is live. Let every player on the platform know, or send this tournament&apos;s players their access codes.</p>
+        ) : (
+          <p className="text-xs text-muted">Once the tournament is <b>active</b>, announce it to every player on the platform by email and WhatsApp.</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/admin/announcements/new?preset=new_tournament&tournament=${id}`} className={tournament.status === "active" ? "btn-primary" : "btn-secondary"}>
+            Announce this tournament
+          </Link>
+          <Link href={`/admin/announcements/new?preset=access_codes&tournament=${id}`} className="btn-secondary">
+            Send players their access codes
+          </Link>
+        </div>
+      </div>
+
       <div className="card space-y-3 border-danger/30">
         <h2 className="label text-danger">Danger zone</h2>
         <div className="flex flex-wrap gap-2">
