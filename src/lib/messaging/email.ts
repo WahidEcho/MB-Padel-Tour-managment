@@ -43,17 +43,28 @@ export function normalizeEmail(raw: string | null | undefined): string | null {
   return isValidEmail(e) ? e : null;
 }
 
-export function fromHeader(env: NodeJS.ProcessEnv = process.env): string | null {
-  const email = env.RESEND_FROM_EMAIL;
-  if (!email) return null;
-  const name = (env.RESEND_FROM_NAME ?? "Move Beyond").replace(/[<>"]/g, "");
+/** Sender defaults: the Move Score no-reply address on the Resend-verified mbeg.org domain. */
+export const DEFAULT_FROM_EMAIL = "no-reply@mbeg.org";
+export const DEFAULT_FROM_NAME = "Move Score";
+export const DEFAULT_REPLY_TO = "info@mbeg.org";
+
+/** "Move Score <no-reply@mbeg.org>", or RESEND_FROM_NAME / RESEND_FROM_EMAIL when set. */
+export function fromHeader(env: NodeJS.ProcessEnv = process.env): string {
+  const email = (env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL).trim();
+  const name = (env.RESEND_FROM_NAME || DEFAULT_FROM_NAME).replace(/[<>"]/g, "").trim();
   return `${name} <${email}>`;
 }
 
-export function resendBody(m: EmailMessage, from: string) {
+/** Where replies go: RESEND_REPLY_TO, default info@mbeg.org. */
+export function replyTo(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.RESEND_REPLY_TO || DEFAULT_REPLY_TO).trim();
+}
+
+export function resendBody(m: EmailMessage, from: string, reply: string | null = DEFAULT_REPLY_TO) {
   return {
     from,
     to: [m.to],
+    ...(reply ? { reply_to: reply } : {}),
     subject: m.subject,
     html: m.html,
     text: m.text,

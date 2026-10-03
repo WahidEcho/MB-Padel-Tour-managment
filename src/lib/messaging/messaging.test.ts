@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { maskPhone, toE164, waRecipient } from "./phone";
 import { canAdvance, summarize, timestampFor } from "./status";
 import { fillVars, missingFields, mergeVars, renderEmail, textToHtml } from "./render";
-import { describeResendError, isValidEmail, mapResendEvent, normalizeEmail, signSvix, verifySvixSignature } from "./email";
+import { describeResendError, fromHeader, isValidEmail, mapResendEvent, normalizeEmail, replyTo, resendBody, signSvix, verifySvixSignature } from "./email";
 import {
   describeGraphError,
   describeTemplate,
@@ -88,15 +88,34 @@ describe("render", () => {
   it("renders a branded email with code box and button", () => {
     const e = renderEmail({ title: "Code for {name}", body: "Hello {first_name}", code: "{code}", cta: { label: "Open", url: "{app_link}" } }, { name: "Sara Ali", code: "ZX9", app_link: "https://x.test/app" });
     expect(e.subject).toBe("Code for Sara Ali");
-    expect(e.html).toContain("Move Beyond");
+    expect(e.html).toContain('alt="Move Score"');
+    expect(e.html).toContain("is made by <a href=\"https://mbeg.org\"");
     expect(e.html).toContain("ZX9");
     expect(e.html).toContain('href="https://x.test/app"');
     expect(e.text).toContain("Your code: ZX9");
     expect(e.text).toContain("Open: https://x.test/app");
+    expect(e.text).toContain("Move Score is made by Move Beyond");
+    expect(e.text).toContain("registered as a player");
+  });
+  it("escapes organiser text and merge values in the email", () => {
+    const e = renderEmail({ title: "Hi {name}", body: "<img src=x onerror=alert(1)> {name}" }, { name: "<Omar>" });
+    expect(e.subject).toBe("Hi <Omar>");
+    expect(e.html).not.toContain("<img src=x");
+    expect(e.html).not.toContain("<Omar>");
+    expect(e.html).toContain("&lt;Omar&gt;");
   });
 });
 
 describe("email (Resend)", () => {
+  it("sends as Move Score from no-reply, replies to info@mbeg.org", () => {
+    const env = (e: Record<string, string> = {}) => e as NodeJS.ProcessEnv;
+    expect(fromHeader(env())).toBe("Move Score <no-reply@mbeg.org>");
+    expect(fromHeader(env({ RESEND_FROM_EMAIL: "news@mbeg.org", RESEND_FROM_NAME: 'Move "Beyond"' }))).toBe("Move Beyond <news@mbeg.org>");
+    expect(replyTo(env())).toBe("info@mbeg.org");
+    expect(replyTo(env({ RESEND_REPLY_TO: "help@mbeg.org" }))).toBe("help@mbeg.org");
+    const body = resendBody({ deliveryId: "d1", to: "a@x.test", subject: "s", html: "h", text: "t" }, fromHeader(env()));
+    expect(body).toMatchObject({ from: "Move Score <no-reply@mbeg.org>", reply_to: "info@mbeg.org", to: ["a@x.test"] });
+  });
   it("validates addresses", () => {
     expect(isValidEmail("a.b+c@mbeg.org")).toBe(true);
     expect(isValidEmail("nope@")).toBe(false);
@@ -344,6 +363,7 @@ describe("transport (dry run)", () => {
     ]);
     expect(calls[0]!.url).toBe("https://api.resend.com/emails/batch");
     expect((calls[0]!.body as { from: string }[])[0]!.from).toBe("Move Beyond <news@mbeg.org>");
+    expect((calls[0]!.body as { reply_to: string }[])[0]!.reply_to).toBe("info@mbeg.org");
     expect(calls[1]!.headers["Idempotency-Key"]).toBe("delivery-d1");
     expect((calls[1]!.body as { tags: unknown }).tags).toEqual([{ name: "delivery", value: "d1" }]);
   });

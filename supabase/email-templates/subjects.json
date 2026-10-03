@@ -1,0 +1,32 @@
+{
+  "confirm-signup": {
+    "dashboardTemplate": "Confirm signup",
+    "subject": "Confirm your Move Score account",
+    "file": "confirm-signup.html"
+  },
+  "magic-link": {
+    "dashboardTemplate": "Magic link",
+    "subject": "Your Move Score sign-in link",
+    "file": "magic-link.html"
+  },
+  "reset-password": {
+    "dashboardTemplate": "Reset password",
+    "subject": "Reset your Move Score password",
+    "file": "reset-password.html"
+  },
+  "change-email": {
+    "dashboardTemplate": "Change email address",
+    "subject": "Confirm your new Move Score email",
+    "file": "change-email.html"
+  },
+  "invite": {
+    "dashboardTemplate": "Invite user",
+    "subject": "You're invited to Move Score",
+    "file": "invite.html"
+  },
+  "reauthentication": {
+    "dashboardTemplate": "Reauthentication",
+    "subject": "Your Move Score verification code",
+    "file": "reauthentication.html"
+  }
+}
