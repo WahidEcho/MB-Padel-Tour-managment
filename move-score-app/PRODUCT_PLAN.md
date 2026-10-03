@@ -45,7 +45,7 @@ Use it as a content checklist only, not as the visual basis.
 | §28 scale | Every public page is a full server render every 4–8 s (~9 queries). Server runs in the US, database in Ireland: 1.0–1.5 s per response | Cached feeds; move server region to Dublin |
 | §23 Expo | Expo Go does not work for current SDKs | Development builds from day one (SDK 57) |
 | §25 palette, fonts | Contradict the brand | Replaced by §4 |
-| §10.3 juniors hold accounts | Egypt's data law needs a guardian's written consent under 15; event decided "no player photos" | Player claim built, switched off; sign-in 16+ |
+| §10.3 juniors hold accounts | Egypt's data law needs a guardian's written consent under 15; event decided "no player photos" | Superseded 3 Oct: player codes on, no age question (see Accounts below). Public photos still follow the event's "Show player photos" switch; codes for juniors go to a parent or guardian |
 | §17 Ads Manager in V1 | Sponsors have no link field or tracking | App shows existing sponsors read-only; Ads Manager after the event |
 | §31 Expo push for everything | Expo's service cannot update a lock-screen Live Activity; that needs direct Apple push | Separate sender for #3 |
 | §40 five-day sprint | Not credible | Replaced by §6 |
@@ -58,9 +58,10 @@ Local `main` is 14 commits behind `origin/main` (all the tennis work). Pull firs
 
 | Topic | Decision |
 |---|---|
-| Native V1 scope | Spectator + referee scoring. Player claim built but off by flag. Admin, TV operator, sponsor management stay on the web; chess scoring and voice umpire stay web-only |
+| Native V1 scope | Spectator + referee scoring. Player codes (claim) on. Admin, TV operator, sponsor management stay on the web; chess scoring and voice umpire stay web-only |
 | Referee rollout | Native primary, web console as fallback. Go/no-go after a venue rehearsal in the last week of October |
-| Accounts | Optional Apple / Google sign-in, 16+. Guests star, follow and get alerts on that phone. Staff keep access codes |
+| Accounts | Optional Apple / Google sign-in, no age question (the "I am 16 or older" switch was removed 3 Oct). Guests star, follow and get alerts on that phone. Staff keep access codes |
+| Player codes | Every player has `players.access_code` (8 chars, 23456789ABCDEFGHJKMNPQRSTUVWXYZ). Admin tab "Player codes" copies, shares on WhatsApp / email, resets (unlinks) and exports CSV. In the app: Account → Player code (signed-in only) → "You're <name>"; My player profile has photo, phone and matches. One account per player; one claim links the same person's rows in other tournaments only on a shared profile, or the same name plus the same phone or email |
 | Stores | Apple: existing individual account. Google: new personal account |
 | Event rights | Official provider, nothing written. Ask for a short letter now; event names as plain text, no federation logos until it arrives |
 | Themes | Light and dark everywhere |
@@ -162,10 +163,12 @@ Not chosen: predict-the-tie. Parked: home-screen widget, "I'm at…" photo stick
 - Staff: `POST /api/mobile/v1/staff/session {code}` → the existing HMAC role token in the body, 7-day life;
   `currentRole()` in `src/lib/auth.ts` accepts `Authorization: Bearer` then the cookie; timing-safe compare;
   rate limit with `src/lib/ratelimit.ts` (also on the web login).
-- Users: the app sends the Apple / Google identity token to `POST /api/mobile/v1/auth/session`; the server
-  signs in with Supabase Auth using a per-request client (never the shared `db()` client) and returns the
-  session; `auth/refresh`; `DELETE /me` with Apple token revocation; a web deletion page for Play.
-  Birth-year screen before the sign-in buttons; under 16 continues as guest. No Supabase key in the binary.
+- Users: Apple (iPhone, native sheet) sends its identity token to `POST /api/mobile/v1/auth/session`; Google
+  runs Supabase's OAuth flow in the in-app browser sheet with PKCE (`GET auth/oauth/google` → Supabase →
+  `movescore://auth/callback?code=`) and sends code + verifier to the same route. The server signs in with
+  Supabase Auth using a per-request client (never the shared `db()` client) and returns the session; the
+  Google button shows when `config.signIn.google` is true. Setup: `docs/google-sign-in.md`; `auth/refresh`; `DELETE /me` with Apple token revocation; a web deletion page for Play.
+  No age question (removed with player codes). No Supabase key in the binary.
 - Guests: `POST /api/mobile/v1/devices` registers an install id and push token and returns a signed install token.
 
 ### 5.3 Public read API (`/api/mobile/v1/…`)
@@ -268,7 +271,7 @@ Nothing is left unassigned. "Update" means it can arrive by app update without a
 | Players | Directory with search and filters, player page (record, history, next match, singles / doubles), follow. No photos at this event | Store build |
 | Following | Stars and follows as guest or signed in; Following feed (next for you, live now, updates); merge on sign-in | Store build |
 | Alerts | Scheduled, rescheduled, court changed, line-ups, starting, live, finished, tie won; one alert per person per event; on/off per type; major announcements sent from the web admin | Store build |
-| Accounts | Apple / Google sign-in (16+), account deletion in app and on the web, privacy policy, terms, support page | Store build |
+| Accounts | Apple / Google sign-in, player codes, account deletion in app and on the web, privacy policy, terms, support page | Store build |
 | Referee | Staff code login, match picker, full tennis and padel console, offline queue, lease and handoff, sunlight (light) theme, web fallback drill | Store build |
 | Player layer | Player code claim and My Matches built, **switched off** | Store build, flag off |
 | Themes | Light and dark everywhere; Reduce Motion; large text; screen-reader labels | Store build |
@@ -375,7 +378,7 @@ unchanged except for the additive database migration (below).
 | Database | Migration 0015: event groups, venue / dates / time zone / skin on tournaments, announcements, devices, follows, alert outbox and deliveries, accounts, passes, stamps, pins, cheers, lock-screen tokens, player claim | `supabase/migrations/0015_move_score_mobile.sql` | **Applied to the live project** (additive, empty tables, same access posture as existing tables) |
 | Security gate | Script to close the open access, with rollback, and `/api/health/db` to prove which key the server uses | `supabase/gate/` | Not applied (needs the secret key, see below) |
 | Score sync hardening | Refuses unknown events and foreign teams; heals a snapshot left behind by a failed request; reopen checks before any write; finalises on retry; shadow-checks every point with the shared engine | `src/app/api/matches/[matchId]/events/route.ts`, `src/lib/scoring/eventGuard.ts` | Unit tests; full tennis-week E2E; app API E2E incl. a deliberately wrong point (logged, not stalled) |
-| Auth | Bearer tokens for the app, timing-safe code check, rate-limited logins (web and app); Apple / Google sign-in through the server, refresh, account deletion with Apple revocation; 16+ gate; guest install tokens | `src/lib/auth.ts`, `src/lib/mobile/identity.ts`, `src/lib/auth/users.ts`, `api/mobile/v1/{staff,auth,me}` | E2E for codes, tokens, forged tokens. Apple / Google need provider setup |
+| Auth | Bearer tokens for the app, timing-safe code check, rate-limited logins (web and app); Apple / Google sign-in through the server, refresh, account deletion with Apple revocation; player codes (`/me/player`, claim, photo); guest install tokens | `src/lib/auth.ts`, `src/lib/mobile/identity.ts`, `src/lib/auth/users.ts`, `api/mobile/v1/{staff,auth,me}` | E2E for codes, tokens, forged tokens. Apple / Google need provider setup |
 | Public API | discover, bundle, live, standings, match (with engine-computed set / match / break point), timeline, ties, cheers, config — CDN-cacheable | `src/app/api/mobile/v1`, `src/lib/mobile/*` | E2E: shapes, no private fields, cache headers |
 | Alerts | Outbox hooks in scheduling, line-ups, match start, finish, tie result, announcements; one alert per phone per event; Cairo-time wording; drain route + database cron template | `src/lib/notify/*`, `supabase/ops/notification_cron.sql` | E2E: outbox rows, one-phone dedupe, preference filtering |
 | Lock screen | Server sender (direct Apple push) and the app's Live Activity | `src/lib/notify/apns.ts`, `move-score-app/src/live` | Not on a device yet (flag `live_activity` off) |
@@ -389,8 +392,8 @@ unchanged except for the additive database migration (below).
 1. **Free disk space on the Mac.** The iOS build stopped with "No space left on device" (about 200 MB free). Free at least 15 GB (Xcode's DerivedData alone is 4.2 GB), then:
    `cd move-score-app && APP_ENV=development npx expo run:ios`
 2. **Close the database gate**, in this order: copy the project's secret key (Supabase → Settings → API keys) → set `SUPABASE_KEY` in Vercel for Production and Preview → redeploy → open `/api/health/db` and wait for `"key":"secret"` → run `supabase/gate/close_open_access.sql` in the SQL editor → run `scripts/smoke.ts`. Rollback: `supabase/gate/reopen_open_access.sql`.
-3. **Accounts to create this week:** Google Play (personal; add 15–20 testers' Gmail addresses), Expo account + EAS project (`npx eas-cli init`, then set `EAS_PROJECT_ID`), Firebase project for Android push (`google-services.json`), Apple: app record, Sign in with Apple key, APNs key, Pass Type ID certificate; Google Cloud OAuth clients (web, iOS, Android with Play signing SHA-1); Meta app id for Stories; Google Wallet issuer. Put each value in Vercel / EAS env (names in `.env.example` and `app.config.ts`).
-4. **Supabase Auth:** enable Apple and Google providers (client ids = bundle id / OAuth client ids).
+3. **Accounts to create this week:** Google Play (personal; add 15–20 testers' Gmail addresses), Expo account + EAS project (`npx eas-cli init`, then set `EAS_PROJECT_ID`), Firebase project for Android push (`google-services.json`), Apple: app record, Sign in with Apple key, APNs key, Pass Type ID certificate; Google Cloud OAuth web client for Supabase (see `docs/google-sign-in.md`; no iOS/Android clients needed); Meta app id for Stories; Google Wallet issuer. Put each value in Vercel / EAS env (names in `.env.example` and `app.config.ts`).
+4. **Supabase Auth:** enable Apple (client id = bundle id) and Google (web client id + secret), and add `movescore://auth/callback` to the redirect URLs — exact list in `docs/google-sign-in.md`.
 5. **Vercel:** add `CRON_SECRET`; apply `supabase/ops/notification_cron.sql` with the site URL and that secret.
 6. **First builds:** `npx eas-cli build --profile production --platform android` → upload to the Play closed test **by 5 October**; same for iOS → TestFlight.
 7. **Set up the event** in admin → App tab: event group "Junior Team Finals 2026", featured order 1, venue, dates, Africa/Cairo, skin colours; then print or open `/venue/<event>/qr` on the gate tablet.

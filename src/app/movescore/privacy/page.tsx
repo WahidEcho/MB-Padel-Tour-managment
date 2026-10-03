@@ -78,14 +78,21 @@ export default function PrivacyPolicy() {
           installation ID is used for a short time to limit how many cheers one phone can send.
         </p>
 
-        <h3 className="font-semibold">5. An account (optional, 16 and over)</h3>
+        <h3 className="font-semibold">5. An account (optional), and players</h3>
         <p>
           If you sign in with Apple or Google, the provider gives us an account identifier, your email address (Apple may give a
           private relay address instead) and, if you choose to share it, your name. We keep the name you share as your display
-          name, which provider you used and the date you confirmed you are 16 or over. Your email is held by our sign-in
+          name and which provider you used. Your email is held by our sign-in
           provider and is not shown in the app or used for marketing. For Sign in with Apple we also keep an encrypted Apple
           token whose only use is to revoke your Apple sign-in when you delete your account. Your follows and pass then move with
           you to a new phone.
+        </p>
+        <p>
+          Players can link their account to their tournament profile with the private player code the organiser sends them.
+          The app then shows them their name, nation and matches, and lets them add a phone number and a photo. The phone number
+          is seen only by the player and the organisers, never in the app&apos;s public screens or on public pages. The photo is
+          shown publicly only at events where the organiser shows player photos. Unlinking the player, or deleting the account,
+          removes a photo the player added; organisers can reset a code, which unlinks the account.
         </p>
 
         <h3 className="font-semibold">6. Event officials</h3>
@@ -180,9 +187,10 @@ export default function PrivacyPolicy() {
 
       <Section title="Children">
         <p>
-          Accounts are for people aged 16 and over; the app asks before offering sign-in. Younger fans can use every feature as
-          a guest, which does not ask for a name or email. If you believe a child under 16 has created an account, contact us
-          and we will delete it.
+          Everyone can use every feature as a guest, which does not ask for a name or email. Children under 16 should sign in,
+          and link a player code, only with a parent&apos;s or guardian&apos;s permission; at junior events the organisers send
+          player codes to a parent or guardian. If you believe a child has an account without that permission, contact us and
+          we will delete it.
         </p>
       </Section>
 

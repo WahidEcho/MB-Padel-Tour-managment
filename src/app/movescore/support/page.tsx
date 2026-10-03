@@ -10,7 +10,7 @@ const FAQ: [string, React.ReactNode][] = [
   [
     "Do I need an account?",
     <>
-      No. Everything works as a guest. Signing in with Apple or Google (16 and over) only keeps your follows and pass when you
+      No. Everything works as a guest. Signing in with Apple or Google only keeps your follows and pass when you
       change phones. Open <strong>Account</strong> (top right of the Discover tab) to sign in.
     </>,
   ],

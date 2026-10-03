@@ -41,8 +41,7 @@ export default function MoveScoreHome() {
       <section className="space-y-2 text-[15px] leading-relaxed">
         <h2 className="text-xl font-bold">Private by design</h2>
         <p className="text-foreground/90">
-          No ads, no tracking and no location. You can use every part of Move Score without an account; signing in (16 and
-          over) only keeps your follows and pass when you change phones. Read the <InlineLink href="/movescore/privacy">privacy policy</InlineLink>.
+          No ads, no tracking and no location. You can use every part of Move Score without an account; signing in only keeps your follows and pass when you change phones. Read the <InlineLink href="/movescore/privacy">privacy policy</InlineLink>.
         </p>
       </section>
 

@@ -7,7 +7,7 @@
  *   npm run localdb                         # in another terminal
  *   npx tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts
  */
-import { createHmac, randomUUID } from "crypto";
+import { createHash, createHmac, randomUUID } from "crypto";
 import { db } from "../../src/lib/supabase";
 import { awardPoint, initialScoreState, type ScoreState } from "../../src/lib/scoring/engine";
 import { DEFAULT_SCORING_CONFIG } from "../../src/lib/types";
@@ -128,6 +128,23 @@ async function main() {
     const { data: unlinked } = await db().from("push_devices").select("user_id, app_version").eq("installation_id", installationId).single();
     check(again.status === 200 && again.json.installToken === inst["x-install-token"], "The phone re-registers with its own token", again.status);
     check(unlinked?.user_id === null && unlinked?.app_version === "1.0.1", "Re-registering without a session unlinks the phone from the account", unlinked);
+    // ---- the Account alerts switch
+    const pushToken = async () => (await db().from("push_devices").select("expo_push_token").eq("installation_id", installationId).single()).data?.expo_push_token ?? null;
+    check(reg.json.tokenAccepted === true && again.json.tokenAccepted === true, "The server says it kept the phone's push token", reg.json.tokenAccepted);
+    const badToken = await call("POST", "/api/mobile/v1/devices", { headers: inst, body: { installationId, platform: "ios", expoPushToken: "not-a-push-token", alerts: true } });
+    check(badToken.status === 200 && badToken.json.tokenAccepted === false, "A malformed push token is reported, not silently dropped", badToken.json);
+    check((await pushToken()) === `ExponentPushToken[e2e${tag}abcdefghij]`, "...and the phone's good token stays");
+    const quiet = await call("POST", "/api/mobile/v1/devices", { headers: inst, body: { installationId, platform: "ios", expoPushToken: null, alerts: true } });
+    check(quiet.status === 200 && quiet.json.tokenAccepted === null && (await pushToken()) !== null, "A launch without a token (alerts still on) keeps the token", quiet.json);
+    const offSwitch = await call("POST", "/api/mobile/v1/devices", { headers: inst, body: { installationId, platform: "ios", expoPushToken: `ExponentPushToken[e2e${tag}abcdefghij]`, alerts: false } });
+    check(offSwitch.status === 200 && (await pushToken()) === null, "Switching alerts off forgets the phone's push token", offSwitch.json);
+    const onSwitch = await call("POST", "/api/mobile/v1/devices", { headers: inst, body: { installationId, platform: "ios", expoPushToken: `ExponentPushToken[e2e${tag}abcdefghij]`, alerts: true } });
+    check(onSwitch.json?.tokenAccepted === true && (await pushToken()) === `ExponentPushToken[e2e${tag}abcdefghij]`, "Switching alerts back on registers the token again");
+    const prefsSet = await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: { live: true, major: false } });
+    const prefsGot = await call("GET", "/api/mobile/v1/me/prefs", { headers: inst });
+    check(prefsSet.status === 200 && prefsGot.json?.prefs?.live === true && prefsGot.json?.prefs?.major === false && prefsGot.json?.prefs?.finished === true, "Alert types are saved for the phone", prefsGot.json);
+    check((await call("GET", "/api/mobile/v1/me/prefs")).status === 401, "Alert types need the phone's install token");
+    await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: {} }); // back to the defaults for the alert checks below
     const fol = await call("POST", "/api/mobile/v1/me/follows", { headers: inst, body: { add: [{ kind: "nation", key: "EGY", tournamentId: tid }, { kind: "match", key: mid, tournamentId: tid }] } });
     check(fol.status === 200 && fol.json.follows.length === 2, "It follows Egypt and stars the rubber", fol.json?.follows?.length);
     check(/no-store/.test(fol.cache), "Personal answers are never cached", fol.cache);
@@ -274,14 +291,21 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-/** A signed-in app user, minted by the stand-in (its own key pair, published at the JWKS path). */
-async function userToken(sub: string): Promise<string | null> {
-  const res = await fetch(`${process.env.SUPABASE_URL}/__auth/token`, {
-    method: "POST",
-    body: JSON.stringify({ sub, iss: `${process.env.SUPABASE_URL}/auth/v1` }),
-  }).catch(() => null);
+/**
+ * A signed-in app user from the stand-in's sign-in (scripts/localdb/auth.mjs):
+ * its PKCE round trip, one test person per email. Null against a real project.
+ */
+async function userToken(email: string): Promise<string | null> {
+  const auth = `${process.env.SUPABASE_URL}/auth/v1`;
+  const verifier = randomUUID() + randomUUID();
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const start = `${auth}/authorize?provider=google&redirect_to=${encodeURIComponent("movescore://auth/callback")}&code_challenge=${challenge}&code_challenge_method=s256&login_hint=${encodeURIComponent(email)}`;
+  const hop = await fetch(start, { redirect: "manual" }).catch(() => null);
+  const code = hop?.headers.get("location") ? new URL(hop.headers.get("location")!).searchParams.get("code") : null;
+  if (!code) return null;
+  const res = await fetch(`${auth}/token?grant_type=pkce`, { method: "POST", body: JSON.stringify({ auth_code: code, code_verifier: verifier }) }).catch(() => null);
   if (!res?.ok) return null;
-  return ((await res.json()) as { token: string }).token;
+  return ((await res.json()) as { access_token: string }).access_token;
 }
 
 /**
@@ -292,8 +316,8 @@ async function userToken(sub: string): Promise<string | null> {
  * unlinks; nothing private reaches public feeds or pages.
  */
 async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: { id: string }; mid: string; inst: Record<string, string> }) {
-  const userA = randomUUID();
-  const userB = randomUUID();
+  const userA = `e2e.adam.${randomUUID().slice(0, 6)}@example.com`;
+  const userB = `e2e.other.${randomUUID().slice(0, 6)}@example.com`;
   const tokA = await userToken(userA);
   const tokB = await userToken(userB);
   if (!tokA || !tokB) {
