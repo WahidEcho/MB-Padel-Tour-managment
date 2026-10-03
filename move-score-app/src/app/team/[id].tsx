@@ -4,7 +4,7 @@ import { useBundle } from "../../api/queries";
 import { SkinScope } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
-import { Body, Display, Eyebrow } from "../../ui/Text";
+import { Display, Eyebrow } from "../../ui/Text";
 import { Empty, Flag } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
 import { TeamSection } from "../../ui/TeamSection";
