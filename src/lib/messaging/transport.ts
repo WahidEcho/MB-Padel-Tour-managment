@@ -8,7 +8,7 @@
  * be exercised too.
  */
 import { createHash, randomUUID } from "crypto";
-import { BATCH_LIMIT, describeResendError, fromHeader, resendBody, resendRequest, type EmailMessage, type SendOutcome } from "./email";
+import { BATCH_LIMIT, describeResendError, fromHeader, replyTo, resendBody, resendRequest, type EmailMessage, type SendOutcome } from "./email";
 import { describeGraphError, graphRequest, templatePayload, textPayload, waConfig, type TemplateSend } from "./whatsapp";
 import { waRecipient } from "./phone";
 
@@ -22,7 +22,6 @@ export function channelReady(channel: "email" | "whatsapp", env: NodeJS.ProcessE
   if (transportMode(env) === "dry-run") return { ok: true };
   if (channel === "email") {
     if (!env.RESEND_API_KEY) return { ok: false, why: "RESEND_API_KEY is not set" };
-    if (!env.RESEND_FROM_EMAIL) return { ok: false, why: "RESEND_FROM_EMAIL is not set" };
     return { ok: true };
   }
   return waConfig(env) ? { ok: true } : { ok: false, why: "WA_CLOUD_ACCESS_TOKEN / WA_CLOUD_PHONE_NUMBER_ID are not set" };
@@ -37,9 +36,9 @@ function dryEmail(m: EmailMessage): SendOutcome {
   return { ok: true, providerId: `dry_${randomUUID()}` };
 }
 
-async function sendOneEmail(m: EmailMessage, apiKey: string, from: string): Promise<SendOutcome> {
+async function sendOneEmail(m: EmailMessage, apiKey: string, from: string, reply: string): Promise<SendOutcome> {
   try {
-    const { status, json } = await resendRequest("/emails", resendBody(m, from), { apiKey, idempotencyKey: `delivery-${m.deliveryId}` });
+    const { status, json } = await resendRequest("/emails", resendBody(m, from, reply), { apiKey, idempotencyKey: `delivery-${m.deliveryId}` });
     const body = json as { id?: string; name?: string; message?: string } | null;
     if (status < 300 && body?.id) return { ok: true, providerId: body.id };
     return { ok: false, ...describeResendError(status, body) };
@@ -59,10 +58,11 @@ export async function sendEmailChunk(msgs: EmailMessage[]): Promise<SendOutcome[
   const ready = channelReady("email");
   if (!ready.ok) return msgs.map(() => notConfigured(ready.why!));
   const apiKey = process.env.RESEND_API_KEY!;
-  const from = fromHeader()!;
-  if (msgs.length === 1) return [await sendOneEmail(msgs[0]!, apiKey, from)];
+  const from = fromHeader();
+  const reply = replyTo();
+  if (msgs.length === 1) return [await sendOneEmail(msgs[0]!, apiKey, from, reply)];
   try {
-    const { status, json } = await resendRequest("/emails/batch", msgs.map((m) => resendBody(m, from)), {
+    const { status, json } = await resendRequest("/emails/batch", msgs.map((m) => resendBody(m, from, reply)), {
       apiKey,
       idempotencyKey: `batch-${createHash("sha256").update(msgs.map((m) => m.deliveryId).join(",")).digest("hex")}`,
       timeoutMs: 30_000,
@@ -78,7 +78,7 @@ export async function sendEmailChunk(msgs: EmailMessage[]): Promise<SendOutcome[
   // Validation failed somewhere in the batch: find out where, one at a time.
   const out: SendOutcome[] = [];
   for (const m of msgs) {
-    out.push(await sendOneEmail(m, apiKey, from));
+    out.push(await sendOneEmail(m, apiKey, from, reply));
     await new Promise((r) => setTimeout(r, 550));
   }
   return out;

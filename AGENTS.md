@@ -63,3 +63,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   webhooks `api/webhooks/resend|whatsapp`, `sendTransactional` in `src/lib/messaging/queue.ts`. Docs, env vars and
   WhatsApp templates to submit: `docs/messaging.md`. Never send for real from tests: `MESSAGING_DRY_RUN=1`;
   gate `npm run e2e:messaging` (stand-in, dry run).
+- Email branding: one layout for every email (`src/lib/email/layout.ts`, Move Score header, Move Beyond
+  signature). Supabase Auth templates are generated into `supabase/email-templates/` by
+  `npx tsx scripts/email/build-auth-templates.ts` (test fails when stale); dashboard + SMTP steps in `docs/email.md`.
+  Resend sends as `Move Score <no-reply@mbeg.org>`, reply-to `info@mbeg.org` (env overrides).

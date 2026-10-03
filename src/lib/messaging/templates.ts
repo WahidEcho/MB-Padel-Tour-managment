@@ -89,6 +89,7 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
       title: "Your Move Score player code",
       body: "Hi {first_name},\n\nHere is your personal Move Score player code{tournament_suffix}. Get the app, sign in, open Account, tap Player code and enter it: you'll see your matches, and you can add your photo and phone number.\n\nKeep it to yourself: it links your player profile to your account.\n\nGet the app: {app_link}",
       code: "{code}",
+      codeLabel: "Your player code",
       cta: { label: "Open Move Score", url: "{app_link}" },
     }),
     whatsapp: { name: "mb_access_code", language: "en", params: ["first_name", "code", "app_link"] },

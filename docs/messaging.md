@@ -73,8 +73,9 @@ Same names as Move-Tick. Values are in `~/MoveScore-keys/messaging-secrets.env` 
 | Name | What |
 |---|---|
 | `RESEND_API_KEY` | Resend API key with sending access. |
-| `RESEND_FROM_EMAIL` | Sender address on a **verified Resend domain** (mbeg.org is verified for Move-Tick; e.g. `tournaments@mbeg.org`). Move-Tick's value is `movetick@mbeg.org`. |
-| `RESEND_FROM_NAME` | Sender name. Move-Tick uses "Move Tick"; for this platform set **Move Beyond**. |
+| `RESEND_FROM_EMAIL` | Optional. Sender address on a **verified Resend domain**; default `no-reply@mbeg.org`. Move-Tick's value is `movetick@mbeg.org` — don't copy it. |
+| `RESEND_FROM_NAME` | Optional. Sender name; default **Move Score**. |
+| `RESEND_REPLY_TO` | Optional. Reply-to address; default `info@mbeg.org`. |
 | `RESEND_WEBHOOK_SECRET` | Signing secret (`whsec_…`) **of the webhook endpoint you create for this platform** in Resend. Each Resend endpoint has its own secret: the one copied from Move-Tick verifies Move-Tick's endpoint only, so replace it after registering ours. |
 | `WA_CLOUD_ACCESS_TOKEN` | System-user token with `whatsapp_business_messaging` + `whatsapp_business_management`. |
 | `WA_CLOUD_PHONE_NUMBER_ID` | Sending phone number id. |
@@ -108,7 +109,7 @@ Then, once per project, after migration 0020: run `supabase/ops/messaging_cron.s
 
 ## Resend domain requirement
 
-`RESEND_FROM_EMAIL` must be on a domain verified in Resend (SPF/DKIM DNS records under Resend → Domains),
+The sender (`RESEND_FROM_EMAIL`, default `no-reply@mbeg.org`) must be on a domain verified in Resend (SPF/DKIM DNS records under Resend → Domains),
 otherwise every send fails with 403 ("Sender not allowed — verify the RESEND_FROM_EMAIL domain"). mbeg.org
 is already used by Move-Tick; if a new subdomain is used (e.g. `mail.mbeg.org`), add and verify it first.
 
