@@ -1,9 +1,11 @@
 /**
  * Spectator accounts: Apple and Google sign-in through Supabase Auth.
  *
- * The app signs in natively and sends the provider's identity token here; the
- * server exchanges it for a Supabase session on a client made for this one
- * request (never the shared db() client, which would then act as that user).
+ * Apple on iPhone signs in natively and sends its identity token here. Google
+ * signs in through Supabase's own OAuth flow in the app's browser sheet (PKCE)
+ * and sends the returned code and its verifier here. Either way the server makes
+ * the Supabase session on a client made for this one request (never the shared
+ * db() client, which would then act as that user).
  */
 import { createClient } from "@supabase/supabase-js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
@@ -14,6 +16,70 @@ export function authClient() {
   const key = process.env.SUPABASE_KEY;
   if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_KEY must be set");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+}
+
+/**
+ * Trades a PKCE authorisation code (from Supabase's redirect back to the app)
+ * and the app's code verifier for a session. The verifier sits in this client's
+ * throwaway storage, where supabase-js looks for it.
+ */
+export async function exchangeOAuthCode(code: string, codeVerifier: string) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_KEY;
+  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_KEY must be set");
+  // supabase-js clears stored items while it initialises, so the verifier is answered
+  // for its key whatever happened to the rest of this throwaway storage. Stored
+  // values are JSON, as supabase-js writes them.
+  const VERIFIER_KEY = "ms-oauth-code-verifier";
+  const stored = JSON.stringify(codeVerifier);
+  const mem = new Map<string, string>();
+  const client = createClient(url, key, {
+    auth: {
+      flowType: "pkce",
+      storageKey: "ms-oauth",
+      storage: {
+        getItem: (k) => (k === VERIFIER_KEY ? stored : (mem.get(k) ?? null)),
+        setItem: (k, v) => void mem.set(k, v),
+        removeItem: (k) => void mem.delete(k),
+      },
+      persistSession: true,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+  return client.auth.exchangeCodeForSession(code);
+}
+
+export interface AuthProviders {
+  google: boolean;
+  apple: boolean;
+}
+
+let providersCache: { at: number; value: Promise<AuthProviders> } | null = null;
+
+/**
+ * Which sign-in providers are switched on in Supabase Auth (its public settings),
+ * so the app shows the Google button as soon as the provider is enabled there.
+ * Unknown (unreachable, stand-in without auth) reads as off.
+ */
+export function authProviders(): Promise<AuthProviders> {
+  if (providersCache && Date.now() - providersCache.at < 60_000) return providersCache.value;
+  const value = (async (): Promise<AuthProviders> => {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_KEY;
+    if (!url || !key) return { google: false, apple: false };
+    try {
+      const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key }, signal: AbortSignal.timeout(3000), cache: "no-store" });
+      if (!res.ok) throw new Error(`settings ${res.status}`);
+      const j = (await res.json()) as { external?: Record<string, unknown> };
+      return { google: j.external?.google === true, apple: j.external?.apple === true };
+    } catch {
+      providersCache = null; // try again on the next request
+      return { google: false, apple: false };
+    }
+  })();
+  providersCache = { at: Date.now(), value };
+  return value;
 }
 
 function vaultKey(): Buffer {

@@ -93,6 +93,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Keychain storage without biometrics (no requireAuthentication), so no Face ID string.
     ["expo-secure-store", { faceIDPermission: false }],
     "expo-localization",
+    // Google sign-in runs in the in-app browser sheet (ASWebAuthenticationSession /
+    // Custom Tabs) and comes back on the movescore:// scheme: no Google SDK or URL scheme.
     "expo-web-browser",
     "expo-apple-authentication",
     // Camera only reads the venue QR code: no microphone permission on either platform.
@@ -105,7 +107,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00" }],
-    ["@react-native-google-signin/google-signin", { iosUrlScheme: process.env.GOOGLE_IOS_URL_SCHEME ?? "com.googleusercontent.apps.placeholder" }],
     ["react-native-share", { ios: ["instagram-stories", "instagram", "whatsapp"], android: ["com.instagram.android", "com.whatsapp"] }],
     [
       "expo-widgets",
@@ -126,8 +127,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     appEnv: APP_ENV,
     apiBaseUrl: API,
     sentryDsn: process.env.SENTRY_DSN ?? null,
-    googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? null,
-    googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID ?? null,
     metaAppId: process.env.META_APP_ID ?? null,
     eas: EAS_PROJECT_ID ? { projectId: EAS_PROJECT_ID } : undefined,
   },

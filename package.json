@@ -21,6 +21,7 @@
     "e2e:tennis-tv": "tsx --env-file=.env.localdb scripts/e2e/tennis-tv.ts",
     "e2e:tennis-ties": "tsx --env-file=.env.local scripts/e2e/tennis-ties.ts",
     "e2e:mobile-api": "tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts",
+    "e2e:mobile-signin": "tsx --env-file=.env.localdb scripts/e2e/mobile-signin.ts",
     "localdb:seed-app": "tsx --env-file=.env.localdb scripts/localdb/seed-app-demo.ts"
   },
   "dependencies": {

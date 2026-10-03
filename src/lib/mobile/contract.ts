@@ -253,6 +253,11 @@ export interface MConfig {
   walletReady?: { apple: boolean; google: boolean };
   supportUrl: string;
   privacyUrl: string;
+  /**
+   * Sign-in providers switched on in Supabase Auth. Google signs in through the
+   * in-app browser sheet, so its button shows as soon as this is true.
+   */
+  signIn: { google: boolean; apple: boolean };
 }
 
 /* ---------- personal (never cached) ---------- */
