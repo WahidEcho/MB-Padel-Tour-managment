@@ -36,8 +36,9 @@ const PRIVACY_MANIFEST = {
   ],
 };
 
-// The camera scans the venue code and, for a player, takes their profile photo.
-const CAMERA_USE = "Move Score uses the camera to scan the venue code that stamps your event pass, and to take your player photo if you choose to.";
+// One camera string for every use (story photo, player photo, venue code), set the same way by every plugin.
+const CAMERA_USAGE = "Take a photo for your Move Score story or your player photo. The camera also scans the venue code that stamps your event pass.";
+const PHOTOS_USAGE = "Choose a photo for your Move Score story or your player photo.";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -61,7 +62,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // CMMotionManager device motion, which needs no permission; nothing uses
     // motion activity or the pedometer.
     infoPlist: {
-      NSCameraUsageDescription: CAMERA_USE,
+      NSCameraUsageDescription: CAMERA_USAGE,
+      NSPhotoLibraryUsageDescription: PHOTOS_USAGE,
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
@@ -100,21 +102,23 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Custom Tabs) and comes back on the movescore:// scheme: no Google SDK or URL scheme.
     "expo-web-browser",
     "expo-apple-authentication",
-    // Camera only reads the venue QR code: no microphone permission on either platform.
+    // The camera takes story photos and reads the venue QR code; it never records
+    // video, so there is no microphone permission on either platform.
     [
       "expo-camera",
       {
-        cameraPermission: CAMERA_USE,
+        cameraPermission: CAMERA_USAGE,
         microphonePermission: false,
         recordAudioAndroid: false,
       },
     ],
-    // Player photo: the system picker (no photo library access needed on iOS 14+) or the camera; no microphone.
+    // Story photos from the library. The system picker needs no library permission on
+    // iOS 14+ / Android 13+; the string covers older systems. No microphone (no video).
     [
       "expo-image-picker",
       {
-        photosPermission: "Move Score opens your photos so you can choose your player photo.",
-        cameraPermission: CAMERA_USE,
+        photosPermission: PHOTOS_USAGE,
+        cameraPermission: CAMERA_USAGE,
         microphonePermission: false,
       },
     ],

@@ -140,7 +140,7 @@ function TiltSensor({ gx, gy, base, gyro }: { gx: SharedValue<number>; gy: Share
  *
  * It is always the fan's pass: staff accreditation lives in the referee console.
  */
-export function PassCard({ pass, event, nationIso2, today, width }: { pass: MPass; event: PassEvent; nationIso2?: string | null; today?: string; width?: number }) {
+export function PassCard({ pass, event, nationIso2, today, width, pose }: { pass: MPass; event: PassEvent; nationIso2?: string | null; today?: string; width?: number; pose?: { x: number; y: number } }) {
   const { calm } = useTheme();
   const auto = usePassSize();
   const w = width ?? auto.w;
@@ -151,9 +151,12 @@ export function PassCard({ pass, event, nationIso2, today, width }: { pass: MPas
   const attended = pass.attendance?.matches ?? 0;
   const points = pass.attendance?.points ?? 0;
   const [focused, setFocused] = useState(true);
-  const moving = focused && !calm;
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
+  // `pose` holds the card flat with the foil and light frozen at that tilt (the story
+  // sticker, which is captured as an image): no sensor and no frame loop.
+  const still = Boolean(pose);
+  const moving = focused && !calm && !still;
+  const x = useSharedValue(pose?.x ?? 0);
+  const y = useSharedValue(pose?.y ?? 0);
   const gx = useSharedValue(0);
   const gy = useSharedValue(0);
   const base = useSharedValue<number | null>(null);
@@ -180,15 +183,15 @@ export function PassCard({ pass, event, nationIso2, today, width }: { pass: MPas
   );
   useEffect(() => {
     frame.setActive(moving);
-    if (calm) {
+    if (calm && !still) {
       x.value = 0;
       y.value = 0;
     }
-  }, [moving, calm, frame, x, y]);
+  }, [moving, calm, still, frame, x, y]);
 
   // A bigger card tilts a little less, so its far edge doesn't swing out of the screen.
   const tilt = 13 * Math.min(1, 1.25 / k);
-  const card = useAnimatedStyle(() => ({ transform: [{ perspective: 1100 * k }, { rotateY: `${x.value * tilt}deg` }, { rotateX: `${-y.value * tilt}deg` }] }));
+  const card = useAnimatedStyle(() => (still ? {} : { transform: [{ perspective: 1100 * k }, { rotateY: `${x.value * tilt}deg` }, { rotateX: `${-y.value * tilt}deg` }] }));
   const foil = useAnimatedStyle(() => ({ transform: [{ translateX: x.value * w * 0.7 }, { translateY: y.value * h * 0.35 }, { rotate: "25deg" }] }));
   const glare = useAnimatedStyle(() => ({ transform: [{ translateX: w * (0.5 + x.value * 0.45) - glareSize / 2 }, { translateY: h * (0.35 + y.value * 0.45) - glareSize / 2 }] }));
 
