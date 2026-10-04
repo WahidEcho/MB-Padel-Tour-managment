@@ -56,6 +56,14 @@
       "ios": {
         "credentialsSource": "local"
       }
+    },
+    "adhoc-local": {
+      "extends": "production",
+      "distribution": "internal",
+      "autoIncrement": false,
+      "ios": {
+        "credentialsSource": "local"
+      }
     }
   },
   "submit": {
