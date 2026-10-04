@@ -142,8 +142,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     appEnv: APP_ENV,
     apiBaseUrl: API,
-    sentryDsn: process.env.SENTRY_DSN ?? null,
-    metaAppId: process.env.META_APP_ID ?? null,
+    sentryDsn: process.env.SENTRY_DSN || undefined,
+    metaAppId: process.env.META_APP_ID || undefined,
     eas: EAS_PROJECT_ID ? { projectId: EAS_PROJECT_ID } : undefined,
   },
 });
