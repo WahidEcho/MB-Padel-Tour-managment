@@ -4,9 +4,10 @@
  */
 import { formatAccessCode } from "./accessCode";
 import { whatsAppDigits } from "./phone";
+import { APP_PAGE_URL } from "../site";
 
-/** Where the message sends people to get the app. */
-export const APP_PAGE_URL = "https://mb-tournament.vercel.app/movescore";
+/** Where the message sends people to get the app (the public site's Move Score page). */
+export { APP_PAGE_URL };
 
 export interface CodeMessageInput {
   playerName: string;

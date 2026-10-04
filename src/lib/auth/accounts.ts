@@ -10,17 +10,16 @@
  */
 import type { Session, User } from "@supabase/supabase-js";
 import { db } from "@/lib/supabase";
+import { siteUrl } from "@/lib/messaging/links";
 import { openToken, sealToken } from "./users";
 
 export type AppProvider = "apple" | "google" | "email" | "player_code";
 
 /* ---------------- links in the emails ---------------- */
 
-const DEFAULT_SITE = "https://mb-tournament.vercel.app";
-
 /** Where the confirmation and password emails send people (PUBLIC_SITE_URL in other environments). */
 export function authSiteUrl(): string {
-  return (process.env.PUBLIC_SITE_URL || DEFAULT_SITE).replace(/\/+$/, "");
+  return siteUrl();
 }
 export const confirmUrl = () => `${authSiteUrl()}/movescore/auth/confirm`;
 export const resetUrl = () => `${authSiteUrl()}/movescore/auth/reset`;

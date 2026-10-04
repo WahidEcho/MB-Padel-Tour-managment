@@ -47,7 +47,7 @@ for email/WhatsApp is honoured ("The player has not agreed to this channel"). A 
 **STOP** (or إلغاء / توقف) is opted out (`whatsapp_contacts`); **START** opts back in.
 
 Merge fields: `{name}`, `{first_name}`, `{code}` (players.access_code), `{tournament}`, `{link}` (tournament
-page), `{app_link}` (`/movescore`). Links use `PUBLIC_SITE_URL` (default `https://mb-tournament.vercel.app`).
+page), `{app_link}` (`/movescore`). Links use `PUBLIC_SITE_URL` (default `https://tour.mbeg.org`).
 
 ### Transactional messages
 
@@ -85,17 +85,17 @@ Same names as Move-Tick. Values are in `~/MoveScore-keys/messaging-secrets.env` 
 | `WA_CLOUD_APP_SECRET` | Meta app secret (verifies `X-Hub-Signature-256`). Note: the main checkout's `.env.local` has a different, non-hex value for this name; the 32-hex value from Move-Tick is the one in the secrets file. |
 | `WA_CLOUD_VERIFY_TOKEN` | Any string; must equal the "Verify token" typed in Meta's webhook settings. |
 | `CRON_SECRET` | Already used by the notification drain; the messaging cron uses the same vault secret. |
-| `PUBLIC_SITE_URL` | Optional; links in messages. Default `https://mb-tournament.vercel.app`. |
+| `PUBLIC_SITE_URL` | Optional; links in messages. Default `https://tour.mbeg.org`. |
 | `MESSAGING_DRY_RUN` | `1` = nothing leaves the server (stand-in, tests). Never set in production. |
 
 ## Webhooks to register
 
-- **Resend** → Webhooks → Add endpoint `https://mb-tournament.vercel.app/api/webhooks/resend`, events
+- **Resend** → Webhooks → Add endpoint `https://tour.mbeg.org/api/webhooks/resend`, events
   `email.sent`, `email.delivered`, `email.bounced`, `email.complained`, `email.opened`, `email.clicked`,
   `email.failed`. Put that endpoint's signing secret into `RESEND_WEBHOOK_SECRET`. The account is shared
   with Move-Tick: each endpoint receives every email's events, and ours ignores ones it did not send.
 - **WhatsApp** → Meta App Dashboard → WhatsApp → Configuration → Callback URL
-  `https://mb-tournament.vercel.app/api/webhooks/whatsapp`, verify token = `WA_CLOUD_VERIFY_TOKEN`,
+  `https://tour.mbeg.org/api/webhooks/whatsapp`, verify token = `WA_CLOUD_VERIFY_TOKEN`,
   subscribe to `messages`.
   **Important:** a Meta app has one WhatsApp callback URL, and Move-Tick's bridge is registered today on the
   same app and phone number. Pointing it here would cut Move-Tick's delivery reports. Options: (a) a second
@@ -135,11 +135,11 @@ Create; language **English (en)**; variables cannot contain line breaks — the 
 2. **`mb_new_tournament`** — Marketing
    Body: `Hi {{1}}, registration is open for {{2}} 🎾 {{3}} See the dates and sign up: {{4}}`
    Samples: `Omar` / `Spring Padel Open` / `Three days of padel at Smash Club, 12–14 Nov.` /
-   `https://mb-tournament.vercel.app/t/spring-open`. Optional IMAGE header (poster). Mapping: first name,
+   `https://tour.mbeg.org/t/spring-open`. Optional IMAGE header (poster). Mapping: first name,
    tournament, message, link.
 3. **`mb_access_code`** — Utility
    Body: `Hi {{1}}, your Move Score player code is {{2}}. Get the app, sign in, open Account, tap Player code and enter it. Get the app: {{3}} Keep this code private.`
-   Samples: `Omar` / `MB7Q2K` / `https://mb-tournament.vercel.app/movescore`. Mapping: first name, code, app
+   Samples: `Omar` / `MB7Q2K` / `https://tour.mbeg.org/movescore`. Mapping: first name, code, app
    link. (Meta may recategorise code messages as Authentication; if so, keep Utility wording about linking
    matches, not logging in.)
 4. **`mb_confirmation`** — Utility

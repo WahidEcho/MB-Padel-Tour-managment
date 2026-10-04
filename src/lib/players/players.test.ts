@@ -109,7 +109,7 @@ describe("sharing a code", () => {
   it("writes the message with the code and the app link", () => {
     expect(text).toContain("Hi Adam,");
     expect(text).toContain("ABCD-2345");
-    expect(text).toContain("https://mb-tournament.vercel.app/movescore");
+    expect(text).toContain("https://tour.mbeg.org/movescore");
   });
 
   it("builds a wa.me link to the player's number", () => {

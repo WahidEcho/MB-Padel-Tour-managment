@@ -12,6 +12,7 @@
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import { EMAIL_BRAND } from "../../src/lib/email/layout";
+import { APP_PAGE_URL, SITE_URL } from "../../src/lib/site";
 import { AUTH_TEMPLATES, authSubjects, authTemplateHtml } from "../../src/lib/email/authTemplates";
 import { transactionalEmail } from "../../src/lib/messaging/templates";
 import { renderEmail } from "../../src/lib/messaging/render";
@@ -27,13 +28,13 @@ if (i > 0) {
   const dir = resolve(process.argv[i + 1] ?? "email-samples");
   mkdirSync(dir, { recursive: true });
   const example: Record<string, string> = {
-    "{{ .RedirectTo }}": "https://mb-tournament.vercel.app/movescore/auth/confirm",
+    "{{ .RedirectTo }}": `${APP_PAGE_URL}/auth/confirm`,
     "{{ .TokenHash }}": "pkce_3f1c9a…",
     "{{ .Token }}": "482913",
     "{{ .Email }}": "sara.ali@example.com",
     "{{ .NewEmail }}": "sara@example.org",
-    "{{ .SiteURL }}": "https://mb-tournament.vercel.app",
-    "{{ .ConfirmationURL }}": "https://mb-tournament.vercel.app/movescore/auth/confirm",
+    "{{ .SiteURL }}": SITE_URL,
+    "{{ .ConfirmationURL }}": `${APP_PAGE_URL}/auth/confirm`,
   };
   const fill = (html: string) => Object.entries(example).reduce((h, [k, v]) => h.split(k).join(v), html);
   const samples: { file: string; label: string; subject: string; html: string }[] = AUTH_TEMPLATES.map((t) => ({
@@ -42,12 +43,12 @@ if (i > 0) {
     subject: t.subject,
     html: fill(authTemplateHtml(t)),
   }));
-  const app = "https://mb-tournament.vercel.app/movescore";
+  const app = APP_PAGE_URL;
   const own = [
     ["access-code", "Resend · Player code", transactionalEmail("access_code", { name: "Sara Ali", code: "MB7Q-2K4X", tournament: "Junior Team Finals", app_link: app })],
     ["confirmation", "Resend · Confirmation", transactionalEmail("confirmation", { name: "Omar Khaled", title: "Registration received", message: "We have your entry for {tournament}. The draw is published on Thursday; you'll get your first match time the day before.", tournament: "Cairo Spring Open" })],
-    ["new-tournament", "Resend · New tournament", transactionalEmail("new_tournament", { name: "Omar Khaled", tournament: "Cairo Spring Open", message: "Men's and women's doubles, 14–16 November at Smash Club. Entries close on 7 November.", link: "https://mb-tournament.vercel.app/t/cairo-spring-open" })],
-    ["announcement", "Resend · Announcement", renderEmail({ title: "Order of play is out", body: "Hi {first_name},\n\nTomorrow's order of play is published. Courts open at 9:00 and the first matches start at 9:30.\n\nSee your matches: https://mb-tournament.vercel.app/t/cairo-spring-open", cta: { label: "Open Move Score", url: app } }, { name: "Omar Khaled" })],
+    ["new-tournament", "Resend · New tournament", transactionalEmail("new_tournament", { name: "Omar Khaled", tournament: "Cairo Spring Open", message: "Men's and women's doubles, 14–16 November at Smash Club. Entries close on 7 November.", link: `${SITE_URL}/t/cairo-spring-open` })],
+    ["announcement", "Resend · Announcement", renderEmail({ title: "Order of play is out", body: `Hi {first_name},\n\nTomorrow's order of play is published. Courts open at 9:00 and the first matches start at 9:30.\n\nSee your matches: ${SITE_URL}/t/cairo-spring-open`, cta: { label: "Open Move Score", url: app } }, { name: "Omar Khaled" })],
   ] as const;
   for (const [id, label, e] of own) samples.push({ file: `resend-${id}.html`, label, subject: e.subject, html: e.html });
   // Previews load the logos from a local copy of public/email/ (the live site may not have them yet).

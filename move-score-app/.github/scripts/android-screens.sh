@@ -4,7 +4,7 @@
 set -euo pipefail
 
 PKG=org.mbeg.movescore
-API="${EXPO_PUBLIC_API_BASE_URL:-https://mb-tournament.vercel.app}"
+API="${EXPO_PUBLIC_API_BASE_URL:-https://tour.mbeg.org}"
 APK=$(ls apk/*.apk | head -1)
 mkdir -p shots
 

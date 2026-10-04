@@ -4,7 +4,7 @@ import { parseWaWebhook, verifyMetaSignature, type WaWebhook } from "@/lib/messa
 import { applyStatusUpdates, recordInbound } from "@/lib/messaging/queue";
 
 /**
- * WhatsApp Cloud API webhook (https://mb-tournament.vercel.app/api/webhooks/whatsapp).
+ * WhatsApp Cloud API webhook (https://tour.mbeg.org/api/webhooks/whatsapp).
  *
  * GET is Meta's one-time handshake: echo hub.challenge when hub.verify_token is
  * WA_CLOUD_VERIFY_TOKEN. POST carries message statuses (sent, delivered, read,

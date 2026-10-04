@@ -10,7 +10,7 @@ message, an optional code box and button, and the signature "Move Score is made 
 | Supabase Auth templates (source) | `src/lib/email/authTemplates.ts` |
 | Supabase Auth templates (generated, paste into the dashboard) | `supabase/email-templates/*.html`, `subjects.json` |
 | Our own emails (player codes, confirmations, new tournament, announcements) | `src/lib/messaging/render.ts`, `templates.ts` |
-| Hosted logos | `public/email/` → `https://mb-tournament.vercel.app/email/…` |
+| Hosted logos | `public/email/` → `https://tour.mbeg.org/email/…` |
 | Tests (escaping, signature, plain text, templates match the files) | `src/lib/email/email.test.ts`, `src/lib/messaging/messaging.test.ts` |
 
 The logos load from the live site, so deploy this branch before the templates go live, otherwise the
@@ -60,9 +60,9 @@ How the links work: each button goes to
 
 - Calls that send these emails must pass the page as the redirect (`emailRedirectTo` for sign-up and
   email change, `redirectTo` for `resetPasswordForEmail`), e.g.
-  `https://mb-tournament.vercel.app/movescore/auth/confirm`.
+  `https://tour.mbeg.org/movescore/auth/confirm`.
 - That URL must be allowed in Authentication → URL Configuration → Redirect URLs
-  (`https://mb-tournament.vercel.app/movescore/auth/**`). If it is not, Supabase falls back to the Site
+  (`https://tour.mbeg.org/movescore/auth/**`). If it is not, Supabase falls back to the Site
   URL and the link lands on the home page.
 - Confirm signup, magic link, reset password and change email also show the six-digit `{{ .Token }}` as
   "Or enter this code in the app"; reauthentication is the code alone.

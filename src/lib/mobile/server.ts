@@ -37,6 +37,7 @@ import {
 import { memo } from "./http";
 import { appleWalletConfigured, googleWalletConfigured } from "../pass/wallet";
 import { authProviders } from "../auth/users";
+import { APP_PAGE_URL } from "../site";
 
 const CARD_COLUMNS =
   "id, slug, name, sport, kind, status, is_demo, public_access_enabled, branding_config, format_config, lower_third_text, updated_at, event_group_id, venue_name, city, timezone, starts_on, ends_on, app_skin";
@@ -341,8 +342,8 @@ export function getConfig(): Promise<MConfig> {
       minAppVersion: typeof app.minAppVersion === "string" ? app.minAppVersion : "1.0.0",
       flags,
       walletReady: { apple: appleWalletConfigured(), google: googleWalletConfigured() },
-      supportUrl: typeof app.supportUrl === "string" ? app.supportUrl : "https://mb-tournament.vercel.app/movescore/support",
-      privacyUrl: typeof app.privacyUrl === "string" ? app.privacyUrl : "https://mb-tournament.vercel.app/movescore/privacy",
+      supportUrl: typeof app.supportUrl === "string" ? app.supportUrl : `${APP_PAGE_URL}/support`,
+      privacyUrl: typeof app.privacyUrl === "string" ? app.privacyUrl : `${APP_PAGE_URL}/privacy`,
       signIn,
     };
   });
