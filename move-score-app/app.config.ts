@@ -11,9 +11,14 @@ const suffix = APP_ENV === "production" ? "" : `.${APP_ENV === "staging" ? "stag
 const API = {
   development: process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000",
   staging: process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://staging.tour.mbeg.org",
-  production: process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://mb-tournament.vercel.app",
+  production: process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://tour.mbeg.org",
 }[APP_ENV];
 const WEB_HOST = new URL(API).host;
+// The site's former address (same deployment). Production builds still claim its
+// /v/ and /m/ links so venue and match codes printed or shared before the move to
+// tour.mbeg.org keep opening the app. Both hosts serve the same AASA and assetlinks.
+const LEGACY_WEB_HOST = "mb-tournament.vercel.app";
+const LINK_HOSTS = APP_ENV === "production" && WEB_HOST !== LEGACY_WEB_HOST ? [WEB_HOST, LEGACY_WEB_HOST] : [WEB_HOST];
 
 // OWNER TO FILL: the EAS project id from `eas init` (expo.dev → project → ID).
 // The EAS_PROJECT_ID environment variable wins when set; until either exists,
@@ -57,7 +62,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: `${BUNDLE}${suffix}`,
     supportsTablet: true,
     usesAppleSignIn: true,
-    associatedDomains: [`applinks:${WEB_HOST}`],
+    associatedDomains: LINK_HOSTS.map((h) => `applinks:${h}`),
     // No NSMotionUsageDescription: the pass tilt (Reanimated useAnimatedSensor) reads
     // CMMotionManager device motion, which needs no permission; nothing uses
     // motion activity or the pedometer.
@@ -81,10 +86,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         action: "VIEW",
         autoVerify: true,
         // /v/: the venue code; /m/: a match's check-in code.
-        data: [
-          { scheme: "https", host: WEB_HOST, pathPrefix: "/v/" },
-          { scheme: "https", host: WEB_HOST, pathPrefix: "/m/" },
-        ],
+        data: LINK_HOSTS.flatMap((host) => [
+          { scheme: "https", host, pathPrefix: "/v/" },
+          { scheme: "https", host, pathPrefix: "/m/" },
+        ]),
         category: ["BROWSABLE", "DEFAULT"],
       },
     ],

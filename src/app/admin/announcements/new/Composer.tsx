@@ -104,7 +104,7 @@ export default function Composer({
     () =>
       renderEmail(
         { title: title || "(title)", body, cta: ctaUrl ? { label: ctaLabel || "Open", url: ctaUrl } : null, code: kind === "access_codes" ? "{code}" : null },
-        { name: "Omar Khaled", code: "MB7Q2K", tournament: tName, link: "https://mb-tournament.vercel.app/t/…", app_link: "https://mb-tournament.vercel.app/movescore" },
+        { name: "Omar Khaled", code: "MB7Q2K", tournament: tName, link: "https://tour.mbeg.org/t/…", app_link: "https://tour.mbeg.org/movescore" },
       ),
     [title, body, ctaUrl, ctaLabel, kind, tName],
   );

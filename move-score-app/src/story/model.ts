@@ -155,7 +155,7 @@ export function eventDays(a: string | null, b: string | null): string[] {
   return out;
 }
 
-/** The app's page, printed small under the wordmark: "mb-tournament.vercel.app/movescore". */
+/** The app's page, printed small under the wordmark: "tour.mbeg.org/movescore". */
 export function appLink(): string {
   return `${config.apiBaseUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}/movescore`;
 }

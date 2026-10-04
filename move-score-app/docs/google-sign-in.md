@@ -32,10 +32,10 @@ cache). You do not need a new app build.
 | App name | `Move Score` |
 | User support email | your support address |
 | App logo | optional. A logo triggers Google's brand verification. |
-| Application home page | `https://mb-tournament.vercel.app/movescore` |
-| Privacy policy | `https://mb-tournament.vercel.app/movescore/privacy` |
-| Terms of service | `https://mb-tournament.vercel.app/movescore/terms` |
-| Authorized domains | `dwyztzywuscljqklhqij.supabase.co` (Google stores it as `supabase.co`) |
+| Application home page | `https://tour.mbeg.org/movescore` |
+| Privacy policy | `https://tour.mbeg.org/movescore/privacy` |
+| Terms of service | `https://tour.mbeg.org/movescore/terms` |
+| Authorized domains | `mbeg.org` (the home page and policy links above; verify it in Google Search Console if asked) and `dwyztzywuscljqklhqij.supabase.co` (Google stores it as `supabase.co`) |
 | Scopes | `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile`. No sensitive scopes. |
 | Audience / publishing status | **In production**. In "Testing" only listed test users can sign in. |
 
@@ -97,10 +97,10 @@ already in `app.config.ts`.
 
 ## Check it after configuring
 
-1. `curl -s https://mb-tournament.vercel.app/api/mobile/v1/config | grep -o '"signIn":{[^}]*}'`
+1. `curl -s https://tour.mbeg.org/api/mobile/v1/config | grep -o '"signIn":{[^}]*}'`
    should print `"google":true` (allow about 2 minutes).
 2. Open this URL in a desktop browser. Any 43-character challenge works for this test:
-   `https://mb-tournament.vercel.app/api/mobile/v1/auth/oauth/google?redirect_to=movescore%3A%2F%2Fauth%2Fcallback&code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`
+   `https://tour.mbeg.org/api/mobile/v1/auth/oauth/google?redirect_to=movescore%3A%2F%2Fauth%2Fcallback&code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`
    You should get Google's account chooser for "Move Score". After you choose an account, the browser tries
    to open `movescore://auth/callback?code=…`, which shows that Supabase accepted the redirect. If you get
    `error=provider_disabled`, the provider is still off.
@@ -109,7 +109,7 @@ already in `app.config.ts`.
 
 ## What people see
 
-- **iOS** shows a system prompt before the sheet: "“Move Score” Wants to Use “mb-tournament.vercel.app” to
+- **iOS** shows a system prompt before the sheet: "“Move Score” Wants to Use “tour.mbeg.org” to
   Sign In". Apple requires this for shared-cookie sign-in sheets, so the app cannot hide it.
 - **Google's consent screen** says "to continue to dwyztzywuscljqklhqij.supabase.co". To show your own
   domain, set up a Supabase custom domain (paid add-on, for example `auth.mbeg.org`). Then use

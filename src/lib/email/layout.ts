@@ -10,16 +10,17 @@
  * button made of a coloured table cell (no VML, so nothing breaks when a template
  * engine strips comments), and a hidden preheader.
  */
+import { APP_PAGE_URL, SITE_URL } from "../site";
 
 export const EMAIL_BRAND = {
   product: "Move Score",
-  productUrl: "https://mb-tournament.vercel.app/movescore",
+  productUrl: APP_PAGE_URL,
   maker: "Move Beyond",
   makerUrl: "https://mbeg.org",
   contact: "info@mbeg.org",
-  privacyUrl: "https://mb-tournament.vercel.app/movescore/privacy",
+  privacyUrl: `${APP_PAGE_URL}/privacy`,
   /** Hosted logos: public/email/ in this repo, served by the live site. */
-  assetBase: "https://mb-tournament.vercel.app/email",
+  assetBase: `${SITE_URL}/email`,
   legal: "© Move Beyond. All rights reserved.",
 } as const;
 

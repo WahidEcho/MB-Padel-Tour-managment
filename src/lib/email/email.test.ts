@@ -9,7 +9,7 @@ const TEMPLATE_DIR = join(__dirname, "../../../supabase/email-templates");
 describe("branded email layout", () => {
   const e = brandedEmail({
     title: "Hello <b>Sara</b>",
-    body: 'Line "one" & <script>alert(1)</script>\n\nSee https://mb-tournament.vercel.app/t/x.',
+    body: 'Line "one" & <script>alert(1)</script>\n\nSee https://tour.mbeg.org/t/x.',
     code: { label: "Your code", value: "<AB12>" },
     button: { label: "Open <app>", url: 'https://x.test/a?b=1&c="2"' },
     linkFallback: true,
@@ -26,7 +26,7 @@ describe("branded email layout", () => {
     expect(e.html).toContain('href="https://x.test/a?b=1&amp;c=&quot;2&quot;"');
     expect(e.html).toContain("Open &lt;app&gt;");
     expect(e.html).toContain("Because &lt;you&gt; signed up");
-    expect(e.html).toContain('<a href="https://mb-tournament.vercel.app/t/x"');
+    expect(e.html).toContain('<a href="https://tour.mbeg.org/t/x"');
   });
 
   it("has the Move Score header, preheader and Move Beyond signature", () => {

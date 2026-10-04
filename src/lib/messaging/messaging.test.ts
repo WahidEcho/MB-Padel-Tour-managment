@@ -80,9 +80,9 @@ describe("render", () => {
     expect(mergeVars({ tournament: "Open", link: "x" }, { tournament: null, name: "A" })).toEqual({ tournament: "Open", link: "x", name: "A" });
   });
   it("escapes HTML and links URLs", () => {
-    const html = textToHtml("<b>Hi</b>\nsee https://mb-tournament.vercel.app/t/x.\n\nbye");
+    const html = textToHtml("<b>Hi</b>\nsee https://tour.mbeg.org/t/x.\n\nbye");
     expect(html).toContain("&lt;b&gt;Hi&lt;/b&gt;<br>");
-    expect(html).toContain('<a href="https://mb-tournament.vercel.app/t/x"');
+    expect(html).toContain('<a href="https://tour.mbeg.org/t/x"');
     expect(html.match(/<p /g)?.length).toBe(2);
   });
   it("renders a branded email with code box and button", () => {
@@ -160,12 +160,12 @@ describe("WhatsApp", () => {
       { type: "HEADER", format: "IMAGE" },
       { type: "BODY", text: "Hi {{1}}, {{2}} is open. {{3}}" },
       { type: "FOOTER", text: "Move Beyond" },
-      { type: "BUTTONS", buttons: [{ type: "URL", text: "Open", url: "https://mb-tournament.vercel.app/t/{{1}}" }, { type: "URL", text: "Site", url: "https://mbeg.org" }] },
+      { type: "BUTTONS", buttons: [{ type: "URL", text: "Open", url: "https://tour.mbeg.org/t/{{1}}" }, { type: "URL", text: "Site", url: "https://mbeg.org" }] },
     ],
   });
   it("describes what a template needs", () => {
     expect(tpl).toMatchObject({ bodyParams: 3, headerFormat: "IMAGE", footer: "Move Beyond" });
-    expect(tpl.urlButtons).toEqual([{ index: 0, text: "Open", url: "https://mb-tournament.vercel.app/t/{{1}}" }]);
+    expect(tpl.urlButtons).toEqual([{ index: 0, text: "Open", url: "https://tour.mbeg.org/t/{{1}}" }]);
   });
   it("builds template payloads with flattened variables", () => {
     const p = templatePayload("201001234567", { name: "x", language: "en", bodyParams: ["Omar", "Line one\n\nLine two\twith     spaces"], headerImageUrl: "https://i.test/a.jpg", buttonParams: [{ index: 0, value: "spring-open" }] });

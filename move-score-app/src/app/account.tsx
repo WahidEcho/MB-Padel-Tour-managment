@@ -3,7 +3,7 @@ import { Linking, Platform, Switch, View } from "react-native";
 import { router } from "expo-router";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { Image } from "expo-image";
-import { alertsNotice, type MAlertPrefs } from "@core";
+import { alertsNotice, APP_PAGE_URL, type MAlertPrefs } from "@core";
 import { useConfig } from "../api/queries";
 import { themePref, useTheme, type ModePref } from "../theme/ThemeProvider";
 import { session } from "../state/session";
@@ -21,7 +21,7 @@ import { PlayerSection } from "../player/PlayerSection";
 import { RegistrationBanner } from "../auth/RegistrationBanner";
 
 // Where the legal pages live when the server's config has not loaded yet.
-const SITE = "https://mb-tournament.vercel.app/movescore";
+const SITE = APP_PAGE_URL;
 
 const PROVIDER_LABEL: Record<string, string> = { google: "Google", apple: "Apple", email: "Email", player_code: "Player code" };
 

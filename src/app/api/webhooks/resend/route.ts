@@ -3,7 +3,7 @@ import { mapResendEvent, verifySvixSignature, type ResendEvent } from "@/lib/mes
 import { applyStatusUpdates } from "@/lib/messaging/queue";
 
 /**
- * Resend delivery reports (register https://mb-tournament.vercel.app/api/webhooks/resend
+ * Resend delivery reports (register https://tour.mbeg.org/api/webhooks/resend
  * in Resend → Webhooks; its signing secret is RESEND_WEBHOOK_SECRET). Signed the
  * Svix way; unsigned or stale requests are refused. Emails this platform did not
  * send (the Resend account is shared with Move-Tick) are acknowledged and ignored.

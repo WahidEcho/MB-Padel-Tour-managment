@@ -32,6 +32,7 @@ SHARED=(
   scoring/eventGuard.ts
   scoring/rules.ts
   scoringLease.ts
+  site.ts
   tennis/nations.ts
   tennis/ties.ts
   types.ts
