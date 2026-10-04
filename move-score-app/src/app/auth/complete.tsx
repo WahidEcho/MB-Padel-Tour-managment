@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, View } from "react-native";
+import { View } from "react-native";
 import { router } from "expo-router";
 import { isStrongPassword, isValidEmail, normalizeEmail } from "@core";
 import { errorMessage } from "../../api/client";
@@ -73,7 +73,7 @@ export default function CompleteRegistration() {
 
   return (
     <Screen tabs={false}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <>
         <BackHeader label="Account" fallback="/account" />
         <Eyebrow tone="live">{user.name ? `Welcome, ${user.name}` : "Welcome"}</Eyebrow>
         <Display size={28} style={{ marginTop: 6 }}>{sentTo ? "Check your inbox" : "Complete your registration"}</Display>
@@ -99,7 +99,7 @@ export default function CompleteRegistration() {
             </Card>
           </>
         )}
-      </KeyboardAvoidingView>
+      </>
     </Screen>
   );
 }

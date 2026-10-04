@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, View } from "react-native";
+import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { isStrongPassword, isValidEmail, normalizeEmail } from "@core";
 import { errorMessage } from "../../api/client";
@@ -57,7 +57,7 @@ export default function EmailAuth() {
 
   return (
     <Screen tabs={false}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <>
         <BackHeader label="Account" fallback="/account" />
         <Eyebrow tone="live">Move Score · Account</Eyebrow>
         <Display size={28} style={{ marginTop: 6, marginBottom: 14 }}>{TITLES[mode]}</Display>
@@ -118,7 +118,7 @@ export default function EmailAuth() {
         )}
 
         {mode === "inbox" && <Inbox email={cleanEmail} note={note} onSignIn={() => go("signin")} onDone={done} />}
-      </KeyboardAvoidingView>
+      </>
     </Screen>
   );
 }

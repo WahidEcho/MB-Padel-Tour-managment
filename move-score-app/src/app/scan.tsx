@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
@@ -92,38 +92,43 @@ export default function Scan() {
           }}
         />
       ) : null}
-      <View style={{ flex: 1, paddingTop: insets.top + 12, paddingHorizontal: 22, paddingBottom: insets.bottom + 20, justifyContent: "space-between" }}>
-        <View style={{ gap: 6 }}>
-          <Eyebrow style={{ color: BALL }}>My pass</Eyebrow>
-          <Display size={26} style={{ color: "#E8ECF4" }}>Scan the gate or a match</Display>
-          <Body size={13} style={{ color: "#9AA4B8" }}>The gate code stamps your day. The code on the court screen checks you in to that match and adds to your score.</Body>
+      {/* The staff-code field sits at the bottom: lift the controls over the keyboard (the frame gives up the room). */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={insets.bottom} style={{ flex: 1 }}>
+        {/* The number pad has no return key: a tap anywhere else puts it away. */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={Keyboard.dismiss} accessible={false} />
+        <View pointerEvents="box-none" style={{ flex: 1, paddingTop: insets.top + 12, paddingHorizontal: 22, paddingBottom: insets.bottom + 20, justifyContent: "space-between" }}>
+          <View style={{ gap: 6 }}>
+            <Eyebrow style={{ color: BALL }}>My pass</Eyebrow>
+            <Display size={26} style={{ color: "#E8ECF4" }}>Scan the gate or a match</Display>
+            <Body size={13} style={{ color: "#9AA4B8" }}>The gate code stamps your day. The code on the court screen checks you in to that match and adds to your score.</Body>
+          </View>
+          <View pointerEvents="none" style={{ alignSelf: "center", width: 240, height: 240, flexShrink: 1, borderRadius: 28, borderWidth: 3, borderColor: msg ? tone : BALL }} />
+          <View style={{ gap: 10 }}>
+            {msg ? (
+              <Body weight="bold" accessibilityRole="alert" style={{ color: msg.tone === "success" ? "#E8ECF4" : tone, textAlign: "center" }}>
+                {msg.text}
+              </Body>
+            ) : null}
+            {!perm?.granted && <Button label="Allow the camera" onPress={() => void ask()} />}
+            {group ? (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  value={staffCode}
+                  onChangeText={setStaffCode}
+                  placeholder="Or the 6-digit code from staff"
+                  placeholderTextColor="#6B7590"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  accessibilityLabel="Six-digit venue code"
+                  style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 14, paddingHorizontal: 14, color: "#E8ECF4", fontSize: 16 }}
+                />
+                <Button label="Use" disabled={staffCode.length !== 6} onPress={() => void tryVenue(group.slug, staffCode)} />
+              </View>
+            ) : null}
+            <Button kind="ghost" label="Close" onPress={() => router.back()} style={{ backgroundColor: "rgba(255,255,255,0.08)" }} />
+          </View>
         </View>
-        <View style={{ alignSelf: "center", width: 240, height: 240, borderRadius: 28, borderWidth: 3, borderColor: msg ? tone : BALL }} />
-        <View style={{ gap: 10 }}>
-          {msg ? (
-            <Body weight="bold" accessibilityRole="alert" style={{ color: msg.tone === "success" ? "#E8ECF4" : tone, textAlign: "center" }}>
-              {msg.text}
-            </Body>
-          ) : null}
-          {!perm?.granted && <Button label="Allow the camera" onPress={() => void ask()} />}
-          {group ? (
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput
-                value={staffCode}
-                onChangeText={setStaffCode}
-                placeholder="Or the 6-digit code from staff"
-                placeholderTextColor="#6B7590"
-                keyboardType="number-pad"
-                maxLength={6}
-                accessibilityLabel="Six-digit venue code"
-                style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 14, paddingHorizontal: 14, color: "#E8ECF4", fontSize: 16 }}
-              />
-              <Button label="Use" disabled={staffCode.length !== 6} onPress={() => void tryVenue(group.slug, staffCode)} />
-            </View>
-          ) : null}
-          <Button kind="ghost" label="Close" onPress={() => router.back()} style={{ backgroundColor: "rgba(255,255,255,0.08)" }} />
-        </View>
-      </View>
+      </KeyboardAvoidingView>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderColor: t.ball, borderWidth: 0 }]} />
     </View>
   );

@@ -41,8 +41,14 @@ export function CameraStep({ overlay, onPhoto, onLibrary, onClose, onNoPhoto, ca
   const cam = useRef<CameraView>(null);
   const [facing, setFacing] = useState<CameraType>("back");
   const [flash, setFlash] = useState<FlashMode>("off");
-  const [ready, setReady] = useState(false);
+  // `started`: the session is running. iOS reports that once per mount (a flip only swaps the
+  // lens), so a flip must not wait for it again; Android re-reports it once the new lens is open.
+  const [started, setStarted] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ready = started && !switching;
   const [busy, setBusy] = useState(false);
+  const shooting = useRef(false);
   const [failed, setFailed] = useState(false);
   const blink = useSharedValue(0);
   const blinkStyle = useAnimatedStyle(() => ({ opacity: blink.value }));
@@ -52,9 +58,20 @@ export function CameraStep({ overlay, onPhoto, onLibrary, onClose, onNoPhoto, ca
     if (perm && !perm.granted && perm.status === "undetermined" && perm.canAskAgain) void ask();
   }, [perm, ask]);
 
+  useEffect(() => () => {
+    if (settle.current) clearTimeout(settle.current);
+  }, []);
+  const settled = () => {
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = null;
+    setSwitching(false);
+  };
   const flip = () => {
     void Haptics.selectionAsync().catch(() => {});
-    setReady(false);
+    // A short pause while the lens swaps; the camera's ready event ends it early, the timer always does.
+    setSwitching(true);
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = setTimeout(settled, 600);
     setFacing((f) => (f === "back" ? "front" : "back"));
   };
   const doubleTap = Gesture.Tap()
@@ -64,7 +81,8 @@ export function CameraStep({ overlay, onPhoto, onLibrary, onClose, onNoPhoto, ca
     });
 
   const shoot = async () => {
-    if (!cam.current || busy) return;
+    if (!cam.current || !ready || shooting.current) return;
+    shooting.current = true;
     setBusy(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (!calm) blink.value = withSequence(withTiming(0.85, { duration: 60 }), withTiming(0, { duration: 260 }));
@@ -75,6 +93,7 @@ export function CameraStep({ overlay, onPhoto, onLibrary, onClose, onNoPhoto, ca
     } catch {
       setFailed(true);
       setBusy(false);
+      shooting.current = false;
     }
   };
 
@@ -102,7 +121,15 @@ export function CameraStep({ overlay, onPhoto, onLibrary, onClose, onNoPhoto, ca
             <Text style={{ fontFamily: F.bodyBold, fontSize: 15, color: BALL_INK }}>Choose from library</Text>
           </Pressable>
           {failed ? (
-            <Pressable accessibilityRole="button" onPress={() => setFailed(false)} style={{ paddingVertical: 12, alignItems: "center" }}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                // A fresh viewfinder: wait for it to report ready again.
+                setStarted(false);
+                setFailed(false);
+              }}
+              style={{ paddingVertical: 12, alignItems: "center" }}
+            >
               <Text style={{ fontFamily: F.bodySemi, fontSize: 14, color: "#FFFFFF" }}>Try the camera again</Text>
             </Pressable>
           ) : Platform.OS !== "web" ? (
@@ -131,7 +158,10 @@ export function CameraStep({ overlay, onPhoto, onLibrary, onClose, onNoPhoto, ca
               mirror={facing === "front"}
               mode="picture"
               animateShutter={false}
-              onCameraReady={() => setReady(true)}
+              onCameraReady={() => {
+                setStarted(true);
+                settled();
+              }}
               onMountError={() => setFailed(true)}
               accessibilityLabel={`Camera viewfinder, ${facing === "front" ? "front" : "back"} camera`}
             />

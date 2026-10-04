@@ -7,7 +7,11 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTi
 import { BALL } from "../theme/palette";
 import { F } from "../theme/type";
 import { Eyebrow } from "./Text";
-import { usePassSize } from "./PassCard";
+import { DISPLAY_SCALE, usePassSize } from "./PassCard";
+
+// The wordmark and title shrink with the pass, so the pack keeps its proportions.
+const MARK = Math.round(190 * DISPLAY_SCALE);
+const TITLE = Math.round(30 * DISPLAY_SCALE);
 
 /**
  * The pass arrives sealed. Drag a finger along the perforation to tear it open;
@@ -48,8 +52,11 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
     runOnJS(open)();
   });
   const strip = useAnimatedStyle(() => ({ width: `${tear.value * 100}%` }));
-  const top = useAnimatedStyle(() => ({ transform: [{ translateX: gone.value ? withTiming(80, { duration: 700 }) : 0 }, { translateY: gone.value ? withTiming(-320, { duration: 700 }) : 0 }, { rotate: gone.value ? withTiming("28deg", { duration: 700 }) : "0deg" }], opacity: gone.value ? withTiming(0, { duration: 700 }) : 1 }));
-  const body = useAnimatedStyle(() => ({ transform: [{ translateY: gone.value ? withTiming(560, { duration: 800 }) : 0 }], opacity: gone.value ? withTiming(0, { duration: 800 }) : 1 }));
+  // The tear's travel is in the pack's own size, so a smaller pass flies a shorter way.
+  const flyX = Math.round(PASS_W * 0.22);
+  const flyUp = Math.round(PASS_H * 0.57);
+  const top = useAnimatedStyle(() => ({ transform: [{ translateX: gone.value ? withTiming(flyX, { duration: 700 }) : 0 }, { translateY: gone.value ? withTiming(-flyUp, { duration: 700 }) : 0 }, { rotate: gone.value ? withTiming("28deg", { duration: 700 }) : "0deg" }], opacity: gone.value ? withTiming(0, { duration: 700 }) : 1 }));
+  const body = useAnimatedStyle(() => ({ transform: [{ translateY: gone.value ? withTiming(PASS_H, { duration: 800 }) : 0 }], opacity: gone.value ? withTiming(0, { duration: 800 }) : 1 }));
   return (
     <GestureDetector gesture={Gesture.Exclusive(pan, tap)}>
       <View
@@ -77,8 +84,8 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
         </View>
         <Animated.View style={[{ flex: 1, borderTopLeftRadius: 4, borderTopRightRadius: 4, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, body]}>
           <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 20 }}>
-            <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ width: 190, height: 190 * (74 / 997) }} contentFit="contain" />
-            <Animated.Text style={{ fontFamily: F.display, fontSize: 30, lineHeight: 29, color: "#E8ECF4", textTransform: "uppercase", textAlign: "center" }}>{title}</Animated.Text>
+            <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ width: MARK, height: MARK * (74 / 997) }} contentFit="contain" />
+            <Animated.Text style={{ fontFamily: F.display, fontSize: TITLE, lineHeight: TITLE - 1, color: "#E8ECF4", textTransform: "uppercase", textAlign: "center" }}>{title}</Animated.Text>
             <View style={{ backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
               <Eyebrow size={10} style={{ color: "#05060A" }}>Event pass</Eyebrow>
             </View>

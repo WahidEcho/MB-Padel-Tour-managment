@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useKeepAwake } from "expo-keep-awake";
@@ -62,11 +62,14 @@ function Sheetish({ open, onClose, children, title }: { open: boolean; onClose: 
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }} onPress={onClose} accessibilityLabel="Close" />
-      <View style={{ backgroundColor: t.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18, paddingBottom: insets.bottom + 18, gap: 10, maxHeight: "80%" }}>
-        <Eyebrow>{title}</Eyebrow>
-        <ScrollView contentContainerStyle={{ gap: 10 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-      </View>
+      {/* The sheet rides up with the keyboard, so the code field above it stays in sight. */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }} onPress={onClose} accessibilityLabel="Close" />
+        <View style={{ backgroundColor: t.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18, paddingBottom: insets.bottom + 18, gap: 10, maxHeight: "80%" }}>
+          <Eyebrow>{title}</Eyebrow>
+          <ScrollView contentContainerStyle={{ gap: 10 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

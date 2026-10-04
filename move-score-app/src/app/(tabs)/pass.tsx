@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Alert, Platform, TextInput, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { Alert, Platform, ScrollView, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import Animated, { FadeInDown, ZoomIn } from "react-native-reanimated";
 import type { MAttendedMatch, MPass } from "@core";
@@ -9,7 +9,7 @@ import { registerDevice } from "../../push/register";
 import { LoadState } from "../../ui/LoadState";
 import { useFeaturedGroup } from "../../api/featured";
 import { useTheme } from "../../theme/ThemeProvider";
-import { Screen } from "../../ui/Screen";
+import { revealEndAboveKeyboard, Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, SectionHeader } from "../../ui/Bits";
 import { PassCard, usePassSize, type PassEvent } from "../../ui/PassCard";
@@ -89,6 +89,7 @@ export default function PassTab() {
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const size = usePassSize();
+  const scroll = useRef<ScrollView>(null);
   const q = usePass(group?.id);
   const { pass, owner } = q;
   const nations = useMemo(() => {
@@ -151,7 +152,7 @@ export default function PassTab() {
   const attended = pass?.attendance?.list ?? [];
   const iso2Of = (code: string | null) => (code ? (nations.find((n) => n.code === code)?.iso2 ?? null) : null);
   return (
-    <Screen onRefresh={() => q.refetch()}>
+    <Screen onRefresh={() => q.refetch()} scrollRef={scroll}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 14 }}>
         <Display size={24}>My pass</Display>
         <Chip label={pass ? (pass.onsiteUnlockedAt ? "On-site" : "Opened") : q.confirmedNone ? "Sealed" : "…"} ball={Boolean(pass?.onsiteUnlockedAt)} />
@@ -251,6 +252,10 @@ export default function PassTab() {
                   placeholder="Your name"
                   placeholderTextColor={t.ink3}
                   accessibilityLabel="Name on the pass"
+                  returnKeyType="done"
+                  onSubmitEditing={saveName}
+                  // The editor closes the page: bring the field and the nations under it above the keyboard.
+                  onFocus={() => revealEndAboveKeyboard(scroll)}
                   style={{ flex: 1, backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, color: t.ink, fontSize: 15 }}
                 />
                 <Button label="Save" onPress={saveName} />

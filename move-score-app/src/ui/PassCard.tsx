@@ -25,14 +25,18 @@ export const PASS_RATIO = 1.58;
 const GUTTER = 18; // Screen's side padding
 const BORDER = 1;
 
+/** The pass on screen is 85% of the room it has: edge to edge read as too big in the hand. */
+export const DISPLAY_SCALE = 0.85;
+
 /**
- * The pass's size for a window: as wide as the screen allows (minus the gutters),
- * up to 420pt on a phone and 460pt on a tablet, and PASS_RATIO tall.
+ * The pass's size for a window: 85% of the screen's width (minus the gutters),
+ * itself capped at 420pt on a phone and 460pt on a tablet, and PASS_RATIO tall.
+ * The story sticker is drawn at PASS_W and does not use this.
  */
 export function passSize(window: { width: number; height: number }): { w: number; h: number } {
   const tablet = Math.min(window.width, window.height) >= 600;
   const room = Math.min(window.width, CONTENT_MAX_WIDTH) - GUTTER * 2;
-  const w = Math.round(Math.max(240, Math.min(tablet ? 460 : 420, room)));
+  const w = Math.round(Math.max(240, Math.min(tablet ? 460 : 420, room)) * DISPLAY_SCALE);
   return { w, h: Math.round(w * PASS_RATIO) };
 }
 
