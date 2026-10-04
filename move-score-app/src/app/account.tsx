@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Linking, Platform, Switch, View } from "react-native";
+import { Linking, Platform, Pressable, Switch, View } from "react-native";
 import { router } from "expo-router";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { Image } from "expo-image";
@@ -34,6 +34,10 @@ const PREF_LABELS: [keyof MAlertPrefs, string, string][] = [
   ["major", "Big announcements", "Start of play, finals, delays. Rare."],
 ];
 
+// Hidden for now at the owner's request. App Review (guideline 5.1.1(v)) needs account deletion
+// reachable in the app before an App Store submission: turn this back on first.
+const SHOW_DELETE_ACCOUNT = false;
+
 export default function Account() {
   const { t } = useTheme();
   const cfg = useConfig();
@@ -53,6 +57,7 @@ export default function Account() {
   const codeReady = cfg.data?.signIn?.playerCode === true && cfg.data?.flags.player_claim !== false;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // A player-code account with no email yet cannot be signed back into except with the code
   // (as a new account): say so before signing out.
   const unregistered = user?.registrationComplete === false;
@@ -132,7 +137,17 @@ export default function Account() {
           <SectionHeader title="Sign in" />
           {user ? (
             <Card style={{ gap: 10 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <Pressable
+                onPress={() => {
+                  setMenuOpen((o) => !o);
+                  setConfirmSignOut(false);
+                  setConfirmDelete(false);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: menuOpen }}
+                accessibilityHint="Shows sign out"
+                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 10, margin: -4, borderRadius: 16, borderWidth: 1, borderColor: t.line, backgroundColor: t.chip, opacity: pressed ? 0.75 : 1 })}
+              >
                 {user.avatarUrl ? (
                   <Image source={{ uri: user.avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.chip }} contentFit="cover" accessibilityLabel="Your profile picture" />
                 ) : (
@@ -148,33 +163,41 @@ export default function Account() {
                     </Body>
                   ) : null}
                 </View>
-              </View>
+                <Body weight="bold" size={18} tone="ink3" style={{ transform: [{ rotate: menuOpen ? "-90deg" : "90deg" }] }}>
+                  ›
+                </Body>
+              </Pressable>
+              {menuOpen && (
+                <View style={{ gap: 8 }}>
+                  {confirmSignOut ? (
+                    <View style={{ gap: 8 }}>
+                      <Body size={13}>
+                        You haven&apos;t added an email yet. After signing out you can sign in again with your player code, but this account&apos;s follows and pass stay behind.
+                      </Body>
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <Button kind="ghost" label="Stay" onPress={() => setConfirmSignOut(false)} style={{ flex: 1 }} />
+                        <Button kind="danger" label="Sign out" onPress={() => void run(signOut).then(() => setConfirmSignOut(false))} style={{ flex: 1 }} />
+                      </View>
+                    </View>
+                  ) : (
+                    <Button kind="ghost" label="Sign out" onPress={() => (unregistered ? setConfirmSignOut(true) : void run(signOut))} />
+                  )}
+                  {SHOW_DELETE_ACCOUNT &&
+                    (confirmDelete ? (
+                      <View style={{ gap: 8 }}>
+                        <Body size={13}>This deletes your account, your follows and your pass. It cannot be undone.</Body>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          <Button kind="ghost" label="Keep it" onPress={() => setConfirmDelete(false)} style={{ flex: 1 }} />
+                          <Button kind="danger" label="Delete" onPress={() => void run(deleteAccount)} style={{ flex: 1 }} />
+                        </View>
+                      </View>
+                    ) : (
+                      <Button kind="ghost" label="Delete account" onPress={() => setConfirmDelete(true)} />
+                    ))}
+                </View>
+              )}
               <RegistrationBanner />
               <Body tone="ink2" size={12.5}>Your follows and pass are saved to your account and come with you to a new phone. You stay signed in until you sign out.</Body>
-              {confirmSignOut ? (
-                <View style={{ gap: 8 }}>
-                  <Body size={13}>
-                    You haven&apos;t added an email yet. After signing out you can sign in again with your player code, but this account&apos;s follows and pass stay behind.
-                  </Body>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Button kind="ghost" label="Stay" onPress={() => setConfirmSignOut(false)} style={{ flex: 1 }} />
-                    <Button kind="danger" label="Sign out" onPress={() => void run(signOut).then(() => setConfirmSignOut(false))} style={{ flex: 1 }} />
-                  </View>
-                </View>
-              ) : (
-                <Button kind="ghost" label="Sign out" onPress={() => (unregistered ? setConfirmSignOut(true) : void run(signOut))} />
-              )}
-              {confirmDelete ? (
-                <View style={{ gap: 8 }}>
-                  <Body size={13}>This deletes your account, your follows and your pass. It cannot be undone.</Body>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Button kind="ghost" label="Keep it" onPress={() => setConfirmDelete(false)} style={{ flex: 1 }} />
-                    <Button kind="danger" label="Delete" onPress={() => void run(deleteAccount)} style={{ flex: 1 }} />
-                  </View>
-                </View>
-              ) : (
-                <Button kind="ghost" label="Delete account" onPress={() => setConfirmDelete(true)} />
-              )}
             </Card>
           ) : (
             <Card style={{ gap: 12 }}>
