@@ -34,9 +34,9 @@ const PREF_LABELS: [keyof MAlertPrefs, string, string][] = [
   ["major", "Big announcements", "Start of play, finals, delays. Rare."],
 ];
 
-// Hidden for now at the owner's request. App Review (guideline 5.1.1(v)) needs account deletion
-// reachable in the app before an App Store submission: turn this back on first.
-const SHOW_DELETE_ACCOUNT = false;
+// App Review (guideline 5.1.1(v)) needs account deletion reachable in the app; it sits in the
+// profile menu under Sign out.
+const SHOW_DELETE_ACCOUNT = true;
 
 export default function Account() {
   const { t } = useTheme();
@@ -145,7 +145,7 @@ export default function Account() {
                 }}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: menuOpen }}
-                accessibilityHint="Shows sign out"
+                accessibilityHint="Shows sign out and delete account"
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 10, margin: -4, borderRadius: 16, borderWidth: 1, borderColor: t.line, backgroundColor: t.chip, opacity: pressed ? 0.75 : 1 })}
               >
                 {user.avatarUrl ? (
