@@ -20,7 +20,8 @@ export default function DeleteAccount() {
         <ol className="list-decimal space-y-1.5 pl-5 marker:text-muted">
           <li>Open Move Score and go to the <strong>Discover</strong> tab.</li>
           <li>Tap <strong>Account</strong> at the top right.</li>
-          <li>Under <strong>Sign in</strong>, tap <strong>Delete account</strong>.</li>
+          <li>Under <strong>Sign in</strong>, tap your name to open the menu.</li>
+          <li>Tap <strong>Delete account</strong>.</li>
           <li>Tap <strong>Delete</strong> to confirm.</li>
         </ol>
       </Section>

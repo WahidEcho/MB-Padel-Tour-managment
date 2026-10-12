@@ -18,6 +18,7 @@ export const LAST_UPDATED = "3 October 2026";
 
 export const PAGES = [
   ["/movescore", "Move Score"],
+  ["/movescore/android", "Android"],
   ["/movescore/support", "Support"],
   ["/movescore/privacy", "Privacy"],
   ["/movescore/terms", "Terms"],

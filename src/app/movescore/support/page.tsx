@@ -62,7 +62,7 @@ const FAQ: [string, React.ReactNode][] = [
   [
     "How do I delete my account or data?",
     <>
-      In the app: <strong>Account → Delete account</strong>. Full steps, including for guests, are on{" "}
+      In the app: <strong>Account → tap your name → Delete account</strong>. Full steps, including for guests, are on{" "}
       <InlineLink href="/movescore/delete-account">delete your account</InlineLink>.
     </>,
   ],

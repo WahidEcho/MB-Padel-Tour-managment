@@ -39,6 +39,13 @@ export default function MoveScoreHome() {
       </ul>
 
       <section className="space-y-2 text-[15px] leading-relaxed">
+        <h2 className="text-xl font-bold">Get the app</h2>
+        <p className="text-foreground/90">
+          On Android, <InlineLink href="/movescore/android">download Move Score here</InlineLink> until it arrives on Google Play. The iPhone app is coming to the App Store.
+        </p>
+      </section>
+
+      <section className="space-y-2 text-[15px] leading-relaxed">
         <h2 className="text-xl font-bold">Private by design</h2>
         <p className="text-foreground/90">
           No ads, no tracking and no location. You can use every part of Move Score without an account; signing in only keeps your follows and pass when you change phones. Read the <InlineLink href="/movescore/privacy">privacy policy</InlineLink>.
