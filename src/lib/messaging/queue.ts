@@ -31,6 +31,9 @@ import { canAdvance, timestampFor, type Channel, type DeliveryStatus } from "./s
 import { announcementTemplate, transactionalEmail, transactionalText, transactionalWhatsApp, type TransactionalTemplate, type WaTemplateChoice } from "./templates";
 import { sendEmailChunk, sendWhatsApp, transportMode } from "./transport";
 import { isStopRequest, windowOpen, type InboundMessage, type TemplateSend } from "./whatsapp";
+import { otpTemplate } from "./otp";
+import { CODE_COLUMNS, revealCode, type CodeColumns } from "../players/codeVault";
+import { formatAccessCode } from "../players/accessCode";
 
 export const MAX_ATTEMPTS = 5;
 export const STUCK_AFTER_MS = 5 * 60_000;
@@ -86,6 +89,33 @@ async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>) {
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
     while (i < items.length) await fn(items[i++]!);
   }));
+}
+
+/* ---------------- player codes in queued rows ---------------- */
+
+/**
+ * A queued row never stores a player's code: `code` is dropped and `code_ref` (the
+ * player row) kept; the drain reads the code again right before sending, so a code
+ * reset in between sends the new one.
+ */
+export function withoutCode(vars: Vars): Vars {
+  const { code: _code, ...rest } = vars;
+  void _code;
+  return rest;
+}
+
+/** The codes of the rows' players, formatted, by player id (only this server can open them). */
+async function codesFor(rows: DeliveryRow[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.map((r) => r.vars?.code_ref).filter((x): x is string => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x)))];
+  const out = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db().from("players").select(`id, ${CODE_COLUMNS}`).in("id", ids.slice(i, i + 200));
+    for (const p of (data ?? []) as ({ id: string } & CodeColumns)[]) {
+      const code = revealCode(p);
+      if (code) out.set(p.id, formatAccessCode(code));
+    }
+  }
+  return out;
 }
 
 /* ---------------- what one row says ---------------- */
@@ -206,13 +236,23 @@ export async function drainMessages(opts: { budgetMs?: number; announcementId?: 
 
     const emails: { row: DeliveryRow; msg: EmailMessage }[] = [];
     const was: { row: DeliveryRow; msg: { template: TemplateSend } | { text: string } }[] = [];
+    const codes = await codesFor(rows);
     for (const row of rows) {
       const a = row.announcement_id ? announcements.get(row.announcement_id) ?? null : null;
       if (a?.status === "cancelled") {
         await db().from("message_deliveries").update({ status: "skipped", error_code: "cancelled", error_reason: "Announcement cancelled before it was sent" }).eq("id", row.id);
         continue;
       }
-      const m = messageFor(row, a);
+      // The code is read now, in memory only; the stored row keeps its reference.
+      const ref = typeof row.vars?.code_ref === "string" ? row.vars.code_ref : null;
+      // (A row queued before code references existed still carries its code.)
+      const code = ref ? codes.get(ref) : typeof row.vars?.code === "string" ? row.vars.code : undefined;
+      if (a?.kind === "access_codes" && !code) {
+        await recordOutcome(row, { ok: false, code: "no_code", reason: "No access code any more", transient: false });
+        result.failed++;
+        continue;
+      }
+      const m = messageFor(code ? { ...row, vars: { ...row.vars, code } } : row, a);
       if (m.error || !row.address) {
         await recordOutcome(row, { ok: false, code: "nothing_to_send", reason: m.error ?? "No address", transient: false });
         result.failed++;
@@ -328,7 +368,7 @@ export async function startAnnouncement(id: string): Promise<StartResult> {
     const { recipients } = await recipientsOf(a);
     const { rows } = planDeliveries(recipients, channels, { requireCode: a.kind === "access_codes", waOptedOut: await waOptOuts() });
     for (const part of chunk(rows, 500)) {
-      const { error } = await db().from("message_deliveries").insert(part.map((r: PlannedDelivery) => ({ ...r, announcement_id: id, purpose: a.kind })));
+      const { error } = await db().from("message_deliveries").insert(part.map((r: PlannedDelivery) => ({ ...r, vars: withoutCode(r.vars), announcement_id: id, purpose: a.kind })));
       if (error) throw new Error(error.message);
     }
     const queued = rows.filter((r) => r.status === "queued").length;
@@ -467,6 +507,12 @@ export async function sendTransactional(input: {
    * (its stored copy is no longer the message). The sender shows the person the link instead.
    */
   redact?: string[];
+  /**
+   * The redacted secret is the recipient's own (their player code, to their own
+   * number): it may go over WhatsApp, in the template or the free-form text. The
+   * stored copy is still redacted and the send is never retried from the queue.
+   */
+  secretOnWhatsApp?: boolean;
 }): Promise<SendResult> {
   if (input.idempotencyKey) {
     const { data } = await db().from("message_deliveries").select("id, status, error_reason").eq("idempotency_key", input.idempotencyKey).maybeSingle();
@@ -494,14 +540,46 @@ export async function sendTransactional(input: {
     const payload: Payload = scrub({ kind: "email", ...e });
     return sendRowNow({ ...base, payload }, { email: { deliveryId: "", to: address, ...e } }, { noRetry: secrets.length > 0 });
   }
-  // A secret is never sent over WhatsApp (its template would have to carry it).
-  if (secrets.length) return skippedRow(base, "email_only", "This message is sent by email only");
+  // A secret is never sent over WhatsApp (its template would have to carry it), unless it is the recipient's own.
+  if (secrets.length && !input.secretOnWhatsApp) return skippedRow(base, "email_only", "This message is sent by email only");
   const w = await waWindow(address);
   if (w.optedOut) return skippedRow(base, "wa_stop", "Asked us to stop WhatsApp messages");
   const payload: Payload = w.open
     ? { kind: "wa_text", text: transactionalText(input.template, input.vars) }
     : { kind: "wa_template", template: transactionalWhatsApp(input.template, input.vars) };
-  return sendRowNow({ ...base, payload }, { wa: payload.kind === "wa_text" ? { text: payload.text } : { template: payload.template } });
+  return sendRowNow({ ...base, payload: scrub(payload) }, { wa: payload.kind === "wa_text" ? { text: payload.text } : { template: payload.template } }, { noRetry: secrets.length > 0 });
+}
+
+/**
+ * A one-time code the player asked for in the app (src/lib/players/phoneLink.ts):
+ * WhatsApp through the authentication template (otp.ts), or email after the player
+ * said yes. Logged in message_deliveries like every message, but the row never holds
+ * the code ("[removed]" in its place, no vars) and is never retried from the queue.
+ * A WhatsApp opt-out ("STOP" to our marketing) does not block a code the person
+ * asked for themselves.
+ */
+export async function sendOneTimeCode(input: { channel: Channel; to: string; code: string; name?: string | null }): Promise<SendResult> {
+  const address = input.channel === "email" ? normalizeEmail(input.to) : toE164(input.to);
+  const hide = <T,>(v: T): T => JSON.parse(JSON.stringify(v).split(input.code).join("[removed]")) as T;
+  const base = {
+    announcement_id: null,
+    channel: input.channel,
+    purpose: "one_time_code",
+    recipient_kind: "adhoc",
+    recipient_id: null,
+    recipient_name: input.name ?? null,
+    address: address ?? input.to.slice(0, 120),
+    vars: {},
+    idempotency_key: null,
+  };
+  if (!address) return skippedRow(base, input.channel === "email" ? "bad_email" : "bad_phone", input.channel === "email" ? "Email address is not valid" : "Phone number is not a valid mobile number");
+  if (input.channel === "email") {
+    const e = transactionalEmail("login_code", { name: input.name ?? null, code: input.code });
+    return sendRowNow({ ...base, payload: hide({ kind: "email", ...e }) }, { email: { deliveryId: "", to: address, ...e } }, { noRetry: true });
+  }
+  const template = otpTemplate(input.code);
+  if (!template) return skippedRow(base, "not_configured", "The WhatsApp code template is not set up yet (WA_OTP_TEMPLATE)");
+  return sendRowNow({ ...base, payload: hide({ kind: "wa_template", template }) }, { wa: { template } }, { noRetry: true });
 }
 
 /** "Send test to me": the announcement as one recipient would get it, to an address the admin typed. */

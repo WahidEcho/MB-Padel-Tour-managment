@@ -1,11 +1,13 @@
 /**
  * Account's player part: the "Player code" row (next to the referee sign-in),
- * the one-time "Are you playing?" prompt right after signing in, and once a code
- * is linked, "My player profile": photo, name, nation, phone and matches.
+ * the one-time "Are you playing?" prompt right after signing in, "Is this you?"
+ * suggestions (entries recorded with the account's email, organisers' offers),
+ * the phone-number way in, and once linked, "My player profile": photo, name,
+ * nation, phone and matches, with My profile (history) one tap away.
  */
 import { useEffect, useRef, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { displayPhone, toE164 } from "@core";
 import { ApiError } from "../api/client";
 import { useConfig } from "../api/queries";
@@ -13,7 +15,8 @@ import { session } from "../state/session";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display, Eyebrow } from "../ui/Text";
 import { Button, Card, Chip, SectionHeader } from "../ui/Bits";
-import { canUseCamera, changePlayerPhoto, fetchMyPlayer, markPlayerPromptAsked, playerPromptAsked, savePlayerPhone, unlinkPlayer, useMyPlayer } from "./me";
+import { answerSuggestion, declinedSuggestions, suggestionKey, canUseCamera, changePlayerPhoto, fetchMyPlayer, markPlayerPromptAsked, playerPromptAsked, savePlayerPhone, unlinkPlayer, useLinkSuggestions, useMyPlayer } from "./me";
+import type { MLinkSuggestion } from "@core";
 import { MyMatchRow, PlayerAvatar, PlayerIdentity } from "./ui";
 
 const failed = (e: unknown) =>
@@ -43,12 +46,25 @@ export function PlayerSection() {
     router.push("/player-code");
   };
   const player = user ? q.data : null;
+  // Registered accounts only: a code-only account has no confirmed email to match.
+  const sugg = useLinkSuggestions(Boolean(user) && user?.registrationComplete !== false);
+  const declined = declinedSuggestions();
+  const suggestions = (sugg.data ?? []).filter((x) => !declined.has(suggestionKey(x)));
 
   return (
     <>
       <SectionHeader title={player ? "My player profile" : "Player"} />
+      {suggestions.map((s) => (
+        <SuggestionCard key={s.id} s={s} />
+      ))}
       {player ? (
-        <Profile />
+        <>
+          <Profile />
+          <Card onPress={() => router.push("/profile" as Href)} style={{ gap: 4, marginTop: 8 }} accessibilityLabel="My profile">
+            <Body weight="semi">My profile</Body>
+            <Body tone="ink2" size={12.5}>Your tournaments, sessions and results in one place.</Body>
+          </Card>
+        </>
       ) : prompt && user ? (
         <PromptCard
           onEnter={openCode}
@@ -69,7 +85,44 @@ export function PlayerSection() {
           </Body>
         </Card>
       )}
+      {user && !player ? (
+        <Card onPress={() => router.push("/link-phone" as Href)} style={{ gap: 4, marginTop: 8 }} accessibilityLabel="Link with your phone number">
+          <Body weight="semi">No code? Use your phone number</Body>
+          <Body tone="ink2" size={12.5}>We send a code on WhatsApp to the number you gave the tournament.</Body>
+        </Card>
+      ) : null}
     </>
+  );
+}
+
+/** "Is this you?": confirm or decline a suggestion; nothing links before "That's me". */
+function SuggestionCard({ s }: { s: MLinkSuggestion }) {
+  const { t } = useTheme();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const answer = (accept: boolean) => {
+    setBusy(true);
+    setErr(null);
+    void answerSuggestion(s, accept)
+      .catch((e) => setErr(failed(e)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Card style={{ gap: 8, borderColor: t.ball, borderWidth: 1, marginBottom: 8 }}>
+      <Chip label="Is this you?" ball />
+      <Body weight="semi" size={16}>{s.name}</Body>
+      <Body tone="ink2" size={13}>
+        {s.kind === "offer"
+          ? `${s.organization ?? "An organiser"} says this account is ${s.name}.`
+          : "A tournament entered a player with your email address."}
+        {s.entries.length ? ` ${s.entries.join(" · ")}` : ""}
+      </Body>
+      {err ? <Body tone="live" size={13}>{err}</Body> : null}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button kind="ghost" label="Not me" disabled={busy} onPress={() => answer(false)} style={{ flex: 1 }} />
+        <Button label={busy ? "Linking…" : "That's me"} disabled={busy} onPress={() => answer(true)} style={{ flex: 1 }} />
+      </View>
+    </Card>
   );
 }
 

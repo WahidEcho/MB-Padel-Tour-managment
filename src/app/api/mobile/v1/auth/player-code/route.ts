@@ -6,7 +6,8 @@ import { clientIpFrom } from "@/lib/ratelimit";
 import { verifyInstallToken } from "@/lib/mobile/identity";
 import { readJson } from "@/lib/mobile/http";
 import { getConfig } from "@/lib/mobile/server";
-import { claimBlocked, findPlayerByCode, linkPlayer, playerHolder, releaseClaims } from "@/lib/players/claims";
+import { claimBlocked, findPlayerByCode, playerHolder, releaseClaims } from "@/lib/players/claims";
+import { linkByCode } from "@/lib/players/link";
 
 /**
  * POST { code } → a session for the player, without signing up first:
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
 
   // The player's earlier, unregistered account (another phone) lets go; this one takes the player.
   if (holder) await releaseClaims(holder);
-  const linked = await linkPlayer(data.user.id, row);
+  const linked = await linkByCode(data.user.id, row);
   if (!linked.ok) {
     await settle(started);
     return authJson({ error: linked.error }, linked.status);

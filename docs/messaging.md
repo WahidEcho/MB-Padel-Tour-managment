@@ -46,8 +46,13 @@ players" uses `player_profiles` (email, mobile). A `player_consents` row with `g
 for email/WhatsApp is honoured ("The player has not agreed to this channel"). A WhatsApp number that sends
 **STOP** (or إلغاء / توقف) is opted out (`whatsapp_contacts`); **START** opts back in.
 
-Merge fields: `{name}`, `{first_name}`, `{code}` (players.access_code), `{tournament}`, `{link}` (tournament
+Merge fields: `{name}`, `{first_name}`, `{code}` (the player's code), `{tournament}`, `{link}` (tournament
 page), `{app_link}` (`/movescore`). Links use `PUBLIC_SITE_URL` (default `https://tour.mbeg.org`).
+
+**Player codes never sit on a delivery row** (Phase 1, `docs/player-identity.md`). A queued row keeps
+`vars.code_ref` (the player row) instead of `vars.code`; the drain opens the player's sealed code in memory
+right before it sends, so a code reset between Send and the drain sends the new one, and "Retry failed"
+works. "Send test" always uses the placeholder `TEST-1234`, never a real player's code.
 
 ### Transactional messages
 
@@ -61,10 +66,27 @@ await sendTransactional({
 });
 ```
 
-Templates: `access_code`, `confirmation`, `new_tournament`, `announcement` (`src/lib/messaging/templates.ts`).
+Templates: `access_code`, `confirmation`, `new_tournament`, `announcement`, `staff_invite`, `login_code`
+(`src/lib/messaging/templates.ts`).
 Email works immediately. WhatsApp sends free-form text when the person wrote to us in the last 24 hours,
 otherwise the matching approved template below. Every call is logged in `message_deliveries`
 (`announcement_id` null, `purpose` = template name).
+
+Secrets in a message: `redact: [...]` stores the logged copy with each value replaced by `[removed]` and
+never retries the send from the queue. A redacted message is email-only unless `secretOnWhatsApp: true`
+says the secret is the recipient's own (Player codes → "Send code": their code, to their own number). The
+idempotency key of a code send carries a fingerprint of the code, never the code.
+
+### One-time codes (`sendOneTimeCode`)
+
+The phone code a player asks for in the app (Account → "No code? Use your phone number",
+`src/lib/players/phoneLink.ts`) goes through `sendOneTimeCode` in `queue.ts`: WhatsApp with the
+**authentication template** below, or email (template `login_code`) only after the player said yes in the
+app. The delivery row (`purpose = one_time_code`) has empty `vars` and its payload has the code replaced by
+`[removed]`; it is never retried from the queue. A WhatsApp opt-out ("STOP" to our marketing) does not block
+a code the person asked for. Until `WA_OTP_TEMPLATE` is set (the template is not approved yet) a live server
+records the WhatsApp attempt as "not sent (not configured)" and the app offers the email; a dry run uses the
+stand-in name `mb_login_code`.
 
 ## Environment variables (Vercel → Project → Settings → Environment Variables)
 
@@ -87,6 +109,8 @@ Same names as Move-Tick. Values are in `~/MoveScore-keys/messaging-secrets.env` 
 | `CRON_SECRET` | Already used by the notification drain; the messaging cron uses the same vault secret. |
 | `PUBLIC_SITE_URL` | Optional; links in messages. Default `https://tour.mbeg.org`. |
 | `MESSAGING_DRY_RUN` | `1` = nothing leaves the server (stand-in, tests). Never set in production. |
+| `WA_OTP_TEMPLATE` | Name of the approved **authentication** template for phone codes (`mb_login_code`, below). Unset: WhatsApp codes are not sent and the app offers email. |
+| `WA_OTP_TEMPLATE_LANG` | Its language code exactly as approved (default `en`; use `en_US` if that is what Meta shows). |
 
 ## Webhooks to register
 
@@ -146,6 +170,34 @@ Create; language **English (en)**; variables cannot contain line breaks — the 
    Body: `Hi {{1}}, this is a confirmation from Move Beyond: {{2}} If anything looks wrong, reply to this message.`
    Samples: `Omar` / `we have received your registration for the Spring Padel Open.` Used by
    `sendTransactional` (`confirmation`).
+
+5. **`mb_login_code`** — **Authentication** (one-time passcode, "Copy code" button). Meta writes the text
+   of authentication templates itself; you choose only the options. In WhatsApp Manager → Message templates
+   → Create template → **Authentication** → One-time passcode:
+   - Name `mb_login_code`, language **English** (note the exact code Meta assigns, `en` or `en_US`, and put it
+     in `WA_OTP_TEMPLATE_LANG`).
+   - Code delivery setup: **Copy code** (button text `Copy code`).
+   - Content: **Add security recommendation** on; **Add expiry time for the code** on, **10 minutes**.
+   - Message validity period: custom, **10 minutes** (a code that arrives later is useless).
+   The resulting message reads: "*123456* is your verification code. For your security, do not share this
+   code." with the footer "This code expires in 10 minutes." and a **Copy code** button. The same definition
+   through the API (`POST /<WABA_ID>/message_templates`):
+   ```json
+   {
+     "name": "mb_login_code",
+     "language": "en",
+     "category": "AUTHENTICATION",
+     "message_send_ttl_seconds": 600,
+     "components": [
+       { "type": "BODY", "add_security_recommendation": true },
+       { "type": "FOOTER", "code_expiration_minutes": 10 },
+       { "type": "BUTTONS", "buttons": [{ "type": "OTP", "otp_type": "COPY_CODE", "text": "Copy code" }] }
+     ]
+   }
+   ```
+   What the server sends (`src/lib/messaging/otp.ts`): the code as the body's `{{1}}` and again as the
+   button's parameter (`{"type":"button","sub_type":"url","index":"0","parameters":[{"type":"text","text":"<code>"}]}`).
+   Once approved, set `WA_OTP_TEMPLATE=mb_login_code` (and the language) in Vercel.
 
 Marketing templates need recipients who agreed to hear from us and are limited by Meta per person
 (error 131049 "held back"); Utility is for messages a person expects. Until they are approved, WhatsApp

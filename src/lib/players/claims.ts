@@ -1,11 +1,13 @@
 /**
- * Player codes on the server: claiming a code, the linked player's profile,
- * resetting a code, and the player's own phone and photo.
+ * Player codes on the server: finding a player by code, the linked player's
+ * profile, resetting a code, and the player's own phone and photo. Linking itself
+ * (a code, a phone code, an email match, an organiser's offer) is in ./link.ts.
  *
  * The link lives in player_claims (user_id, player_id), one account per player
  * (unique player_id). via_player_id records whose code made the link, so a reset
- * undoes exactly what that code linked. See src/lib/players/identity.ts for which
- * rows in other tournaments one claim links.
+ * undoes exactly what that code linked. Codes are looked up by their keyed hash
+ * (./codeVault.ts, migration 0024); a row not hashed yet is found by its plain
+ * code once and hashed on the spot.
  */
 import { randomInt } from "crypto";
 import { safeEqual } from "../auth/safeEqual";
@@ -16,18 +18,20 @@ import { isDoneStatus, PLAYER_PHOTO, type MMyMatch, type MMyPlayer, type MMyPlay
 import { DEFAULT_FOCAL, sizedImageSrc } from "@/lib/portrait";
 import { imageDimensions, sniffImageType } from "@/lib/upload";
 import type { Match, MatchSnapshot } from "@/lib/types";
-import { ACCESS_CODE_LENGTH, isValidAccessCode, newAccessCode, normalizeAccessCode } from "./accessCode";
-import { linkedRows, normalizePersonName, type PersonKey } from "./identity";
+import { isValidAccessCode, normalizeAccessCode } from "./accessCode";
+import { type PersonKey } from "./identity";
+import { CodesUnavailable, hashPlayerCode, issuePlayerCode, securePlayerCodes } from "./codeVault";
 
 export interface PlayerRow extends PersonKey {
   tournament_id: string;
   team_id: string;
-  access_code: string | null;
+  access_code?: string | null;
+  access_code_hash?: string | null;
   photo_url: string | null;
   portrait_url: string | null;
 }
 
-const PLAYER_COLUMNS = "id, tournament_id, team_id, full_name, player_profile_id, phone, email, access_code, photo_url, portrait_url";
+export const PLAYER_COLUMNS = "id, tournament_id, team_id, full_name, player_profile_id, phone, email, access_code, access_code_hash, photo_url, portrait_url";
 
 /* ---------------- brute-force brake ---------------- */
 
@@ -74,30 +78,43 @@ export type ClaimResult =
 
 export const GENERIC_CODE_ERROR = "That code didn't work. Check it and try again, or ask the tournament desk.";
 
-// Compared in constant time once found, and against a dummy when not, so a miss
-// and a near-miss cost the same.
-// safeEqual: a typed code with a multi-byte character has more bytes than
-// characters, which made timingSafeEqual throw (a 500 instead of the refusal).
-const fixed = (s: string) => s.padEnd(ACCESS_CODE_LENGTH, "#").slice(0, ACCESS_CODE_LENGTH);
-function sameCode(stored: string | null, typed: string): boolean {
-  const equal = safeEqual(fixed(stored ?? "########"), fixed(typed));
-  return equal && stored !== null && stored === typed;
-}
+export const CODES_UNAVAILABLE = "Player codes can't be checked right now. Try again later, or ask the tournament desk.";
+
+// A hash that matches nothing, compared when no row was found, so a miss and a hit cost the same.
+const NO_HASH = "0".repeat(64);
 
 export type FoundPlayer = { ok: true; row: PlayerRow } | { ok: false; status: number; error: string };
 
 /**
  * The player whose code this is, or the generic refusal (a failure counts towards
- * the caller's brake). Looked up by the code, then compared in constant time.
+ * the caller's brake). Looked up by the code's keyed hash; a row whose code is not
+ * hashed yet is found by its plain code and hashed now. The stored and typed hashes
+ * are compared in constant time.
  */
 export async function findPlayerByCode(caller: ClaimCaller, rawCode: string): Promise<FoundPlayer> {
   const code = normalizeAccessCode(rawCode);
   let row: PlayerRow | null = null;
-  if (isValidAccessCode(code)) {
-    const { data } = await db().from("players").select(PLAYER_COLUMNS).eq("access_code", code).maybeSingle();
-    row = (data as PlayerRow | null) ?? null;
+  let typed = NO_HASH;
+  try {
+    if (isValidAccessCode(code)) {
+      typed = hashPlayerCode(code);
+      const { data } = await db().from("players").select(PLAYER_COLUMNS).eq("access_code_hash", typed).maybeSingle();
+      row = (data as PlayerRow | null) ?? null;
+      if (!row) {
+        const { data: plain } = await db().from("players").select(PLAYER_COLUMNS).eq("access_code", code).is("access_code_hash", null).maybeSingle();
+        row = (plain as PlayerRow | null) ?? null;
+        if (row) {
+          await securePlayerCodes({ ids: [row.id] });
+          row = { ...row, access_code: null, access_code_hash: typed };
+        }
+      }
+    }
+  } catch (e) {
+    if (e instanceof CodesUnavailable) return { ok: false, status: 503, error: CODES_UNAVAILABLE };
+    throw e;
   }
-  if (!sameCode(row?.access_code ?? null, code) || !row) {
+  const stored = row?.access_code_hash ?? (row?.access_code ? hashPlayerCode(row.access_code) : NO_HASH);
+  if (!row || !safeEqual(stored, typed) || typed === NO_HASH) {
     await recordFailure(caller);
     return { ok: false, status: 400, error: GENERIC_CODE_ERROR };
   }
@@ -112,71 +129,21 @@ export async function playerHolder(playerId: string): Promise<string | null> {
 
 /**
  * Lets an account go of every player it holds, keeping the players' photos (the
- * player carries on with another account). Used when a player signs in with their
- * code on a new phone before they registered: the link moves to the new account.
+ * player carries on with another account), and of its player profile. Used when a
+ * player signs in with their code on a new phone before they registered: the link
+ * moves to the new account.
  */
 export async function releaseClaims(userId: string): Promise<void> {
   await db().from("player_claims").delete().eq("user_id", userId);
+  await releaseProfile(userId);
 }
 
-export async function claimPlayerCode(caller: ClaimCaller & { userId: string }, rawCode: string): Promise<ClaimResult> {
-  const found = await findPlayerByCode(caller, rawCode);
-  if (!found.ok) return found;
-  return linkPlayer(caller.userId, found.row);
+/** The account no longer speaks for its player profile. */
+export async function releaseProfile(userId: string): Promise<void> {
+  await db().from("player_profiles").update({ auth_user_id: null, phone_verified_at: null, updated_at: new Date().toISOString() }).eq("auth_user_id", userId);
 }
 
-/** Links an account to the player (and the same person in other tournaments): what a claim does once the code is right. */
-export async function linkPlayer(userId: string, row: PlayerRow): Promise<ClaimResult> {
-  const caller = { userId };
-  // One account per player.
-  const { data: holder } = await db().from("player_claims").select("user_id").eq("player_id", row.id).maybeSingle();
-  const heldBy = (holder as { user_id: string } | null)?.user_id ?? null;
-  if (heldBy && heldBy !== caller.userId) {
-    return { ok: false, status: 409, error: "This code is already linked to another account. Ask the tournament desk to reset it." };
-  }
-
-  // One person per account: a second code must be the same person.
-  const current = await claimedRows(caller.userId);
-  if (current.length && !current.some((p) => normalizePersonName(p.full_name) === normalizePersonName(row!.full_name))) {
-    return { ok: false, status: 409, error: `This account is linked to ${current[0]!.full_name}. Unlink that player in Account first.` };
-  }
-
-  if (!heldBy) {
-    // A plain insert: if another account took the player a moment ago, the unique key refuses this one.
-    const { error } = await db().from("player_claims").insert({ user_id: caller.userId, player_id: row.id, via_player_id: row.id });
-    if (error) return { ok: false, status: 409, error: "This code is already linked to another account. Ask the tournament desk to reset it." };
-  }
-
-  // The same person in other tournaments, where it is safe to say so.
-  const siblings = await siblingRows(row);
-  const free = await unclaimed(siblings.map((s) => s.id));
-  if (free.length) {
-    await db()
-      .from("player_claims")
-      .insert(free.map((id) => ({ user_id: caller.userId, player_id: id, via_player_id: row!.id })));
-  }
-  const player = await loadMyPlayer(caller.userId);
-  return { ok: true, player: player!, linked: 1 + free.length };
-}
-
-async function siblingRows(row: PlayerRow): Promise<PlayerRow[]> {
-  const queries = [];
-  if (row.player_profile_id) queries.push(db().from("players").select(PLAYER_COLUMNS).eq("player_profile_id", row.player_profile_id));
-  if (row.phone) queries.push(db().from("players").select(PLAYER_COLUMNS).eq("phone", row.phone));
-  if (row.email) queries.push(db().from("players").select(PLAYER_COLUMNS).eq("email", row.email.toLowerCase()));
-  const found = new Map<string, PlayerRow>();
-  for (const r of await Promise.all(queries)) for (const p of (r.data ?? []) as PlayerRow[]) found.set(p.id, p);
-  return linkedRows(row, [...found.values()]);
-}
-
-async function unclaimed(ids: string[]): Promise<string[]> {
-  if (!ids.length) return [];
-  const { data } = await db().from("player_claims").select("player_id").in("player_id", ids);
-  const taken = new Set(((data ?? []) as { player_id: string }[]).map((r) => r.player_id));
-  return ids.filter((id) => !taken.has(id));
-}
-
-async function claimedRows(userId: string): Promise<(PlayerRow & { via_player_id: string | null; claimed_at: string })[]> {
+export async function claimedRows(userId: string): Promise<(PlayerRow & { via_player_id: string | null; claimed_at: string })[]> {
   const { data: claims } = await db().from("player_claims").select("player_id, via_player_id, created_at").eq("user_id", userId);
   const list = (claims ?? []) as { player_id: string; via_player_id: string | null; created_at: string }[];
   if (!list.length) return [];
@@ -375,6 +342,7 @@ export async function unlinkMe(userId: string): Promise<number> {
     await removeSelfPhotos(own.map((r) => r.photo_url));
   }
   await db().from("player_claims").delete().eq("user_id", userId);
+  await releaseProfile(userId);
   return ids.length;
 }
 
@@ -382,31 +350,36 @@ export async function unlinkMe(userId: string): Promise<number> {
 
 /**
  * A new code for one player. The old code stops working at once, and the
- * account it linked lets go of this player and of every row that code linked.
+ * account it linked lets go of this player and of every row that code linked
+ * (and of the player profile, once it holds none of the profile's rows).
  */
 export async function resetPlayerCode(playerId: string): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = newAccessCode(randomInt);
-    const { error } = await db().from("players").update({ access_code: code, updated_at: new Date().toISOString() }).eq("id", playerId);
-    if (!error) {
-      await db().from("player_claims").delete().eq("player_id", playerId);
-      await db().from("player_claims").delete().eq("via_player_id", playerId);
-      return code;
-    }
-    if (!/duplicate|unique|23505/i.test(error.message)) throw new Error(error.message);
-  }
-  throw new Error("Could not make a unique code. Try again.");
+  const code = await issuePlayerCode(playerId);
+  const { data: gone } = await db().from("player_claims").select("user_id").or(`player_id.eq.${playerId},via_player_id.eq.${playerId}`);
+  await db().from("player_claims").delete().eq("player_id", playerId);
+  await db().from("player_claims").delete().eq("via_player_id", playerId);
+  for (const userId of new Set(((gone ?? []) as { user_id: string }[]).map((r) => r.user_id))) await reconcileProfile(userId);
+  return code;
+}
+
+/** An account that holds none of its profile's rows any more no longer speaks for that profile. */
+export async function reconcileProfile(userId: string): Promise<void> {
+  const { data: prof } = await db().from("player_profiles").select("id").eq("auth_user_id", userId).maybeSingle();
+  const profileId = (prof as { id: string } | null)?.id;
+  if (!profileId) return;
+  const { data: rows } = await db().from("players").select("id").eq("player_profile_id", profileId);
+  const ids = ((rows ?? []) as { id: string }[]).map((r) => r.id);
+  // A profile with no tournament rows (sessions only) was not linked through a code: it stays.
+  if (!ids.length) return;
+  const { data: held } = await db().from("player_claims").select("player_id").eq("user_id", userId).in("player_id", ids).limit(1);
+  if (held?.length) return;
+  await releaseProfile(userId);
 }
 
 /** Codes for players created before codes existed (or whose code was cleared by hand). */
 export async function fillMissingCodes(tournamentId: string): Promise<number> {
-  const { data } = await db().from("players").select("id").eq("tournament_id", tournamentId).is("access_code", null);
+  const { data } = await db().from("players").select("id").eq("tournament_id", tournamentId).is("access_code", null).is("access_code_hash", null);
   const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
-  for (const id of ids) {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const { error } = await db().from("players").update({ access_code: newAccessCode(randomInt) }).eq("id", id).is("access_code", null);
-      if (!error) break;
-    }
-  }
+  for (const id of ids) await issuePlayerCode(id);
   return ids.length;
 }

@@ -35,6 +35,7 @@ SHARED=(
   mobile/contract.ts
   mobile/oauth.ts
   players/accessCode.ts
+  players/otp.ts
   players/phone.ts
   roundrobin.ts
   scoring/conduct.ts

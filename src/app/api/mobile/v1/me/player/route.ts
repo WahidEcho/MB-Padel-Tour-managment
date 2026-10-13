@@ -4,6 +4,7 @@ import { ownerOf } from "@/lib/mobile/identity";
 import { privateJson, readJson } from "@/lib/mobile/http";
 import { loadMyPlayer, setMyPhone, unlinkMe } from "@/lib/players/claims";
 import { toE164 } from "@/lib/players/phone";
+import { syncProfileClaims } from "@/lib/players/link";
 
 async function signedIn(request: Request) {
   const { owner } = await ownerOf(request);
@@ -14,6 +15,8 @@ async function signedIn(request: Request) {
 export async function GET(request: Request) {
   const userId = await signedIn(request);
   if (!userId) return NextResponse.json({ error: "Sign in first" }, { status: 401 });
+  // A new entry of the player's profile (a new tournament) joins on its own.
+  await syncProfileClaims(userId);
   return privateJson({ player: await loadMyPlayer(userId) });
 }
 

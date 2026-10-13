@@ -48,6 +48,17 @@ export default async function PlayersPage({
     if (sharing.length > 0) duplicateName.set(p.id, sharing.join(", "));
   }
 
+  // Open "Link to app account" offers this organisation made.
+  const { data: offerRows } = await db()
+    .from("player_link_offers")
+    .select("player_profile_id")
+    .eq("organization_id", staff.orgId)
+    .is("consumed_at", null)
+    .is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .limit(5000);
+  const offered = new Set(((offerRows ?? []) as { player_profile_id: string }[]).map((o) => o.player_profile_id));
+
   const pendingCount = all.filter((p) => p.approval_status === "pending").length;
   const levels = [...new Set(all.map((p) => p.skill_level).filter(Boolean))] as string[];
 
@@ -150,6 +161,7 @@ export default async function PlayersPage({
               player={p}
               granted={consents.get(p.id) ?? new Set()}
               duplicateOf={duplicateName.get(p.id)}
+              linkOffered={offered.has(p.id)}
             />
           ))}
         </div>

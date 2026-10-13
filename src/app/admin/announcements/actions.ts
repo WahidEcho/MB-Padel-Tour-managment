@@ -144,7 +144,8 @@ export async function sendTestAction(raw: ComposeInput, to: { email?: string; ph
   // Use the first real recipient's values so the test reads like the real thing.
   const { recipients, base } = await recipientsOf({ audience: input.audience, tournament_id: input.tournamentId, organization_id: staff.orgId }).catch(() => ({ recipients: [], base: {} }));
   const first = recipients.find((r) => input.kind !== "access_codes" || r.vars.code) ?? recipients[0];
-  const vars = { ...base, ...(first?.vars ?? { name: "Test Player" }), ...(input.kind === "access_codes" && !first?.vars.code ? { code: "TEST-1234" } : {}) };
+  // Never a real player's code: a test goes to whoever the admin typed, and its row is logged.
+  const vars = { ...base, ...(first?.vars ?? { name: "Test Player" }), code: "TEST-1234", code_ref: null };
   const result = await sendTestMessage(
     { kind: input.kind, title: input.title || "(no title)", body: input.body, cta: input.cta, whatsapp_template: input.whatsapp },
     { email: to.email?.trim() || null, phone: to.phone?.trim() || null },

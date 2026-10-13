@@ -4,7 +4,8 @@ import { clientIpFrom } from "@/lib/ratelimit";
 import { ownerOf } from "@/lib/mobile/identity";
 import { privateJson, readJson } from "@/lib/mobile/http";
 import { getConfig } from "@/lib/mobile/server";
-import { claimBlocked, claimPlayerCode } from "@/lib/players/claims";
+import { claimBlocked } from "@/lib/players/claims";
+import { claimPlayerCode } from "@/lib/players/link";
 
 // Every answer takes at least this long, so timing says nothing about the code.
 const MIN_MS = 350;

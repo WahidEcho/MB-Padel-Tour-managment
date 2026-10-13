@@ -590,6 +590,8 @@ async function main() {
       { label: "change B's match-day rules through A's own page", file: `${T}/[id]/match-day/actions.ts`, name: "saveMatchDayRules", args: () => [form({ tournament_id: TB.id, rules: "PWNED" })] },
       { label: "merge B's player into one of A's", file: "src/app/admin/players/actions.ts", name: "mergePlayersAction", args: () => [form({ survivor_id: PB, absorbed_id: PB })] },
       { label: "record consent for B's player", file: "src/app/admin/players/actions.ts", name: "setPlayerConsent", args: () => [form({ profile_id: PB, channel: "whatsapp", granted: "1" })] },
+      { label: "offer to link B's player to an app account", file: "src/app/admin/players/actions.ts", name: "offerAppLinkAction", args: () => [form({ profile_id: PB, account_email: `pwned-${tag}@example.com` })] },
+      { label: "withdraw B's link offers", file: "src/app/admin/players/actions.ts", name: "withdrawAppLinkAction", args: () => [form({ profile_id: PB })] },
       // Move Beyond's platform settings: platform admins only, never the shared admin password.
       { label: "change the app's feature flags", file: "src/app/admin/platform/discover/actions.ts", name: "saveFlags", args: () => [form({ new_flag: `pwned_${tag}`, new_flag_on: "on" })] },
       { label: "reorder Discover", file: "src/app/admin/platform/discover/actions.ts", name: "saveDiscoverOrder", args: () => [form({ item: TB.id, [`pos.${TB.id}`]: "0" })] },
@@ -607,7 +609,7 @@ async function main() {
         db().from("teams").select("check_in_status, nation_code").eq("id", TB.team1).maybeSingle(),
       ]);
       const extra = [tie.data, gt.data, slot.data, aMatch.data, crossMatches.data, stand.data, consentsB.data, platform.data, checkIn.data];
-      const [t, team, pl, m, g, se, a, an, prof, op, s, e, sc, cd, codesForTB, newAnn, clones, appPosts, screens, deliveries] = await Promise.all([
+      const [t, team, pl, m, g, se, a, an, prof, op, s, e, sc, cd, codesForTB, newAnn, clones, appPosts, screens, deliveries, offersB] = await Promise.all([
         db().from("tournaments").select("name, status, lower_third_text, match_day_rules").eq("id", TB.id).maybeSingle(),
         db().from("teams").select("id, team_name").eq("tournament_id", TB.id).order("id"),
         db().from("players").select("phone, email").eq("id", TB.player).maybeSingle(),
@@ -628,9 +630,10 @@ async function main() {
         db().from("announcements").select("id").eq("tournament_id", TB.id),
         db().from("screen_settings").select("screen_key, screen_name, revision, mute_animations").eq("tournament_id", TB.id).order("screen_key"),
         db().from("message_deliveries").select("id").eq("recipient_id", TB.player),
+        db().from("player_link_offers").select("id, revoked_at").eq("player_profile_id", PB),
       ]);
       const { data: ta } = await db().from("tournaments").select("event_group_id").eq("id", TA.id).maybeSingle();
-      return JSON.stringify([t.data, team.data, pl.data, m.data, g.data, se.data, a.data, an.data, prof.data, op.data, s.data, e.data, sc.data, cd.data, codesForTB.data, newAnn.data, clones.data, appPosts.data, screens.data, deliveries.data, ta, extra]);
+      return JSON.stringify([t.data, team.data, pl.data, m.data, g.data, se.data, a.data, an.data, prof.data, op.data, s.data, e.data, sc.data, cd.data, codesForTB.data, newAnn.data, clones.data, appPosts.data, screens.data, deliveries.data, offersB.data, ta, extra]);
     }
     const before = await bSnapshot();
     for (const who of everyone) {
@@ -640,7 +643,7 @@ async function main() {
       }
     }
     const after = await bSnapshot();
-    check(before === after, "none of B's rows changed (tournament, teams, player, match, group, season, announcements, profile, session, entries, codes, screens, deliveries, tie, group placement, consents) and A's rows took none of B's (bracket slot, groups, matches, courts); platform settings unchanged", before === after ? undefined : { before, after });
+    check(before === after, "none of B's rows changed (tournament, teams, player, match, group, season, announcements, profile, session, entries, codes, screens, deliveries, link offers, tie, group placement, consents) and A's rows took none of B's (bracket slot, groups, matches, courts); platform settings unchanged", before === after ? undefined : { before, after });
     {
       // A missing tie and B's tie get the same words.
       const nf = await action(`${T}/[id]/ties/actions.ts`, "lockLineupsAction", [null, form({ tournament_id: TA.id, tie_id: randomUUID() })], aAdmin.headers);

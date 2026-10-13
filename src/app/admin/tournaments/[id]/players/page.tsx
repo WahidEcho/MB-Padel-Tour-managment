@@ -5,6 +5,7 @@ import { getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import SessionRowNotice from "../SessionRowNotice";
 import { formatAccessCode } from "@/lib/players/accessCode";
+import { CODE_COLUMNS, hasCode, revealCode } from "@/lib/players/codeVault";
 import { displayPhone, toE164 } from "@/lib/players/phone";
 import { codeEmailSubject, codeMessage, codesCsv, mailtoLink, whatsAppLink } from "@/lib/players/share";
 import { CopyButton, CsvTools, SendCodeButtons } from "./CodeTools";
@@ -27,6 +28,8 @@ interface PlayerRow {
   full_name: string;
   player_order: number;
   access_code: string | null;
+  access_code_hash: string | null;
+  access_code_sealed: string | null;
   phone: string | null;
   email: string | null;
   player_profile_id: string | null;
@@ -34,8 +37,9 @@ interface PlayerRow {
 
 /**
  * Player codes: each player's private code, with Copy, WhatsApp, Email and
- * Reset, the player's own phone and email, and every code as CSV. The messaging
- * tools (Announcements) read the same players.access_code column.
+ * Reset, the player's own phone and email, and every code as CSV. Codes are
+ * stored hashed for sign-in and sealed for this page (src/lib/players/codeVault.ts);
+ * the messaging tools (Announcements) read them the same way.
  */
 export default async function PlayerCodesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -47,10 +51,11 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
 
   const [{ data: teamData }, { data: playerData }] = await Promise.all([
     db().from("teams").select("id, team_name, nation_code, iso2, phone, seed_number").eq("tournament_id", id).order("team_name"),
-    db().from("players").select("id, team_id, full_name, player_order, access_code, phone, email, player_profile_id").eq("tournament_id", id).order("player_order"),
+    db().from("players").select(`id, team_id, full_name, player_order, ${CODE_COLUMNS}, phone, email, player_profile_id`).eq("tournament_id", id).order("player_order"),
   ]);
   const teams = (teamData ?? []) as TeamRow[];
-  const players = (playerData ?? []) as PlayerRow[];
+  // The code shown is opened here, for this page only (never sent to the browser for another tournament).
+  const players = ((playerData ?? []) as PlayerRow[]).map((p) => ({ ...p, code: revealCode(p), coded: hasCode(p) }));
   const { data: claimData } = players.length
     ? await db().from("player_claims").select("player_id, created_at").in("player_id", players.map((p) => p.id))
     : { data: [] };
@@ -77,7 +82,7 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
   }
   const linkedAt = new Map(((claimData ?? []) as { player_id: string; created_at: string }[]).map((c) => [c.player_id, c.created_at]));
   const sortedTeams = [...teams].sort((a, b) => (a.seed_number ?? 999) - (b.seed_number ?? 999) || a.team_name.localeCompare(b.team_name));
-  const missing = players.filter((p) => !p.access_code).length;
+  const missing = players.filter((p) => !p.coded).length;
   const linked = players.filter((p) => linkedAt.has(p.id)).length;
   const isNations = Boolean(tournament.format_config?.ties);
 
@@ -85,7 +90,7 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
     sortedTeams.flatMap((t) =>
       players
         .filter((p) => p.team_id === t.id)
-        .map((p) => ({ name: p.full_name, team: t.nation_code ? `${t.team_name} (${t.nation_code})` : t.team_name, code: p.access_code, phone: p.phone, email: p.email, linked: linkedAt.has(p.id) })),
+        .map((p) => ({ name: p.full_name, team: t.nation_code ? `${t.team_name} (${t.nation_code})` : t.team_name, code: p.code, phone: p.phone, email: p.email, linked: linkedAt.has(p.id) })),
     ),
   );
 
@@ -128,7 +133,7 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
             </h3>
             <div className="space-y-2">
               {roster.map((p) => {
-                const code = p.access_code;
+                const code = p.code;
                 const message = code ? codeMessage({ playerName: p.full_name, tournamentName: tournament.name, code }) : "";
                 const waTo = p.phone ?? teamPhone;
                 const prof = p.player_profile_id ? profileOf.get(p.player_profile_id) : undefined;

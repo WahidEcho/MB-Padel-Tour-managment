@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { PLAYER_PHOTO, type MMyPlayer } from "@core";
+import { PLAYER_PHOTO, type MLinkSuggestion, type MMyPlayer, type MMyProfile, type MPhoneStart, type MPhoneVerified } from "@core";
 import { api } from "../api/client";
 import { queryClient } from "../api/queries";
 import { session } from "../state/session";
@@ -109,4 +109,79 @@ export function playerPromptAsked(userId: string): boolean {
 export function markPlayerPromptAsked(userId: string) {
   const list = getJson<string[]>(ASKED, []);
   if (!list.includes(userId)) setJson(ASKED, [...list, userId].slice(-10));
+}
+
+/* ---------- My profile, and the other ways to link history (Phase 1) ---------- */
+
+const profileKey = (userId: string | undefined) => ["me-profile", userId ?? "guest"] as const;
+
+/** The signed-in player's history (GET /me/profile). */
+export function useMyProfile() {
+  const userId = session.use((s) => s.user?.id);
+  return useQuery({
+    queryKey: profileKey(userId),
+    enabled: Boolean(userId),
+    queryFn: async () => (await api<{ profile: MMyProfile }>("/api/mobile/v1/me/profile", { who: "me" })).profile,
+    staleTime: 30_000,
+  });
+}
+
+/** After any link: the player, the profile and the suggestions are read again. */
+function linked(player: MMyPlayer | null | undefined) {
+  const uid = session.get().user?.id;
+  if (uid && player !== undefined) remember(uid, player);
+  void queryClient.invalidateQueries({ queryKey: ["me-profile"] });
+  void queryClient.invalidateQueries({ queryKey: ["me-suggestions"] });
+}
+
+export async function startPhoneCode(phone: string): Promise<MPhoneStart> {
+  return api<MPhoneStart>("/api/mobile/v1/me/player/phone/start", { who: "me", body: { phone } });
+}
+
+/** Only after the player said yes: the code goes to the email the organisers have for that phone. */
+export async function emailPhoneCode(verificationId: string): Promise<{ message: string }> {
+  return api<{ message: string }>("/api/mobile/v1/me/player/phone/email", { who: "me", body: { verificationId, consent: true } });
+}
+
+export async function verifyPhoneCode(verificationId: string, code: string): Promise<MPhoneVerified> {
+  const r = await api<MPhoneVerified>("/api/mobile/v1/me/player/phone/verify", { who: "me", body: { verificationId, code } });
+  if (r.linked) linked(r.linked.player);
+  return r;
+}
+
+export async function choosePhonePerson(verificationId: string, choiceId: string): Promise<MPhoneVerified> {
+  const r = await api<MPhoneVerified>("/api/mobile/v1/me/player/phone/choose", { who: "me", body: { verificationId, choiceId } });
+  if (r.linked) linked(r.linked.player);
+  return r;
+}
+
+/** "Is this you?": entries recorded with the account's email, and organisers' offers. */
+export function useLinkSuggestions(enabled: boolean) {
+  const userId = session.use((s) => s.user?.id);
+  return useQuery({
+    queryKey: ["me-suggestions", userId ?? "guest"],
+    enabled: Boolean(userId) && enabled,
+    queryFn: async () => (await api<{ suggestions: MLinkSuggestion[] }>("/api/mobile/v1/me/player/suggestions", { who: "me" })).suggestions,
+    staleTime: 60_000,
+  });
+}
+
+const DECLINED = "ms.suggestions.declined";
+/** What identifies a suggestion on this phone (its signed id changes on every read). */
+export const suggestionKey = (s: MLinkSuggestion) => `${s.kind}:${s.organization ?? ""}:${s.name}:${s.entries.join("|")}`;
+export const declinedSuggestions = () => new Set(getJson<string[]>(DECLINED, []));
+
+export async function answerSuggestion(s: MLinkSuggestion, accept: boolean): Promise<void> {
+  const r = await api<{ player?: MMyPlayer | null; declined?: boolean }>("/api/mobile/v1/me/player/suggestions", { who: "me", body: { id: s.id, accept } });
+  // "Not me" on an email match is remembered on this phone (an organiser's offer is withdrawn on the server).
+  if (!accept) setJson(DECLINED, [...declinedSuggestions(), suggestionKey(s)].slice(-50));
+  linked(r.declined ? undefined : (r.player ?? null));
+}
+
+/** Share contact details with an organisation that only matched the player. */
+export async function shareWithOrganization(organizationId: string): Promise<MMyProfile> {
+  const r = await api<{ profile: MMyProfile }>("/api/mobile/v1/me/profile/share", { who: "me", body: { organizationId } });
+  const uid = session.get().user?.id;
+  queryClient.setQueryData(profileKey(uid), r.profile);
+  return r.profile;
 }

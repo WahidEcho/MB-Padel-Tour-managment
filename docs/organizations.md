@@ -159,7 +159,9 @@ first four characters), never platform-wide, so one attacker cannot lock every o
   mobile, email, birth year, gender, photo or consents (admin players page, session page, merge
   lists), cannot message them through "all players", and its form never writes their photo or
   WhatsApp consent. Backfilled rows are Move Beyond's (`source = 'backfill'`), so nothing changes for
-  Move Beyond. A link the player confirms later (app/OTP) records `source = 'link'`.
+  Move Beyond. The player can share their details with such an organisation from the app (My profile →
+  Organisations, `POST /me/profile/share`), which records `source = 'link'` (Phase 1,
+  `docs/player-identity.md`).
 - Every id a form posts besides the tournament (a tie, team, court, group, match, profile…) is checked
   against that tournament or organisation before use (`ownershipRefusal` / `entityRefusal` /
   scoped guards); the tie operations themselves also filter by tournament.
@@ -171,7 +173,7 @@ first four characters), never platform-wide, so one attacker cannot lock every o
   `scripts/e2e/organizations.ts` is the attack test.
 - `supabase/gate/reopen_open_access.sql` (the rollback of closing the gate) never reopens the private
   tables (`organizations`, `organization_members`, `organization_codes`, `platform_admins`,
-  `organization_players`, `rls_canary`) and revokes them again at the end; `src/lib/gateSql.test.ts`
+  `organization_players`, `organization_invites`, `phone_verifications`, `player_link_offers`, `rls_canary`) and revokes them again at the end; `src/lib/gateSql.test.ts`
   fails when a migration from 0023 on creates a table that list does not classify.
 
 ## Environment

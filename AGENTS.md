@@ -56,6 +56,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   it that way. Logic in `src/lib/players/` (claim, same-person rule, E.164, share links); admin tab
   `admin/tournaments/[id]/players`; app API `/me/player`, `/me/player/claim`, `/me/player/photo`; checked in
   `scripts/e2e/mobile-api.ts`. No age question at sign-in.
+- Player identity (Phase 1, migration 0024, not yet on the live project): `docs/player-identity.md`. Linking in
+  `src/lib/players/link.ts` (code / phone one-time code / email match / organiser offer; a code never links rows of
+  another organisation). Player codes are looked up by `access_code_hash` (HMAC under `PLAYER_CODE_PEPPER`) and kept
+  sealed for organisers (`codeVault.ts`); never select `access_code*` into public payloads and never write a code to
+  `message_deliveries` (queue stores `code_ref`). WhatsApp codes need the `mb_login_code` authentication template
+  (`WA_OTP_TEMPLATE`). E2E reads one-time codes from their hashes (the scripts have the pepper).
 - Database gate (still open): production's `SUPABASE_KEY` is already the secret key (13 Oct 2026; `/api/health/db`
   reports `"key":"secret"` via the `rls_canary` table). Next: run `supabase/gate/close_open_access.sql` (rollback
   `reopen_open_access.sql`). It must be on the live project before migration 0023 (organisations) is applied there.

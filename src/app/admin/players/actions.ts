@@ -6,7 +6,10 @@ import { NOT_ALLOWED, NOT_FOUND, requireStaffPermission, type StaffPrincipal } f
 import { audit } from "@/lib/audit";
 import { normalizeMobile } from "@/lib/friendly/mobile";
 import { mergePlayerProfiles } from "@/lib/friendly/ops";
-import { ensureOrgPlayer, orgsOfProfile, profileInOrg } from "@/lib/orgs/scope";
+import { orgsOfProfile, profileInOrg } from "@/lib/orgs/scope";
+import { visiblePersonFields } from "@/lib/orgs/personFields";
+import { contactHash } from "@/lib/players/codeVault";
+import { mergeIdentity, planMerge } from "@/lib/players/merge";
 import { DEFAULT_FOCAL } from "@/lib/portrait";
 
 /*
@@ -95,9 +98,12 @@ export async function mergePlayersAction(formData: FormData) {
   if (!survivorId || !absorbedId) throw new Error("Pick both players to merge");
   if (!(await profileInOrg(staff.orgId, survivorId)) || !(await profileInOrg(staff.orgId, absorbedId))) throw new Error(NOT_FOUND);
 
+  // Refused when the two are linked to different Move Score accounts (read before anything moves).
+  const plan = await planMerge(survivorId, absorbedId);
+  if (!plan.ok) throw new Error(plan.error);
   await mergePlayerProfiles(survivorId, absorbedId, staff.role);
-  // The survivor keeps the absorbed player's organisations.
-  for (const org of await orgsOfProfile(absorbedId)) await ensureOrgPlayer(org, survivorId, "link", "approved");
+  // The survivor takes the account, contact, consents, categories and organisations (the stronger relation wins).
+  await mergeIdentity(plan);
   revalidatePath("/admin/players");
   revalidatePath("/admin/rankings");
 }
@@ -290,5 +296,50 @@ export async function setPlayerConsent(formData: FormData) {
     entity_id: id,
     new_value: { channel, granted },
   });
+  revalidatePath("/admin/players");
+}
+
+/**
+ * "Link to app account": the organisation vouches that the Move Score account
+ * signed in with this email is this player. Nothing links yet: the player sees
+ * "Is this you?" in the app (when signed in with that confirmed email) and
+ * confirms; only then are the organisation's entries of the player linked
+ * (src/lib/players/suggestions.ts). Only for a player whose person fields the
+ * organisation sees: another organisation's player it merely matched gets the
+ * same "not found" as a player it does not have. Only a keyed hash of the email
+ * is stored, and the email is not written to the audit log.
+ */
+export async function offerAppLinkAction(formData: FormData) {
+  const id = String(formData.get("profile_id") ?? "");
+  if (!id) throw new Error("Player is required");
+  const { staff } = await requireOwnProfile(id);
+  if (!(await visiblePersonFields(staff.orgId, [id], { platformAdmin: staff.platformAdmin })).has(id)) throw new Error(NOT_FOUND);
+  const email = String(formData.get("account_email") ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error("Enter the email address the player signs in to Move Score with.");
+  const { data: prof } = await db().from("player_profiles").select("auth_user_id, approval_status").eq("id", id).maybeSingle();
+  const p = prof as { auth_user_id: string | null; approval_status: string } | null;
+  if (!p || p.approval_status === "merged") throw new Error(NOT_FOUND);
+  if (p.auth_user_id) throw new Error("This player is already linked to a Move Score account.");
+  const now = new Date().toISOString();
+  // One open offer per player and organisation: a new one replaces the old.
+  await db().from("player_link_offers").update({ revoked_at: now }).eq("organization_id", staff.orgId).eq("player_profile_id", id).is("consumed_at", null).is("revoked_at", null);
+  const { error } = await db().from("player_link_offers").insert({
+    organization_id: staff.orgId,
+    player_profile_id: id,
+    email_hash: contactHash("email", email),
+    created_by: staff.userId ?? staff.role,
+  });
+  if (error) throw new Error(error.message);
+  await audit({ actor_role: staff.role, action: "PLAYER_LINK_OFFERED", entity_type: "player_profile", entity_id: id, new_value: { expires_days: 30 } });
+  revalidatePath("/admin/players");
+}
+
+/** Withdraws the organisation's open link offer for a player. */
+export async function withdrawAppLinkAction(formData: FormData) {
+  const id = String(formData.get("profile_id") ?? "");
+  if (!id) throw new Error("Player is required");
+  const { staff } = await requireOwnProfile(id);
+  await db().from("player_link_offers").update({ revoked_at: new Date().toISOString() }).eq("organization_id", staff.orgId).eq("player_profile_id", id).is("consumed_at", null).is("revoked_at", null);
+  await audit({ actor_role: staff.role, action: "PLAYER_LINK_OFFER_WITHDRAWN", entity_type: "player_profile", entity_id: id });
   revalidatePath("/admin/players");
 }

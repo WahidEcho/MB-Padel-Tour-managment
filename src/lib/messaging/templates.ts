@@ -68,7 +68,7 @@ export function defaultParams(n: number, kind: "announcement" | "access_codes" |
 
 /* ---------------- transactional catalogue ---------------- */
 
-export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite";
+export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite" | "login_code";
 
 interface CatalogueEntry {
   email: (vars: Vars) => EmailInput;
@@ -123,6 +123,20 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
     }),
     whatsapp: { name: "mb_staff_invite", language: "en", params: ["title", "link"] },
     text: () => "{inviter} invited you to join {organization} on Move Score as {role}: {link}",
+  },
+  // The phone one-time code sent by email, only after the player said yes in the app
+  // (src/lib/players/phoneLink.ts). Sent by sendOneTimeCode, which never stores the code.
+  // On WhatsApp the code goes through the authentication template (otp.ts), not this entry.
+  login_code: {
+    email: () => ({
+      title: "Your Move Score code",
+      body: "Hi {first_name},\n\nHere is the code you asked for in the Move Score app. Enter it there to link the entries recorded with your phone number to your account. It works for 10 minutes.\n\nIf you didn't ask for it, ignore this email: nothing changes unless the code is entered.",
+      code: "{code}",
+      codeLabel: "Your code",
+      cta: null,
+    }),
+    whatsapp: { name: "mb_login_code", language: "en", params: ["code"], buttons: [{ index: 0, field: "code" }] },
+    text: () => "Your Move Score code is {code}. It works for 10 minutes.",
   },
   announcement: {
     email: () => ({ title: "{title}", body: "{message}", cta: null }),

@@ -700,8 +700,10 @@ export interface PlayerProfile extends PhotoFields {
   active_streak: number;
   streak_last_ledger_id: number | null;
   merged_into_profile_id: string | null;
-  /** Reserved for a future player login. Nothing reads these today. */
+  /** The Move Score account that speaks for this player (Phase 1, src/lib/players/link.ts). Server-only. */
   auth_user_id: string | null;
+  /** Admin lists: whether a Move Score account is linked (never which). */
+  app_linked?: boolean;
   claim_status: "unclaimed" | "claimed";
   /** Optional structured details — all admin-only, never public. */
   email: string | null;

@@ -4,9 +4,10 @@
 -- PRIVATE TABLES (kept in sync with the migrations by src/lib/gateSql.test.ts:
 -- every table a migration from 0023 on creates must be listed here):
 --   organizations, organization_members, organization_codes, platform_admins,
---   organization_players, rls_canary
+--   organization_players, organization_invites, phone_verifications,
+--   player_link_offers, rls_canary
 -- They hold event-code hashes, member emails, platform admins, organisations'
--- private player notes and their status. The anon and authenticated keys must
+-- private player notes, invite and one-time-code hashes and their status. The anon and authenticated keys must
 -- never read or write them, rollback or not: they stay RLS-on with no policy and
 -- no grant. (So after this rollback, with the anon key back in SUPABASE_KEY, staff
 -- sign-in and everything organisation-scoped stop working: that needs the secret
@@ -21,6 +22,8 @@ declare
     'platform_admins',
     'organization_players',
     'organization_invites',
+    'phone_verifications',
+    'player_link_offers',
     'rls_canary'
   ];
 begin

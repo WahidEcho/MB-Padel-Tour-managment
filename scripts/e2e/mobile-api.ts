@@ -380,17 +380,39 @@ async function main() {
 
     // ---- player codes (needs the stand-in's sign-in keys: npm run localdb)
     await playerCodes({ tid, slug: t!.slug, egyId: egy.id, pA, mid, inst });
+
+    // ---- Phase 1: phone codes, email match, organiser offers, merging, organisations
+    await playerIdentity({ tid, tag, egyId: egy.id, jpnId: jpn.id, inst });
   } finally {
+    // Profiles linking made from the test's entries (and the identity fixtures) go too.
+    const { data: linkedProfiles } = await db().from("players").select("player_profile_id").in("tournament_id", [tid, ...((await db().from("tournaments").select("id").like("slug", "e2e-codes-%")).data ?? []).map((x) => x.id as string)]);
+    const madeProfiles = [...new Set(((linkedProfiles ?? []) as { player_profile_id: string | null }[]).map((r) => r.player_profile_id).filter((x): x is string => Boolean(x)))];
     await db().from("tournaments").delete().like("slug", "e2e-codes-%");
+    await db().from("tournaments").delete().like("slug", "e2e-ident-%");
+    await db().from("organizations").delete().like("slug", "e2e-ident-%");
+    await db().from("request_counters").delete().like("bucket_key", "otp:%");
+    await db().from("request_counters").delete().like("bucket_key", "sugg:%");
     await db().from("request_counters").delete().like("bucket_key", "pcode:%");
     await db().from("request_counters").delete().like("bucket_key", "pphoto:%");
     await db().from("tournaments").delete().eq("id", tid);
+    // Merged-away fixtures first (a merged profile points at its survivor), then what linking made.
+    await db().from("player_profiles").delete().like("public_name", `% E2E ${tag}`);
+    if (madeProfiles.length) await db().from("player_profiles").delete().in("id", madeProfiles);
     await db().from("event_groups").delete().eq("id", group!.id);
     await db().from("push_devices").delete().like("installation_id", "e2e-%");
     await db().from("follows").delete().like("owner_id", "e2e-%");
   }
   console.log(failed ? `\n${failed} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
   process.exit(failed ? 1 : 0);
+}
+
+/** The user id inside a Supabase access token (the stand-in's), without verifying it: test bookkeeping only. */
+function subOf(token: string | null): string | null {
+  try {
+    return JSON.parse(Buffer.from(String(token).split(".")[1] ?? "", "base64url").toString("utf8")).sub ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -522,6 +544,8 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
   const { ACCESS_CODE_ALPHABET, formatAccessCode, isValidAccessCode } = await import("../../src/lib/players/accessCode");
   const { resetPlayerCode } = await import("../../src/lib/players/claims");
 
+  // A profile an earlier, interrupted run made from Adam's entry would hold his number: best-effort tidy.
+  await db().from("player_profiles").delete().eq("mobile_normalized", "+201001234567").eq("public_name", "Adam Hassan");
   await db().from("players").update({ phone: "+201001234567", email: "adam@example.com" }).eq("id", ctx.pA.id);
   const { data: row } = await db().from("players").select("access_code").eq("id", ctx.pA.id).single();
   const code = row!.access_code as string;
@@ -569,6 +593,27 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
   check(claim.json?.player?.phone === "+201001234567" && claim.json?.player?.iso2 === "eg", "He sees his phone and nation");
   const again = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asA, body: { code } });
   check(again.status === 200, "Entering the same code again is harmless");
+
+  // Phase 1: the code is now stored hashed (and sealed for the organiser), the plain copy gone;
+  // the player had no profile, so one was made from his entry and speaks for this account.
+  const { hashPlayerCode, openPlayerCode } = await import("../../src/lib/players/codeVault");
+  const { data: stored } = await db().from("players").select("access_code, access_code_hash, access_code_sealed, player_profile_id").eq("id", ctx.pA.id).single();
+  check(stored?.access_code === null && stored?.access_code_hash === hashPlayerCode(code) && openPlayerCode(stored?.access_code_sealed) === code, "Once used, the code is kept only as a keyed hash (and sealed for the organiser)", { plain: stored?.access_code, hashed: Boolean(stored?.access_code_hash) });
+  const { data: madeProfile } = await db().from("player_profiles").select("id, public_name, mobile_normalized, email, auth_user_id").eq("id", stored?.player_profile_id ?? randomUUID()).maybeSingle();
+  check(madeProfile?.public_name === "Adam Hassan" && madeProfile.mobile_normalized === "+201001234567" && madeProfile.auth_user_id === subOf(tokA), "Linking made his player profile from the entry (name, E.164 phone) and it speaks for his account", madeProfile && { name: madeProfile.public_name, mobile: madeProfile.mobile_normalized, linked: madeProfile.auth_user_id === subOf(tokA) });
+  const { data: adam2Now } = await db().from("players").select("player_profile_id").eq("id", adam2.id).single();
+  check(adam2Now?.player_profile_id === madeProfile?.id, "His row in the other tournament joined the same profile");
+  const { data: rel } = await db().from("organization_players").select("source").eq("player_profile_id", madeProfile?.id ?? randomUUID());
+  check((rel ?? []).length === 1 && rel![0]!.source === "tournament", "The organisation of his entries has the new profile as its own player", rel);
+  const prof = await call("GET", "/api/mobile/v1/me/profile", { headers: asA });
+  const pr = prof.json?.profile;
+  check(
+    prof.status === 200 && pr?.linked === true && pr.name === "Adam Hassan" && pr.tournaments?.length === 2 && JSON.stringify(pr.comingSoon) === JSON.stringify(["leagues", "points", "ranks"]),
+    "GET /me/profile: his tournaments, and leagues/points/ranks still to come (no sample data)",
+    pr && { tournaments: pr.tournaments?.length, comingSoon: pr.comingSoon },
+  );
+  check(pr?.tournaments?.every((t: { organization: { slug: string } | null }) => t.organization?.slug === "move-beyond") && /no-store/.test(prof.cache), "…each with its organisation, never cached", pr?.tournaments?.map((t: { organization: unknown }) => t.organization));
+  check((await call("GET", "/api/mobile/v1/me/profile", { headers: ctx.inst })).status === 401, "GET /me/profile needs a signed-in account");
 
   // Profile, phone, photo.
   const me = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
@@ -621,7 +666,7 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
   const { data: photoLeft } = await db().from("players").select("photo_url").eq("id", ctx.pA.id).single();
   check(!photoLeft?.photo_url, "…and removes the photo the player uploaded");
 
-  await playerCodeSignIn({ ...ctx, code: fresh, omarCode: omar.access_code as string, adam2Id: adam2.id as string });
+  await playerCodeSignIn({ ...ctx, code: fresh, omarCode: omar.access_code as string, omarId: omar.id as string, adam2Id: adam2.id as string });
 
   // Sign-in no longer asks for an age.
   const signin = await call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", idToken: "x.y.z" } });
@@ -635,7 +680,7 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
  * confirm page) and keeps the same account; afterwards the code no longer signs
  * in; a code linked to a registered account is refused; a wrong code is generic.
  */
-async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: string }; code: string; omarCode: string; adam2Id: string }) {
+async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: string }; code: string; omarCode: string; omarId: string; adam2Id: string }) {
   const made: string[] = [];
   const auth = `${process.env.SUPABASE_URL}/auth/v1`;
   const mailTo = async (to: string) => {
@@ -656,6 +701,10 @@ async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: s
     );
     check(a.json?.player?.playerId === ctx.pA.id && a.json?.linked === 2, "…and links his player (and his row in the other tournament) like a claim", a.json?.linked);
     const asA = { Authorization: `Bearer ${a.json?.accessToken}` };
+    const { data: anonProfile } = await db().from("player_profiles").select("public_name, auth_user_id").eq("auth_user_id", a.json?.userId ?? randomUUID()).maybeSingle();
+    check(anonProfile?.public_name === "Adam Hassan", "The code-only account speaks for his player profile too", anonProfile);
+    const anonSugg = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asA });
+    check(anonSugg.status === 200 && anonSugg.json?.suggestions?.length === 0, "A code-only account (no confirmed email) gets no email suggestions", anonSugg.json);
     const meA = await call("GET", "/api/mobile/v1/me", { headers: asA });
     check(meA.status === 200 && meA.json?.user?.registrationComplete === false && meA.json?.user?.provider === "player_code", "GET /me: registration not complete", meA.json?.user);
     const playerA = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
@@ -666,6 +715,8 @@ async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: s
     if (b.json?.userId) made.push(b.json.userId);
     const leftA = await call("GET", "/api/mobile/v1/me/player", { headers: asA });
     check(b.status === 200 && b.json?.userId !== a.json?.userId && leftA.json?.player === null, "On a second phone before registering, the code signs in again and the player moves to that account", { status: b.status, firstStill: leftA.json?.player?.name ?? null });
+    const { data: movedProfile } = await db().from("player_profiles").select("auth_user_id").eq("public_name", "Adam Hassan").eq("auth_user_id", b.json?.userId ?? randomUUID()).maybeSingle();
+    check(Boolean(movedProfile), "…and so does his player profile");
     const asB = { Authorization: `Bearer ${b.json?.accessToken}` };
 
     // Complete the registration.
@@ -714,7 +765,7 @@ async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: s
     const c = await call("POST", "/api/mobile/v1/auth/player-code", { body: { code: ctx.omarCode } });
     if (c.json?.userId) made.push(c.json.userId);
     const delC = await call("DELETE", "/api/mobile/v1/me/account", { headers: { Authorization: `Bearer ${c.json?.accessToken}` } });
-    const { data: freed } = await db().from("player_claims").select("user_id").eq("player_id", (await db().from("players").select("id").eq("access_code", ctx.omarCode).single()).data!.id).maybeSingle();
+    const { data: freed } = await db().from("player_claims").select("user_id").eq("player_id", ctx.omarId).maybeSingle();
     const deadC = await call("POST", "/api/mobile/v1/auth/refresh", { body: { refreshToken: c.json?.refreshToken } });
     check(c.status === 200 && delC.status === 200 && delC.json?.deleted === true && !freed && deadC.json?.code === "session_revoked", "A player-code account can be deleted: player released, sessions revoked", { c: c.status, del: delC.json });
 
@@ -737,6 +788,231 @@ async function playerCodeSignIn(ctx: { inst: Record<string, string>; pA: { id: s
       await db().from("app_users").delete().eq("auth_user_id", id);
       await db().from("app_user_deletions").delete().eq("auth_user_id", id);
     }
+  }
+}
+
+/**
+ * Phase 1, player identity: a phone one-time code (WhatsApp, dry run) links what
+ * organisers recorded with the phone and lets the player pick who they are when a
+ * parent's phone carries two children; WhatsApp failing → the app asks → the code
+ * by email; the email-match suggestion; an organiser's offer the player confirms;
+ * another organisation cannot offer a link for this one's player; sharing details
+ * with an organisation that only matched the player unmasks it; merging refuses two
+ * accounts and moves the account, contact, consents and organisations otherwise.
+ * One-time codes are read back from their keyed hashes (the script has the pepper),
+ * never from a message: the delivery rows hold no code.
+ */
+async function playerIdentity(ctx: { tid: string; tag: string; egyId: string; jpnId: string; inst: Record<string, string> }) {
+  const { hashOneTimeCode, contactHash } = await import("../../src/lib/players/codeVault");
+  const { visiblePersonFields } = await import("../../src/lib/orgs/personFields");
+  const { staffToken, sessionToken, COOKIE_NAME } = await import("./lib/session");
+  const { callAction, form, actionOk } = await import("./lib/actions");
+  const tag = ctx.tag;
+  const n8 = String(parseInt(tag, 16) % 1e8).padStart(8, "0");
+  const lailaPhone = `+2011${n8}`;
+  const karimPhone = `+2010${n8.slice(0, 4)}9999`; // the dry-run "Meta" rejects numbers ending 9999
+  const lailaEmail = `laila.${tag}@example.com`;
+  const emmaEmail = `emma.${tag}@example.com`;
+  const offerEmail = `omar.offer.${tag}@example.com`;
+  const otpOf = async (vid: string): Promise<string> => {
+    const { data } = await db().from("phone_verifications").select("code_hash").eq("id", vid).single();
+    for (let i = 0; i < 1_000_000; i++) {
+      const c = String(i).padStart(6, "0");
+      if (hashOneTimeCode(vid, c) === data!.code_hash) return c;
+    }
+    return "";
+  };
+  const made: string[] = [];
+  const signIn = async (email: string) => {
+    const tok = await userToken(email);
+    if (tok) made.push(subOf(tok)!);
+    return tok ? { authorization: `Bearer ${tok}`, id: subOf(tok)! } : null;
+  };
+
+  const { data: mbOrg } = await db().from("organizations").select("id").eq("slug", "move-beyond").single();
+  const MB = mbOrg!.id as string;
+  const { data: orgB } = await db().from("organizations").insert({ slug: `e2e-ident-b-${tag}`, name: `E2E Club B ${tag}`, status: "approved" }).select("id").single();
+  const B = orgB!.id as string;
+  const { data: tB } = await db().from("tournaments").insert({ name: `E2E Ident B ${tag}`, slug: `e2e-ident-b-${tag}`, kind: "tournament", status: "active", organization_id: B }).select("id").single();
+  const { data: teamB } = await db().from("teams").insert({ tournament_id: tB!.id, team_name: `B Team ${tag}` }).select("id").single();
+  // Laila: Move Beyond added her (her profile has her mobile); Club B's form only matched that profile.
+  const { data: pLaila } = await db().from("player_profiles").insert({ public_name: `Laila E2E ${tag}`, mobile_normalized: lailaPhone, email: lailaEmail, approval_status: "approved", birth_year: 2001 }).select("id").single();
+  const P = pLaila!.id as string;
+  await db().from("organization_players").insert([
+    { organization_id: MB, player_profile_id: P, source: "admin", approval_status: "approved" },
+    { organization_id: B, player_profile_id: P, source: "matched", approval_status: "approved", typed_name: "Laila (B form)" },
+  ]);
+  const { data: rows } = await db()
+    .from("players")
+    .insert([
+      { tournament_id: ctx.tid, team_id: ctx.egyId, full_name: `Laila E2E ${tag}`, player_order: 5, player_profile_id: P, phone: lailaPhone },
+      { tournament_id: ctx.tid, team_id: ctx.egyId, full_name: `Nour E2E ${tag}`, player_order: 6, phone: lailaPhone },
+      { tournament_id: tB!.id, team_id: teamB!.id, full_name: `Laila E2E ${tag}`, player_order: 1, player_profile_id: P, phone: lailaPhone },
+      { tournament_id: ctx.tid, team_id: ctx.jpnId, full_name: `Karim E2E ${tag}`, player_order: 5, phone: karimPhone, email: `karim.${tag}@example.com` },
+      { tournament_id: ctx.tid, team_id: ctx.jpnId, full_name: `Emma E2E ${tag}`, player_order: 6, email: emmaEmail },
+    ])
+    .select("id, full_name, tournament_id");
+  const rowOf = (name: string, t = ctx.tid) => (rows ?? []).find((r) => r.full_name === `${name} E2E ${tag}` && r.tournament_id === t)!.id as string;
+  try {
+    // ---- phone code, a parent's phone with two children
+    const laila = await signIn(`laila.app.${tag}@example.com`);
+    if (!laila) return console.log("⚠️  Skipping player identity: no test sign-ins here (run against npm run localdb).");
+    const bAdminUser = await signIn(`b.admin.${tag}@example.com`);
+    await db().from("organization_members").insert({ organization_id: B, auth_user_id: bAdminUser!.id, invited_email: `b.admin.${tag}@example.com`, role: "admin", status: "active" });
+    const asBAdmin = { Cookie: `${COOKIE_NAME}=${staffToken({ kind: "member", userId: bAdminUser!.id, orgId: B, role: "admin" })}` };
+    const asMbAdmin = { Cookie: `${COOKIE_NAME}=${sessionToken("admin")}` };
+    const file = "src/app/admin/players/actions.ts";
+    // Club B only matched Laila's profile (a mobile typed on its form): it cannot vouch for her account either.
+    const matchedOffer = await callAction(file, "offerAppLinkAction", [form({ profile_id: P, account_email: `attacker.${tag}@example.com` })], asBAdmin);
+    const { count: matchedOffers } = await db().from("player_link_offers").select("id", { count: "exact", head: true }).eq("player_profile_id", P);
+    check(!actionOk(matchedOffer) && matchedOffers === 0, "Cross-org: an organisation that only matched a player cannot offer a link for them", { status: matchedOffer.status, offers: matchedOffers });
+    const asL = { authorization: laila.authorization };
+    const badPhone = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asL, body: { phone: "not a phone" } });
+    check(badPhone.status === 400, "Phone code: a number that is not a mobile is refused", badPhone.json?.error);
+    const extra = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asL, body: { phone: lailaPhone, admin: true } });
+    check(extra.status === 400, "Phone code: unknown fields are refused", extra.status);
+    check((await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: ctx.inst, body: { phone: lailaPhone } })).status === 401, "Phone code: a signed-in account is required");
+    const start = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asL, body: { phone: "011 " + lailaPhone.slice(5) } });
+    check(start.status === 200 && start.json?.sent === true && start.json?.phone === lailaPhone && /no-store/.test(start.cache), "Phone code: sent on WhatsApp (dry run) to the number in E.164", start.json);
+    const vid = start.json?.verificationId as string;
+    const { data: otpRows } = await db().from("message_deliveries").select("purpose, channel, vars, payload, address").eq("purpose", "one_time_code").eq("address", lailaPhone);
+    const code = await otpOf(vid);
+    const otpRow = (otpRows ?? [])[0];
+    check(
+      code.length === 6 && otpRow?.channel === "whatsapp" && JSON.stringify(otpRow?.vars) === "{}" && !JSON.stringify(otpRow).includes(code) && JSON.stringify(otpRow?.payload).includes("[removed]") && otpRow?.payload?.template?.name === "mb_login_code" && otpRow?.payload?.template?.buttonParams?.length === 1,
+      "The delivery row holds no code (authentication template with its copy-code button, code removed)",
+      otpRow && { name: otpRow.payload?.template?.name, vars: otpRow.vars },
+    );
+    const { data: vRow } = await db().from("phone_verifications").select("code_hash, attempts, expires_at").eq("id", vid).single();
+    check(/^[0-9a-f]{64}$/.test(vRow?.code_hash ?? "") && Date.parse(vRow!.expires_at) - Date.now() <= 10 * 60_000 + 5000, "The verification keeps only a keyed hash, for 10 minutes", vRow && { hashed: true, expires: vRow.expires_at });
+    const wrongOtp = String((Number(code) + 1) % 1_000_000).padStart(6, "0");
+    const wrong = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: asL, body: { verificationId: vid, code: wrongOtp } });
+    check(wrong.status === 400 && wrong.json?.attemptsLeft === 4, "A wrong code costs one of five attempts", wrong.json);
+    const otherUser = await signIn(`intruder.${tag}@example.com`);
+    const stolen = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: { authorization: otherUser!.authorization }, body: { verificationId: vid, code } });
+    check(stolen.status === 400 && stolen.json?.error === wrong.json?.error, "Another account's attempt at this verification gets the same answer as a wrong code", stolen.json);
+    const ok = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: asL, body: { verificationId: vid, code: `Your code is ${code.slice(0, 3)} ${code.slice(3)}` } });
+    const choices = (ok.json?.choose ?? []) as { choiceId: string; name: string; entries: string[] }[];
+    check(ok.status === 200 && ok.json?.linked === null && choices.length === 2 && choices.some((c) => c.name === `Nour E2E ${tag}`), "Right code: two people share the phone, so the player picks who they are", choices.map((c) => c.name));
+    const again = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: asL, body: { verificationId: vid, code } });
+    check(again.status === 409, "A used code cannot be used again", again.status);
+    const lailaChoice = choices.find((c) => c.name === `Laila E2E ${tag}`)!;
+    check(lailaChoice?.entries.length === 2, "Laila's choice lists her entries at both organisations", lailaChoice?.entries);
+    const chose = await call("POST", "/api/mobile/v1/me/player/phone/choose", { headers: asL, body: { verificationId: vid, choiceId: lailaChoice.choiceId } });
+    check(chose.status === 200 && chose.json?.linked?.linked === 2 && chose.json.linked.player.entries.length === 2, "She picks herself: both her entries link; her sister's does not", chose.json?.linked?.player?.entries?.map((e: { tournamentName: string }) => e.tournamentName));
+    const { data: pAfter } = await db().from("player_profiles").select("auth_user_id, phone_verified_at").eq("id", P).single();
+    check(pAfter?.auth_user_id === laila.id && Boolean(pAfter?.phone_verified_at), "Her profile (whose mobile it is) speaks for her account, phone confirmed", pAfter);
+    const { data: nourClaim } = await db().from("player_claims").select("user_id").eq("player_id", rowOf("Nour")).maybeSingle();
+    check(!nourClaim, "Her sister's entry stays unlinked");
+
+    // Club B only matched her profile: masked until she shares.
+    check(!(await visiblePersonFields(B, [P])).has(P), "Club B (matched by a typed mobile) cannot see her details");
+    const lp = (await call("GET", "/api/mobile/v1/me/profile", { headers: asL })).json?.profile;
+    const bShare = (lp?.organizations ?? []).find((o: { id: string }) => o.id === B);
+    check(lp?.phoneVerified === true && lp?.phone === lailaPhone && bShare?.sharing === false && bShare?.canShare === true && lp.organizations.find((o: { id: string }) => o.id === MB)?.sharing === true, "My profile: phone confirmed; Move Beyond sees her details, Club B can be shared with", lp?.organizations);
+    check((await call("POST", "/api/mobile/v1/me/profile/share", { headers: asL, body: { organizationId: randomUUID() } })).status === 404, "Sharing with an organisation that is not hers: not found");
+    const share = await call("POST", "/api/mobile/v1/me/profile/share", { headers: asL, body: { organizationId: B } });
+    const { data: bRel } = await db().from("organization_players").select("source").eq("organization_id", B).eq("player_profile_id", P).single();
+    check(share.status === 200 && bRel?.source === "link" && (await visiblePersonFields(B, [P])).has(P), "She shares her details with Club B: its link is confirmed ('link') and it sees them", bRel);
+
+    // Limits: three codes a phone per 15 minutes.
+    let lastStart = 0;
+    for (let i = 0; i < 3; i++) lastStart = (await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: { authorization: otherUser!.authorization }, body: { phone: lailaPhone } })).status;
+    check(lastStart === 429, "A fourth code to the same phone within 15 minutes is refused (per-phone limit)", lastStart);
+
+    // ---- WhatsApp fails → the app asks → email
+    const karim = await signIn(`karim.app.${tag}@example.com`);
+    const asK = { authorization: karim!.authorization };
+    const ks = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asK, body: { phone: karimPhone } });
+    check(ks.status === 200 && ks.json?.sent === false, "WhatsApp did not take the code: the answer says so, and nothing is emailed yet", ks.json);
+    const { data: noMailYet } = await db().from("message_deliveries").select("id").eq("purpose", "one_time_code").eq("address", `karim.${tag}@example.com`);
+    check((noMailYet ?? []).length === 0, "No email before the player says yes");
+    const noConsent = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: ks.json?.verificationId } });
+    check(noConsent.status === 400, "Email needs the player's yes (consent: true)", noConsent.status);
+    const mailed = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: ks.json?.verificationId, consent: true } });
+    const { data: mailRows } = await db().from("message_deliveries").select("channel, status, vars, payload").eq("purpose", "one_time_code").eq("address", `karim.${tag}@example.com`);
+    const kcode = await otpOf(ks.json?.verificationId);
+    check(mailed.status === 200 && (mailRows ?? []).length === 1 && mailRows![0]!.status === "sent" && !JSON.stringify(mailRows).includes(kcode), "After yes, a new code goes to the email the organiser recorded with that phone (row holds no code)", { status: mailed.status, rows: mailRows?.length });
+    const twice = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: ks.json?.verificationId, consent: true } });
+    check(twice.status === 409, "One email per code", twice.status);
+    const stranger = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asK, body: { phone: `+2012${n8.slice(0, 4)}0000` } });
+    const strangerMail = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: stranger.json?.verificationId, consent: true } });
+    check(stranger.status === 200 && strangerMail.status === 200 && strangerMail.json?.message === mailed.json?.message, "A number nobody recorded gets the same answers (no hint whether an email is on file)", strangerMail.json?.message);
+    const kv = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: asK, body: { verificationId: ks.json?.verificationId, code: kcode } });
+    check(kv.status === 200 && kv.json?.linked?.player?.name === `Karim E2E ${tag}`, "The emailed code links Karim's entry", kv.json?.linked?.player?.name ?? kv.json);
+
+    // ---- email match
+    const emma = await signIn(emmaEmail);
+    const asE = { authorization: emma!.authorization };
+    const sugg = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asE });
+    const s0 = (sugg.json?.suggestions ?? [])[0];
+    check(sugg.status === 200 && sugg.json.suggestions.length === 1 && s0.kind === "email" && s0.name === `Emma E2E ${tag}` && s0.entries.length === 1, "Email match: after signing in, the entry recorded with her email is suggested", sugg.json?.suggestions);
+    const tampered = await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: asE, body: { id: `${s0.id}x`, accept: true } });
+    const replay = await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: asK, body: { id: s0.id, accept: true } });
+    check(tampered.status === 410 && replay.status === 410, "A changed suggestion, or another account replaying it, is refused", { tampered: tampered.status, replay: replay.status });
+    const yes = await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: asE, body: { id: s0.id, accept: true } });
+    check(yes.status === 200 && yes.json?.player?.name === `Emma E2E ${tag}`, "She confirms: her entry links", yes.json);
+    const none = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asE });
+    check(none.json?.suggestions?.length === 0, "…and the suggestion is gone");
+
+    // ---- organiser offer, and the other organisation cannot make one for this one's player
+    const { data: pOffer } = await db().from("player_profiles").insert({ public_name: `Omar Offer E2E ${tag}`, approval_status: "approved", email: `omar.old.${tag}@example.com` }).select("id").single();
+    const PO = pOffer!.id as string;
+    await db().from("organization_players").insert({ organization_id: MB, player_profile_id: PO, source: "admin", approval_status: "approved" });
+    await db().from("players").insert({ tournament_id: ctx.tid, team_id: ctx.jpnId, full_name: `Omar Offer E2E ${tag}`, player_order: 7, player_profile_id: PO });
+    await db().from("player_consents").insert({ player_profile_id: PO, channel: "whatsapp", granted: true, granted_at: new Date().toISOString(), source: "admin" });
+    const attack = await callAction(file, "offerAppLinkAction", [form({ profile_id: PO, account_email: `attacker.${tag}@example.com` })], asBAdmin);
+    const { count: afterAttack } = await db().from("player_link_offers").select("id", { count: "exact", head: true }).eq("player_profile_id", PO);
+    check(!actionOk(attack) && afterAttack === 0, "Cross-org: Club B cannot offer a link for Move Beyond's player", { attack: attack.status, offers: afterAttack });
+    const offer = await callAction(file, "offerAppLinkAction", [form({ profile_id: PO, account_email: offerEmail })], asMbAdmin);
+    const { data: offers } = await db().from("player_link_offers").select("*").eq("player_profile_id", PO);
+    check(actionOk(offer) && (offers ?? []).length === 1 && offers![0]!.email_hash === contactHash("email", offerEmail) && !JSON.stringify(offers).includes(offerEmail), "Move Beyond offers the link: stored as a keyed hash of the email, never the address", { status: offer.status, rows: offers?.length });
+    const page = await fetch(`${BASE_URL}/admin/players?q=${encodeURIComponent("Omar Offer")}`, { headers: asMbAdmin }).then((r) => r.text());
+    check(page.includes("Waiting for the player to confirm"), "The players page shows the offer waiting for the player");
+    const wrongEmail = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asK });
+    check(!(wrongEmail.json?.suggestions ?? []).some((x: { kind: string }) => x.kind === "offer"), "Another account (another email) does not see the offer");
+    const omar = await signIn(offerEmail);
+    const asO = { authorization: omar!.authorization };
+    const os = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asO });
+    const o0 = (os.json?.suggestions ?? []).find((x: { kind: string }) => x.kind === "offer");
+    check(o0?.organization === "Move Beyond" && o0?.name === `Omar Offer E2E ${tag}`, "The account with that email sees Move Beyond's offer", os.json?.suggestions);
+    const oy = await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: asO, body: { id: o0?.id, accept: true } });
+    const { data: poAfter } = await db().from("player_profiles").select("auth_user_id").eq("id", PO).single();
+    const { data: offerAfter } = await db().from("player_link_offers").select("consumed_by").eq("player_profile_id", PO).single();
+    check(oy.status === 200 && oy.json?.player?.name === `Omar Offer E2E ${tag}` && poAfter?.auth_user_id === omar!.id && offerAfter?.consumed_by === omar!.id, "He confirms: Move Beyond's entries link and his profile speaks for his account", { status: oy.status, linked: poAfter?.auth_user_id === omar!.id });
+
+    // ---- merging: platform admins only; never two accounts; otherwise the account and more move
+    const pa = await signIn(`platform.${tag}@example.com`);
+    await db().from("platform_admins").insert({ auth_user_id: pa!.id, email: `platform.${tag}@example.com`, note: "e2e" });
+    await db().from("organization_members").insert({ organization_id: MB, auth_user_id: pa!.id, invited_email: `platform.${tag}@example.com`, role: "owner", status: "active" });
+    const asPlatform = { Cookie: `${COOKIE_NAME}=${staffToken({ kind: "member", userId: pa!.id, orgId: MB, role: "owner" })}` };
+    const notPlatform = await callAction(file, "mergePlayersAction", [form({ survivor_id: P, absorbed_id: PO })], asMbAdmin);
+    const twoAccounts = await callAction(file, "mergePlayersAction", [form({ survivor_id: P, absorbed_id: PO })], asPlatform);
+    const { data: still } = await db().from("player_profiles").select("id, approval_status, auth_user_id").in("id", [P, PO]);
+    check(!actionOk(notPlatform) && !actionOk(twoAccounts) && (still ?? []).every((x) => x.approval_status !== "merged"), "Merging two profiles linked to different accounts is refused (and only platform admins merge at all)", { notPlatform: notPlatform.status, twoAccounts: twoAccounts.status });
+    const { data: pBlank } = await db().from("player_profiles").insert({ public_name: `Omar Blank E2E ${tag}`, approval_status: "approved" }).select("id").single();
+    await db().from("organization_players").insert({ organization_id: MB, player_profile_id: pBlank!.id, source: "admin", approval_status: "approved" });
+    const merged = await callAction(file, "mergePlayersAction", [form({ survivor_id: pBlank!.id, absorbed_id: PO })], asPlatform);
+    const { data: surv } = await db().from("player_profiles").select("auth_user_id, email").eq("id", pBlank!.id).single();
+    const { data: gone } = await db().from("player_profiles").select("auth_user_id, approval_status").eq("id", PO).single();
+    const { data: survConsent } = await db().from("player_consents").select("channel, granted").eq("player_profile_id", pBlank!.id);
+    check(
+      actionOk(merged) && surv?.auth_user_id === omar!.id && surv?.email === `omar.old.${tag}@example.com` && gone?.approval_status === "merged" && gone?.auth_user_id === null && (survConsent ?? []).some((c) => c.channel === "whatsapp" && c.granted),
+      "Merging into an unlinked profile moves the account, email and consents to the survivor",
+      { status: merged.status, survivor: surv, consents: survConsent },
+    );
+    await db().from("platform_admins").delete().eq("auth_user_id", pa!.id);
+  } finally {
+    for (const id of made) {
+      await db().from("player_claims").delete().eq("user_id", id);
+      await db().from("phone_verifications").delete().eq("auth_user_id", id);
+      await db().from("organization_members").delete().eq("auth_user_id", id);
+      await db().from("platform_admins").delete().eq("auth_user_id", id);
+      await db().from("player_profiles").update({ auth_user_id: null }).eq("auth_user_id", id);
+    }
+    await db().from("message_deliveries").delete().eq("purpose", "one_time_code");
+    await db().from("tournaments").delete().eq("id", tB!.id);
+    await db().from("organizations").delete().eq("id", B);
   }
 }
 

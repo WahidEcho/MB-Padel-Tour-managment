@@ -41,7 +41,8 @@ export async function DELETE(request: Request) {
   await db().from("follows").delete().eq("owner_kind", "user").eq("owner_id", owner.id);
   await db().from("event_passes").delete().eq("owner_kind", "user").eq("owner_id", owner.id);
   await db().from("push_devices").update({ user_id: null }).eq("user_id", owner.id);
-  await db().from("player_profiles").update({ auth_user_id: null, claim_status: "unclaimed" }).eq("auth_user_id", owner.id);
+  await db().from("player_profiles").update({ auth_user_id: null, claim_status: "unclaimed", phone_verified_at: null }).eq("auth_user_id", owner.id);
+  await db().from("phone_verifications").delete().eq("auth_user_id", owner.id);
   // Lets go of the linked player; a photo the player uploaded is deleted with it.
   await unlinkMe(owner.id);
   await db().from("app_users").delete().eq("auth_user_id", owner.id);

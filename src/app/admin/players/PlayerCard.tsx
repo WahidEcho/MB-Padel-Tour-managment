@@ -2,7 +2,7 @@ import Avatar from "@/components/Avatar";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import PlayerPhotoField from "@/components/PlayerPhotoField";
 import type { ConsentChannel, PlayerProfile } from "@/lib/types";
-import { setPlayerApproval, setPlayerConsent, updatePlayerProfile } from "./actions";
+import { offerAppLinkAction, setPlayerApproval, setPlayerConsent, updatePlayerProfile, withdrawAppLinkAction } from "./actions";
 
 const APPROVAL_BADGE: Record<string, string> = {
   pending: "bg-warning/15 text-warning",
@@ -26,11 +26,14 @@ export default function PlayerCard({
   player,
   granted,
   duplicateOf,
+  linkOffered = false,
 }: {
   player: PlayerProfile;
   granted: Set<string>;
   /** Name of another player sharing this mobile, if any. */
   duplicateOf?: string;
+  /** This organisation offered a link to an app account that the player has not answered yet. */
+  linkOffered?: boolean;
 }) {
   const age = ageFrom(player.birth_year);
   // Another organisation's player that this one only matched by a typed mobile:
@@ -135,6 +138,33 @@ export default function PlayerCard({
               Reject
             </ConfirmSubmit>
           </form>
+        )}
+
+        {!hidden && player.approval_status !== "merged" && (
+          <div className="w-full text-xs" data-testid="app-link">
+            {player.app_linked ? (
+              <span className="badge bg-success/15 text-success">Linked to a Move Score account</span>
+            ) : linkOffered ? (
+              <form action={withdrawAppLinkAction} className="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="profile_id" value={player.id} />
+                <span className="text-muted">Waiting for the player to confirm in the Move Score app.</span>
+                <button className="btn-secondary text-xs">Withdraw</button>
+              </form>
+            ) : (
+              <details>
+                <summary className="cursor-pointer font-semibold text-muted">Link to app account</summary>
+                <form action={offerAppLinkAction} className="mt-2 flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="profile_id" value={player.id} />
+                  <div className="min-w-48 flex-1">
+                    <label className="label" htmlFor={`link-${player.id}`}>Email they sign in to Move Score with</label>
+                    <input id={`link-${player.id}`} name="account_email" type="email" required className="input text-sm" />
+                  </div>
+                  <button className="btn-secondary text-xs">Offer link</button>
+                </form>
+                <p className="mt-1 text-muted">The player confirms it in the app; their history here is linked only then.</p>
+              </details>
+            )}
+          </div>
         )}
 
         <details className="w-full">

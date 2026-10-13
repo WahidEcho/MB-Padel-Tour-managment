@@ -549,6 +549,104 @@ export interface MMyPlayer {
   matches: MMyMatch[];
 }
 
+/** An organisation as the player's own profile names it. */
+export interface MOrgRef {
+  slug: string;
+  name: string;
+}
+
+export interface MProfileTournament {
+  tournamentId: string;
+  slug: string;
+  name: string;
+  sport: string;
+  teamName: string;
+  organization: MOrgRef | null;
+  /** Finished matches the player played there, and won. */
+  played: number;
+  won: number;
+}
+
+/** A friendly session or league night the player played, from their points ledger. */
+export interface MProfileSession {
+  sessionId: string;
+  slug: string;
+  name: string;
+  /** ISO start (or creation) time. */
+  date: string;
+  organization: MOrgRef | null;
+  played: number;
+  points: number;
+}
+
+/** An organisation the player plays with, and whether it sees their contact details. */
+export interface MProfileOrg extends MOrgRef {
+  id: string;
+  sharing: boolean;
+  /** The organisation only matched the player by a number typed on its form: the player may share. */
+  canShare: boolean;
+}
+
+/**
+ * GET /me/profile: the signed-in player's own history (Phase 1). Leagues, league
+ * points and ranks arrive in Phase 7 and are listed in comingSoon until then.
+ */
+export interface MMyProfile {
+  /** The account speaks for a player (a profile or at least one linked entry). */
+  linked: boolean;
+  name: string | null;
+  photoUrl: string | null;
+  /** The player's own number (E.164), private to them. */
+  phone: string | null;
+  /** Confirmed with a one-time code. */
+  phoneVerified: boolean;
+  tournaments: MProfileTournament[];
+  sessions: MProfileSession[];
+  upcoming: MMyMatch[];
+  results: MMyMatch[];
+  totals: { tournaments: number; sessions: number; played: number; won: number };
+  organizations: MProfileOrg[];
+  comingSoon: ("leagues" | "points" | "ranks")[];
+}
+
+/** One person among several recorded with the same phone (a parent's number for two children). */
+export interface MPhoneChoice {
+  choiceId: string;
+  name: string;
+  /** Tournament names. */
+  entries: string[];
+}
+
+/** POST /me/player/phone/start. */
+export interface MPhoneStart {
+  verificationId: string;
+  phone: string;
+  channel: "whatsapp";
+  /** False when WhatsApp did not take the code: the app asks before using email. */
+  sent: boolean;
+  expiresAt: string;
+}
+
+/** POST /me/player/phone/verify and /choose. */
+export interface MPhoneVerified {
+  phone: string;
+  linked: { player: MMyPlayer; linked: number } | null;
+  choose: MPhoneChoice[] | null;
+  message: string | null;
+}
+
+/** "Is this you?": entries recorded with the account's email, or an organiser's offer. */
+export interface MLinkSuggestion {
+  /** Signed, for this account only; send it back to confirm. */
+  id: string;
+  kind: "email" | "offer";
+  name: string;
+  /** The organisation that made the offer. */
+  organization: string | null;
+  /** Tournament names. */
+  entries: string[];
+}
+
 /** Photo upload limits, shared so the app resizes to what the server accepts. */
 export const PLAYER_PHOTO = { maxBytes: 1_500_000, maxSide: 2048, targetSide: 512, types: ["image/jpeg", "image/png", "image/webp"] } as const;
 

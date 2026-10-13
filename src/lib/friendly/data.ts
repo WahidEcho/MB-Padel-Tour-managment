@@ -124,11 +124,12 @@ export async function listPlayerProfiles(orgId: string, search?: string, opts: {
   const visible = await visiblePersonFields(orgId, ids, opts);
   const out: PlayerProfile[] = [];
   for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await db().from("player_profiles").select(ADMIN_PROFILE_COLUMNS).is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
+    const { data } = await db().from("player_profiles").select(`${ADMIN_PROFILE_COLUMNS}, auth_user_id`).is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
     for (const p of (data ?? []) as unknown as PlayerProfile[]) {
       const o = own.get(p.id)!;
-      const row: PlayerProfile = { ...p, auth_user_id: null, approval_status: p.approval_status === "merged" ? "merged" : o.approval_status, notes: o.notes, skill_level: o.level };
-      out.push(visible.has(p.id) ? row : maskPersonFields(row, o.typed_name));
+      // Which account is never shown; whether there is one is, to an organisation that sees the person.
+      const row: PlayerProfile = { ...p, auth_user_id: null, app_linked: Boolean(p.auth_user_id), approval_status: p.approval_status === "merged" ? "merged" : o.approval_status, notes: o.notes, skill_level: o.level };
+      out.push(visible.has(p.id) ? row : { ...maskPersonFields(row, o.typed_name), app_linked: false });
     }
   }
   // Searched after masking: a hidden profile is found by the name this organisation

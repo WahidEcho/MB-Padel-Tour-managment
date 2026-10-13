@@ -109,12 +109,14 @@ async function main() {
       ])
       .select("id");
     const [ta, tb] = (teams ?? []) as { id: string }[];
+    const omarCode = newAccessCode(randomInt);
+    const guestCode = newAccessCode(randomInt);
     await db()
       .from("players")
       .insert([
-        { tournament_id: tid, team_id: ta!.id, player_order: 1, full_name: `Omar ${tag}`, player_profile_id: byName.get("Omar"), access_code: newAccessCode(randomInt), email: `own-omar-${tag}@x.test`, phone: null },
+        { tournament_id: tid, team_id: ta!.id, player_order: 1, full_name: `Omar ${tag}`, player_profile_id: byName.get("Omar"), access_code: omarCode, email: `own-omar-${tag}@x.test`, phone: null },
         { tournament_id: tid, team_id: ta!.id, player_order: 2, full_name: `Sara ${tag}`, player_profile_id: byName.get("Sara"), access_code: null, email: null, phone: null },
-        { tournament_id: tid, team_id: tb!.id, player_order: 1, full_name: `Guest ${tag}`, player_profile_id: null, access_code: newAccessCode(randomInt), email: null, phone: null },
+        { tournament_id: tid, team_id: tb!.id, player_order: 1, full_name: `Guest ${tag}`, player_profile_id: null, access_code: guestCode, email: null, phone: null },
       ]);
 
     // ---- announcement to this tournament's players, email + WhatsApp
@@ -155,6 +157,17 @@ async function main() {
     check(saraEmail?.status === "skipped" && saraEmail.error_code === "no_code", "Sara has no code: recorded as not sent", saraEmail?.error_reason);
     const omarEmailRow = r.find((x) => x.channel === "email" && x.recipient_name.startsWith("Omar"));
     check(omarEmailRow?.address === `own-omar-${tag}@x.test`, "the player's own email (players.email) wins over the profile's", omarEmailRow?.address);
+    // Phase 1: the queue never keeps a player's code, only a reference to the player.
+    const { data: stored } = await db().from("message_deliveries").select("vars, payload, idempotency_key, error_reason").eq("announcement_id", announcementId);
+    const storedText = JSON.stringify(stored);
+    const codesIn = [omarCode, guestCode, `${omarCode.slice(0, 4)}-${omarCode.slice(4)}`, `${guestCode.slice(0, 4)}-${guestCode.slice(4)}`].filter((c) => storedText.includes(c));
+    check(codesIn.length === 0 && (stored ?? []).some((d) => typeof (d.vars as { code_ref?: string })?.code_ref === "string"), "codes: the delivery rows keep a reference to the player, never the code (queued, sent or failed)", codesIn);
+    // The cron's housekeeping hashes codes still stored in clear.
+    const sweep = await fetch(`${BASE_URL}/api/internal/messages/drain`, { method: "POST", headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } });
+    const sweepJson = (await sweep.json().catch(() => null)) as { codesHashed?: number } | null;
+    const { data: plainLeft } = await db().from("players").select("id").eq("tournament_id", tid).not("access_code", "is", null);
+    const { data: hashedNow } = await db().from("players").select("id").eq("tournament_id", tid).not("access_code_hash", "is", null);
+    check((sweepJson?.codesHashed ?? 0) >= 2 && (plainLeft ?? []).length === 0 && (hashedNow ?? []).length === 2, "the cron hashes and seals codes still stored in clear", sweepJson);
     const { data: a1 } = await db().from("message_announcements").select("status, recipients_total").eq("id", announcementId).single();
     check((a1 as { status: string }).status === "sent", "announcement is marked sent when nothing is left", a1);
 

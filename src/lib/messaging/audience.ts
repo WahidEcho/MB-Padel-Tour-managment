@@ -18,6 +18,7 @@
  */
 import { db } from "../supabase";
 import { formatAccessCode } from "../players/accessCode";
+import { revealCode } from "../players/codeVault";
 import { appLink, tournamentLink } from "./links";
 import { parsePastedList, type Recipient } from "./recipients";
 import { orgTournamentIds, resolveEntity } from "../orgs/scope";
@@ -40,6 +41,8 @@ interface PlayerRow {
   tournament_id: string;
   player_profile_id: string | null;
   access_code?: string | null;
+  access_code_hash?: string | null;
+  access_code_sealed?: string | null;
   /** The player's own contact (0018), set by organisers or by the player in the app. */
   phone?: string | null;
   email?: string | null;
@@ -85,7 +88,7 @@ async function declined(profileIds: string[]): Promise<Map<string, Channel[]>> {
 async function selectPlayers(filter: (cols: string) => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<PlayerRow[]> {
   // Newest schema first; older databases (before 0018/0020) lack the contact and code columns.
   const base = "id, full_name, team_id, tournament_id, player_profile_id";
-  const tries = [`${base}, access_code, phone, email`, `${base}, access_code`, base];
+  const tries = [`${base}, access_code, access_code_hash, access_code_sealed, phone, email`, `${base}, access_code, phone, email`, `${base}, access_code`, base];
   let last = "";
   for (const cols of tries) {
     const r = await filter(cols);
@@ -94,6 +97,15 @@ async function selectPlayers(filter: (cols: string) => PromiseLike<{ data: unkno
     if (!/access_code|phone|email|column/.test(last)) break;
   }
   throw new Error(last);
+}
+
+/**
+ * The player's code for the message (in memory only: the send queue stores
+ * `code_ref`, the player row, and reads the code again when it sends).
+ */
+function codeVars(p: PlayerRow): { code: string | null; code_ref: string | null } {
+  const code = revealCode(p);
+  return code ? { code: formatAccessCode(code), code_ref: p.id } : { code: null, code_ref: null };
 }
 
 /** Where a contact came from, best first: the player row, their platform profile, the team contact. */
@@ -139,7 +151,7 @@ async function playersToRecipients(players: PlayerRow[]): Promise<Recipient[]> {
         email: c.email?.value ?? null,
         phone: c.phone?.value ?? null,
         sources: { email: c.email?.source ?? null, phone: c.phone?.source ?? null },
-        vars: { name: p.full_name, code: p.access_code ? formatAccessCode(p.access_code) : null, tournament: t?.name ?? null, link: t ? tournamentLink(t.slug) : null, app_link: appLink() },
+        vars: { name: p.full_name, ...codeVars(p), tournament: t?.name ?? null, link: t ? tournamentLink(t.slug) : null, app_link: appLink() },
         optedOut: p.player_profile_id ? optOut.get(p.player_profile_id) : undefined,
       };
     });
@@ -179,17 +191,20 @@ export async function resolveAudience(a: Audience, orgId: string): Promise<Resol
       const coded = await pageAll<PlayerRow>((from, to) =>
         db()
           .from("players")
-          .select("id, full_name, team_id, tournament_id, player_profile_id, access_code")
-          .not("access_code", "is", null)
+          .select("id, full_name, team_id, tournament_id, player_profile_id, access_code, access_code_hash, access_code_sealed")
+          .or("access_code.not.is.null,access_code_hash.not.is.null")
           .not("player_profile_id", "is", null)
           .order("created_at", { ascending: false })
           .range(from, to),
       ).catch(() => [] as PlayerRow[]);
-      const codeOf = new Map<string, string>();
+      const codeOf = new Map<string, { code: string | null; code_ref: string | null }>();
       // Only codes from this organisation's own tournaments.
       for (const p of coded) {
         if (!orgTournaments.has(p.tournament_id)) continue;
-        if (p.access_code && p.player_profile_id && !codeOf.has(p.player_profile_id)) codeOf.set(p.player_profile_id, formatAccessCode(p.access_code));
+        if (p.player_profile_id && !codeOf.has(p.player_profile_id)) {
+          const v = codeVars(p);
+          if (v.code) codeOf.set(p.player_profile_id, v);
+        }
       }
       return {
         recipients: profiles.map((p) => ({
@@ -198,7 +213,7 @@ export async function resolveAudience(a: Audience, orgId: string): Promise<Resol
           name: p.public_name,
           email: p.email,
           phone: p.mobile_normalized,
-          vars: { name: p.public_name, code: codeOf.get(p.id) ?? null, app_link: appLink() },
+          vars: { name: p.public_name, code: codeOf.get(p.id)?.code ?? null, code_ref: codeOf.get(p.id)?.code_ref ?? null, app_link: appLink() },
           optedOut: optOut.get(p.id),
         })),
         rejected: [],
