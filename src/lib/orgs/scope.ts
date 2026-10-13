@@ -29,7 +29,9 @@ export type EntityRef =
   | { league: string }
   | { division: string }
   | { leagueMember: string }
-  | { fixture: string };
+  | { fixture: string }
+  // Registrations (migration 0028): through their event.
+  | { registration: string };
 
 export interface EntityScope {
   orgId: string;
@@ -72,6 +74,10 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
     if (!a) return null;
     if (a.tournament_id) return tournamentScope(a.tournament_id);
     return a.event_group_id ? resolveEntity({ eventGroup: a.event_group_id }) : null;
+  }
+  if ("registration" in ref) {
+    if (!isUuid(ref.registration)) return null;
+    return tournamentScope((await one<{ tournament_id: string }>("registrations", "tournament_id", ref.registration))?.tournament_id);
   }
   if ("division" in ref || "leagueMember" in ref || "fixture" in ref) {
     const [table, id] =

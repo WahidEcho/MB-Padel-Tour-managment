@@ -21,6 +21,9 @@ export const openOrg = (slug: string) => router.push({ pathname: "/org/[slug]", 
 export const openLeague = (slug: string) => router.push({ pathname: "/league/[slug]", params: { slug } });
 /** Leagues: the top of all leagues and the account's own leagues. */
 export const openLeagues = () => router.push("/leagues");
+/** Registering for an event (Phase 9), and the account's own registrations. */
+export const openRegister = (slug: string) => router.push({ pathname: "/register/[slug]", params: { slug } });
+export const openRegistrations = () => router.push("/registrations");
 export const openPlayer = (id: string, slug: string) => router.push({ pathname: "/player/[id]", params: { id, slug } });
 /** `slug` is the tournament the nation was tapped in, shown even when it is not the featured event. */
 export const openNation = (code: string, slug?: string) => router.push({ pathname: "/nation/[code]", params: slug ? { code, slug } : { code } });

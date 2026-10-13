@@ -175,3 +175,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   of play per court = `match_order`; estimates in `matches.scheduled_time`; published flag `format_config.nightTable`. Alerts only to the
   players' own accounts, only for public league nights. The Americano points format is unchanged (still 3 / 0 + fire on the night's
   own table; league points from the league rules). Gate: `npm run e2e:nights` (stand-in, `PUSH_DRY_RUN=1`).
+- Registration and payment (Phase 9): `src/lib/registration/` (`rules.ts` pure + tests, `server.ts`, `moveTick.ts`,
+  `signature.ts`), migration `0028_registration.sql` (not yet on the live project), admin tab `admin/tournaments/[id]/registrations`
+  (refunds: `refund_registrations`, admins with their own account), web `/register/<slug>` and `/register/status`, app
+  `register/[slug]` + `registrations`, webhook `api/webhooks/move-tick`. Online payment only for Move Beyond and only with
+  `MOVE_TICK_API_URL` / `_PARTNER_KEY` / `_WEBHOOK_SECRET` (+ `MOVE_TICK_MODE`) set; otherwise pay at the venue. Contract with
+  Move Tick: `docs/move-tick-partner-api.md` (Move Tick side: branch `move-score-partner-api` of the Move Tick repo). Gate:
+  `npm run e2e:registration` (runs a fake Move Tick on `MOVE_TICK_API_URL`'s port; `.env.localdb` needs the four `MOVE_TICK_*`).
+  The messaging cron also archives finished events' player links (`player_claims.archived_at`).

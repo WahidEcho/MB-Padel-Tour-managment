@@ -8,6 +8,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { shareWithOrganization, useMyProfile } from "../player/me";
 import { MyMatchRow, PlayerAvatar } from "../player/ui";
 import { LoadState } from "../ui/LoadState";
+import { openRegistrations } from "../nav/links";
 import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../ui/Text";
@@ -140,6 +141,12 @@ function Profile({ p }: { p: MMyProfile }) {
           </View>
         </>
       )}
+
+      <SectionHeader title="Registrations" />
+      <Card onPress={openRegistrations} accessibilityLabel="My registrations: status, payments and refunds" style={{ gap: 4 }}>
+        <Body weight="semi">My registrations</Body>
+        <Body tone="ink2" size={12.5}>Entries you registered for, what is paid and due, refunds.</Body>
+      </Card>
 
       <SectionHeader title="Leagues and ranks" />
       <Card style={{ gap: 6 }}>

@@ -1,0 +1,283 @@
+/**
+ * Registration and payment rules (plan Phase 9). Pure: shared with the Move Score
+ * app through move-score-app/src/core/index.ts, and with the server
+ * (./server.ts), which alone decides amounts, statuses and refunds.
+ *
+ * Owner decisions (DECISIONS.md, "Registration and payment"):
+ *   - register in Move Score, pay through Move Tick; pay at the venue otherwise;
+ *   - online payment only for the Move Beyond organisation (others: free or pay at
+ *     the venue), and only while Move Tick is configured;
+ *   - refunds until 24 h before the event's start time (tournaments.starts_at);
+ *   - team or individual entry is a setting of each event.
+ * Still waiting on the owner, so each is a setting with a conservative default:
+ *   - approval: the organiser approves (approval_mode "organiser");
+ *   - who pays for a team: the registering player pays for everyone ("registrant");
+ *   - card fee on refunds: none kept, a refund gives everything back (0 %).
+ *
+ * Money is integer minor units (piastres) everywhere; EGP only.
+ */
+import { zonedToIso } from "../tennis/ties";
+
+export type EntryType = "individual" | "team";
+export type ApprovalMode = "organiser" | "automatic";
+export type PaymentSetting = "free" | "online" | "venue" | "online_or_venue";
+export type TeamPayer = "registrant" | "each_player";
+export type PaymentChoice = "free" | "online" | "venue";
+export type RegistrationStatus = "pending_approval" | "awaiting_payment" | "confirmed" | "refused" | "cancelled" | "refunded";
+
+export const REGISTRATION_STATUSES: readonly RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed", "refused", "cancelled", "refunded"];
+/** Statuses that hold a place (count toward capacity, block a second entry by the same account). */
+export const LIVE_STATUSES: readonly RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed"];
+
+export const CURRENCY = "EGP";
+/** Refunds stop this long before the event starts. */
+export const REFUND_CUTOFF_MS = 24 * 3600_000;
+/** A finished event's links are archived this long after it ended. */
+export const ARCHIVE_AFTER_MS = 24 * 3600_000;
+/** The largest fee per player (minor units): 100,000 EGP. */
+export const MAX_FEE = 10_000_000;
+export const MAX_REFUND_FEE_PERCENT = 20;
+
+export interface RegistrationSettings {
+  open: boolean;
+  entryType: EntryType;
+  /** Players per entry for team entry (individual entry is always 1). */
+  teamSize: number;
+  approvalMode: ApprovalMode;
+  /** Per player, minor units. */
+  feeAmount: number;
+  currency: typeof CURRENCY;
+  payment: PaymentSetting;
+  teamPayer: TeamPayer;
+  /** Kept from a refund (the card fee), 0–20 %. */
+  refundFeePercent: number;
+  capacity: number | null;
+  closesAt: string | null;
+  note: string | null;
+}
+
+/** Closed, organiser approves, registrant pays for the team, full refunds. */
+export const DEFAULT_REGISTRATION_SETTINGS: RegistrationSettings = {
+  open: false,
+  entryType: "team",
+  teamSize: 2,
+  approvalMode: "organiser",
+  feeAmount: 0,
+  currency: CURRENCY,
+  payment: "free",
+  teamPayer: "registrant",
+  refundFeePercent: 0,
+  capacity: null,
+  closesAt: null,
+  note: null,
+};
+
+const int = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
+};
+const oneOf = <T extends string>(v: unknown, list: readonly T[], fallback: T): T => (list.includes(v as T) ? (v as T) : fallback);
+
+/**
+ * Settings from a database row (snake_case) or an already-shaped object
+ * (camelCase), cleaned: anything unknown or out of range falls back to the
+ * conservative default.
+ */
+export function registrationSettings(raw: unknown): RegistrationSettings {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_REGISTRATION_SETTINGS };
+  const r = raw as Record<string, unknown>;
+  const pick = (camel: string, snake: string) => (camel in r ? r[camel] : r[snake]);
+  const d = DEFAULT_REGISTRATION_SETTINGS;
+  const entryType = oneOf(pick("entryType", "entry_type"), ["individual", "team"] as const, d.entryType);
+  const feeAmount = int(pick("feeAmount", "fee_amount"), 0, MAX_FEE, 0);
+  const closes = pick("closesAt", "closes_at");
+  const closesAt = typeof closes === "string" && Number.isFinite(Date.parse(closes)) ? new Date(Date.parse(closes)).toISOString() : null;
+  const cap = pick("capacity", "capacity");
+  const capRaw = cap === null || cap === undefined || cap === "" ? null : Number(cap);
+  const capacity = capRaw !== null && Number.isFinite(capRaw) && capRaw >= 1 ? Math.min(2000, Math.round(capRaw)) : null;
+  const note = pick("note", "note");
+  let payment = oneOf(pick("payment", "payment"), ["free", "online", "venue", "online_or_venue"] as const, d.payment);
+  if (feeAmount === 0) payment = "free";
+  else if (payment === "free") payment = "venue";
+  return {
+    open: pick("open", "open") === true,
+    entryType,
+    teamSize: entryType === "individual" ? 1 : int(pick("teamSize", "team_size"), 2, 8, 2),
+    approvalMode: oneOf(pick("approvalMode", "approval_mode"), ["organiser", "automatic"] as const, d.approvalMode),
+    feeAmount,
+    currency: CURRENCY,
+    payment,
+    teamPayer: oneOf(pick("teamPayer", "team_payer"), ["registrant", "each_player"] as const, d.teamPayer),
+    refundFeePercent: Math.min(MAX_REFUND_FEE_PERCENT, Math.max(0, Number(pick("refundFeePercent", "refund_fee_percent")) || 0)),
+    capacity,
+    closesAt,
+    note: typeof note === "string" && note.trim() ? note.trim().slice(0, 1000) : null,
+  };
+}
+
+/** The settings as a database row (for registration_settings). */
+export function storedRegistrationSettings(s: RegistrationSettings): Record<string, unknown> {
+  return {
+    open: s.open,
+    entry_type: s.entryType,
+    team_size: s.teamSize,
+    approval_mode: s.approvalMode,
+    fee_amount: s.feeAmount,
+    currency: s.currency,
+    payment: s.payment,
+    team_payer: s.teamPayer,
+    refund_fee_percent: s.refundFeePercent,
+    capacity: s.capacity,
+    closes_at: s.closesAt,
+    note: s.note,
+  };
+}
+
+/** How many people one entry names. */
+export function peoplePerEntry(s: Pick<RegistrationSettings, "entryType" | "teamSize">): number {
+  return s.entryType === "individual" ? 1 : Math.max(2, s.teamSize);
+}
+
+/** The ways a player may pay for this event now. `onlineAvailable`: Move Beyond's event and Move Tick configured. */
+export function paymentOptions(s: Pick<RegistrationSettings, "feeAmount" | "payment">, onlineAvailable: boolean): PaymentChoice[] {
+  if (s.feeAmount <= 0 || s.payment === "free") return ["free"];
+  const online = onlineAvailable && (s.payment === "online" || s.payment === "online_or_venue");
+  const venue = s.payment === "venue" || s.payment === "online_or_venue" || !online;
+  // Pay-at-venue fallback: when online payment is not available, the fee is paid at the venue.
+  return [...(online ? (["online"] as const) : []), ...(venue ? (["venue"] as const) : [])];
+}
+
+/** What one entry costs, split into what is paid online now and what at the venue. Minor units. */
+export function charges(
+  s: Pick<RegistrationSettings, "feeAmount" | "teamPayer" | "entryType" | "teamSize">,
+  choice: PaymentChoice,
+  people = peoplePerEntry(s),
+): { online: number; venue: number; total: number } {
+  const total = Math.max(0, s.feeAmount) * Math.max(1, people);
+  if (choice === "free" || total === 0) return { online: 0, venue: 0, total: 0 };
+  if (choice === "venue") return { online: 0, venue: total, total };
+  // Online: the registrant pays for everyone, or only their own share (the others pay at the venue).
+  const own = s.teamPayer === "each_player" ? Math.max(0, s.feeAmount) : total;
+  return { online: own, venue: total - own, total };
+}
+
+/** The status a new entry starts in. Approval comes before payment, so nobody pays for a request that is turned down. */
+export function initialStatus(s: Pick<RegistrationSettings, "approvalMode">, amountOnline: number): RegistrationStatus {
+  if (s.approvalMode === "organiser") return "pending_approval";
+  return amountOnline > 0 ? "awaiting_payment" : "confirmed";
+}
+
+/** The status an organiser's approval leads to. */
+export function statusAfterApproval(amountOnline: number, alreadyPaid: boolean): RegistrationStatus {
+  return amountOnline > 0 && !alreadyPaid ? "awaiting_payment" : "confirmed";
+}
+
+/** Who may move a registration where. The server checks these before every conditional update. */
+const TRANSITIONS: Record<RegistrationStatus, readonly RegistrationStatus[]> = {
+  pending_approval: ["awaiting_payment", "confirmed", "refused", "cancelled"],
+  awaiting_payment: ["confirmed", "refused", "cancelled"],
+  confirmed: ["refunded", "cancelled"],
+  refused: [],
+  cancelled: [],
+  refunded: [],
+};
+
+export function canMove(from: RegistrationStatus, to: RegistrationStatus): boolean {
+  return TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** Why registration is not taking entries now, or null. `taken` counts live entries. */
+export function registrationClosedReason(
+  s: Pick<RegistrationSettings, "open" | "closesAt" | "capacity">,
+  event: { status: string | null | undefined; startsAt?: string | null },
+  taken: number,
+  now = Date.now(),
+): "closed" | "deadline" | "full" | "finished" | null {
+  if (!s.open) return "closed";
+  if (event.status === "completed" || event.status === "archived") return "finished";
+  if (s.closesAt && Date.parse(s.closesAt) <= now) return "deadline";
+  if (event.startsAt && Date.parse(event.startsAt) <= now) return "deadline";
+  if (s.capacity !== null && taken >= s.capacity) return "full";
+  return null;
+}
+
+export const CLOSED_MESSAGES: Record<NonNullable<ReturnType<typeof registrationClosedReason>>, string> = {
+  closed: "Registration for this event is not open.",
+  deadline: "Registration for this event has closed.",
+  full: "This event is full.",
+  finished: "This event has finished.",
+};
+
+/** The last moment a refund is allowed: 24 h before the start. Null when the start time is not set. */
+export function refundCutoff(startsAt: string | null | undefined): number | null {
+  if (!startsAt) return null;
+  const at = Date.parse(startsAt);
+  return Number.isFinite(at) ? at - REFUND_CUTOFF_MS : null;
+}
+
+export type RefundRefusal = "no_start_time" | "too_late" | "not_paid" | "already_refunded";
+
+/** Whether a paid entry may be refunded now (the organiser's action; never automatic). */
+export function refundAllowed(startsAt: string | null | undefined, now = Date.now()): { ok: true; cutoff: number } | { ok: false; reason: RefundRefusal; cutoff: number | null } {
+  const cutoff = refundCutoff(startsAt);
+  if (cutoff === null) return { ok: false, reason: "no_start_time", cutoff };
+  if (now > cutoff) return { ok: false, reason: "too_late", cutoff };
+  return { ok: true, cutoff };
+}
+
+export const REFUND_MESSAGES: Record<RefundRefusal, string> = {
+  no_start_time: "Set the event's start time first: refunds are allowed until 24 hours before it.",
+  too_late: "Refunds closed 24 hours before the event's start time.",
+  not_paid: "Nothing was paid online for this entry.",
+  already_refunded: "This entry was already refunded.",
+};
+
+/** What a refund gives back: everything, less the card fee the settings keep (0 % by default). */
+export function refundAmount(paid: number, feePercent: number): number {
+  const pct = Math.min(MAX_REFUND_FEE_PERCENT, Math.max(0, feePercent || 0));
+  return Math.max(0, paid - Math.round((paid * pct) / 100));
+}
+
+/** The UTC instant a date's day ends in a time zone ("2026-11-02" in Cairo → 21:59:59.999Z). */
+export function endOfDay(date: string, timeZone: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const iso = zonedToIso(`${date}T23:59`, timeZone || "Africa/Cairo");
+  return iso ? Date.parse(iso) + 59_999 : null;
+}
+
+/**
+ * When an event's player links (player_claims) are archived: 24 h after it ended,
+ * where "ended" is the end of its last day in its time zone or its completion,
+ * whichever is later. A running event is never archived; null = not yet known.
+ */
+export function archiveAt(e: { endsOn: string | null; timezone: string | null; status: string | null; completedAt: string | null }): number | null {
+  if (e.status === "active" || e.status === "live") return null;
+  const ends = e.endsOn ? endOfDay(e.endsOn, e.timezone ?? "Africa/Cairo") : null;
+  const done = e.status === "completed" && e.completedAt && Number.isFinite(Date.parse(e.completedAt)) ? Date.parse(e.completedAt) : null;
+  const candidates = [ends, done].filter((x): x is number => x !== null);
+  if (!candidates.length) return null;
+  return Math.max(...candidates) + ARCHIVE_AFTER_MS;
+}
+
+/** "EGP 250" / "EGP 250.50" from minor units. */
+export function moneyLabel(minor: number, currency: string = CURRENCY): string {
+  const major = Math.max(0, minor) / 100;
+  return `${currency} ${Number.isInteger(major) ? major.toLocaleString("en-US") : major.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Minor units from a typed major amount ("250", "250.5"); null when unreadable. */
+export function minorFromMajor(text: string): number | null {
+  const s = text.trim();
+  if (s === "") return 0;
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(s)) return null;
+  return Math.round(Number(s) * 100);
+}
+
+export const STATUS_LABELS: Record<RegistrationStatus, string> = {
+  pending_approval: "Waiting for the organiser",
+  awaiting_payment: "Approved — waiting for payment",
+  confirmed: "Confirmed",
+  refused: "Not accepted",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
+};

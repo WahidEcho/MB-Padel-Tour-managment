@@ -68,8 +68,8 @@ The following are planned for future versions and should not block the 2-day bui
 - Seeded ranking automation.
 - Push notifications.
 - Sponsor analytics dashboard.
-- Player registration portal.
-- Payment collection.
+- Player registration portal. *(Built since — Phase 9, October 2026: players register in the Move Score app or at `/register/<slug>`; see `docs/move-tick-partner-api.md`.)*
+- Payment collection. *(Built since for the Move Beyond organisation only: entry fees paid online through Move Tick (XPay) or at the venue; other organisations run free or pay-at-venue events.)*
 - Arabic RTL interface.
 - Multi-sport scoring engines.
 - Certificates and print-ready result sheets.
@@ -150,23 +150,23 @@ The platform must support these roles from V1:
 | Super Admin | Full Move Beyond control over all tournaments. |
 | Admin | Full control over a specific tournament. |
 | Tournament Manager | Can manage tournament operations, teams, groups, matches, check-in, scoring corrections, and bracket approval. |
-| Referee | Shared referee login; can view all matches, start matches, score matches, undo scores, override/end matches, and update match status. |
+| Referee | Event code issued by the organisation (originally one shared referee login); can view the organisation's matches (or one tournament's, when the code is scoped), start matches, score matches, undo scores, override/end matches, and update match status. |
 | Screen Operator | Controls what appears on TV/public display screens. |
 | Viewer/Public | Read-only access to public tournament screens. |
 
 ### 4.2 Login Requirements
 
-V1 should use:
+V1 used one shared login per role. **Superseded (organisations, Phase 0.5, October 2026 — `docs/organizations.md`):**
 
-- One shared referee login.
-- Admin login.
-- Tournament manager login.
-- Screen operator login.
+- Owners, admins and managers sign in with their own Move Score account (Google, or email + password); the server issues its own signed staff session and re-checks the membership on every request.
+- Referees and screen operators use per-organisation **event codes** (optionally scoped to one tournament, expiring, revocable at once).
+- The shared role passwords remain only for the Move Beyond organisation until they are retired.
+- Players have their own Move Score accounts in the app (player profiles, history, registrations; `docs/player-identity.md`).
 - Public read-only links without login.
 
 ### 4.3 Referee Access
 
-The shared referee login can:
+A referee (event code; originally the shared referee login) can:
 
 - See all matches.
 - Start any match.
@@ -225,7 +225,7 @@ V1 supports:
 
 > **Group Stage + Knockout**
 
-The system should be designed so knockout-only and league-only formats can be added later, but they are not required for V1.
+The system should be designed so knockout-only and league-only formats can be added later, but they are not required for V1. *(Since added: knockout-only draws, chess knockouts, tennis team ties, and leagues — recurring nights and season fixtures with their own points and monthly boards, Phase 7, `src/lib/leagues/`.)*
 
 ### 5.2 Number of Teams
 
@@ -2561,8 +2561,8 @@ The V1 is accepted only if the following are working:
 
 - QR check-in.
 - Mobile scanner web app.
-- Player registration form.
-- Automated SMS/WhatsApp notifications.
+- Player registration form. *(Built: Phase 9 registration and payment.)*
+- Automated SMS/WhatsApp notifications. *(WhatsApp and email built — `docs/messaging.md`; SMS dropped permanently, `DECISIONS.md` § 4.)*
 - Advanced exports.
 - Certificates.
 
@@ -2575,7 +2575,7 @@ The V1 is accepted only if the following are working:
 - E-sports brackets.
 - AI scheduling optimization.
 - Sponsor analytics.
-- SaaS tenant billing.
+- SaaS tenant billing. *(Organisations exist since Phase 0.5 with billing fields — free tier, commission %, subscription status — recorded only; nothing is charged. Paid registrations run through Move Tick for the Move Beyond organisation only until a direct XPay integration for other organisations.)*
 
 ---
 

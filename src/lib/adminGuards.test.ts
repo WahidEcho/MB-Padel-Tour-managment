@@ -65,6 +65,12 @@ const OWNERSHIP_ONLY: Record<string, string> = {
 /** Settings sessions run by too: any tournament or session row, but nothing else. */
 const SESSION_AWARE: Record<string, string> = {
   saveMatchDayRules: "sessions have match-day rules too",
+  // Registrations (Phase 9): tournaments and friendly sessions both take them.
+  saveRegistrationSettings: "sessions take registrations too",
+  decideRegistrationAction: "sessions take registrations too (the organisation comes from the registration)",
+  markVenuePaidAction: "sessions take registrations too (the organisation comes from the registration)",
+  refundRegistrationAction: "sessions take registrations too (the organisation comes from the registration)",
+  pairRegistrationsAction: "tournaments only in practice (the server refuses a session); both ids are scope-checked",
 };
 
 function actionFiles(dir: string): string[] {

@@ -736,7 +736,7 @@ export async function closeCall(matchId: string, status: "started" | "walkover")
 
 /** Which side of a match a signed-in account plays on, through its claimed player codes; null when neither. */
 export async function sideOfUser(userId: string, match: Match): Promise<TeamKey | null> {
-  const { data: claims } = await db().from("player_claims").select("player_id").eq("user_id", userId);
+  const { data: claims } = await db().from("player_claims").select("player_id").eq("user_id", userId).is("archived_at", null);
   const mine = new Set(((claims ?? []) as { player_id: string }[]).map((c) => c.player_id));
   if (!mine.size) return null;
   const sideOf = async (teamId: string | null, nominees: string[] | null | undefined): Promise<boolean> => {

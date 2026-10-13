@@ -59,3 +59,4 @@ export { courtScene, nextAfter, heroCards, isLiveScene, sceneMatchIds, showcaseO
 export type { ShowcaseScene, ShowcaseSceneKind, ShowcaseNext, HeroCard, SideIdentity } from "../../../src/lib/tv/showcase";
 export { LIVE_ACTIVITY_NAME, LIVE_ACTIVITY_PHASES, APNS_TOKEN, matchUrl, matchIdFromUrl, liveState, upcomingState, phaseForMatch } from "../../../src/lib/notify/liveActivity";
 export type { LiveActivityPhase, LiveScoreState } from "../../../src/lib/notify/liveActivity";
+export { moneyLabel, peoplePerEntry, charges, STATUS_LABELS as REGISTRATION_STATUS_LABELS, REFUND_CUTOFF_MS } from "../../../src/lib/registration/rules";

@@ -15,6 +15,7 @@ const PADEL_TABS = [
   ["/bracket", "Bracket"],
   ["/screens", "Screens"],
   ["/match-day", "Match day"],
+  ["/registrations", "Registrations"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -44,6 +45,7 @@ const CHESS_TABS = [
   ["/matches", "Games"],
   ["/screens", "Screens"],
   ["/match-day", "Match day"],
+  ["/registrations", "Registrations"],
   ["/settings", "Settings"],
 ] as const;
 
@@ -54,6 +56,7 @@ const SESSION_TABS = [
   ["/settings", "Courts & branding"],
   ["/matches", "Scoring locks"],
   ["/match-day", "Match day"],
+  ["/registrations", "Registrations"],
 ] as const;
 
 export default async function TournamentLayout({

@@ -48,6 +48,11 @@ const MUST_STAY_CLOSED = [
   "match_calls",
   "live_activity_start_tokens",
   "live_activity_starts",
+  // 0028 (registration): people's contact details, Move Tick references, refunds.
+  "registration_settings",
+  "registrations",
+  "registration_payments",
+  "move_tick_events",
 ];
 
 /** Tables from 0022 on that may be reopened (none yet): table → why it holds nothing private. */

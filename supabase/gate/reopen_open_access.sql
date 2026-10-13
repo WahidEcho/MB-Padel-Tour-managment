@@ -7,11 +7,13 @@
 --   organization_players, organization_invites, phone_verifications,
 --   player_link_offers, rls_canary,
 --   leagues, league_divisions, league_members, league_fixtures, league_points,
---   match_calls, live_activity_start_tokens, live_activity_starts
+--   match_calls, live_activity_start_tokens, live_activity_starts,
+--   registration_settings, registrations, registration_payments, move_tick_events
 -- They hold event-code hashes, member emails, platform admins, organisations'
 -- private player notes, invite and one-time-code hashes and their status, league
 -- invite-code hashes and the organisers' membership decisions, referee devices and
--- presence on court calls, and phones' push-to-start tokens and installation ids.
+-- presence on court calls, phones' push-to-start tokens and installation ids, and
+-- registrations (people's contact details, payment references, refunds).
 -- The anon and authenticated keys must
 -- never read or write them, rollback or not: they stay RLS-on with no policy and
 -- no grant. (So after this rollback, with the anon key back in SUPABASE_KEY, staff
@@ -37,7 +39,11 @@ declare
     'league_points',
     'match_calls',
     'live_activity_start_tokens',
-    'live_activity_starts'
+    'live_activity_starts',
+    'registration_settings',
+    'registrations',
+    'registration_payments',
+    'move_tick_events'
   ];
 begin
   for t in select tablename from pg_tables where schemaname = 'public' and not (tablename = any (private_tables)) loop

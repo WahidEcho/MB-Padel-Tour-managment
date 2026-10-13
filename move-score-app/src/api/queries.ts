@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLive, MMatchDetail, MMyLeagues, MOrgProfile, MStandings, MTimeline, MTopBoard } from "@core";
+import type { MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -178,6 +178,44 @@ export async function joinLeague(slug: string, body: { code?: string; divisionId
   const out = await api<MJoinResult>(`/api/mobile/v1/leagues/${encodeURIComponent(slug)}/join`, { method: "POST", body, who: "me" });
   await queryClient.invalidateQueries({ queryKey: ["my-leagues"] });
   await queryClient.invalidateQueries({ queryKey: ["league", slug] });
+  return out;
+}
+
+/* ---------- registration and payment (Phase 9) ---------- */
+
+/** How to register for an event; a 404 means it takes no registrations here. */
+export function useRegistrationInfo(slug: string | undefined) {
+  return useQuery<MRegistrationInfo>({
+    queryKey: ["registration-info", slug],
+    queryFn: () => api<MRegistrationInfo>(`/api/mobile/v1/t/${encodeURIComponent(slug!)}/registration`),
+    enabled: Boolean(slug),
+    staleTime: 15_000,
+  });
+}
+
+export function useMyRegistrations(enabled: boolean) {
+  return useQuery<MMyRegistrations>({
+    queryKey: ["my-registrations"],
+    queryFn: () => api<MMyRegistrations>("/api/mobile/v1/me/registrations", { who: "me" }),
+    enabled,
+    staleTime: 5_000,
+  });
+}
+
+export async function registerFor(
+  slug: string,
+  body: { people: { name: string; phone?: string; email?: string }[]; teamName?: string; payment: MPaymentChoice },
+): Promise<MRegistrationResult> {
+  const out = await api<MRegistrationResult>(`/api/mobile/v1/t/${encodeURIComponent(slug)}/registration`, { method: "POST", body, who: "me" });
+  await queryClient.invalidateQueries({ queryKey: ["my-registrations"] });
+  await queryClient.invalidateQueries({ queryKey: ["registration-info", slug] });
+  return out;
+}
+
+/** pay (a Move Tick checkout), cancel, or ask the organiser for a refund. */
+export async function registrationAction(id: string, kind: "pay" | "cancel" | "refund-request"): Promise<MRegistrationResult> {
+  const out = await api<MRegistrationResult>(`/api/mobile/v1/me/registrations/${encodeURIComponent(id)}/${kind}`, { method: "POST", body: {}, who: "me" });
+  await queryClient.invalidateQueries({ queryKey: ["my-registrations"] });
   return out;
 }
 

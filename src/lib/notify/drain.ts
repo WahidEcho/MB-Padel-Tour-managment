@@ -97,7 +97,7 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
   const linked = [...new Set([...(byKind.get("player") ?? []), ...selfPlayerIds])];
   const selfUsers = new Set<string>();
   for (let i = 0; i < linked.length; i += 200) {
-    const { data } = await db().from("player_claims").select("user_id, player_id").in("player_id", linked.slice(i, i + 200));
+    const { data } = await db().from("player_claims").select("user_id, player_id").in("player_id", linked.slice(i, i + 200)).is("archived_at", null);
     for (const c of (data ?? []) as { user_id: string | null; player_id: string }[]) {
       if (!c.user_id) continue;
       owners.user.add(c.user_id);

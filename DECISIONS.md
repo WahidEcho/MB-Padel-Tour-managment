@@ -14,6 +14,11 @@ Source of truth for behaviour: `src/lib/friendly/*` and `src/lib/friendly/friend
 
 **All friendly matches are scored with the existing padel engine (sets and games).**
 There is no rally-to-N scoring, no second scoring engine, and **no timed rounds**.
+
+> **Pending the owner (plan v2, October 2026):** the Americano points format is still
+> open. If the owner picks rally-to-N (points to 16/24/32) or timed rounds for
+> Americano nights, this section, § 3 ("No timed rounds") and § 5 change first. Until
+> then nothing here changes.
 Per-session defaults, all editable by the admin:
 
 | Session type | Default format |
@@ -49,6 +54,13 @@ target; we deliberately use games instead, because our matches are set-scored.
 | Fire points, wins #2–#11 | **+1 each** (max **+10** per streak) |
 | Fire points, win #12+ | **+0** until the streak breaks |
 | Player session total | `3 × wins + fire points earned in that session` |
+
+**Stand-alone sessions vs league nights (Phase 7).** The 3 / 0 + fire model above is
+for stand-alone friendly sessions only, with its global streak. A league night (a
+session created from a league's night template) counts toward the league with the
+**league's own editable rule set** (default win 2, loss 1, walkover win/loss, an
+optional league-scoped streak bonus; `src/lib/leagues/points.ts`), and points count
+immediately (undo removes them). The friendly ledger still records the night as before.
 | Ranking order | total points → wins → game difference → games won |
 | Ties after all four | **share the same rank** (1, 2, 2, 4) |
 
@@ -98,6 +110,10 @@ sum the two profiles' banked totals — that double-counts.
 - **Tournament lists must filter `kind = 'tournament'`.** Backing rows must never
   surface in the admin tournament list, the public home page, or the referee /
   operator pickers.
+  **Opened deliberately for league nights (Phase 7):** a session that belongs to a
+  league is served by the app's bundle, live and referee routes and appears on its
+  league page and in the live-courts hero; plain sessions stay hidden. Every other
+  list keeps the filter.
 - **Participant snapshots are written at match creation** into
   `friendly_match_participants` and are immutable except via the audited
   correction action. Re-versioning a pair never rewrites history.
@@ -157,9 +173,11 @@ sum the two profiles' banked totals — that double-counts.
   reveal whether a mobile number already belongs to an existing player —
   duplicate handling is admin-only.
 - Public registration is **rate limited** per IP and per session slug.
-- **No player login in this release.** `player_profiles.auth_user_id` and
-  `claim_status` exist purely as forward-compatibility columns and are read by
-  nothing. Adding login later must not require a migration.
+- ~~No player login in this release.~~ **Changed (Move Score app, October 2026):**
+  players have Move Score accounts. `player_profiles.auth_user_id` is the account
+  that speaks for a profile (Phase 1, `docs/player-identity.md`): linked by a player
+  code, a WhatsApp phone code, a confirmed email, an organiser's offer, or the
+  account's own registration (Phase 9). Merging profiles is platform-admin only.
 - A session with **no active season** is allowed: `season_id` is nullable,
   finalization warns, and such sessions count toward **Lifetime only**.
 
@@ -170,9 +188,10 @@ sum the two profiles' banked totals — that double-counts.
 - Channels are **`whatsapp`, `web_push`, `email`**. **SMS is out of scope** — Egypt's
   NTRA curfew blocks marketing SMS on Fridays, Saturdays and 21:00–09:00, which is
   exactly when club padel runs.
-- WhatsApp sending will use **the client's existing Meta-verified Business API
-  account**; credentials are to be supplied. Do not build a separate onboarding
-  or BSP integration path.
+- WhatsApp sending uses **the client's existing Meta-verified Business API
+  account** (WhatsApp Cloud API, `docs/messaging.md`): announcements, transactional
+  messages (registration confirmations among them) and the `mb_login_code`
+  authentication template for phone codes. No separate onboarding or BSP path.
 - When WhatsApp is wired up, send **utility-category templates**, not marketing —
   in Egypt the reported difference is $0.0036 vs $0.0644 per message for the same
   delivery. Keep template copy factual and tied to a booking the player made.
@@ -207,13 +226,31 @@ ties and matches; tournament announcements), and **player profile claiming**
 Friendly sessions keep every prohibition above. WhatsApp sending stays out of
 scope. The plan and its decisions live in `move-score-app/PRODUCT_PLAN.md`.
 
+**Changed again in October 2026 (plan v2: organisations, players, leagues, match
+day, registration).** Now in scope as well: **WhatsApp sending** (announcements,
+transactional messages, one-time codes; `docs/messaging.md`), **player login and
+profile claiming** (§ 4), **leagues** with their own points (§ 1), and
+**registration and payment** (§ 8): entry fees paid online **through Move Tick**
+(Move Beyond's own ticketing platform, which holds the XPay account) for the Move
+Beyond organisation only, or at the venue. League membership and per-night fees are
+recorded per league and paid at the venue until they are wired to Move Tick too.
+Still out of scope: SMS, ELO or skill ratings, court booking, streaming overlays,
+and charging organisations (billing fields are records only).
+
 ---
 
 ## 6. Migrations
 
 - Numbered SQL files in `supabase/migrations/`, applied via the Supabase MCP
-  connector. Applied so far: `0001_friendly_sessions.sql`,
-  `0002_ranking_models_and_consent.sql`.
+  connector. Files so far: `0001`–`0015`, `0017`–`0028` (there is no `0016`):
+  `0022_match_day`, `0023_organizations`, `0024_player_identity`,
+  `0025_org_hardening`, `0026_identity_hardening`, `0027_leagues`,
+  `0028_registration`. Which of them are on the live project is tracked in each
+  feature's deploy order (`docs/organizations.md`, `docs/player-identity.md`,
+  `docs/move-tick-partner-api.md`); confirm with `list_migrations` before applying.
+- Every table a migration from 0022 on creates has row-level security on and no
+  policy, and is on the never-reopen list of `supabase/gate/reopen_open_access.sql`
+  (`src/lib/migrations.test.ts`, `src/lib/gateSql.test.ts`).
 - **Every migration must be idempotent** (`if not exists` throughout) and safe to
   re-run.
 - **Never edit a migration that has already been applied** — corrections go in a
@@ -283,3 +320,42 @@ seconds after each point. Source of truth: `src/lib/voice/*` and its tests.
 - **The team that served first in a tie-break receives first in the next set**
   (ITF rule 5(b), followed by padel). Previously the next set always started with
   team A serving. States saved before this change keep the old behaviour.
+
+---
+
+## 8. Registration and payment (Phase 9)
+
+Source of truth: `src/lib/registration/rules.ts` (pure, with tests) and
+`src/lib/registration/server.ts`; contract with Move Tick: `docs/move-tick-partner-api.md`.
+
+Decided by the owner:
+
+- Players **register in Move Score** (the app, signed in; or the public web form as a
+  guest) and **pay through Move Tick** (partner API: Move Score sends the reference and
+  its own amount; Move Tick returns a hosted XPay checkout and reports back with
+  HMAC-signed webhooks). **Pay at the venue** is always the fallback.
+- Paid online flows only for the **Move Beyond** organisation; other organisations run
+  free or pay-at-venue events until a direct XPay integration exists.
+- **Refunds until 24 hours before the event's start time** (`tournaments.starts_at`;
+  a session's own start for a session), only by the organiser's audited action
+  (admins with their own account); players can ask for one.
+- **Team or individual entry** is a setting of each event (tournaments and friendly
+  sessions). A padel tournament's individual entries are paired into teams by the
+  organiser; a one-player sport (chess) enters each player directly.
+- The registrant's **own player row is linked to their account automatically** when
+  the entry is confirmed (`src/lib/players/link.ts`, proof `registration`); a
+  partner's row is never linked to anyone.
+- An event's player links are **archived 24 hours after it ended** (the end of
+  `ends_on` in its time zone, or its completion, whichever is later):
+  `player_claims.archived_at`. Archived links keep the history but send no alerts and
+  no longer fill the widget.
+
+Still waiting on the owner — each is a per-event setting with this **conservative
+default**, to change here first when the owner decides:
+
+| Question | Default |
+|---|---|
+| Default approval mode | The organiser approves each entry (approval comes before payment, so nobody pays for a refused request) |
+| Who pays for a team | The registering player pays for the whole team (alternative: each player their share; partners pay at the venue) |
+| Card fee kept on refunds | None: a refund gives everything back (the setting allows up to 20 %, but Move Tick refunds in full only for now) |
+

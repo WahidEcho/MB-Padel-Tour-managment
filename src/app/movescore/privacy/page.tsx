@@ -34,6 +34,7 @@ export default function PrivacyPolicy() {
             "No location. The app reads your phone's time zone setting so match times show in your local time; it never asks for GPS or location permission.",
             "You do not need an account. Without one, your follows and pass are linked to a random number the app makes for your phone, not to you.",
             "The camera is only used, when you choose, to read the venue QR code. Images stay on your phone.",
+            "Registering for an event shares the names and contact details you enter with the organisation running it. Online payments are made on Move Tick's page; Move Score never sees your card.",
             "We never sell your data.",
           ]}
         />
@@ -102,13 +103,47 @@ export default function PrivacyPolicy() {
           removes a photo the player added; organisers can reset a code, which unlinks the account.
         </p>
 
-        <h3 className="font-semibold">6. Event officials</h3>
+        <p>
+          <strong>Your player profile.</strong> One account speaks for one player profile: your name, the tournaments, sessions
+          and leagues you played, your results and points. Besides a player code, you can link it with a one-time code sent to
+          your phone by WhatsApp (or, if you agree, by email), with your confirmed email when an organiser recorded the same
+          address, or by accepting an organiser&apos;s offer. Codes are stored only as one-way hashes and expire. Each
+          organisation sees your contact details only if it added you or you shared them with it (My profile → Organisations);
+          an organisation that only matched you by a number typed on its form sees the name it typed.
+        </p>
+
+        <h3 className="font-semibold">6. Organisations, registrations and payments</h3>
+        <p>
+          Events and leagues are run by <strong>organisations</strong> (clubs, academies and organisers). Their staff sign in
+          with their own accounts; what they can see is limited to their own organisation&apos;s events and players.
+        </p>
+        <p>
+          When you <strong>register</strong> for an event (in the app or on the event&apos;s web page) we store the
+          registration: the event, the names you enter, the mobile numbers and email you give, whether you register as a team
+          or alone, its status, and what is due and paid. The organisation running the event sees these details to manage its
+          entries. When you register in the app, your own entry is linked to your account so its matches show up for you; the
+          other players you name are not linked to your account. We send you confirmations about your registration by email or
+          WhatsApp.
+        </p>
+        <p>
+          <strong>Online payments</strong> (Move Beyond&apos;s own events only) are made on a checkout page run by Move Tick,
+          Move Beyond&apos;s ticketing service, and its payment provider XPay. Move Score sends Move Tick the amount, a
+          reference number for your registration and the name, email and mobile you entered; it never receives your card
+          details. Move Tick tells Move Score whether the payment succeeded or was refunded. We keep the amount, the date and
+          Move Tick&apos;s reference for the event&apos;s accounts and for refunds.
+        </p>
+        <p>
+          About a day after an event ends, the link between your account and that event&apos;s entry is archived: your history
+          stays, but the event no longer sends you alerts.
+        </p>
+
+        <h3 className="font-semibold">7. Event officials</h3>
         <p>
           Referees and umpires sign in with an access code from the event organiser. Scores they enter, with the time and the
           official role that entered them, become part of the event&apos;s public results and audit trail.
         </p>
 
-        <h3 className="font-semibold">7. Crash reports (when enabled)</h3>
+        <h3 className="font-semibold">8. Crash reports (when enabled)</h3>
         <p>
           If crash reporting is switched on for a release, the app sends error reports to Sentry: what went wrong, the app
           version, the screen, and the phone model and operating system version, plus timing data for a small sample of
@@ -116,10 +151,10 @@ export default function PrivacyPolicy() {
           are stripped of their parameters.
         </p>
 
-        <h3 className="font-semibold">8. Abuse protection and server logs</h3>
+        <h3 className="font-semibold">9. Abuse protection and server logs</h3>
         <p>
           To stop automated abuse, our server counts requests from each network address over short windows (minutes to an hour)
-          for sign-in and phone registration; the counters are deleted soon after. Our hosting provider keeps standard request logs (address, time, page requested)
+          for sign-in, phone registration, one-time codes and event registration; the counters are deleted soon after. Our hosting provider keeps standard request logs (address, time, page requested)
           for a limited period for security and troubleshooting.
         </p>
       </Section>
@@ -130,7 +165,7 @@ export default function PrivacyPolicy() {
             "Location (precise or approximate), contacts, photos or files from your phone.",
             "Microphone or audio. The app has no microphone permission.",
             "Advertising identifiers (IDFA / Android advertising ID) or any data for advertising.",
-            "Health, financial or payment information. Move Score has no purchases.",
+            "Health information, or card and bank details: Move Score has no in-app purchases, and online entry fees are paid on Move Tick's page, never in Move Score.",
           ]}
         />
         <p>
@@ -154,6 +189,8 @@ export default function PrivacyPolicy() {
             "Vercel: hosting of the Move Score server and website.",
             "Expo, Apple Push Notification service and Google Firebase Cloud Messaging: delivering alerts and lock-screen scores to your phone.",
             "Apple and Google: Sign in with Apple and Google Sign-In, only if you use them.",
+            "Resend (email) and Meta's WhatsApp Business platform: confirmations, codes and organisers' announcements.",
+            "Move Tick (Move Beyond) and its payment provider XPay: online entry fees for Move Beyond's events, only if you pay online.",
             "Sentry: crash reports, only when enabled for a release.",
           ]}
         />
@@ -170,6 +207,7 @@ export default function PrivacyPolicy() {
             "Account data: until you delete your account. Deleting it removes your follows, passes and account record straight away and revokes Sign in with Apple; the sign-in identity itself is removed within 30 days.",
             "Lock-screen tokens: until the match ends.",
             "Cheer totals and officials' scores: kept as part of the event's results.",
+            "Registrations and payment records: kept with the event for the organisation's records, accounts and refunds. You can ask us to remove your contact details from a registration once the event and any refund are over.",
             "Request counters for abuse protection: deleted within a day or two. Crash reports: up to 90 days.",
           ]}
         />

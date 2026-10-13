@@ -63,7 +63,10 @@ export type LinkProof =
   | { kind: "code"; row: PlayerRow }
   | { kind: "phone"; phone: string }
   | { kind: "email"; email: string }
-  | { kind: "offer"; orgId: string; profileId: string };
+  | { kind: "offer"; orgId: string; profileId: string }
+  // The account's own entry, made from its own registration (src/lib/registration/server.ts):
+  // only ever the registrant's row, never a partner's. Proves the row, not a phone or email.
+  | { kind: "registration"; row: PlayerRow };
 
 export const CODE_TAKEN = "This code is already linked to another account. Ask the tournament desk to reset it.";
 export const PROFILE_TAKEN = "This player is linked to another Move Score account. Ask the tournament desk for help.";
@@ -99,6 +102,26 @@ const sameEmail = (a: string | null | undefined, email: string) => (a ?? "").tri
 export async function accountProfile(userId: string): Promise<ProfileRow | null> {
   const { data } = await db().from("player_profiles").select(PROFILE_COLUMNS).eq("auth_user_id", userId).maybeSingle();
   return (data as ProfileRow | null) ?? null;
+}
+
+/**
+ * The account's own profile for an entry it registered itself (a friendly session,
+ * Phase 9): the one it speaks for, or a new one made from the name it gave. The new
+ * profile takes no mobile number (nothing here proves one) and no email; the unique
+ * index on auth_user_id stops a second profile for one account.
+ */
+export async function ensureAccountProfile(userId: string, name: string): Promise<string> {
+  const mine = await accountProfile(userId);
+  if (mine) return mine.id;
+  const { data, error } = await db()
+    .from("player_profiles")
+    .insert({ public_name: name.trim().slice(0, 120) || "Player", approval_status: "approved", auth_user_id: userId })
+    .select("id")
+    .single();
+  if (!error) return (data as { id: string }).id;
+  const raced = await accountProfile(userId);
+  if (!raced) throw new Error(error.message);
+  return raced.id;
 }
 
 async function profilesById(ids: string[]): Promise<ProfileRow[]> {
@@ -210,6 +233,9 @@ async function profileFor(userId: string, rows: PlayerRow[], proof: LinkProof, o
       break;
     case "email":
       target = candidates.find((c) => sameEmail(c.email, proof.email)) ?? (await soleVouched(candidates, rows, orgOf, (c) => !c.email));
+      break;
+    case "registration":
+      // The row was made for this account with its own profile (handled above) or none.
       break;
     case "offer": {
       const [p] = await profilesById([proof.profileId]);

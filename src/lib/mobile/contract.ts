@@ -862,6 +862,89 @@ export interface MWidget {
   updatedAt: number;
 }
 
+/* ---------- registration and payment (Phase 9) ---------- */
+
+export type MRegistrationStatus = "pending_approval" | "awaiting_payment" | "confirmed" | "refused" | "cancelled" | "refunded";
+export type MPaymentChoice = "free" | "online" | "venue";
+
+/** The event a registration is for. Public fields only. */
+export interface MRegistrationEvent {
+  slug: string;
+  name: string;
+  kind: "tournament" | "session";
+  sport: string;
+  /** First match time (ISO), when set. Refunds stop 24 hours before it. */
+  startsAt: string | null;
+  organization: MOrgRef | null;
+}
+
+/**
+ * GET /api/mobile/v1/t/{slug}/registration (public): how to register. Money in
+ * minor units (piastres); the server decides every amount again on POST.
+ */
+export interface MRegistrationInfo {
+  event: MRegistrationEvent;
+  open: boolean;
+  /** Why it is not open (closed, full, deadline passed, finished); null when open. */
+  closedMessage: string | null;
+  entryType: "individual" | "team";
+  /** People per entry (the registrant included). */
+  people: number;
+  feePerPlayer: number;
+  currency: "EGP";
+  /** "EGP 250 per player", or null when free. */
+  feeLabel: string | null;
+  /** "online" (Move Tick) only for Move Beyond's events while it is configured. */
+  paymentOptions: MPaymentChoice[];
+  teamPayer: "registrant" | "each_player";
+  approval: "organiser" | "automatic";
+  /** The last moment a paid entry can be refunded (ISO), or null when the start time is not set. */
+  refundsUntil: string | null;
+  refundFeePercent: number;
+  closesAt: string | null;
+  note: string | null;
+}
+
+/** One of the account's own registrations. Names only: never anybody's phone or email. */
+export interface MRegistration {
+  id: string;
+  event: MRegistrationEvent;
+  status: MRegistrationStatus;
+  statusLabel: string;
+  entryType: "individual" | "team";
+  teamName: string | null;
+  people: { name: string }[];
+  paymentChoice: MPaymentChoice;
+  /** Paid (or to pay) online, and due at the venue; minor units. */
+  amountOnline: number;
+  amountVenue: number;
+  currency: "EGP";
+  paid: boolean;
+  venuePaid: boolean;
+  /** A Move Tick checkout can be opened now. */
+  canPay: boolean;
+  canCancel: boolean;
+  canRequestRefund: boolean;
+  refundRequested: boolean;
+  refundsUntil: string | null;
+  /** The entry exists in the event and the registrant's own player is linked to this account. */
+  linked: boolean;
+  createdAt: string;
+}
+
+/** POST /t/{slug}/registration and the /me/registrations/{id}/* actions. */
+export interface MRegistrationResult {
+  registration: MRegistration;
+  /** Move Tick's hosted checkout, when payment is due online now. */
+  checkoutUrl: string | null;
+  message: string;
+}
+
+/** GET /me/registrations. */
+export interface MMyRegistrations {
+  registrations: MRegistration[];
+}
+
 /* ---------- pure helpers shared by server and app ---------- */
 
 /** Sets won from finished sets. */

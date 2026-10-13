@@ -48,7 +48,8 @@ export async function GET(request: Request) {
 
   if (owner.kind === "user") {
     // Two plain reads: player_claims references players twice (player_id, via_player_id), so an embed is ambiguous.
-    const { data: claims } = await db().from("player_claims").select("player_id").eq("user_id", owner.id);
+    // Archived links (an event that ended over a day ago, Phase 9) no longer fill the widget.
+    const { data: claims } = await db().from("player_claims").select("player_id").eq("user_id", owner.id).is("archived_at", null);
     const claimed = ((claims ?? []) as { player_id: string }[]).map((c) => c.player_id);
     const { data: rows } = claimed.length ? await db().from("players").select("id, team_id").in("id", claimed) : { data: [] };
     const players = ((rows ?? []) as { id: string; team_id: string | null }[]).filter((p): p is { id: string; team_id: string } => Boolean(p.team_id));

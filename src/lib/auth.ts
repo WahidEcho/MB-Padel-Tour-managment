@@ -132,6 +132,10 @@ const PERMISSIONS = {
   manage_codes: ["admin", "manager"],
   // Leagues (Admin → Leagues): settings, divisions, members, nights and fixtures.
   manage_leagues: ["admin", "manager"],
+  // Registrations (Admin → event → Registrations): settings, approve / refuse, paid at the venue.
+  manage_registrations: ["admin", "manager"],
+  // Refunding an online payment through Move Tick: admins with their own account only (PERSONAL_ACCOUNT_ONLY).
+  refund_registrations: ["admin"],
   // Members and invites (Admin → Members): owners and admins; who may give which
   // role is decided by the organisation role (src/lib/orgs/roles.ts mayAssignRole).
   manage_members: ["admin"],
@@ -152,7 +156,7 @@ export type Permission = keyof typeof PERMISSIONS;
  * remove the organisation's real members). Platform settings need a platform
  * admin besides (guard.ts).
  */
-export const PERSONAL_ACCOUNT_ONLY: ReadonlySet<Permission> = new Set<Permission>(["manage_members", "manage_org_profile", "manage_platform"]);
+export const PERSONAL_ACCOUNT_ONLY: ReadonlySet<Permission> = new Set<Permission>(["manage_members", "manage_org_profile", "manage_platform", "refund_registrations"]);
 
 /** Whether a staff principal (its role and kind of credential) may do an action. */
 export function staffCan(staff: { role: Role | OrgRole; kind: string } | null | undefined, action: Permission): boolean {

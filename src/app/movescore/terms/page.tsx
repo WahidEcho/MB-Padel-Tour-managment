@@ -25,8 +25,9 @@ export default function Terms() {
       <Section title="1. The service">
         <p>
           Move Score shows live scores, the order of play, draws, standings and alerts for events run on the {OPERATOR}{" "}
-          tournament platform, and lets you follow players and teams and collect an event pass. It is free and has no
-          purchases or ads.
+          tournament platform, and lets you follow players and teams, collect an event pass, see your own player history
+          and register for events. The app is free and has no in-app purchases or ads; an event&apos;s entry fee, when
+          there is one, is paid to the event (section 6).
         </p>
         <p>
           Scores and times are entered by event officials and may be delayed, corrected or changed by the organiser. The
@@ -37,7 +38,9 @@ export default function Terms() {
 
       <Section title="2. Accounts">
         <p>
-          You can use Move Score without an account. Accounts are through Sign in with Apple or Google. A player code links an account to that player only: keep it to
+          You can use Move Score without an account. Accounts are through Sign in with Apple or Google, or an email and password.
+          An account speaks for one player: a player code, a phone code, your confirmed email, an organiser&apos;s offer you
+          accept, or your own registration links it to that player&apos;s entries and history. Keep your player code to
           yourself. You are responsible for activity under your account and can delete it at any time in the app (
           <InlineLink href="/movescore/delete-account">how</InlineLink>).
         </p>
@@ -72,7 +75,24 @@ export default function Terms() {
         </p>
       </Section>
 
-      <Section title="6. Availability and changes">
+      <Section title="6. Organisations, registration and payment">
+        <p>
+          Events and leagues are run by organisations (clubs, academies and organisers) that use the {OPERATOR} platform. The
+          organisation running an event decides who takes part, its rules, fee and schedule, and sees the names and contact
+          details entered on a registration for it.
+        </p>
+        <Bullets
+          items={[
+            "Registering asks for a place; the organiser may approve or turn it down (by default each entry is approved by the organiser). You only pay online after your entry is approved.",
+            "When you register a team, you confirm the other players agreed to be registered and to their details being shared with the organiser. Their entries are not linked to your account.",
+            "Online payments are taken by Move Tick, Move Beyond's ticketing service, through its payment provider (XPay), and only for Move Beyond's own events. Move Score never sees your card. Other events are free or paid at the venue.",
+            "Refunds of an online payment are made by the organiser until 24 hours before the event's start time; after that, entries are not refunded except where the law requires it. You can ask for a refund in the app (My profile → Registrations).",
+            "Fees paid at the venue are settled with the organiser.",
+          ]}
+        />
+      </Section>
+
+      <Section title="7. Availability and changes">
         <p>
           We work to keep Move Score running during events but cannot promise it will always be available, error-free or
           compatible with every device. We may change, add or remove features, and may ask you to update the app to keep using
@@ -80,7 +100,7 @@ export default function Terms() {
         </p>
       </Section>
 
-      <Section title="7. Liability">
+      <Section title="8. Liability">
         <p>
           Move Score is provided &ldquo;as is&rdquo;. To the extent the law allows, {OPERATOR} is not liable for indirect or
           consequential losses, or for losses caused by delayed, missing or incorrect scores, times or alerts. Nothing in these
@@ -88,7 +108,7 @@ export default function Terms() {
         </p>
       </Section>
 
-      <Section title="8. App stores">
+      <Section title="9. App stores">
         <p>
           These terms are between you and {OPERATOR}, not Apple or Google. Apple and Google have no obligation to provide
           maintenance or support for Move Score and are not responsible for any claims relating to it. If you downloaded the app
@@ -97,7 +117,7 @@ export default function Terms() {
         </p>
       </Section>
 
-      <Section title="9. Ending and changes to these terms">
+      <Section title="10. Ending and changes to these terms">
         <p>
           You can stop using Move Score at any time by deleting the app (and your account, if you have one). If we change these
           terms we will update the date above and, for significant changes, tell you in the app. Continuing to use Move Score
@@ -105,7 +125,7 @@ export default function Terms() {
         </p>
       </Section>
 
-      <Section title="10. Law and contact">
+      <Section title="11. Law and contact">
         <p>
           These terms are governed by the laws of the Arab Republic of Egypt, without affecting mandatory consumer protections
           where you live. Questions: <Mail subject="Move Score terms" />.

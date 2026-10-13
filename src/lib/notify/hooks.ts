@@ -384,7 +384,7 @@ async function liveActivityAudience(match: Match, ctx: Ctx, opts: { mine: boolea
       ...sidePlayers(ctx, match.team_b_id, match.team_b_player_ids),
     ].map((pl) => pl.id);
     if (playerIds.length) {
-      const { data } = await db().from("player_claims").select("user_id").in("player_id", playerIds);
+      const { data } = await db().from("player_claims").select("user_id").in("player_id", playerIds).is("archived_at", null);
       for (const c of (data ?? []) as { user_id: string | null }[]) if (c.user_id) users.add(c.user_id);
     }
   }

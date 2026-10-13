@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useBundle, useLive, useStandings } from "../../../api/queries";
+import { useBundle, useLive, useRegistrationInfo, useStandings } from "../../../api/queries";
 import { dateRange, dayIn, finishedMatches, isAwaitingResult, liveMatches, makeView, needsDay, upcomingMatches } from "../../../api/model";
 import { SkinScope, useTheme } from "../../../theme/ThemeProvider";
 import { Screen } from "../../../ui/Screen";
@@ -14,7 +14,7 @@ import { SponsorBand } from "../../../ui/Sponsors";
 import { StaleBanner } from "../../../ui/Offline";
 import { LoadState } from "../../../ui/LoadState";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
-import { isNation, openOrg, openTeam } from "../../../nav/links";
+import { isNation, openOrg, openRegister, openTeam } from "../../../nav/links";
 import { NightTable } from "../../../ui/NightTable";
 import { nightTableOf } from "../../../night/table";
 
@@ -31,6 +31,8 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
   const { t } = useTheme();
   const b = useBundle(slug);
   const l = useLive(slug);
+  // Registration (Phase 9): a "Register" link while the event takes entries in Move Score.
+  const reg = useRegistrationInfo(slug);
   const s = useStandings(slug);
   const isTies = b.data?.tournament.isTies ?? false;
   const [tab, setTab] = useState<Tab>(initialTab ?? "ties");
@@ -97,6 +99,11 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
           </Pressable>
         ) : null}
         {liveCount ? <LivePill label={`${liveCount} LIVE`} /> : null}
+        {reg.data?.open ? (
+          <Pressable accessibilityRole="link" accessibilityLabel={`Register for ${tr.name}`} onPress={() => openRegister(slug)} hitSlop={8} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Body tone="blue" size={13} weight="semi">{"Register ›"}</Body>
+          </Pressable>
+        ) : null}
       </View>
       <Segments value={current} options={tabs as unknown as { key: Tab; label: string }[]} onChange={setTab} />
 

@@ -207,7 +207,7 @@ export type RegistrationOutcome =
  * proves nothing about who they are (src/lib/orgs/personFields.ts).
  * Handles the race where two submissions arrive for the same number.
  */
-async function findOrCreateProfile(publicName: string, mobile: string): Promise<{ id: string; created: boolean }> {
+export async function findOrCreateProfile(publicName: string, mobile: string): Promise<{ id: string; created: boolean }> {
   const { data: existing } = await db()
     .from("player_profiles")
     .select("id")
