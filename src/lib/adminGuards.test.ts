@@ -285,6 +285,90 @@ describe("staff lists are filtered by organisation", () => {
   }
 });
 
+/* ---------------- 3. every posted secondary id is checked ---------------- */
+
+/**
+ * The organisation guard on the posted tournament proves nothing about any other
+ * id the form posts (a tie, a team, a court, a profile…): a request can pair one's
+ * own tournament id with another organisation's row id. So every posted id other
+ * than `tournament_id` must be an argument of a guard that checks that row itself,
+ * or be on the list below with the reason it is safe. Behaviour:
+ * scripts/e2e/organizations.ts.
+ */
+const SECONDARY_GUARDS = [
+  "ownershipRefusal",
+  "entityRefusal",
+  "requireScopedPermission",
+  "requireTournamentPermission",
+  "requireOwnProfile",
+  "profileInOrg",
+  "requireOwnPlayers",
+  "playerIn",
+  "deleteManualMatch",
+];
+
+/** `file › action › key` → why that posted id needs no row guard of its own. */
+const SECONDARY_ID_ALLOWED: Record<string, string> = {
+  "admin/friendly-sessions/actions.ts › approveEntryAction › session_id": "only used to revalidate the page; the entry decides the organisation",
+  "admin/friendly-sessions/actions.ts › releaseEntryAction › session_id": "only used to revalidate the page; the entry decides the organisation",
+  "admin/tournaments/[id]/players/actions.ts › sendCode › player_id": "looked up together with .eq(\"tournament_id\", id) on the guarded tournament",
+  "admin/tournaments/[id]/ties/actions.ts › delayOrderOfPlayAction › court_id": "only an extra filter on this tournament's own ties and rubbers (delayOrderOfPlay); never written",
+};
+
+// (The screen controls' court ids are read in operator/…/control/actions.ts's helper
+// patchFrom, which keeps only this tournament's own courts from getCourts.)
+
+const SECONDARY_KEY = /^(id|[a-z_]+_ids?)$/;
+
+/** [start, end) of each guard call's argument list, parentheses balanced. */
+function guardSpans(body: string): [number, number][] {
+  const spans: [number, number][] = [];
+  for (const g of SECONDARY_GUARDS) {
+    for (const m of body.matchAll(new RegExp(`\\b${g}\\(`, "g"))) {
+      const start = m.index + m[0].length;
+      let depth = 1;
+      let i = start;
+      while (i < body.length && depth > 0) {
+        if (body[i] === "(") depth++;
+        else if (body[i] === ")") depth--;
+        i++;
+      }
+      spans.push([start, i]);
+    }
+  }
+  return spans;
+}
+
+describe("every posted secondary id passes through a row guard", () => {
+  const seen = new Set<string>();
+  for (const file of staffActionFiles) {
+    for (const { name, body } of exportedActions(readFileSync(file, "utf8"))) {
+      const spans = guardSpans(body);
+      const inGuard = (at: number) => spans.some(([s, e]) => at >= s && at < e);
+      for (const m of body.matchAll(/formData\.get(?:All)?\("([a-z_]+)"\)/g)) {
+        const key = m[1];
+        if (key === "tournament_id" || !SECONDARY_KEY.test(key)) continue;
+        const label = `${rel(file)} › ${name} › ${key}`;
+        seen.add(label);
+        it(label, () => {
+          if (SECONDARY_ID_ALLOWED[label]) return;
+          if (inGuard(m.index)) return;
+          // `const x = …formData.get("key")…` → x itself must reach a guard.
+          const lineStart = body.lastIndexOf("\n", m.index) + 1;
+          const decl = /^\s*(?:const|let)\s+(\w+)\s*=/.exec(body.slice(lineStart, m.index));
+          const name0 = decl?.[1];
+          const guarded =
+            !!name0 && [...body.matchAll(new RegExp(`\\b${name0}\\b`, "g"))].some((u) => u.index > m.index && inGuard(u.index));
+          expect(guarded, `${label}: a posted id must be checked with ownershipRefusal/entityRefusal (or a scoped guard) before use, or be on SECONDARY_ID_ALLOWED with a reason`).toBe(true);
+        });
+      }
+    }
+  }
+  it("the allow-list names only ids that are still posted", () => {
+    for (const label of Object.keys(SECONDARY_ID_ALLOWED)) expect(seen.has(label), `stale SECONDARY_ID_ALLOWED entry: ${label}`).toBe(true);
+  });
+});
+
 /* ---------------- final-result entry (Phase 2) ---------------- */
 
 describe("final results are entered only through organisation-scoped guards", () => {

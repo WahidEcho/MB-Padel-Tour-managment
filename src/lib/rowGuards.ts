@@ -34,7 +34,8 @@ export type OwnedTable =
   | "group_teams"
   | "standings_snapshots"
   | "brackets"
-  | "bracket_slots";
+  | "bracket_slots"
+  | "ties";
 
 const NOUN: Record<OwnedTable, string> = {
   matches: "match",
@@ -46,6 +47,7 @@ const NOUN: Record<OwnedTable, string> = {
   standings_snapshots: "standing",
   brackets: "bracket",
   bracket_slots: "bracket slot",
+  ties: "tie",
 };
 
 /** Null when the tournament tools may change this row; otherwise why not. */

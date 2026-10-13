@@ -16,12 +16,14 @@
  *   organisation only (the World Cup on 2 Nov runs on them) and are retired at
  *   the end of Phase 0.5.
  *
- * Bearer header first (the app), then the `mb_session` cookie (the web).
+ * Bearer header first (the app), then the staff cookie (the web): `__Host-mb_session`
+ * (Secure, host-only, path /, so a sibling subdomain can never plant or overwrite
+ * it); on a localhost development server only, the plain `mb_session`.
  */
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { db } from "../supabase";
-import { bearerToken, COOKIE, createSessionToken, roleForPassword, verifySessionToken } from "../auth";
+import { bearerToken, createSessionToken, roleForPassword, staffCookieFor, staffCookieNames, verifySessionToken } from "../auth";
 import { hashEventCode, normalizeEventCode } from "../orgs/codes";
 import { MOVE_BEYOND_SLUG, isUuid, permissionRole, type OrgRole, type OrgStatus } from "../orgs/roles";
 import type { Role } from "../types";
@@ -171,21 +173,26 @@ export async function resolveStaffToken(token: string, now = Date.now()): Promis
       userId: null,
       codeId: null,
       scopeTournamentId: null,
-      // Transitional: the shared admin password manages Discover today.
-      platformAdmin: legacyRole === "admin",
+      // Never: a shared password is not a person. Move Beyond's platform pages
+      // (Discover, flags, merging players) need a real platform_admins row, reached
+      // by signing in with that person's own Google or email account.
+      platformAdmin: false,
     },
   };
 }
 
 /** This request's staff resolution (memoised per render). */
 export const currentStaffResolution = cache(async (): Promise<StaffResolution> => {
-  const bearer = bearerToken(await headers());
+  const h = await headers();
+  const bearer = bearerToken(h);
   if (bearer && isStaffTokenShaped(bearer)) {
     const r = await resolveStaffToken(bearer);
     if (r) return r;
   }
-  const cookie = (await cookies()).get(COOKIE)?.value;
-  if (cookie) {
+  const store = await cookies();
+  for (const name of staffCookieNames(h.get("host"))) {
+    const cookie = store.get(name)?.value;
+    if (!cookie) continue;
     const r = await resolveStaffToken(cookie);
     if (r) return r;
   }
@@ -210,10 +217,11 @@ export async function currentStaffIfAny(): Promise<StaffPrincipal | null> {
 /* ---------------- issuing ---------------- */
 
 export async function setStaffCookie(token: string, hours = STAFF_WEB_HOURS) {
-  (await cookies()).set(COOKIE, token, {
+  const { name, secure } = staffCookieFor((await headers()).get("host"));
+  (await cookies()).set(name, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure,
     path: "/",
     maxAge: hours * 3600,
   });
@@ -299,10 +307,17 @@ export async function signInWithAccessCode(raw: string, hours: number, now = Dat
 
   const code = normalizeEventCode(input);
   if (!code) return wrong;
+  let codeHash: string;
+  try {
+    codeHash = hashEventCode(code);
+  } catch (err) {
+    console.error("event codes unavailable:", (err as Error).message);
+    return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
+  }
   const { data } = await db()
     .from("organization_codes")
     .select("id, organization_id, role, tournament_id, expires_at, revoked_at")
-    .eq("code_hash", hashEventCode(code))
+    .eq("code_hash", codeHash)
     .maybeSingle();
   const row = data as { id: string; organization_id: string; role: "referee" | "operator"; tournament_id: string | null; expires_at: string | null; revoked_at: string | null } | null;
   if (!row) return wrong;

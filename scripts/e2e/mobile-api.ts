@@ -372,7 +372,7 @@ async function main() {
 
     // ---- schedule change → alert
     const { scheduleTie } = await import("../../src/lib/tennis/tieOps");
-    await scheduleTie(tie!.id, court!.id, "2026-11-04T13:30:00.000Z", "admin");
+    await scheduleTie(tie!.tournament_id, tie!.id, court!.id, "2026-11-04T13:30:00.000Z", "admin");
     await sleep(300);
     const { data: sched } = await db().from("notification_events").select("kind, payload, fire_at").eq("tie_id", tie!.id);
     const s = (sched ?? []).find((r) => r.kind === "tie_scheduled" || r.kind === "tie_rescheduled");

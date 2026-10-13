@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import type { Role } from "./types";
+import { safeEqual } from "./auth/safeEqual";
 import { permissionRole, type OrgRole } from "./orgs/roles";
 
 /*
@@ -41,8 +42,7 @@ export function verifySessionToken(token: string | undefined): Role | null {
   const payload = token.slice(0, idx);
   const sig = token.slice(idx + 1);
   const expected = sign(payload);
-  if (sig.length !== expected.length) return null;
-  if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  if (!safeEqual(sig, expected)) return null;
   const [role, exp] = payload.split(".");
   if (Number(exp) < Date.now()) return null;
   if (!["admin", "manager", "referee", "operator"].includes(role)) return null;
@@ -73,9 +73,35 @@ export function bearerToken(h: Headers): string | undefined {
   return v.slice(7).trim() || undefined;
 }
 
+/**
+ * The web staff cookie. `__Host-` makes the browser refuse it unless it is Secure,
+ * host-only and path /, so no other subdomain of the site can set or shadow it
+ * (cookie tossing). A localhost development server has no HTTPS: there, and only
+ * there, the cookie is the plain `mb_session` without Secure.
+ */
+export const HOST_COOKIE_NAME = "__Host-mb_session";
+
+export function isLocalHost(host: string | null | undefined): boolean {
+  if (!host) return false;
+  const name = host.toLowerCase().replace(/:\d+$/, "");
+  return name === "localhost" || name === "127.0.0.1" || name === "[::1]" || name.endsWith(".localhost");
+}
+
+/** The cookie a sign-in on this host sets. */
+export function staffCookieFor(host: string | null | undefined): { name: string; secure: boolean } {
+  return isLocalHost(host) ? { name: COOKIE_NAME, secure: false } : { name: HOST_COOKIE_NAME, secure: true };
+}
+
+/** The cookies a request on this host is read from: off localhost, only the `__Host-` one. */
+export function staffCookieNames(host: string | null | undefined): string[] {
+  return isLocalHost(host) ? [HOST_COOKIE_NAME, COOKIE_NAME] : [HOST_COOKIE_NAME];
+}
+
 export async function clearSessionCookie() {
   const store = await cookies();
-  store.delete(COOKIE_NAME);
+  // A __Host- cookie is only replaced by a Set-Cookie with the same Secure, path /.
+  store.set(HOST_COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
+  store.set(COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
 
 // Permission matrix (spec §4.4). Manager has admin-level tournament ops.

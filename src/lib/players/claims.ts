@@ -7,7 +7,8 @@
  * undoes exactly what that code linked. See src/lib/players/identity.ts for which
  * rows in other tournaments one claim links.
  */
-import { randomInt, timingSafeEqual } from "crypto";
+import { randomInt } from "crypto";
+import { safeEqual } from "../auth/safeEqual";
 import { db, mediaPublicUrl } from "@/lib/supabase";
 import { checkRateLimit } from "@/lib/ratelimit";
 import { toMatch } from "@/lib/mobile/projection";
@@ -75,9 +76,11 @@ export const GENERIC_CODE_ERROR = "That code didn't work. Check it and try again
 
 // Compared in constant time once found, and against a dummy when not, so a miss
 // and a near-miss cost the same.
-const fixed = (s: string) => Buffer.from(s.padEnd(ACCESS_CODE_LENGTH, "#").slice(0, ACCESS_CODE_LENGTH));
+// safeEqual: a typed code with a multi-byte character has more bytes than
+// characters, which made timingSafeEqual throw (a 500 instead of the refusal).
+const fixed = (s: string) => s.padEnd(ACCESS_CODE_LENGTH, "#").slice(0, ACCESS_CODE_LENGTH);
 function sameCode(stored: string | null, typed: string): boolean {
-  const equal = timingSafeEqual(fixed(stored ?? "########"), fixed(typed));
+  const equal = safeEqual(fixed(stored ?? "########"), fixed(typed));
   return equal && stored !== null && stored === typed;
 }
 

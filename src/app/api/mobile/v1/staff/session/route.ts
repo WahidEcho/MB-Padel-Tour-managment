@@ -16,15 +16,15 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * queued points until a new code is entered.
  */
 export async function POST(request: Request) {
-  const gate = await staffLoginAllowed(clientIpFrom(request.headers));
+  const body = await readJson<{ code?: unknown }>(request);
+  const code = typeof body?.code === "string" ? body.code.slice(0, 200) : "";
+  const gate = await staffLoginAllowed(clientIpFrom(request.headers), code);
   if (!gate.allowed) {
     return NextResponse.json(
-      { error: "Too many attempts from this network. Wait a few minutes and try again." },
+      { error: "Too many attempts. Wait a few minutes and try again." },
       { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), ...NO_STORE } },
     );
   }
-  const body = await readJson<{ code?: unknown }>(request);
-  const code = typeof body?.code === "string" ? body.code.slice(0, 200) : "";
   const r = await signInWithAccessCode(code, STAFF_APP_HOURS);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 401, headers: NO_STORE });
   // Never the code itself: which code (by id) and which organisation.

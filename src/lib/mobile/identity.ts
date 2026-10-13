@@ -7,7 +7,8 @@
  * keys, so no Supabase key ever ships inside the app.
  */
 import { isStaffTokenShaped } from "../auth/staffToken";
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes } from "crypto";
+import { safeEqual } from "../auth/safeEqual";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 export type Owner = { kind: "user"; id: string } | { kind: "install"; id: string };
@@ -40,8 +41,7 @@ export function verifyInstallToken(token: string | null | undefined): string | n
   const [id, nonce, sig] = parts as [string, string, string];
   if (!id || nonce.length < 16) return null;
   const expected = sign(id, nonce);
-  if (sig.length !== expected.length) return null;
-  return timingSafeEqual(Buffer.from(sig), Buffer.from(expected)) ? id : null;
+  return safeEqual(sig, expected) ? id : null;
 }
 
 // A web console's device id is a bare browser UUID (getDeviceId, src/lib/offline/db.ts);

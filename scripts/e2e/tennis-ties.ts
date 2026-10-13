@@ -192,22 +192,22 @@ async function main() {
     phase("Line-ups");
     const teamBy = new Map(teams.map((x) => [x.id, x]));
     const squad = (id: string) => teamBy.get(id)!.players!.sort((a, b) => a.player_order - b.player_order).map((p) => p.id);
-    const bad = await setLineup(ties[0].id, "A", { S1: squad(ties[0].team_a_id!)[0], S2: squad(ties[0].team_a_id!)[0], D: [squad(ties[0].team_a_id!)[0], squad(ties[0].team_a_id!)[1]] }, "e2e");
+    const bad = await setLineup(ties[0].tournament_id, ties[0].id, "A", { S1: squad(ties[0].team_a_id!)[0], S2: squad(ties[0].team_a_id!)[0], D: [squad(ties[0].team_a_id!)[0], squad(ties[0].team_a_id!)[1]] }, "e2e");
     check("one player in both singles is refused", !bad.ok && bad.message.includes("both singles"), bad.ok ? "accepted" : bad.message);
     const nominate = async (tie: Tie) => {
       for (const side of ["A", "B"] as const) {
         const s = squad((side === "A" ? tie.team_a_id : tie.team_b_id)!);
-        const r = await setLineup(tie.id, side, { S1: s[0], S2: s[1], D: [s[0], s[2]] }, "e2e");
+        const r = await setLineup(tie.tournament_id, tie.id, side, { S1: s[0], S2: s[1], D: [s[0], s[2]] }, "e2e");
         if (!r.ok) throw new Error(r.message);
       }
     };
     for (const tie of ties) await nominate(tie);
-    const locked = await lockLineups(ties[0].id, "e2e");
+    const locked = await lockLineups(ties[0].tournament_id, ties[0].id, "e2e");
     check("line-ups lock once both sides have nominated", locked.ok);
     const s0 = squad(ties[0].team_a_id!);
-    const late = await setLineup(ties[0].id, "A", { S1: s0[2], S2: s0[1], D: [s0[0], s0[1]] }, "e2e");
+    const late = await setLineup(ties[0].tournament_id, ties[0].id, "A", { S1: s0[2], S2: s0[1], D: [s0[0], s0[1]] }, "e2e");
     check("a change after the lock is refused without a reason", !late.ok && late.message.includes("locked"));
-    const lateOk = await setLineup(ties[0].id, "A", { S1: s0[2], S2: s0[1], D: [s0[0], s0[1]] }, "e2e", { lateChangeReason: "Injury in warm-up" });
+    const lateOk = await setLineup(ties[0].tournament_id, ties[0].id, "A", { S1: s0[2], S2: s0[1], D: [s0[0], s0[1]] }, "e2e", { lateChangeReason: "Injury in warm-up" });
     const { count: lateAudits } = await db().from("audit_logs").select("id", { count: "exact", head: true }).eq("tournament_id", tid).eq("action", "LINEUP_LATE_CHANGE");
     check("…and accepted with one, recorded as a late change", lateOk.ok && lateAudits === 1, String(lateAudits));
     matches = await getMatches(tid);

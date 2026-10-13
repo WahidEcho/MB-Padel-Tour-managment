@@ -15,13 +15,14 @@ export default async function PlayersPage({
   const staff = await requireStaff(["admin", "manager"], "/admin/players");
   const { q, status, level } = await searchParams;
   // This organisation's players, with its own approval, notes and level.
-  const all = await listPlayerProfiles(staff.orgId, q);
+  const all = await listPlayerProfiles(staff.orgId, q, { platformAdmin: staff.platformAdmin });
 
   const profiles = all
     .filter((p) => (status && status !== "all" ? p.approval_status === status : true))
     .filter((p) => (level && level !== "all" ? (p.skill_level ?? "") === level : true));
 
-  const ids = all.map((p) => p.id);
+  // Consents are the person's own: only for players whose person fields this organisation sees.
+  const ids = all.filter((p) => !p.person_hidden).map((p) => p.id);
   const consentRows: { player_profile_id: string; channel: string; granted: boolean }[] = [];
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await db().from("player_consents").select("player_profile_id, channel, granted").in("player_profile_id", ids.slice(i, i + 200));

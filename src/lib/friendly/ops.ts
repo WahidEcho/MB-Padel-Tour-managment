@@ -34,7 +34,7 @@ import {
 } from "./scheduler";
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
 import { ensureMainScreen } from "../screens";
-import { ensureOrgPlayer, orgTournamentIds, resolveEntity } from "../orgs/scope";
+import { ensureOrgPlayer, orgsOfProfile, orgTournamentIds, resolveEntity } from "../orgs/scope";
 
 /* ------------------------------------------------------------------ */
 /* Session creation                                                    */
@@ -198,23 +198,25 @@ export type RegistrationOutcome =
     };
 
 /**
- * Find an existing profile by mobile, or create a pending one.
+ * Find an existing profile by mobile, or create a pending one. `created` says
+ * which: a found profile was only matched by a number somebody typed, which
+ * proves nothing about who they are (src/lib/orgs/personFields.ts).
  * Handles the race where two submissions arrive for the same number.
  */
-async function findOrCreateProfile(publicName: string, mobile: string): Promise<string> {
+async function findOrCreateProfile(publicName: string, mobile: string): Promise<{ id: string; created: boolean }> {
   const { data: existing } = await db()
     .from("player_profiles")
     .select("id")
     .eq("mobile_normalized", mobile)
     .maybeSingle();
-  if (existing) return existing.id;
+  if (existing) return { id: existing.id, created: false };
 
   const { data: created, error } = await db()
     .from("player_profiles")
     .insert({ public_name: publicName, mobile_normalized: mobile, approval_status: "pending" })
     .select("id")
     .single();
-  if (!error) return created.id;
+  if (!error) return { id: created.id, created: true };
 
   const { data: raced } = await db()
     .from("player_profiles")
@@ -222,7 +224,19 @@ async function findOrCreateProfile(publicName: string, mobile: string): Promise<
     .eq("mobile_normalized", mobile)
     .maybeSingle();
   if (!raced) throw new Error(error.message);
-  return raced.id;
+  return { id: raced.id, created: false };
+}
+
+/**
+ * Whether the public form may write a profile's person fields (photo, consent):
+ * only a profile it just created, or one no other organisation has. Otherwise a
+ * form could set a photo on, or grant WhatsApp consent for, another
+ * organisation's player just by typing their number.
+ */
+async function formMayWritePerson(orgId: string | null, profile: { id: string; created: boolean }): Promise<boolean> {
+  if (profile.created) return true;
+  if (!orgId) return false;
+  return (await orgsOfProfile(profile.id)).every((o) => o === orgId);
 }
 
 /**
@@ -301,13 +315,17 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
     if (partnerMobile === mobile) return { ok: false, reason: "same_person" };
   }
 
-  const profileId = await findOrCreateProfile(publicName, mobile);
-  const partnerId = partnerMobile ? await findOrCreateProfile(partnerName, partnerMobile) : null;
+  const self = await findOrCreateProfile(publicName, mobile);
+  const partner = partnerMobile ? await findOrCreateProfile(partnerName, partnerMobile) : null;
+  const profileId = self.id;
+  const partnerId = partner?.id ?? null;
+  const orgId = (await resolveEntity({ session: input.sessionId }))?.orgId ?? null;
+  const writePerson = await formMayWritePerson(orgId, self);
 
   // Only ever fills an empty slot: a returning player's existing photo is never
   // overwritten by a fresh sign-up, and the partner they entered did not upload
   // anything themselves so they get nothing.
-  if (input.photo?.url) {
+  if (input.photo?.url && writePerson) {
     const clamp = (n: number, fallback: number) =>
       Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
     await db()
@@ -325,7 +343,7 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
   // Consent is per-player and only ever recorded on an explicit tick. Never
   // flip an existing grant without the player asking. The tick covers whoever
   // filled the form; a partner they signed up is not assumed to have agreed.
-  if (input.consentWhatsapp) {
+  if (input.consentWhatsapp && writePerson) {
     const now = new Date().toISOString();
     await db().from("player_consents").upsert(
       {
@@ -344,11 +362,13 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
   await upsertEntry(input.sessionId, profileId);
   if (partnerId) await upsertEntry(input.sessionId, partnerId);
 
-  // A player who registers for an organisation's session becomes one of its players.
-  const orgId = (await resolveEntity({ session: input.sessionId }))?.orgId;
+  // A player who registers for an organisation's session becomes one of its
+  // players: 'registration' when the form created the profile, 'matched' when it
+  // found an existing one by the number typed (person fields then stay hidden from
+  // this organisation while another one has the player).
   if (orgId) {
-    await ensureOrgPlayer(orgId, profileId, "registration");
-    if (partnerId) await ensureOrgPlayer(orgId, partnerId, "registration");
+    await ensureOrgPlayer(orgId, profileId, self.created ? "registration" : "matched");
+    if (partner) await ensureOrgPlayer(orgId, partner.id, partner.created ? "registration" : "matched");
   }
 
   // Remember the intended partnership so the organiser can honour it when
@@ -367,6 +387,7 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
   }
 
   await audit({
+    organization_id: orgId,
     actor_role: "public",
     action: asTeam ? "FRIENDLY_TEAM_REGISTRATION_SUBMITTED" : "FRIENDLY_REGISTRATION_SUBMITTED",
     entity_type: "friendly_session",

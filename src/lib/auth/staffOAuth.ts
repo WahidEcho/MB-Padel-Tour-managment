@@ -3,7 +3,8 @@
  * afterwards, HMAC-signed so the callback can trust what it reads back, valid ten
  * minutes. Server-only (node:crypto).
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { safeEqual } from "./safeEqual";
 import { staffSecret } from "./staffToken";
 import { safeNextPath } from "./staffRedirect";
 import { isCodeVerifier } from "../mobile/oauth";
@@ -24,7 +25,7 @@ export function openOAuthState(sealed: string | undefined, now = Date.now(), sec
   const body = sealed.slice(0, dot);
   const sig = sealed.slice(dot + 1);
   const expected = mac(body, secret);
-  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  if (!safeEqual(sig, expected)) return null;
   try {
     const p = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as { v?: unknown; n?: unknown; exp?: unknown };
     if (typeof p.exp !== "number" || p.exp <= now || !isCodeVerifier(p.v)) return null;

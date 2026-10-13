@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
+import { safeEqual } from "@/lib/auth/safeEqual";
 import { parseWaWebhook, verifyMetaSignature, type WaWebhook } from "@/lib/messaging/whatsapp";
 import { applyStatusUpdates, recordInbound } from "@/lib/messaging/queue";
 
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const want = process.env.WA_CLOUD_VERIFY_TOKEN ?? "";
   const got = params.get("hub.verify_token") ?? "";
-  const match = want.length > 0 && got.length === want.length && timingSafeEqual(Buffer.from(got), Buffer.from(want));
+  const match = want.length > 0 && safeEqual(got, want);
   if (params.get("hub.mode") === "subscribe" && match) {
     return new Response(params.get("hub.challenge") ?? "", { status: 200, headers: { "Content-Type": "text/plain" } });
   }

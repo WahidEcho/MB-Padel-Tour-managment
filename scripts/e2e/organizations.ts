@@ -10,6 +10,15 @@
  * tokens, revoked and expired codes, a removed member and a suspended
  * organisation are refused on the next request. Move Beyond's backfill is checked.
  *
+ * Also (security review of 2e4e58a): B's ties, groups, bracket slots, nations,
+ * leaderboard rows, courts and teams named alongside A's own tournament id; a
+ * public registration form pulling B's player into A (A must not see their
+ * contact fields nor reach them in audiences); merges and consents; event codes
+ * scoped to one tournament against another tournament of the same organisation;
+ * the shared admin password on platform pages; multi-byte signatures (401, not
+ * 500); per-address login brakes; the __Host- staff cookie off localhost; and the
+ * database refusing a code scoped to another organisation's tournament.
+ *
  * Stand-in only; creates and deletes its own data.
  *
  *   npm run localdb                                   # terminal 1
@@ -22,6 +31,7 @@
  */
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { readFileSync } from "fs";
+import { request as httpRequest } from "http";
 import { join } from "path";
 import { db } from "../../src/lib/supabase";
 import { createFriendlySession } from "../../src/lib/friendly/ops";
@@ -61,6 +71,25 @@ async function http(method: string, path: string, who: Record<string, string> = 
     /* html */
   }
   return { status: res.status, text, json, location: res.headers.get("location") ?? "" };
+}
+
+/**
+ * A GET with a chosen Host header (fetch refuses to set Host): how the server
+ * behaves off localhost, e.g. which staff cookie it sets and reads.
+ */
+function rawGet(path: string, host: string, headers: Record<string, string> = {}): Promise<{ status: number; location: string; setCookie: string[] }> {
+  const u = new URL(`${BASE_URL}${path}`);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ hostname: u.hostname, port: u.port, path: `${u.pathname}${u.search}`, method: "GET", headers: { ...headers, Host: host } }, (res) => {
+      res.resume();
+      res.on("end", () => {
+        const sc = res.headers["set-cookie"];
+        resolve({ status: res.statusCode ?? 0, location: String(res.headers.location ?? ""), setCookie: Array.isArray(sc) ? sc : sc ? [sc] : [] });
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 /* ---------------- server actions, called the way the browser does ---------------- */
@@ -124,6 +153,8 @@ const form = (o: Record<string, string>) => {
 };
 /** An action that did its work answers 200 (or a 303 redirect) without an error in its payload. */
 const actionOk = (r: { status: number; text: string }) => (r.status === 200 || r.status === 303) && !/"digest"|Not found|Not allowed/.test(r.text);
+/** Refused: an error, or a (state, form) action answering { ok: false }. */
+const actionRefused = (r: { status: number; text: string }) => !actionOk(r) || /"ok":false/.test(r.text);
 
 /* ---------------- the stand-in's Supabase Auth ---------------- */
 
@@ -220,12 +251,24 @@ async function main() {
         .select("id")
         .single();
       await db().from("screen_settings").insert({ tournament_id: id, screen_key: "main" });
-      return { id, slug: (t as { slug: string }).slug, team1: t1, team2: t2, player: (pl as { id: string }).id, match: (m as { id: string }).id };
+      return { id, slug: (t as { slug: string }).slug, team1: t1, team2: t2, player: (pl as { id: string }).id, match: (m as { id: string }).id, court: (court as { id: string }).id };
     }
     const TA = await tournament(A, `Alpha Open ${tag}`);
     const TA2 = await tournament(A, `Alpha Second ${tag}`);
     const TB = await tournament(B, `${SECRET_B} Bravo Cup`);
     await db().from("teams").update({ nation_code: "ZQX" }).eq("id", TB.team1);
+
+    // B's tie, group and group placement; A's own group and draft bracket slot (targets for B's ids).
+    const { data: tieRow } = await db().from("ties").insert({ tournament_id: TB.id, team_a_id: TB.team1, team_b_id: TB.team2, round_no: 1, tie_order: 1 }).select("id").single();
+    const TIE_B = (tieRow as { id: string }).id;
+    const { data: gbRow } = await db().from("groups").insert({ tournament_id: TB.id, group_name: "B1", group_order: 1 }).select("id").single();
+    const GROUP_B = (gbRow as { id: string }).id;
+    const { data: gtbRow } = await db().from("group_teams").insert({ tournament_id: TB.id, group_id: GROUP_B, team_id: TB.team1, position: 1 }).select("id").single();
+    const GT_B = (gtbRow as { id: string }).id;
+    await db().from("groups").insert({ tournament_id: TA.id, group_name: "A1", group_order: 1 });
+    const { data: brA } = await db().from("brackets").insert({ tournament_id: TA.id, tier: "cup", status: "draft" }).select("id").single();
+    const { data: slotA } = await db().from("bracket_slots").insert({ bracket_id: (brA as { id: string }).id, tournament_id: TA.id, round_name: "Final", slot_order: 1 }).select("id").single();
+    const SLOT_A = (slotA as { id: string }).id;
 
     const { data: groups } = await db()
       .from("event_groups")
@@ -292,17 +335,25 @@ async function main() {
     const codeB = generateEventCode();
     const codeAref = generateEventCode();
     const codeAop = generateEventCode();
+    const codeArefT = generateEventCode();
+    const codeLock = generateEventCode();
     const { data: codes } = await db()
       .from("organization_codes")
       .insert([
         { organization_id: B, role: "referee", code_hash: hashEventCode(codeB), label: "e2e" },
         { organization_id: A, role: "referee", code_hash: hashEventCode(codeAref), label: "e2e" },
         { organization_id: A, role: "operator", tournament_id: TA.id, code_hash: hashEventCode(codeAop), label: "e2e" },
+        { organization_id: A, role: "referee", tournament_id: TA.id, code_hash: hashEventCode(codeArefT), label: "e2e scoped" },
+        { organization_id: A, role: "referee", code_hash: hashEventCode(codeLock), label: "e2e lockout" },
       ])
       .select("id, organization_id, role");
     const codeRows = codes as { id: string; organization_id: string; role: string }[];
     const CB = codeRows.find((c) => c.organization_id === B)!.id;
     const CAref = codeRows.find((c) => c.organization_id === A && c.role === "referee")!.id;
+    {
+      const { error } = await db().from("organization_codes").insert({ organization_id: A, role: "referee", tournament_id: TB.id, code_hash: hashEventCode(generateEventCode()), label: "e2e cross-org" });
+      check(Boolean(error), "the database refuses an event code of A scoped to B's tournament (trigger)", error?.message);
+    }
 
     // People: A's admin and manager, B's owner.
     const aAdminUser = await standinUser(`e2e.a.admin.${tag}@example.com`);
@@ -404,7 +455,7 @@ async function main() {
     ];
     for (const who of everyone) {
       for (const p of pages) {
-        if (who === mbShared && p === "/admin/platform/discover") continue; // Move Beyond's own platform page
+        // The shared admin password is not a platform admin: Discover is refused to it too.
         const r = await http("GET", p, who.headers);
         const refused = r.status === 404 || (r.status >= 300 && r.status < 400 && r.location.includes("/login"));
         // The page echoes its own URL; anything of B's beyond that is a leak.
@@ -523,8 +574,43 @@ async function main() {
       { label: "read B's screen", file: "src/app/operator/tournaments/[id]/control/actions.ts", name: "currentScreen", args: () => [TB.id, "main"] },
       { label: "revoke B's event code", file: "src/app/admin/org/codes/actions.ts", name: "revokeEventCode", args: () => [form({ code_id: CB })] },
       { label: "make a code for B's tournament", file: "src/app/admin/org/codes/actions.ts", name: "createEventCode", args: () => [null, form({ role: "referee", tournament_id: TB.id })] },
+      // B's rows named alongside A's own tournament id (the posted tournament proves nothing about them).
+      { label: "set a line-up on B's tie through A's tournament id", file: `${T}/[id]/ties/actions.ts`, name: "saveLineupAction", args: () => [null, form({ tournament_id: TA.id, tie_id: TIE_B, side: "A", S1: TB.player, S2: TB.player, D1: TB.player, D2: TB.player })] },
+      { label: "lock B's tie line-ups through A's tournament id", file: `${T}/[id]/ties/actions.ts`, name: "lockLineupsAction", args: () => [null, form({ tournament_id: TA.id, tie_id: TIE_B })] },
+      { label: "reschedule B's tie through A's tournament id", file: `${T}/[id]/ties/actions.ts`, name: "scheduleTieAction", args: () => [null, form({ tournament_id: TA.id, tie_id: TIE_B, court_id: "", scheduled_local: "2026-11-04T10:00" })] },
+      { label: "reschedule B's tie onto A's court", file: `${T}/[id]/ties/actions.ts`, name: "scheduleTieAction", args: () => [null, form({ tournament_id: TA.id, tie_id: TIE_B, court_id: TA.court, scheduled_local: "" })] },
+      { label: "place B's team in A's bracket slot", file: `${T}/[id]/bracket/actions.ts`, name: "saveSlots", args: () => [form({ tournament_id: TA.id, tier: "cup", [`slot_${SLOT_A}`]: TB.team1 })] },
+      { label: "draw B's teams into A's groups", file: `${T}/[id]/groups/actions.ts`, name: "saveAssignment", args: () => [TA.id, [[TB.team1, TB.team2]]] },
+      { label: "lock B's group placement through A's tournament id", file: `${T}/[id]/groups/actions.ts`, name: "toggleLock", args: () => [form({ tournament_id: TA.id, group_team_id: GT_B })] },
+      { label: "rename B's nation through A's tournament id", file: `${T}/[id]/nations/actions.ts`, name: "updateNation", args: () => [form({ tournament_id: TA.id, team_id: TB.team1, team_name: "PWNED", nation_code: "PWN" })] },
+      { label: "delete B's nation through A's tournament id", file: `${T}/[id]/nations/actions.ts`, name: "deleteNation", args: () => [form({ tournament_id: TA.id, team_id: TB.team1 })] },
+      { label: "override B's qualification through A's tournament id", file: `${T}/[id]/leaderboard/actions.ts`, name: "overrideQualification", args: () => [null, form({ tournament_id: TA.id, team_id: TB.team1, group_id: GROUP_B, status: "qualified" })] },
+      { label: "put A's match on B's court", file: `${T}/[id]/matches/actions.ts`, name: "updateMatchSchedule", args: () => [form({ tournament_id: TA.id, match_id: TA.match, court_id: TB.court, match_order: "1", scheduled_time: "" })] },
+      { label: "reschedule B's match through A's tournament id", file: `${T}/[id]/matches/actions.ts`, name: "updateMatchSchedule", args: () => [form({ tournament_id: TA.id, match_id: TB.match, court_id: "", match_order: "9", scheduled_time: "" })] },
+      { label: "a manual match of B's teams in A's tournament", file: `${T}/[id]/matches/actions.ts`, name: "createManualMatch", args: () => [form({ tournament_id: TA.id, team_a_id: TB.team1, team_b_id: TB.team2, round_name: "PWNED" })] },
+      { label: "a manual match of A's teams on B's court", file: `${T}/[id]/matches/actions.ts`, name: "createManualMatch", args: () => [form({ tournament_id: TA.id, team_a_id: TA.team1, team_b_id: TA.team2, court_id: TB.court, round_name: "PWNED" })] },
+      { label: "check B's team in through A's tournament id", file: `${T}/[id]/teams/actions.ts`, name: "setCheckIn", args: () => [form({ tournament_id: TA.id, team_id: TB.team1, status: "no_show" })] },
+      { label: "release B's scoring lock through A's tournament id", file: `${T}/[id]/matches/actions.ts`, name: "releaseScoringLock", args: () => [form({ tournament_id: TA.id, match_id: TB.match })] },
+      { label: "change B's match-day rules through A's own page", file: `${T}/[id]/match-day/actions.ts`, name: "saveMatchDayRules", args: () => [form({ tournament_id: TB.id, rules: "PWNED" })] },
+      { label: "merge B's player into one of A's", file: "src/app/admin/players/actions.ts", name: "mergePlayersAction", args: () => [form({ survivor_id: PB, absorbed_id: PB })] },
+      { label: "record consent for B's player", file: "src/app/admin/players/actions.ts", name: "setPlayerConsent", args: () => [form({ profile_id: PB, channel: "whatsapp", granted: "1" })] },
+      // Move Beyond's platform settings: platform admins only, never the shared admin password.
+      { label: "change the app's feature flags", file: "src/app/admin/platform/discover/actions.ts", name: "saveFlags", args: () => [form({ new_flag: `pwned_${tag}`, new_flag_on: "on" })] },
+      { label: "reorder Discover", file: "src/app/admin/platform/discover/actions.ts", name: "saveDiscoverOrder", args: () => [form({ item: TB.id, [`pos.${TB.id}`]: "0" })] },
     ];
     async function bSnapshot() {
+      const [tie, gt, slot, aMatch, crossMatches, stand, consentsB, platform, checkIn] = await Promise.all([
+        db().from("ties").select("lineup_locked_at, court_id, scheduled_time, team_a_id, team_b_id").eq("id", TIE_B).maybeSingle(),
+        db().from("group_teams").select("is_locked, group_id, team_id").eq("id", GT_B).maybeSingle(),
+        db().from("bracket_slots").select("team_id, is_bye").eq("id", SLOT_A).maybeSingle(),
+        db().from("matches").select("court_id, match_order").eq("id", TA.match).maybeSingle(),
+        db().from("matches").select("id").eq("tournament_id", TA.id).or(`team_a_id.eq.${TB.team1},team_b_id.eq.${TB.team2},court_id.eq.${TB.court}`),
+        db().from("group_teams").select("id").eq("tournament_id", TA.id),
+        db().from("player_consents").select("channel, granted").eq("player_profile_id", PB),
+        db().from("platform_settings").select("key, value_json").order("key"),
+        db().from("teams").select("check_in_status, nation_code").eq("id", TB.team1).maybeSingle(),
+      ]);
+      const extra = [tie.data, gt.data, slot.data, aMatch.data, crossMatches.data, stand.data, consentsB.data, platform.data, checkIn.data];
       const [t, team, pl, m, g, se, a, an, prof, op, s, e, sc, cd, codesForTB, newAnn, clones, appPosts, screens, deliveries] = await Promise.all([
         db().from("tournaments").select("name, status, lower_third_text, match_day_rules").eq("id", TB.id).maybeSingle(),
         db().from("teams").select("id, team_name").eq("tournament_id", TB.id).order("id"),
@@ -548,17 +634,24 @@ async function main() {
         db().from("message_deliveries").select("id").eq("recipient_id", TB.player),
       ]);
       const { data: ta } = await db().from("tournaments").select("event_group_id").eq("id", TA.id).maybeSingle();
-      return JSON.stringify([t.data, team.data, pl.data, m.data, g.data, se.data, a.data, an.data, prof.data, op.data, s.data, e.data, sc.data, cd.data, codesForTB.data, newAnn.data, clones.data, appPosts.data, screens.data, deliveries.data, ta]);
+      return JSON.stringify([t.data, team.data, pl.data, m.data, g.data, se.data, a.data, an.data, prof.data, op.data, s.data, e.data, sc.data, cd.data, codesForTB.data, newAnn.data, clones.data, appPosts.data, screens.data, deliveries.data, ta, extra]);
     }
     const before = await bSnapshot();
     for (const who of everyone) {
       for (const atk of attacks) {
         const r = await action(atk.file, atk.name, atk.args(), who.headers);
-        check(!actionOk(r) && !leaked(r.text), `${who.label}: ${atk.label} refused`, `${r.status} ${r.text.slice(0, 120)}`);
+        check(actionRefused(r) && !leaked(r.text), `${who.label}: ${atk.label} refused`, `${r.status} ${r.text.slice(0, 120)}`);
       }
     }
     const after = await bSnapshot();
-    check(before === after, "none of B's rows changed (tournament, teams, player, match, group, season, announcements, profile, session, entries, codes, screens, deliveries)", before === after ? undefined : { before, after });
+    check(before === after, "none of B's rows changed (tournament, teams, player, match, group, season, announcements, profile, session, entries, codes, screens, deliveries, tie, group placement, consents) and A's rows took none of B's (bracket slot, groups, matches, courts); platform settings unchanged", before === after ? undefined : { before, after });
+    {
+      // A missing tie and B's tie get the same words.
+      const nf = await action(`${T}/[id]/ties/actions.ts`, "lockLineupsAction", [null, form({ tournament_id: TA.id, tie_id: randomUUID() })], aAdmin.headers);
+      const ny = await action(`${T}/[id]/ties/actions.ts`, "lockLineupsAction", [null, form({ tournament_id: TA.id, tie_id: TIE_B })], aAdmin.headers);
+      const words = (t: string) => /"message":"([^"]*)"/.exec(t)?.[1] ?? t.slice(0, 80);
+      check(actionRefused(nf) && words(nf.text) === words(ny.text), "a missing tie and B's tie get the identical answer", [words(nf.text), words(ny.text)]);
+    }
     {
       const nfr = await action(`${T}/[id]/settings/actions.ts`, "updateGeneral", [form({ tournament_id: randomUUID(), name: "x" })], aAdmin.headers);
       const nyr = await action(`${T}/[id]/settings/actions.ts`, "updateGeneral", [form({ tournament_id: TB.id, name: "x" })], aAdmin.headers);
@@ -572,6 +665,167 @@ async function main() {
       check(actionOk(all) && !leaked(all.text), "\"all players\" for A has none of B's players", all.text.slice(0, 120));
       const app = await action("src/app/admin/announcements/actions.ts", "previewAction", [{ kind: "announcement", title: "x", body: "x", channels: ["push"], audience: { type: "app_users" }, tournamentId: null }], aAdmin.headers);
       check(/"ok":false/.test(app.text) || !actionOk(app), "a push to every app user is Move Beyond's, not A's", app.text.slice(0, 160));
+    }
+
+    section("public registration: B's player pulled into A by a typed mobile");
+    {
+      const digits = () => String(Math.floor(Math.random() * 1e8)).padStart(8, "0");
+      const M2 = `+2011${digits()}`;
+      const M3 = `+2012${digits()}`;
+      const EMAIL2 = `pulled.${tag}@example.com`;
+      const PHOTO2 = `https://example.com/pulled-${tag}.jpg`;
+      const { data: pb2 } = await db()
+        .from("player_profiles")
+        .insert({ public_name: `Pulled ${tag}`, mobile_normalized: M2, email: EMAIL2, birth_year: 1977, gender: "female", approval_status: "approved" })
+        .select("id")
+        .single();
+      const PB2 = (pb2 as { id: string }).id;
+      created.profiles.push(PB2);
+      await db().from("organization_players").insert({ organization_id: B, player_profile_id: PB2, approval_status: "approved", source: "admin" });
+      await db().from("friendly_sessions").update({ status: "open", registration_mode: "either" }).eq("id", SA.id);
+      const { data: saRow } = await db().from("friendly_sessions").select("slug").eq("id", SA.id).single();
+      const SA_SLUG = (saRow as { slug: string }).slug;
+      const mediaPrefix = `${SUPA}/storage/v1/object/public/media/pending/`;
+      const register = (body: Record<string, unknown>, ip: string, extra: Record<string, string> = {}) =>
+        http("POST", `/api/f/${SA_SLUG}/register`, { "X-Forwarded-For": ip, ...extra }, body);
+
+      // The attack: A's form, B's player's number (sent with A's admin cookie in the same browser).
+      const r1 = await register({ public_name: "Anyone At All", mobile: M2, consent_whatsapp: true, photo_url: `${mediaPrefix}e2e-${tag}.jpg`, focal_x: 0.5, focal_y: 0.5 }, "198.51.100.10", aAdmin.headers);
+      check(r1.status === 200 && r1.json?.ok === true, "the form answers the same opaque OK (the registering person's own flow)", r1.status);
+      // A real new player through the same form: the positive control.
+      const r2 = await register({ public_name: `Fresh ${tag}`, mobile: M3, consent_whatsapp: true }, "198.51.100.11");
+      check(r2.status === 200 && r2.json?.ok === true, "a new player registers through A's form", r2.status);
+      const { data: pb3 } = await db().from("player_profiles").select("id").eq("mobile_normalized", M3).maybeSingle();
+      const PB3 = (pb3 as { id: string } | null)?.id ?? "";
+      if (PB3) created.profiles.push(PB3);
+
+      const { data: rows } = await db().from("organization_players").select("player_profile_id, source").eq("organization_id", A).in("player_profile_id", [PB2, PB3]);
+      const src = new Map(((rows ?? []) as { player_profile_id: string; source: string }[]).map((r) => [r.player_profile_id, r.source]));
+      check(src.get(PB2) === "matched" && src.get(PB3) === "registration", "A records B's player as 'matched' and its own new player as 'registration'", Object.fromEntries(src));
+      const { data: after2 } = await db().from("player_profiles").select("public_name, photo_url, mobile_normalized, email").eq("id", PB2).single();
+      const { data: consent2 } = await db().from("player_consents").select("channel").eq("player_profile_id", PB2);
+      const { data: consent3 } = await db().from("player_consents").select("channel, granted").eq("player_profile_id", PB3);
+      check(
+        (after2 as { photo_url: string | null }).photo_url === null && (consent2 ?? []).length === 0,
+        "A's form writes no photo and no WhatsApp consent onto B's player",
+        { after2, consent2 },
+      );
+      check(((consent3 ?? []) as { granted: boolean }[]).some((c) => c.granted), "…but does for the player it created", consent3);
+
+      const secrets = [M2, M2.slice(1), EMAIL2, PHOTO2, `${new Date().getUTCFullYear() - 1977} yrs`];
+      const shows = (t: string) => secrets.filter((x) => t.includes(x));
+      await db().from("player_profiles").update({ photo_url: PHOTO2 }).eq("id", PB2); // B's own photo, set by B
+      const listA = await http("GET", "/admin/players", aAdmin.headers);
+      check(listA.status === 200 && listA.text.includes(`Pulled ${tag}`) && listA.text.includes("person-hidden") && shows(listA.text).length === 0, "A's players page lists the name but none of B's player's mobile, email, birth year or photo", shows(listA.text));
+      check(listA.text.includes(M3), "…while A sees its own new player's mobile");
+      const sessionA = await http("GET", `/admin/friendly-sessions/${SA.id}`, aAdmin.headers);
+      check(sessionA.status === 200 && sessionA.text.includes(`Pulled ${tag}`) && shows(sessionA.text).length === 0, "A's session page shows the entry, not B's player's contact fields", shows(sessionA.text));
+      const listB = await http("GET", "/admin/players", cookie(bOwnerWeb.token ?? ""));
+      check(listB.text.includes(M2) && listB.text.includes(EMAIL2), "B still sees its own player's contact fields");
+      const exportA = await http("GET", `/api/f/${SA_SLUG}/export`, aAdmin.headers);
+      check(exportA.status === 200 && shows(exportA.text).length === 0, "A's session export has none of them", exportA.status);
+
+      const preview = await action("src/app/admin/announcements/actions.ts", "previewAction", [{ kind: "announcement", title: "x", body: "x", channels: ["email", "whatsapp"], audience: { type: "all_players" }, tournamentId: null }], aAdmin.headers);
+      check(/"people":1\b/.test(preview.text) && !preview.text.includes(`Pulled ${tag}`) && shows(preview.text).length === 0, "\"all players\" for A reaches its own new player only, not B's", preview.text.slice(0, 200));
+
+      const consent = await action("src/app/admin/players/actions.ts", "setPlayerConsent", [form({ profile_id: PB2, channel: "email", granted: "1" })], aAdmin.headers);
+      const { data: consent2b } = await db().from("player_consents").select("channel").eq("player_profile_id", PB2);
+      check(actionRefused(consent) && (consent2b ?? []).length === 0, "A cannot record consent for B's player", consent.text.slice(0, 120));
+      const edit = await action("src/app/admin/players/actions.ts", "updatePlayerProfile", [form({ profile_id: PB2, public_name: "PWNED", mobile: "+201099990000", email: "pwned@example.com", birth_year: "1999", notes: "A's own note" })], aAdmin.headers);
+      const { data: after2b } = await db().from("player_profiles").select("public_name, mobile_normalized, email, birth_year").eq("id", PB2).single();
+      const { data: noteA } = await db().from("organization_players").select("notes").eq("organization_id", A).eq("player_profile_id", PB2).single();
+      check(
+        actionOk(edit) && JSON.stringify(after2b) === JSON.stringify({ public_name: `Pulled ${tag}`, mobile_normalized: M2, email: EMAIL2, birth_year: 1977 }) && (noteA as { notes: string }).notes === "A's own note",
+        "A edits only its own part (notes), never B's player's person fields",
+        after2b,
+      );
+      const merge = await action("src/app/admin/players/actions.ts", "mergePlayersAction", [form({ survivor_id: PB3, absorbed_id: PB2 })], aAdmin.headers);
+      const { data: still } = await db().from("player_profiles").select("merged_into_profile_id").eq("id", PB2).single();
+      check(actionRefused(merge) && !(still as { merged_into_profile_id: string | null }).merged_into_profile_id, "A cannot merge B's player into its own (platform admins only)");
+      const taken = await action("src/app/admin/players/actions.ts", "createPlayerProfile", [form({ public_name: "Probe", mobile: M2 })], aAdmin.headers);
+      const takenOwn = await action("src/app/admin/players/actions.ts", "createPlayerProfile", [form({ public_name: "Probe", mobile: M3 })], aAdmin.headers);
+      check(actionRefused(taken) && actionRefused(takenOwn) && taken.status === takenOwn.status && !taken.text.includes(`Pulled ${tag}`), "a taken mobile gets one answer, whoever's player it is");
+
+      const { data: entry } = await db().from("friendly_entries").select("id, approval").eq("session_id", SA.id).eq("player_profile_id", PB2).single();
+      const approve = await action("src/app/admin/friendly-sessions/actions.ts", "approveEntryAction", [form({ entry_id: (entry as { id: string }).id, session_id: SA.id })], aAdmin.headers);
+      const { data: entry2 } = await db().from("friendly_entries").select("approval").eq("id", (entry as { id: string }).id).single();
+      check(actionOk(approve) && (entry2 as { approval: string }).approval === "approved", "A can still approve the registration (the registering person's flow works)", entry2);
+
+      const { data: regAudit } = await db().from("audit_logs").select("organization_id, actor_role, actor_user_id, new_value").eq("action", "FRIENDLY_REGISTRATION_SUBMITTED").eq("entity_id", SA.id);
+      const regRows = (regAudit ?? []) as { organization_id: string | null; actor_role: string | null; actor_user_id: string | null }[];
+      check(regRows.length >= 2 && regRows.every((r) => r.actor_role === "public" && r.actor_user_id === null && r.organization_id === A), "public registrations are audited as public, never as the staff cookie in the same browser", regRows);
+    }
+
+    section("event codes scoped to one tournament, against another tournament of the same organisation");
+    {
+      const refT = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeArefT });
+      check(refT.status === 200 && (refT.json?.scope as { tournamentId?: string } | null)?.tournamentId === TA.id, "A's referee code scoped to TA signs in with its scope");
+      const scoped = bearer(String(refT.json?.token));
+      const own = await http("POST", `/api/matches/${TA.match}/claim`, scoped, { deviceId: `e2e-scoped-${tag}`, deviceLabel: "E2E" });
+      check(own.status === 200, "…claims a match of its own tournament", own.status);
+      await http("POST", `/api/matches/${TA.match}/release-lease`, scoped, { deviceId: `e2e-scoped-${tag}` });
+      for (const route of ["claim", "request-control", "events"]) {
+        const r = await http("POST", `/api/matches/${TA2.match}/${route}`, scoped, { deviceId: `e2e-scoped-${tag}`, deviceLabel: "E2E", events: [] });
+        check(r.status === 404, `…but not ${route} on A's other tournament's match`, r.status);
+      }
+      const boot = await http("GET", `/api/mobile/v1/referee/matches/${TA2.match}/bootstrap`, scoped);
+      const picker = await http("GET", `/api/mobile/v1/referee/tournaments/${TA2.id}/matches`, scoped);
+      check(boot.status === 404 && picker.status === 404, "…nor open its bootstrap or match picker", [boot.status, picker.status]);
+      const { data: before2 } = await db().from("teams").select("check_in_status").eq("id", TA2.team1).single();
+      const checkIn = await action(`${T}/[id]/teams/actions.ts`, "setCheckIn", [form({ tournament_id: TA2.id, team_id: TA2.team1, status: "no_show" })], scoped);
+      const checkInOwn = await action(`${T}/[id]/teams/actions.ts`, "setCheckIn", [form({ tournament_id: TA.id, team_id: TA.team1, status: "checked_in" })], scoped);
+      const { data: after2 } = await db().from("teams").select("check_in_status").eq("id", TA2.team1).single();
+      check(actionRefused(checkIn) && JSON.stringify(before2) === JSON.stringify(after2), "…nor check in a team of A's other tournament (server action)", checkIn.text.slice(0, 120));
+      // (The page the action is posted to then sends a referee elsewhere: the write is what counts.)
+      const { data: ownTeam } = await db().from("teams").select("check_in_status").eq("id", TA.team1).single();
+      check((ownTeam as { check_in_status: string }).check_in_status === "checked_in", "…while it checks in its own tournament's team", `${checkInOwn.status} ${checkInOwn.text.slice(0, 120)}`);
+      const { data: screens0 } = await db().from("screen_settings").select("screen_key, revision").eq("tournament_id", TA2.id).order("screen_key");
+      const add = await action("src/app/operator/tournaments/[id]/control/actions.ts", "addScreen", [null, form({ tournament_id: TA2.id, screen_name: "PWNED" })], aOperator.headers);
+      const cmd = await action("src/app/operator/tournaments/[id]/control/actions.ts", "screenCommand", [null, form({ tournament_id: TA2.id, screen_key: "main", revision: "0", command: "mute_on" })], aOperator.headers);
+      const { data: screens1 } = await db().from("screen_settings").select("screen_key, revision").eq("tournament_id", TA2.id).order("screen_key");
+      check(actionRefused(add) && actionRefused(cmd) && JSON.stringify(screens0) === JSON.stringify(screens1), "A's operator code scoped to TA cannot add or command TA2's screens", [add.status, cmd.status]);
+    }
+
+    section("malformed signatures: 401, never 500");
+    {
+      const mb = (t: string) => `${t.slice(0, -1)}é`; // same string length, one more byte
+      const a = await http("GET", "/api/mobile/v1/referee/tournaments", bearer(mb(String(refApp.json?.token))));
+      const b = await http("GET", "/api/mobile/v1/referee/tournaments", bearer(mb(sessionToken("referee"))));
+      const c = await http("GET", "/admin/tournaments", cookie(mb(aAdminWeb.token ?? "")));
+      const d = await http("GET", "/admin/tournaments", cookie(mb(sessionToken("admin"))));
+      const e = await fetch(`${BASE_URL}/staff/auth/callback?code=${randomUUID()}`, { redirect: "manual", headers: { Cookie: `mb_staff_oauth=${mb("e30.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG")}` } });
+      check(a.status === 401 && b.status === 401, "a multi-byte signature on a staff token or a shared-password token is a 401", [a.status, b.status]);
+      check(c.status === 307 && d.status === 307, "…and the same cookies send the page to the login", [c.status, d.status]);
+      check(e.status === 302 && /error=signin_failed/.test(e.headers.get("location") ?? ""), "…and a multi-byte OAuth state cookie is refused cleanly", e.status);
+    }
+
+    section("login brakes: per address, never platform-wide");
+    {
+      const attacker = { "X-Forwarded-For": `203.0.113.${(randomBytes(1)[0] % 200) + 20}` };
+      let last = 0;
+      for (let i = 0; i < 21; i++) last = (await http("POST", "/api/mobile/v1/staff/session", attacker, { code: generateEventCode() })).status;
+      const blocked = await http("POST", "/api/mobile/v1/staff/session", attacker, { code: codeLock });
+      check(last === 429 && blocked.status === 429, "one address guessing codes is stopped (even with a right code)", [last, blocked.status]);
+      const other = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": "192.0.2.77" }, { code: codeLock });
+      check(other.status === 200, "…while a referee on another address signs in with their code", other.status);
+    }
+
+    section("the staff cookie off localhost is __Host-");
+    {
+      const host = "tour.mbeg.org";
+      const plain = await rawGet("/admin/tournaments", host, { Cookie: `mb_session=${aAdminWeb.token}` });
+      const hostPrefixed = await rawGet("/admin/tournaments", host, { Cookie: `__Host-mb_session=${aAdminWeb.token}` });
+      check(plain.status === 307 && /\/login/.test(plain.location), "off localhost a plain mb_session cookie is not read (a sibling subdomain could have set it)", plain.status);
+      check(hostPrefixed.status === 200, "…the __Host- cookie is", hostPrefixed.status);
+      const start = await fetch(`${BASE_URL}/staff/auth/google?next=${encodeURIComponent("/admin/tournaments")}`, { redirect: "manual" });
+      const state = (start.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("mb_staff_oauth="))?.split(";")[0] ?? "";
+      const authorize = new URL(start.headers.get("location") ?? "");
+      authorize.searchParams.set("login_hint", `e2e.a.admin.${tag}@example.com`);
+      const back = await fetch(authorize, { redirect: "manual" });
+      const cb = new URL(back.headers.get("location") ?? "");
+      const signed = await rawGet(`${cb.pathname}${cb.search}`, host, { Cookie: state });
+      const set = signed.setCookie.find((c) => /^(__Host-)?mb_session=/.test(c)) ?? "";
+      check(/^__Host-mb_session=mbs1\./.test(set) && /;\s*Secure/i.test(set) && /;\s*Path=\//i.test(set) && !/;\s*Domain=/i.test(set) && /HttpOnly/i.test(set), "a sign-in off localhost sets __Host-mb_session (Secure, Path=/, no Domain, HttpOnly)", set.replace(/=mbs1\.[^;]*/, "=mbs1.…"));
     }
 
     section("tokens and codes");
