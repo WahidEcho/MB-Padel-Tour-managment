@@ -75,7 +75,10 @@ const manifest = JSON.parse(readFileSync(join(process.cwd(), ".next/server/serve
 /** The attacker's own rows, to fill a page path the action is posted to (it must be a page that uses the action). */
 let ownParams: { tournament: string; session: string; announcement: string; match: string } = { tournament: "x", session: "x", announcement: "x", match: "x" };
 function actionTarget(file: string, name: string): { id: string; page: string } {
-  const hit = Object.entries(manifest.node).find(([, e]) => e.filename === file && e.exportedName === name);
+  // The manifest's paths are relative to the build root: "src/app/…" normally, with a
+  // prefix when the root is set above the checkout (a worktree), without "src/" under webpack.
+  const sameFile = (f: string) => f === file || f.endsWith(`/${file}`) || `src/${f}` === file;
+  const hit = Object.entries(manifest.node).find(([, e]) => sameFile(e.filename) && e.exportedName === name);
   if (!hit) throw new Error(`no server action ${file}#${name} in the build manifest (rebuild?)`);
   // The page with the fewest dynamic segments, filled with the attacker's own ids.
   const worker = Object.keys(hit[1].workers).sort((a, b) => a.split("[").length - b.split("[").length)[0]!;
@@ -479,6 +482,8 @@ async function main() {
       { label: "delete B's team", file: `${T}/[id]/teams/actions.ts`, name: "deleteTeam", args: () => [form({ tournament_id: TB.id, team_id: TB.team1 })] },
       { label: "delete B's match", file: `${T}/[id]/matches/actions.ts`, name: "deleteMatch", args: () => [form({ tournament_id: TB.id, match_id: TB.match })] },
       { label: "release B's scoring lock", file: `${T}/[id]/matches/actions.ts`, name: "releaseScoringLock", args: () => [form({ tournament_id: TB.id, match_id: TB.match })] },
+      { label: "enter a result on B's match", file: `${T}/[id]/matches/actions.ts`, name: "enterMatchResult", args: () => [TB.id, TB.match, { sets: [{ a: 6, b: 0 }] }] },
+      { label: "enter a result on B's match through A's tournament id", file: `${T}/[id]/matches/actions.ts`, name: "enterMatchResult", args: () => [TA.id, TB.match, { sets: [{ a: 6, b: 0 }] }] },
       { label: "change B's player's phone", file: `${T}/[id]/players/actions.ts`, name: "savePlayerContact", args: () => [form({ tournament_id: TB.id, player_id: TB.player, phone: "+201099999999", email: "pwned@example.com" })] },
       { label: "send B's player their code", file: `${T}/[id]/players/actions.ts`, name: "sendCode", args: () => [null, form({ tournament_id: TB.id, player_id: TB.player, channel: "email" })] },
       { label: "join A's tournament to B's event group", file: `${T}/[id]/app/actions.ts`, name: "saveAppSettings", args: () => [form({ tournament_id: TA.id, event_group_id: GB.id, timezone: "Africa/Cairo" })] },

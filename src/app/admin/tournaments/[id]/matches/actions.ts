@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { db } from "@/lib/supabase";
-import { requireTournamentPermission } from "@/lib/guard";
+import { requireScopedPermission, requireTournamentPermission } from "@/lib/guard";
+import { enterFinalResult, type EnterResultOutcome } from "@/lib/scoring/append";
 import { audit } from "@/lib/audit";
 import { deleteManualMatch } from "@/lib/ops";
 import { endLease } from "@/lib/scoringControl";
@@ -129,4 +131,26 @@ export async function releaseScoringLock(formData: FormData) {
     entity_id: matchId,
   });
   revalidatePath(path(tournamentId));
+}
+
+/**
+ * A final result typed by the organiser (Phase 2): recorded as a RESULT_ENTERED
+ * event through the same path as a scoring device (src/lib/scoring/append.ts),
+ * which rebuilds the state from the score, refuses one the match's rules cannot
+ * produce, and turns a result over a partly scored or finished match into an
+ * audited correction. The organisation comes from the match itself.
+ */
+export async function enterMatchResult(tournamentId: string, matchId: string, payload: unknown): Promise<EnterResultOutcome> {
+  const { staff } = await requireScopedPermission("score_match", { match: matchId });
+  // A session's results are recorded from its own pages; and the match must be this tournament's.
+  refuse(await entityRefusal(tournamentId, "matches", matchId));
+  const out = await enterFinalResult({
+    matchId,
+    payload,
+    role: staff.role,
+    actor: staff.userId ?? staff.codeId ?? staff.role,
+    defer: (task) => after(task),
+  });
+  if (out.ok) revalidatePath(path(tournamentId));
+  return out;
 }

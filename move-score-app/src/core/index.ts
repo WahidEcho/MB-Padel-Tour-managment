@@ -31,6 +31,10 @@ export { validateFinalScore, stateFromFinalScore, finalScoreSummary, enteredSets
 export type { EnteredSet, FinalScoreProblem, FinalScoreProblemCode, FinalScoreBuild, FinalScoreSummary, SetKind } from "../../../src/lib/scoring/finalScore";
 export { chessGamePoints, chessOutcome, chessStateFromResults, validateChessResults, chessScoreLine } from "../../../src/lib/chess/result";
 export type { ChessGameResult, ChessCompetition, ChessOutcome, ChessAdvance, ChessResultProblem } from "../../../src/lib/chess/result";
+export { RESULT_ENTERED, parseResultPayload, buildResultState, finalResultAllowed, chessCompetitionFor, resultProblemMessage } from "../../../src/lib/scoring/resultEntry";
+export type { ResultPayload, GamesResultPayload, ChessResultPayload, ResultProblem, ResultProblemCode, ResultBuild } from "../../../src/lib/scoring/resultEntry";
+export { queueableResult, resultRejection, resultPayloadOf } from "../../../src/lib/offline/finalResult";
+export type { QueueableResult, ResultRejection, QueuedEventLike } from "../../../src/lib/offline/finalResult";
 export { courtQueue, nextOnCourt, courtBusy } from "../../../src/lib/matchday/courtQueue";
 export type { QueueMatch } from "../../../src/lib/matchday/courtQueue";
 export { isNearEnd, nearEndCrossed, sidesOneGameFromWinning } from "../../../src/lib/matchday/nearEnd";

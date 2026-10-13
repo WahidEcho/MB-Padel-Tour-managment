@@ -95,16 +95,13 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
   const history: unknown[] = [];
   for (const r of rows) {
     if (r.event_type === "UNDO") history.pop();
+    // A final result supersedes the points before it: nothing to undo back into.
+    else if (r.event_type === "RESULT_ENTERED") history.length = 0;
     else if (r.previous_state_json) history.push(r.previous_state_json);
   }
   const court = courts.find((c) => c.id === match.court_id);
   const sport = sportOf(tournament);
   const matchDay = matchDayRules(tournament.match_day_rules, tournament);
-  // A friendly session's mode sits on the session, not its hidden tournament row.
-  const session =
-    tournament.kind === "friendly_session"
-      ? ((await db().from("friendly_sessions").select("scoring_mode").eq("tournament_id", tournament.id).maybeSingle()).data as { scoring_mode: string } | null)
-      : null;
   return {
     match,
     tournament: { id: tournament.id, name: tournament.name, sport: tournament.sport, timezone: tournament.timezone || "Africa/Cairo" },
@@ -125,6 +122,27 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
       ? { deviceId: lease.device_id, deviceLabel: lease.device_label, expiresAt: lease.expires_at, isLive: isLeaseLive(lease, Date.now()) }
       : null,
     matchDay,
-    scoringMode: resolveScoringMode({ matchOverride: match.scoring_mode_override, sessionMode: session?.scoring_mode, rules: matchDay }),
+    scoringMode: await matchScoringMode(match, tournament),
   };
+}
+
+/**
+ * How a match is recorded: the match's own override, then its friendly session's
+ * mode (it sits on the session, not the session's hidden tournament row), then the
+ * tournament's match-day rules. The events route resolves it the same way before
+ * it accepts a final result.
+ */
+export async function matchScoringMode(
+  match: Pick<Match, "scoring_mode_override" | "tournament_id">,
+  tournament: { kind?: string | null; sport?: string | null; match_day_rules?: unknown },
+): Promise<ScoringModeChoice> {
+  const session =
+    tournament.kind === "friendly_session"
+      ? ((await db().from("friendly_sessions").select("scoring_mode").eq("tournament_id", match.tournament_id).maybeSingle()).data as { scoring_mode: string } | null)
+      : null;
+  return resolveScoringMode({
+    matchOverride: match.scoring_mode_override,
+    sessionMode: session?.scoring_mode,
+    rules: matchDayRules(tournament.match_day_rules, tournament),
+  });
 }

@@ -284,3 +284,26 @@ describe("staff lists are filtered by organisation", () => {
     });
   }
 });
+
+/* ---------------- final-result entry (Phase 2) ---------------- */
+
+describe("final results are entered only through organisation-scoped guards", () => {
+  it("the admin action resolves the organisation from the match and refuses a session's row before writing", () => {
+    const file = join(ROOT, "[id]", "matches", "actions.ts");
+    const action = exportedActions(readFileSync(file, "utf8")).find((a) => a.name === "enterMatchResult");
+    expect(action, "enterMatchResult exists").toBeDefined();
+    const body = action!.body;
+    const guard = body.indexOf('requireScopedPermission("score_match", { match: matchId })');
+    const session = body.indexOf("entityRefusal(");
+    const write = body.indexOf("enterFinalResult(");
+    expect(guard, "scoped to the match's organisation with score_match").toBeGreaterThan(-1);
+    expect(session, "refuses a friendly session's row").toBeGreaterThan(guard);
+    expect(write, "writes only after both checks").toBeGreaterThan(session);
+  });
+  it("the events route (scoring devices) checks the match's organisation before the shared write path", () => {
+    const text = readFileSync(join(APP, "api", "matches", "[matchId]", "events", "route.ts"), "utf8");
+    const guard = text.indexOf('staffRoute("score_match", { match: matchId })');
+    expect(guard).toBeGreaterThan(-1);
+    expect(text.indexOf("appendScoreEvents(")).toBeGreaterThan(guard);
+  });
+});

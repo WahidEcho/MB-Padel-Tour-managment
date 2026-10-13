@@ -6,6 +6,8 @@ import { isDoublesMatch, scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 import { redBlueTeams } from "@/lib/sides";
+import { matchScoringMode } from "@/lib/referee/bootstrap";
+import { chessCompetitionFor } from "@/lib/scoring/resultEntry";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
     );
   }
 
+  const scoringMode = await matchScoringMode(match, tournament);
+
   if (tournament.sport === "chess") {
     return (
       <ChessScoreClient
@@ -72,6 +76,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
           players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         }}
         serverSnapshot={snapshot}
+        scoringMode={scoringMode}
+        competition={chessCompetitionFor(match.stage)}
       />
     );
   }
@@ -105,6 +111,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       serverSnapshot={snapshot}
       reopenState={reopenState as ScoreState | null}
       redBlueTeams={redBlueTeams(tournament.branding_config)}
+      scoringMode={scoringMode}
     />
   );
 }

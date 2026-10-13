@@ -41,6 +41,7 @@ import type {
   BracketSlot,
   BracketTier,
   Match,
+  ResultSource,
   MatchSnapshot,
   Standing,
   Team,
@@ -1111,6 +1112,13 @@ export interface FinalizeOptions {
   actorRole: string;
   note?: string;
   pendingSync?: boolean;
+  /**
+   * How the result was recorded (matches.result_source): scored point by point, a
+   * final score entered in one go, or a final score that replaced a partly scored
+   * or finished match. Left as it is when not given (admin tools that finish a
+   * match some other way).
+   */
+  resultSource?: ResultSource;
 }
 
 /** Central completion path: updates the match, standings, and bracket. */
@@ -1122,6 +1130,7 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
       winner_team_id: opts.winnerTeamId,
       ended_at: new Date().toISOString(),
       is_pending_sync: opts.pendingSync ?? false,
+      ...(opts.resultSource ? { result_source: opts.resultSource } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", match.id);
@@ -1135,7 +1144,7 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
     action: `MATCH_${opts.status.toUpperCase()}`,
     entity_type: "match",
     entity_id: match.id,
-    new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null },
+    new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null, result_source: opts.resultSource ?? null },
   });
   {
     const { notifyMatchFinished } = await import("./notify/hooks");

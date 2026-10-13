@@ -102,3 +102,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `api/mobile/v1/me/widget`. App: `move-score-app/src/live/*`, expo-widgets patched (`move-score-app/patches/`),
   switches `MS_LIVE_ACTIVITIES` / `MS_WIDGETS` / `MS_APP_GROUP` in `app.config.ts`. Profiles, install, checklist:
   `move-score-app/docs/device-install.md`; spike `scripts/live-activity/start-spike.ts`.
+- Final-result entry (plan Phase 2): event `RESULT_ENTERED` (payload `{sets}` or chess `{chess, advance?}`, `src/lib/scoring/resultEntry.ts`,
+  shared via `@core`). The one write path for score events is `src/lib/scoring/append.ts` (events route + admin action
+  `enterMatchResult` on the matches page): the server rebuilds the state with `stateFromFinalScore`/`chessStateFromResults` and
+  refuses a bad score or a differing client state (400 `code: "final_score"`, typed `problems`). Allowed only when the match's
+  mode (override → session → match-day rules) is `final_score`/`either`. A result over a partly scored or finished match is an
+  audited correction (`RESULT_CORRECTED`; earlier events `sync_status = 'superseded'`; undo paths retract the bracket / ledger /
+  tie first); `matches.result_source` is `point_by_point|final_score|correction` (0022 check). A result ends the undo chain
+  (`getReopenState`, bootstrap history). Chess: every format today is a knockout, so a level pairing stays live
+  (`needsArbiter`) until the organiser picks who advances (`decideWinner`); a draw outside a knockout is refused
+  (`draw_unsupported`) because standings have no draws. Web UI `src/components/scoring/FinalScoreEntry.tsx`; offline queue
+  helpers `src/lib/offline/finalResult.ts`. Gate `npm run e2e:final-score` (stand-in).

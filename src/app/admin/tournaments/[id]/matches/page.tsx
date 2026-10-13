@@ -1,7 +1,7 @@
 import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCourts, getGroups, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
+import { getBrackets, getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament, teamMap } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import { createManualMatch, deleteMatch, regenerateMatches, releaseScoringLock, updateMatchSchedule } from "./actions";
@@ -10,6 +10,14 @@ import { summarizeBrackets } from "@/lib/ops";
 import { getLiveLeasesByMatch } from "@/lib/scoringControl";
 import { EVENT_TIME_ZONE, isoToZonedInput } from "@/lib/tennis/ties";
 import SessionRowNotice from "../SessionRowNotice";
+import ResultEntryButton from "./ResultEntryButton";
+import { isDoublesMatch, scoringConfigForMatch } from "@/lib/scoring/rules";
+import { matchDayRules, resolveScoringMode } from "@/lib/matchday/rules";
+import { sportOf } from "@/lib/sports/registry";
+import { enteredSetsFromState } from "@/lib/scoring/finalScore";
+import { chessCompetitionFor, finalResultAllowed, type ResultPayload } from "@/lib/scoring/resultEntry";
+import type { ChessGameResult } from "@/lib/chess/result";
+import type { Match, MatchSnapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +33,7 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   // Re-checked on every request: the staff member's organisation must own this tournament.
   await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/matches`);
-  const [tournament, matches, teams, courts, groups, brackets, leases] = await Promise.all([
+  const [tournament, matches, teams, courts, groups, brackets, leases, snapshots, bracketRows] = await Promise.all([
     getTournament(id),
     getMatches(id),
     getTeams(id),
@@ -33,6 +41,8 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
     getGroups(id),
     summarizeBrackets(id),
     getLiveLeasesByMatch(id),
+    getSnapshots(id),
+    getBrackets(id),
   ]);
   if (!tournament) notFound();
   const zone = tournament.timezone || EVENT_TIME_ZONE;
@@ -88,6 +98,42 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
   // A chess knockout is seeded from the player list and has no groups.
   const hasGroupStage = tournament.sport !== "chess" && groups.length > 0;
   const tm = teamMap(teams);
+  // Final-result entry (Phase 2): only where the match is recorded as a final result or either way.
+  const sport = sportOf(tournament);
+  const rulesOfDay = matchDayRules(tournament.match_day_rules, tournament);
+  const snapByMatch = new Map(snapshots.map((x) => [x.match_id, x] as const));
+  const tierOf = new Map(bracketRows.map((b) => [b.id, b.tier] as const));
+  const legs: 1 | 2 = tournament.format_config?.legs === 2 ? 2 : 1;
+  const resultEntry = (m: Match) => {
+    if (!m.team_a_id || !m.team_b_id || m.status === "cancelled") return null;
+    if (!finalResultAllowed(resolveScoringMode({ matchOverride: m.scoring_mode_override, rules: rulesOfDay }))) return null;
+    const snap = snapByMatch.get(m.id) as MatchSnapshot | undefined;
+    const state = (snap?.snapshot_json ?? null) as Record<string, unknown> | null;
+    const a = tm.get(m.team_a_id);
+    const b = tm.get(m.team_b_id);
+    const rules = scoringConfigForMatch(tournament, m, m.bracket_id ? (tierOf.get(m.bracket_id) ?? null) : null, {
+      doubles: m.rubber_type ? m.rubber_type === "D" : isDoublesMatch(a, b),
+    });
+    let initial: ResultPayload | null = null;
+    if (sport.engine === "chess") {
+      const played = (state?.games ?? []) as { result: string | null; whiteSide: "A" | "B" }[];
+      if (played.length === legs && played.every((g) => g.result)) {
+        initial = {
+          chess: played.map((g): ChessGameResult => (g.result === "draw" ? "draw" : g.result === "white" ? g.whiteSide : g.whiteSide === "A" ? "B" : "A")),
+        };
+      }
+    } else if (Array.isArray(state?.completedSets) && (state.completedSets as unknown[]).length > 0) {
+      initial = { sets: enteredSetsFromState(state as never) };
+    }
+    return {
+      engine: sport.engine,
+      rules,
+      initial,
+      correcting: (snap?.last_event_number ?? 0) > 0,
+      sideA: a?.team_name ?? "Side A",
+      sideB: b?.team_name ?? "Side B",
+    };
+  };
   const liveCount = matches.filter((m) => ["live", "paused"].includes(m.status)).length;
 
   return (
@@ -169,6 +215,23 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
                     <Link href={`/referee/matches/${m.id}/score`} className="btn-primary px-2 py-1 text-xs">
                       Score
                     </Link>
+                    {(() => {
+                      const entry = resultEntry(m);
+                      return entry ? (
+                        <ResultEntryButton
+                          tournamentId={id}
+                          matchId={m.id}
+                          engine={entry.engine}
+                          rules={entry.rules}
+                          legs={legs}
+                          competition={chessCompetitionFor(m.stage)}
+                          sideA={entry.sideA}
+                          sideB={entry.sideB}
+                          initial={entry.initial}
+                          correcting={entry.correcting}
+                        />
+                      ) : null;
+                    })()}
                     {leases.has(m.id) && (
                       <form action={releaseScoringLock} className="flex items-center gap-1">
                         <input type="hidden" name="tournament_id" value={id} />

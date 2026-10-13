@@ -27,6 +27,11 @@ import ControlPanel from "./ControlPanel";
 import { useScoringControl } from "./useScoringControl";
 import { useUmpireVoice } from "./useUmpireVoice";
 import { SIDES, sideTint } from "@/lib/sides";
+import FinalScoreEntry from "@/components/scoring/FinalScoreEntry";
+import { enteredSetsFromState } from "@/lib/scoring/finalScore";
+import { RESULT_ENTERED, finalResultAllowed, type ResultPayload, type ResultProblem } from "@/lib/scoring/resultEntry";
+import { queueableResult, resultPayloadOf, resultRejection } from "@/lib/offline/finalResult";
+import type { ScoringModeChoice } from "@/lib/matchday/rules";
 
 /** "RED TEAM" / "BLUE TEAM" in its colour, when the organiser uses red and blue teams. */
 function SideChip({ side }: { side: TeamKey }) {
@@ -61,7 +66,14 @@ type Modal =
   | { kind: "end-set"; team: TeamKey | null }
   | { kind: "voice" }
   | { kind: "violation"; team: TeamKey | null; offence: Offence }
+  | { kind: "final-result"; correcting: boolean; initial: ResultPayload | null }
   | null;
+
+/** The server's (or the queue's) answer to a final result, shown in the entry form. */
+interface ResultError {
+  message: string;
+  problems: ResultProblem[];
+}
 
 /** A changeover or set break the referee is timing. */
 interface RestClock {
@@ -83,6 +95,7 @@ export default function ScoreClient({
   reopenState = null,
   redBlueTeams = false,
   tennis = false,
+  scoringMode = "point_by_point",
 }: {
   match: Match;
   tournamentName: string;
@@ -97,6 +110,8 @@ export default function ScoreClient({
   redBlueTeams?: boolean;
   /** Tennis: changeover clock, serving player in doubles, code violations. */
   tennis?: boolean;
+  /** How this match is recorded (match override → session → match-day rules). */
+  scoringMode?: ScoringModeChoice;
 }) {
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
@@ -114,6 +129,9 @@ export default function ScoreClient({
   // Only the device holding the match speaks; a read-only page stays quiet.
   // Starts from the page load and follows the organiser's setting on every sync.
   const [redBlue, setRedBlue] = useState(redBlueTeams);
+  const [resultError, setResultError] = useState<ResultError | null>(null);
+  const [resultBusy, setResultBusy] = useState(false);
+  const resultAllowed = finalResultAllowed(scoringMode);
 
   const eventNumberRef = useRef(serverSnapshot?.last_event_number ?? 0);
   const startedAtRef = useRef<string | null>(match.started_at);
@@ -219,10 +237,47 @@ export default function ScoreClient({
         setPendingCount(0);
         setSyncStatus("synced");
         setSyncError(null);
-      } else if (res.status === 409) {
-        const data = await res.json();
-        setSyncStatus("error");
-        setSyncError(data.error ?? "Sync conflict — contact the tournament manager.");
+      } else if (res.status === 400 || res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        // A final result the server refused never blocks the match: it leaves the
+        // queue (with anything queued after it), the score goes back to before it,
+        // and the referee enters it again.
+        const rejected = resultRejection(pending, res.status, data);
+        if (rejected) {
+          await offlineDb.events.bulkDelete(rejected.drop.map((e) => e.client_event_id));
+          const restore = (rejected.restore as ScoreState | null) ?? null;
+          let nextHistory = historyRef.current;
+          for (const e of [...rejected.drop].reverse()) if (e.event_type !== "UNDO") nextHistory = nextHistory.slice(0, -1);
+          commit(restore, nextHistory);
+          eventNumberRef.current = rejected.lastEventNumber;
+          const status = (restore ? "live" : match.status) as Match["status"];
+          setMatchStatus(status);
+          if (restore) {
+            await offlineDb.matchState.put({
+              match_id: match.id,
+              state: restore,
+              history: nextHistory,
+              last_event_number: rejected.lastEventNumber,
+              match_status: status,
+              updated_at: new Date().toISOString(),
+            });
+          } else {
+            await offlineDb.matchState.delete(match.id);
+          }
+          const left = pending.length - rejected.drop.length;
+          setPendingCount(left);
+          setSyncStatus(left > 0 ? "pending" : "synced");
+          setSyncError(null);
+          setResultError({ message: `Result not recorded: ${rejected.message}`, problems: rejected.problems });
+          setModal({ kind: "final-result", correcting: false, initial: resultPayloadOf(rejected.result) });
+          if (left > 0) resyncRef.current = true;
+        } else if (res.status === 409) {
+          setSyncStatus("error");
+          setSyncError((data as { error?: string }).error ?? "Sync conflict — contact the tournament manager.");
+        } else {
+          setSyncStatus("error");
+          setSyncError((data as { error?: string }).error ?? "The server refused this score.");
+        }
       } else {
         setSyncStatus("pending");
       }
@@ -237,7 +292,7 @@ export default function ScoreClient({
         queueMicrotask(() => void trySyncRef.current?.());
       }
     }
-  }, [match.id]);
+  }, [match.id, match.status, commit]);
 
   useEffect(() => {
     trySyncRef.current = trySync;
@@ -435,8 +490,13 @@ export default function ScoreClient({
         sync_status: "pending",
       };
       const nextStatus = opts.newStatus ?? matchStatus;
+      // A final result supersedes the points before it: nothing to undo back into
+      // (the server's undo stack and reopen state stop at it too). It is changed by
+      // entering a correction.
       const nextHistory = (
-        eventType === "UNDO"
+        eventType === RESULT_ENTERED
+          ? []
+          : eventType === "UNDO"
           ? historyRef.current.slice(0, -1)
           : prev
             ? [...historyRef.current, prev]
@@ -514,6 +574,74 @@ export default function ScoreClient({
       teamId: team(cur.winner).id,
       payload: { winner_team_id: team(cur.winner).id },
       newStatus: navigator.onLine ? "completed" : "pending_sync",
+    });
+  }
+
+  /**
+   * A final result typed in one go. Checked here before it is queued; a match that
+   * is already finished is corrected online (the server reopens and re-finalises
+   * it), anything else goes through the offline queue like a point.
+   */
+  async function submitResult(payload: ResultPayload) {
+    const q = queueableResult({ mode: scoringMode, engine: "games", rules: scoringConfig, payload });
+    if (!q.ok) {
+      setResultError({ message: q.problems[0]?.message ?? "Check the score.", problems: q.problems });
+      return;
+    }
+    const winnerId = q.winner ? team(q.winner).id : null;
+    if (FINISHED.includes(renderStatus)) {
+      setResultBusy(true);
+      try {
+        const st = await fetch(`/api/matches/${match.id}/state`, { cache: "no-store" });
+        const data = (await st.json()) as { snapshot: MatchSnapshot | null };
+        const res = await fetch(`/api/matches/${match.id}/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deviceId: deviceIdRef.current,
+            events: [
+              {
+                client_event_id: crypto.randomUUID(),
+                event_number: (data.snapshot?.last_event_number ?? 0) + 1,
+                event_type: RESULT_ENTERED,
+                team_id: winnerId,
+                previous_state: data.snapshot?.snapshot_json ?? null,
+                new_state: q.state,
+                payload,
+                created_at_client: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+        if (res.ok) {
+          await offlineDb.matchState.delete(match.id);
+          window.location.reload();
+          return;
+        }
+        const body = (await res.json().catch(() => null)) as { error?: string; problems?: ResultProblem[] } | null;
+        setResultError({ message: body?.error ?? "The correction was not recorded.", problems: body?.problems ?? [] });
+      } catch {
+        setResultError({ message: "A correction needs a connection. Try again when online.", problems: [] });
+      } finally {
+        setResultBusy(false);
+      }
+      return;
+    }
+    setResultError(null);
+    setModal(null);
+    void pushEvent(RESULT_ENTERED, q.state as ScoreState, {
+      teamId: winnerId,
+      payload: payload as unknown as Record<string, unknown>,
+      newStatus: q.over ? (navigator.onLine ? "completed" : "pending_sync") : "live",
+    });
+  }
+
+  function openResultEntry(correcting: boolean) {
+    setResultError(null);
+    setModal({
+      kind: "final-result",
+      correcting,
+      initial: correcting && renderState?.completedSets.length ? { sets: enteredSetsFromState(renderState) } : null,
     });
   }
 
@@ -626,7 +754,17 @@ export default function ScoreClient({
 
   const notStarted = renderStatus === "scheduled" || renderStatus === "ready" || !renderState;
   // End match fills out the last row of the three-column controls grid.
-  const controlCells = 5 + (voice.status !== "off" ? 1 : 0) + (tennis ? 1 : 0);
+  const controlCells = 5 + (voice.status !== "off" ? 1 : 0) + (tennis ? 1 : 0) + (resultAllowed ? 1 : 0);
+  // Recorded as a final result only: no points on this console.
+  const resultOnly = scoringMode === "final_score";
+  // A result entered now replaces points already scored (the server logs it as a correction).
+  const scoredSoFar = Boolean(
+    renderState &&
+      (renderState.completedSets.length > 0 ||
+        renderState.teamA.games + renderState.teamB.games > 0 ||
+        renderState.teamA.points !== "0" ||
+        renderState.teamB.points !== "0"),
+  );
   const endMatchSpan = ["", "col-span-3", "col-span-2"][controlCells % 3];
   const servingNow = doubles && renderState && !renderState.matchOver ? servingPlayer(renderState) : null;
   const bothCheckedIn = teamA.checkedIn && teamB.checkedIn;
@@ -705,8 +843,20 @@ export default function ScoreClient({
                 </button>
               </div>
             </div>
+          ) : resultOnly ? (
+            <div className="w-full max-w-sm space-y-3 text-center">
+              <p className="text-sm text-muted">This match is recorded as a final result.</p>
+              <button className="btn-primary w-full justify-center py-4 text-lg" onClick={() => openResultEntry(false)} data-testid="final-result-button">
+                Enter final result
+              </button>
+            </div>
           ) : (
             <div className="w-full max-w-sm space-y-3 text-center">
+              {resultAllowed && (
+                <button className="btn-secondary w-full justify-center" onClick={() => openResultEntry(false)} data-testid="final-result-button">
+                  Enter final result instead
+                </button>
+              )}
               <p className="label">Who serves first?</p>
               <div className="grid grid-cols-2 gap-3">
                 {(["A", "B"] as TeamKey[]).map((k) => (
@@ -852,16 +1002,28 @@ export default function ScoreClient({
                   Result will be official after sync ({pendingCount} pending).
                 </p>
               )}
-              {!readOnly && (
-                <button className="btn-secondary mt-2 text-xs" onClick={() => setModal({ kind: "confirm-undo" })}>
-                  Undo (reopen match)
-                </button>
-              )}
+              <div className="mt-2 flex flex-wrap justify-center gap-2">
+                {!readOnly && (
+                  <button className="btn-secondary text-xs" onClick={() => setModal({ kind: "confirm-undo" })}>
+                    Undo (reopen match)
+                  </button>
+                )}
+                {resultAllowed && renderFinished && pendingCount === 0 && (
+                  <button className="btn-secondary text-xs" onClick={() => openResultEntry(true)} data-testid="correct-result-button">
+                    Correct result
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
           {/* Score buttons */}
-          {!readOnly && !finished && !renderState.matchOver && (
+          {!readOnly && !finished && !renderState.matchOver && resultOnly && (
+            <button className="btn-primary mt-3 w-full justify-center py-4 text-lg" onClick={() => openResultEntry(scoredSoFar)} data-testid="final-result-button">
+              Enter final result
+            </button>
+          )}
+          {!readOnly && !finished && !renderState.matchOver && !resultOnly && (
             <>
               <div className="mt-3 grid flex-1 grid-cols-2 gap-3" style={{ minHeight: "34vh" }}>
                 {(["A", "B"] as TeamKey[]).map((k) => (
@@ -924,6 +1086,11 @@ export default function ScoreClient({
                     data-testid="voice-mute-control"
                   >
                     {voice.settings.muted ? "🔊 Unmute" : "🔇 Mute voice"}
+                  </button>
+                )}
+                {resultAllowed && (
+                  <button className="btn-secondary py-3" onClick={() => openResultEntry(scoredSoFar)} data-testid="final-result-button">
+                    Final result
                   </button>
                 )}
                 <button
@@ -1017,6 +1184,24 @@ export default function ScoreClient({
             )}
             {modal.kind === "voice" && (
               <VoicePanel voice={voice} onClose={() => setModal(null)} />
+            )}
+            {modal.kind === "final-result" && (
+              <FinalScoreEntry
+                engine="games"
+                rules={scoringConfig}
+                sideA={teamA.name}
+                sideB={teamB.name}
+                initial={modal.initial}
+                correcting={modal.correcting}
+                busy={resultBusy}
+                error={resultError?.message ?? null}
+                problems={resultError?.problems ?? null}
+                onSubmit={(payload) => void submitResult(payload)}
+                onCancel={() => {
+                  setResultError(null);
+                  setModal(null);
+                }}
+              />
             )}
             {modal.kind === "confirm-undo" && (
               <>
