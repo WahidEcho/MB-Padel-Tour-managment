@@ -56,8 +56,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   it that way. Logic in `src/lib/players/` (claim, same-person rule, E.164, share links); admin tab
   `admin/tournaments/[id]/players`; app API `/me/player`, `/me/player/claim`, `/me/player/photo`; checked in
   `scripts/e2e/mobile-api.ts`. No age question at sign-in.
-- Database gate (still open): `supabase/gate/close_open_access.sql` — apply only after
-  production's `SUPABASE_KEY` is the secret key and `/api/health/db` reports `"key":"secret"`.
+- Database gate (still open): production's `SUPABASE_KEY` is already the secret key (13 Oct 2026; `/api/health/db`
+  reports `"key":"secret"` via the `rls_canary` table). Next: run `supabase/gate/close_open_access.sql` (rollback
+  `reopen_open_access.sql`). It must be on the live project before migration 0023 (organisations) is applied there.
+  After it, `.env.local`'s anon key can no longer read the live project; use the stand-in or the secret key.
 - Messaging (Admin → Announcements): email via Resend and WhatsApp Cloud API, one `message_deliveries` row per
   recipient per channel, chunked drain (`api/internal/messages/drain`, cron `supabase/ops/messaging_cron.sql`),
   webhooks `api/webhooks/resend|whatsapp`, `sendTransactional` in `src/lib/messaging/queue.ts`. Docs, env vars and
