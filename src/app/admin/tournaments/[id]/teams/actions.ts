@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { recalcStandings } from "@/lib/ops";
 import { getTournament } from "@/lib/data";
@@ -35,8 +35,8 @@ function photoPatch(formData: FormData, prefix: string) {
 }
 
 export async function addTeam(formData: FormData) {
-  const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   // A session's pairs are its teams; they are built from its players, not typed here.
   refuse(await tournamentRowRefusal(tournamentId));
   const tournament = await getTournament(tournamentId);
@@ -121,8 +121,8 @@ export async function addTeam(formData: FormData) {
 }
 
 export async function updateTeam(formData: FormData) {
-  const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   const teamId = String(formData.get("team_id"));
   refuse(await entityRefusal(tournamentId, "teams", teamId));
   const tournament = await getTournament(tournamentId);
@@ -196,8 +196,8 @@ export async function updateTeam(formData: FormData) {
 }
 
 export async function deleteTeam(formData: FormData) {
-  const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   const teamId = String(formData.get("team_id"));
   // A session's pair team carries its matches and, through them, its points.
   refuse(await entityRefusal(tournamentId, "teams", teamId));
@@ -215,8 +215,8 @@ export async function deleteTeam(formData: FormData) {
 }
 
 export async function setCheckIn(formData: FormData) {
-  const role = await requirePermission("check_in");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("check_in", tournamentId)).staff.role;
   const teamId = String(formData.get("team_id"));
   const status = String(formData.get("status"));
   if (!["not_arrived", "checked_in", "no_show", "disqualified"].includes(status)) {
@@ -240,8 +240,8 @@ export async function setCheckIn(formData: FormData) {
 }
 
 export async function setTeamStatus(formData: FormData) {
-  const role = await requirePermission("score_match"); // admin/manager/referee can DQ + restore
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("score_match", tournamentId)).staff.role;
   const teamId = String(formData.get("team_id"));
   const status = String(formData.get("status"));
   if (!["active", "disqualified", "withdrawn"].includes(status)) throw new Error("Bad status");
@@ -276,7 +276,7 @@ export interface ImportRow {
 }
 
 export async function importTeams(tournamentId: string, rows: ImportRow[]) {
-  const role = await requirePermission("manage_teams");
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   refuse(await tournamentRowRefusal(tournamentId));
   let imported = 0;
   for (const row of rows) {

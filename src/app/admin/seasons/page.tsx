@@ -1,6 +1,6 @@
-import { db } from "@/lib/supabase";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
-import { listSeasons } from "@/lib/friendly/data";
+import { listSeasons, listSessions } from "@/lib/friendly/data";
+import { requireStaff } from "@/lib/guard";
 import { createSeason, deleteSeason, setSeasonStatus, updateSeason } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -12,17 +12,14 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function SeasonsPage() {
-  const seasons = await listSeasons();
+  const staff = await requireStaff(["admin", "manager"], "/admin/seasons");
+  const [seasons, sessions] = await Promise.all([listSeasons(staff.orgId), listSessions(staff.orgId)]);
 
   // Session counts per season, so an admin can see what a season holds
   // before closing or deleting it.
-  const { data: sessionRows } = await db()
-    .from("friendly_sessions")
-    .select("season_id")
-    .not("season_id", "is", null);
   const counts = new Map<string, number>();
-  for (const r of (sessionRows ?? []) as { season_id: string }[]) {
-    counts.set(r.season_id, (counts.get(r.season_id) ?? 0) + 1);
+  for (const r of sessions) {
+    if (r.season_id) counts.set(r.season_id, (counts.get(r.season_id) ?? 0) + 1);
   }
 
   const active = seasons.find((s) => s.status === "active");

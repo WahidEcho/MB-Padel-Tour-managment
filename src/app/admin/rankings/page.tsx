@@ -1,6 +1,6 @@
 import Link from "next/link";
 import RankingTable from "@/components/RankingTable";
-import { requirePermission } from "@/lib/guard";
+import { requireStaff, requireStaffPermission } from "@/lib/guard";
 import { revalidatePath } from "next/cache";
 import { getRankingSnapshot, listPublicPlayers, listSeasons } from "@/lib/friendly/data";
 import { recalcSeasonAndLifetime } from "@/lib/friendly/ops";
@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 
 async function recalcAction(formData: FormData) {
   "use server";
-  await requirePermission("manage_sessions");
+  const staff = await requireStaffPermission("manage_sessions");
   const seasonId = String(formData.get("season_id") ?? "") || null;
-  await recalcSeasonAndLifetime(seasonId);
+  // Only this organisation's tables; a season of another one is ignored by the recalculation.
+  await recalcSeasonAndLifetime(seasonId, staff.orgId);
   revalidatePath("/admin/rankings");
 }
 
@@ -20,16 +21,18 @@ export default async function AdminRankingsPage({
 }: {
   searchParams: Promise<{ scope?: string; season?: string }>;
 }) {
+  const staff = await requireStaff(["admin", "manager"], "/admin/rankings");
   const { scope: rawScope, season: rawSeason } = await searchParams;
-  const seasons = await listSeasons();
+  const seasons = await listSeasons(staff.orgId);
   const active = seasons.find((s) => s.status === "active");
 
   const scope = rawScope === "lifetime" ? "lifetime" : "season";
-  const seasonId = rawSeason ?? active?.id ?? null;
+  // Only this organisation's seasons can be shown.
+  const seasonId = seasons.some((s) => s.id === rawSeason) ? rawSeason! : (active?.id ?? null);
 
   const rows =
     scope === "lifetime"
-      ? await getRankingSnapshot("lifetime", null)
+      ? await getRankingSnapshot("lifetime", staff.orgId)
       : seasonId
         ? await getRankingSnapshot("season", seasonId)
         : [];

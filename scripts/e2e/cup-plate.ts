@@ -295,12 +295,12 @@ async function sessionGuards(tid: string) {
     const forgedMatch = await deleteManualMatch(tid, unstarted[0], "e2e");
     check(
       "naming a real tournament does not unlock a session's match",
-      !forgedMatch.ok && forgedMatch.message.includes("belongs to a different tournament"),
+      !forgedMatch.ok && forgedMatch.message.includes("is not part of this tournament"),
       forgedMatch.ok ? "deleted" : forgedMatch.message,
     );
     check(
       "…nor a session's team",
-      (await entityRefusal(tid, "teams", sessionTeam))?.includes("belongs to a different tournament") === true,
+      (await entityRefusal(tid, "teams", sessionTeam))?.includes("is not part of this tournament") === true,
     );
     const sessionCourt = ((await db().from("courts").select("id").eq("tournament_id", backingId).limit(1)).data ?? [])[0]?.id as string;
     const sessionPlacement = ((await db().from("group_teams").select("id").eq("tournament_id", backingId).limit(1)).data ?? [])[0]?.id as string;

@@ -2,11 +2,28 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { NOT_ALLOWED, NOT_FOUND, requireStaffPermission, type StaffPrincipal } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { normalizeMobile } from "@/lib/friendly/mobile";
 import { mergePlayerProfiles } from "@/lib/friendly/ops";
+import { ensureOrgPlayer, orgsOfProfile, profileInOrg } from "@/lib/orgs/scope";
 import { DEFAULT_FOCAL } from "@/lib/portrait";
+
+/*
+ * A player profile is the player's own (name, photo, phone, email, birth year,
+ * gender); approval, notes and level are each organisation's own
+ * (organization_players). An organisation changes the person's own fields only
+ * while it is the only organisation that has the player, or as a platform admin:
+ * otherwise one organisation could rewrite another's player.
+ */
+
+/** The staff member, once the profile is one of their organisation's players ("not found" otherwise). */
+async function requireOwnProfile(profileId: string): Promise<{ staff: StaffPrincipal; onlyOrg: boolean }> {
+  const staff = await requireStaffPermission("manage_players");
+  if (!(await profileInOrg(staff.orgId, profileId))) throw new Error(NOT_FOUND);
+  const orgs = await orgsOfProfile(profileId);
+  return { staff, onlyOrg: orgs.every((o) => o === staff.orgId) };
+}
 
 /**
  * Optional player details, shared by create and update.
@@ -33,12 +50,16 @@ function detailFields(formData: FormData) {
   }
 
   return {
-    email,
-    birth_year: birthYear,
-    skill_level: text("skill_level"),
-    gender,
-    notes: text("notes"),
-    ...photoFields(formData),
+    person: {
+      email,
+      birth_year: birthYear,
+      gender,
+      ...photoFields(formData),
+    },
+    org: {
+      level: text("skill_level"),
+      notes: text("notes"),
+    },
   };
 }
 
@@ -61,19 +82,25 @@ function photoFields(formData: FormData) {
   };
 }
 
+/** Merging two people's profiles is Move Beyond's (platform admins only). */
 export async function mergePlayersAction(formData: FormData) {
-  const role = await requirePermission("manage_players");
+  const staff = await requireStaffPermission("manage_players");
+  if (!staff.platformAdmin) throw new Error(NOT_ALLOWED);
   const survivorId = String(formData.get("survivor_id") ?? "");
   const absorbedId = String(formData.get("absorbed_id") ?? "");
   if (!survivorId || !absorbedId) throw new Error("Pick both players to merge");
+  if (!(await profileInOrg(staff.orgId, survivorId)) || !(await profileInOrg(staff.orgId, absorbedId))) throw new Error(NOT_FOUND);
 
-  await mergePlayerProfiles(survivorId, absorbedId, role);
+  await mergePlayerProfiles(survivorId, absorbedId, staff.role);
+  // The survivor keeps the absorbed player's organisations.
+  for (const org of await orgsOfProfile(absorbedId)) await ensureOrgPlayer(org, survivorId, "link", "approved");
   revalidatePath("/admin/players");
   revalidatePath("/admin/rankings");
 }
 
 export async function createPlayerProfile(formData: FormData) {
-  const role = await requirePermission("manage_players");
+  const staff = await requireStaffPermission("manage_players");
+  const role = staff.role;
   const publicName = String(formData.get("public_name") ?? "").trim();
   if (!publicName) throw new Error("Player name is required");
 
@@ -90,10 +117,15 @@ export async function createPlayerProfile(formData: FormData) {
       .eq("mobile_normalized", mobile)
       .maybeSingle();
     if (existing) {
-      throw new Error(`That mobile already belongs to "${existing.public_name}". Edit that profile instead.`);
+      // Only name the existing player when they are already this organisation's.
+      if (await profileInOrg(staff.orgId, existing.id)) {
+        throw new Error(`That mobile already belongs to "${existing.public_name}". Edit that profile instead.`);
+      }
+      throw new Error("That mobile already belongs to a player on Move Score. Ask Move Beyond to add them to your organisation.");
     }
   }
 
+  const details = detailFields(formData);
   const { data, error } = await db()
     .from("player_profiles")
     .insert({
@@ -102,11 +134,21 @@ export async function createPlayerProfile(formData: FormData) {
       // Admin-created players are trusted immediately; only self-registrations
       // sit in the pending queue.
       approval_status: "approved",
-      ...detailFields(formData),
+      ...details.person,
+      skill_level: details.org.level,
+      notes: details.org.notes,
     })
     .select()
     .single();
   if (error) throw new Error(error.message);
+  await db().from("organization_players").insert({
+    organization_id: staff.orgId,
+    player_profile_id: data.id,
+    approval_status: "approved",
+    notes: details.org.notes,
+    level: details.org.level,
+    source: "admin",
+  });
 
   await audit({
     actor_role: role,
@@ -119,9 +161,10 @@ export async function createPlayerProfile(formData: FormData) {
 }
 
 export async function updatePlayerProfile(formData: FormData) {
-  const role = await requirePermission("manage_players");
   const id = String(formData.get("profile_id") ?? "");
   if (!id) throw new Error("Player is required");
+  const { staff, onlyOrg } = await requireOwnProfile(id);
+  const role = staff.role;
   const publicName = String(formData.get("public_name") ?? "").trim();
   if (!publicName) throw new Error("Player name is required");
 
@@ -130,57 +173,79 @@ export async function updatePlayerProfile(formData: FormData) {
   if (rawMobile && !mobile) {
     throw new Error("That mobile number doesn't look valid. Use digits, optionally with a + country code.");
   }
+  const details = detailFields(formData);
+  const now = new Date().toISOString();
 
-  if (mobile) {
-    const { data: clash } = await db()
-      .from("player_profiles")
-      .select("id, public_name")
-      .eq("mobile_normalized", mobile)
-      .neq("id", id)
-      .maybeSingle();
-    if (clash) {
-      throw new Error(`That mobile already belongs to "${clash.public_name}".`);
+  // The organisation's own part, always.
+  const { error: orgError } = await db()
+    .from("organization_players")
+    .update({ notes: details.org.notes, level: details.org.level, updated_at: now })
+    .eq("organization_id", staff.orgId)
+    .eq("player_profile_id", id);
+  if (orgError) throw new Error(orgError.message);
+
+  // The person's own fields: only while no other organisation has the player.
+  if (onlyOrg || staff.platformAdmin) {
+    if (mobile) {
+      const { data: clash } = await db()
+        .from("player_profiles")
+        .select("id, public_name")
+        .eq("mobile_normalized", mobile)
+        .neq("id", id)
+        .maybeSingle();
+      if (clash) {
+        throw new Error((await profileInOrg(staff.orgId, clash.id)) ? `That mobile already belongs to "${clash.public_name}".` : "That mobile already belongs to another player.");
+      }
     }
+    const { error } = await db()
+      .from("player_profiles")
+      .update({
+        public_name: publicName,
+        mobile_normalized: mobile,
+        ...details.person,
+        // Mirrored for the pages that still read them from the profile.
+        skill_level: details.org.level,
+        notes: details.org.notes,
+        updated_at: now,
+      })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
   }
-
-  const { error } = await db()
-    .from("player_profiles")
-    .update({
-      public_name: publicName,
-      mobile_normalized: mobile,
-      ...detailFields(formData),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
 
   await audit({
     actor_role: role,
     action: "PLAYER_PROFILE_UPDATED",
     entity_type: "player_profile",
     entity_id: id,
-    new_value: { public_name: publicName, has_mobile: Boolean(mobile) },
+    new_value: { public_name: publicName, has_mobile: Boolean(mobile), person_fields: onlyOrg || staff.platformAdmin },
   });
   revalidatePath("/admin/players");
 }
 
 export async function setPlayerApproval(formData: FormData) {
-  const role = await requirePermission("manage_players");
   const id = String(formData.get("profile_id") ?? "");
   const status = String(formData.get("approval_status") ?? "");
   if (!id) throw new Error("Player is required");
   if (!["pending", "approved", "rejected"].includes(status)) {
     throw new Error("Unknown approval status");
   }
+  const { staff, onlyOrg } = await requireOwnProfile(id);
+  const now = new Date().toISOString();
 
   const { error } = await db()
-    .from("player_profiles")
-    .update({ approval_status: status, updated_at: new Date().toISOString() })
-    .eq("id", id);
+    .from("organization_players")
+    .update({ approval_status: status, updated_at: now })
+    .eq("organization_id", staff.orgId)
+    .eq("player_profile_id", id);
   if (error) throw new Error(error.message);
+  // The profile's own approval gates the player's photo on public pages; an
+  // organisation sets it only for a player no other organisation has.
+  if (onlyOrg || staff.platformAdmin) {
+    await db().from("player_profiles").update({ approval_status: status, updated_at: now }).eq("id", id).neq("approval_status", "merged");
+  }
 
   await audit({
-    actor_role: role,
+    actor_role: staff.role,
     action: "PLAYER_APPROVAL_CHANGED",
     entity_type: "player_profile",
     entity_id: id,
@@ -190,12 +255,10 @@ export async function setPlayerApproval(formData: FormData) {
 }
 
 /**
- * Record or withdraw consent for one messaging channel.
- * Nothing sends messages yet — this exists so consent is captured from the
- * start rather than retrofitted across an existing player base (PDPL).
+ * Record or withdraw consent for one messaging channel. Consent is the
+ * player's own, so it follows the same rule as the person's fields.
  */
 export async function setPlayerConsent(formData: FormData) {
-  const role = await requirePermission("manage_players");
   const id = String(formData.get("profile_id") ?? "");
   const channel = String(formData.get("channel") ?? "");
   const granted = formData.get("granted") === "1";
@@ -203,6 +266,8 @@ export async function setPlayerConsent(formData: FormData) {
   if (!["whatsapp", "web_push", "email"].includes(channel)) {
     throw new Error("Unknown messaging channel");
   }
+  const { staff, onlyOrg } = await requireOwnProfile(id);
+  if (!onlyOrg && !staff.platformAdmin) throw new Error("This player's consent is their own; they change it in the Move Score app.");
 
   const now = new Date().toISOString();
   const { error } = await db().from("player_consents").upsert(
@@ -220,7 +285,7 @@ export async function setPlayerConsent(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await audit({
-    actor_role: role,
+    actor_role: staff.role,
     action: granted ? "PLAYER_CONSENT_GRANTED" : "PLAYER_CONSENT_REVOKED",
     entity_type: "player_profile",
     entity_id: id,

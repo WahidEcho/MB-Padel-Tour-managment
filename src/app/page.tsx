@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { currentRole } from "@/lib/auth";
+import { currentStaff } from "@/lib/auth/staff";
 import { db } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const role = await currentRole();
+  const role = (await currentStaff())?.role ?? null;
   const { data: tournaments } = await db()
     .from("tournaments")
     .select("id, name, slug, status, sport")

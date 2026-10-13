@@ -1,6 +1,6 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { notFound } from "next/navigation";
 import { getTournament } from "@/lib/data";
-import { requireRole } from "@/lib/guard";
 import { matchDayRules, MINUTES_RANGE, EXTENSIONS_RANGE, type MatchDayRules } from "@/lib/matchday/rules";
 import { sportOf, type SportSupports } from "@/lib/sports/registry";
 import { saveMatchDayRules } from "./actions";
@@ -117,7 +117,8 @@ const MODE_LABELS: [string, string][] = [
 
 export default async function MatchDayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requireRole(["admin", "manager"], `/admin/tournaments/${id}/match-day`);
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/match-day`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   const sport = sportOf(tournament);

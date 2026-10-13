@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { getTeams, getTournament } from "@/lib/data";
 import ImportClient from "./ImportClient";
 import SessionRowNotice from "../../SessionRowNotice";
@@ -6,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ImportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/teams/import`);
   const [teams, tournament] = await Promise.all([getTeams(id), getTournament(id)]);
   if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Players and pairs" />;
   return (

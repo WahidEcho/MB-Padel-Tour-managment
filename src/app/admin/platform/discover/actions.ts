@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requirePlatformPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { DEFAULT_FLAGS } from "@/lib/mobile/server";
 import { DISCOVER_ORDER_KEY, MAX_DISCOVER_ITEMS } from "@/lib/platform/discoverOrder";
@@ -24,7 +24,7 @@ async function saveSetting(key: string, value: unknown, role: string) {
  * kept in step with the order so older app builds see the same thing.
  */
 export async function saveDiscoverOrder(formData: FormData) {
-  const role = await requirePermission("manage_platform");
+  const role = (await requirePlatformPermission()).role;
   const [groupsRes, tournamentsRes] = await Promise.all([
     db().from("event_groups").select("id"),
     db().from("tournaments").select("id").eq("kind", "tournament").is("event_group_id", null),
@@ -52,7 +52,7 @@ export async function saveDiscoverOrder(formData: FormData) {
 
 /** The app's feature switches. Every known flag is saved as on or off; a new one may be added by name. */
 export async function saveFlags(formData: FormData) {
-  const role = await requirePermission("manage_platform");
+  const role = (await requirePlatformPermission()).role;
   const { data } = await db().from("platform_settings").select("value_json").eq("key", "flags").maybeSingle();
   const stored = ((data as { value_json: Record<string, unknown> } | null)?.value_json ?? {}) as Record<string, unknown>;
   const names = new Set([...Object.keys(DEFAULT_FLAGS), ...Object.keys(stored)].filter((k) => FLAG_NAME.test(k)));

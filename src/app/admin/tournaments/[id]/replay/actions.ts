@@ -1,6 +1,6 @@
 "use server";
 
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { db } from "@/lib/supabase";
 import type { ScoreState } from "@/lib/scoring/engine";
@@ -17,7 +17,7 @@ export interface RubberProgress {
  * Demo events only: a replay writes results nobody played.
  */
 export async function replayProgressAction(tournamentId: string, matchIds: string[]): Promise<RubberProgress[]> {
-  await requirePermission("score_match");
+  await requireTournamentPermission("score_match", tournamentId);
   refuse(await tournamentRowRefusal(tournamentId));
   const { data: t } = await db().from("tournaments").select("is_demo").eq("id", tournamentId).single();
   if (!t?.is_demo) throw new Error("Replays are for demo events only.");

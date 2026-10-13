@@ -1,7 +1,23 @@
 import { db } from "./supabase";
+import { currentStaffIfAny, type StaffPrincipal } from "./auth/staff";
+import { orgOfTournament } from "./orgs/scope";
 
+/** Who did it, for the audit row: a member's user id, or "code:<id>" for an event code. */
+function actorUserId(staff: StaffPrincipal | null): string | null {
+  if (!staff) return null;
+  if (staff.userId) return staff.userId;
+  if (staff.codeId) return `code:${staff.codeId}`;
+  return null;
+}
+
+/**
+ * Records a state change. The actor's user (or event code), organisation and role
+ * come from this request's staff principal; the organisation is the tournament's
+ * when the row hangs off one. Outside a request (scripts) they are left as given.
+ */
 export async function audit(entry: {
   tournament_id?: string | null;
+  organization_id?: string | null;
   actor_role?: string | null;
   action: string;
   entity_type?: string;
@@ -17,9 +33,15 @@ export async function audit(entry: {
   const newValue = isUuid
     ? (entry.new_value ?? null)
     : { entity_key: id, ...(entry.new_value && typeof entry.new_value === "object" ? entry.new_value : { value: entry.new_value ?? null }) };
+  const staff = await currentStaffIfAny();
+  const organizationId =
+    entry.organization_id ?? (entry.tournament_id ? await orgOfTournament(entry.tournament_id).catch(() => null) : null) ?? staff?.orgId ?? null;
   const { error } = await db().from("audit_logs").insert({
     tournament_id: entry.tournament_id ?? null,
-    actor_role: entry.actor_role ?? null,
+    organization_id: organizationId,
+    actor_user_id: actorUserId(staff),
+    // The organisation role (owner, not the admin it acts as) when a staff member did it.
+    actor_role: staff?.orgRole ?? entry.actor_role ?? null,
     action: entry.action,
     entity_type: entry.entity_type ?? null,
     entity_id: isUuid ? id : null,

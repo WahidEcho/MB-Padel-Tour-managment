@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/supabase";
-import { requireRole } from "@/lib/guard";
+import { requirePlatformPage } from "@/lib/guard";
 import { DEFAULT_FLAGS } from "@/lib/mobile/server";
 import { DISCOVER_ORDER_KEY, inDiscoverOrder, parseDiscoverOrder } from "@/lib/platform/discoverOrder";
 import { saveDiscoverOrder, saveFlags } from "./actions";
@@ -21,7 +21,7 @@ interface Item {
  * (featured events and live tournaments) and the app's feature flags. Admins only.
  */
 export default async function DiscoverSettingsPage() {
-  await requireRole(["admin"], "/admin/platform/discover");
+  await requirePlatformPage("/admin/platform/discover");
   const [groupsRes, tournamentsRes, settingsRes, liveRes] = await Promise.all([
     db().from("event_groups").select("id, name, city, starts_on, ends_on, featured_rank").order("featured_rank", { ascending: true }),
     db()

@@ -1,28 +1,49 @@
 import { NextResponse } from "next/server";
-import { APP_SESSION_HOURS, createSessionToken, roleForPassword } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { clientIpFrom } from "@/lib/ratelimit";
 import { staffLoginAllowed } from "@/lib/staffLogin";
 import { readJson } from "@/lib/mobile/http";
+import { STAFF_APP_HOURS, signInWithAccessCode } from "@/lib/auth/staff";
+
+const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
- * The app's staff sign-in: the same access codes as the website, exchanged for
- * the same signed role token, returned in the body for the app to keep in its
- * secure store and send as `Authorization: Bearer`.
+ * The app's staff sign-in: an organisation's event code (or, for Move Beyond
+ * until they are retired, a shared role password) exchanged for a signed staff
+ * token, returned in the body for the app to keep in its secure store and send
+ * as `Authorization: Bearer`. Every request with it is checked again: a revoked
+ * code fails the next call with 401 and a clear message, and the app keeps its
+ * queued points until a new code is entered.
  */
 export async function POST(request: Request) {
   const gate = await staffLoginAllowed(clientIpFrom(request.headers));
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many attempts from this network. Wait a few minutes and try again." },
-      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), "Cache-Control": "no-store" } },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), ...NO_STORE } },
     );
   }
-  const body = await readJson<{ code?: string }>(request);
-  const code = String(body?.code ?? "").slice(0, 200);
-  const role = code ? roleForPassword(code) : null;
-  if (!role) return NextResponse.json({ error: "Wrong access code." }, { status: 401, headers: { "Cache-Control": "no-store" } });
-  await audit({ action: "LOGIN", actor_role: role, new_value: { via: "app" } });
-  const expiresAt = new Date(Date.now() + APP_SESSION_HOURS * 3600_000).toISOString();
-  return NextResponse.json({ token: createSessionToken(role, APP_SESSION_HOURS), role, expiresAt }, { headers: { "Cache-Control": "no-store" } });
+  const body = await readJson<{ code?: unknown }>(request);
+  const code = typeof body?.code === "string" ? body.code.slice(0, 200) : "";
+  const r = await signInWithAccessCode(code, STAFF_APP_HOURS);
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 401, headers: NO_STORE });
+  // Never the code itself: which code (by id) and which organisation.
+  await audit({
+    organization_id: r.orgId,
+    actor_role: r.role,
+    action: "LOGIN",
+    entity_type: r.codeId ? "organization_code" : undefined,
+    entity_id: r.codeId,
+    new_value: { via: "app", kind: r.kind },
+  });
+  return NextResponse.json(
+    {
+      token: r.token,
+      role: r.role,
+      expiresAt: r.expiresAt,
+      organization: { name: r.orgName, slug: r.orgSlug },
+      scope: r.scopeTournamentId ? { tournamentId: r.scopeTournamentId } : null,
+    },
+    { headers: NO_STORE },
+  );
 }

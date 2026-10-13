@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import {
   getBrackets,
@@ -31,6 +32,8 @@ const TIER_LABEL: Record<BracketTier, string> = { cup: "Cup", plate: "Plate" };
 
 export default async function BracketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/bracket`);
   const [brackets, teams, standings, matches, tournament, summaries] = await Promise.all([
     getBrackets(id),
     getTeams(id),

@@ -1,4 +1,4 @@
-import { currentRole, can } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import { allDeliveries, getAnnouncement } from "@/lib/messaging/data";
 import { STATUS_LABEL, type DeliveryStatus } from "@/lib/messaging/status";
 
@@ -11,8 +11,10 @@ function cell(v: unknown): string {
 
 /** Every recipient of an announcement and what happened, as CSV. */
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!can(await currentRole(), "send_messages")) return new Response("Not allowed", { status: 403 });
   const { id } = await ctx.params;
+  // The announcement's own organisation must be the staff member's; else the same 404 as a missing one.
+  const gate = await staffRoute("send_messages", { announcement: id });
+  if (!gate.ok) return gate.response;
   const a = await getAnnouncement(id);
   if (!a) return new Response("Not found", { status: 404 });
   const rows = await allDeliveries(id);

@@ -50,6 +50,8 @@ export interface AnnouncementRow {
   whatsapp_template: WaTemplateChoice | null;
   cta: { label: string; url: string } | null;
   tournament_id: string | null;
+  /** The sending organisation: the audience is resolved inside it. */
+  organization_id: string;
   status: "draft" | "sending" | "sent" | "cancelled";
   recipients_total: number;
   push_dedupe_key: string | null;
@@ -305,8 +307,8 @@ export async function baseVars(tournamentId: string | null): Promise<Vars> {
 }
 
 /** The audience with announcement-wide values filled in. */
-export async function recipientsOf(a: Pick<AnnouncementRow, "audience" | "tournament_id">) {
-  const [resolved, base] = await Promise.all([resolveAudience(a.audience), baseVars(a.tournament_id)]);
+export async function recipientsOf(a: Pick<AnnouncementRow, "audience" | "tournament_id" | "organization_id">) {
+  const [resolved, base] = await Promise.all([resolveAudience(a.audience, a.organization_id), baseVars(a.tournament_id)]);
   return { ...resolved, recipients: resolved.recipients.map((r) => ({ ...r, vars: mergeVars(base, r.vars) })), base };
 }
 

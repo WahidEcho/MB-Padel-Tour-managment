@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { refuse, tournamentOrSessionRefusal } from "@/lib/rowGuards";
 import { DEFAULT_MATCH_DAY_RULES, matchDayRules, type MatchDayRules } from "@/lib/matchday/rules";
@@ -33,8 +33,8 @@ function rulesFromForm(formData: FormData): Record<string, unknown> {
  * before match day existed).
  */
 export async function saveMatchDayRules(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id") ?? "");
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   refuse(await tournamentOrSessionRefusal(id));
   const { data: t } = await db().from("tournaments").select("sport, match_day_rules").eq("id", id).single();
   const row = t as { sport: string; match_day_rules: Record<string, unknown> | null } | null;

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { listSeasons } from "@/lib/friendly/data";
+import { requireStaff } from "@/lib/guard";
 import { createSessionAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewSessionPage() {
-  const seasons = await listSeasons();
+  const staff = await requireStaff(["admin", "manager"], "/admin/friendly-sessions/new");
+  const seasons = await listSeasons(staff.orgId);
   const active = seasons.find((s) => s.status === "active");
 
   return (

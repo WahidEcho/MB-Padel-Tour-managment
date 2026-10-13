@@ -185,7 +185,7 @@ async function main() {
       { courtCall: boot.json?.matchDay?.courtCall, scoringMode: boot.json?.scoringMode },
     );
     const noAuth = await call("GET", `/api/mobile/v1/referee/matches/${mid}/bootstrap`);
-    check(noAuth.status === 403, "Bootstrap needs the referee token");
+    check(noAuth.status === 401, "Bootstrap needs the referee token (401: signed out)", noAuth.status);
 
     // The app scores under its installation id, as the real console does.
     const deviceId = installationId;

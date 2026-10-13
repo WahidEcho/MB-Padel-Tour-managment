@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { fillMissingCodes, resetPlayerCode } from "@/lib/players/claims";
@@ -22,8 +22,8 @@ async function playerIn(tournamentId: string, playerId: string): Promise<{ id: s
 
 /** A new code; the old one stops working and the account it linked lets go. */
 export async function resetCode(formData: FormData) {
-  const role = await requirePermission("manage_players");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_players", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const player = await playerIn(id, String(formData.get("player_id")));
   if (!player) throw new Error("That player is not in this tournament.");
@@ -36,8 +36,8 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The player's own phone and email, which the share links use. */
 export async function savePlayerContact(formData: FormData) {
-  const role = await requirePermission("manage_players");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_players", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const player = await playerIn(id, String(formData.get("player_id")));
   if (!player) throw new Error("That player is not in this tournament.");
@@ -66,8 +66,8 @@ export interface SendCodeState {
  * Contact: the player's own, else their profile's, else (WhatsApp) the team's.
  */
 export async function sendCode(_prev: SendCodeState | null, formData: FormData): Promise<SendCodeState> {
-  const role = await requirePermission("send_messages");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("send_messages", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const channel = formData.get("channel") === "whatsapp" ? "whatsapp" : "email";
   const { data } = await db()
@@ -105,8 +105,8 @@ export async function sendCode(_prev: SendCodeState | null, formData: FormData):
 
 /** Codes for any player without one. */
 export async function fillCodes(formData: FormData) {
-  const role = await requirePermission("manage_players");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_players", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const made = await fillMissingCodes(id);
   await audit({ tournament_id: id, actor_role: role, action: "PLAYER_CODES_FILLED", entity_type: "tournament", entity_id: id, new_value: { count: made } });

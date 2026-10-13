@@ -18,6 +18,7 @@ import type {
   Season,
 } from "../types";
 import { DEFAULT_FOCAL } from "../portrait";
+import { orgTournamentIds } from "../orgs/scope";
 
 /* ---------------- Sessions ---------------- */
 
@@ -43,36 +44,48 @@ export async function getSessionByTournament(
   return data as FriendlySession | null;
 }
 
-export async function listSessions(seasonId?: string): Promise<FriendlySession[]> {
-  let q = db().from("friendly_sessions").select("*");
-  if (seasonId) q = q.eq("season_id", seasonId);
-  const { data } = await q.order("starts_at", { ascending: false, nullsFirst: false });
-  return (data ?? []) as FriendlySession[];
+/** An organisation's sessions (a session's organisation is its hidden tournament's). */
+export async function listSessions(orgId: string, seasonId?: string): Promise<FriendlySession[]> {
+  const ids = await orgTournamentIds(orgId, ["friendly_session"]);
+  if (ids.length === 0) return [];
+  const out: FriendlySession[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    let q = db().from("friendly_sessions").select("*").in("tournament_id", ids.slice(i, i + 200));
+    if (seasonId) q = q.eq("season_id", seasonId);
+    const { data } = await q;
+    out.push(...((data ?? []) as FriendlySession[]));
+  }
+  const at = (s: FriendlySession) => (s.starts_at ? Date.parse(s.starts_at) : -Infinity);
+  return out.sort((a, b) => at(b) - at(a));
 }
 
 /* ---------------- Seasons and categories ---------------- */
 
-export async function listSeasons(): Promise<Season[]> {
+/** An organisation's seasons. */
+export async function listSeasons(orgId: string): Promise<Season[]> {
   const { data } = await db()
     .from("seasons")
     .select("*")
+    .eq("organization_id", orgId)
     .order("starts_on", { ascending: false, nullsFirst: false });
   return (data ?? []) as Season[];
 }
 
-export async function getActiveSeason(): Promise<Season | null> {
+export async function getActiveSeason(orgId: string): Promise<Season | null> {
   const { data } = await db()
     .from("seasons")
     .select("*")
+    .eq("organization_id", orgId)
     .eq("status", "active")
     .maybeSingle();
   return data as Season | null;
 }
 
-export async function listRankingCategories(): Promise<RankingCategory[]> {
+export async function listRankingCategories(orgId: string): Promise<RankingCategory[]> {
   const { data } = await db()
     .from("ranking_categories")
     .select("*")
+    .eq("organization_id", orgId)
     .order("sort_order")
     .order("name");
   return (data ?? []) as RankingCategory[];
@@ -85,13 +98,28 @@ export async function listRankingCategories(): Promise<RankingCategory[]> {
  * Never pass the result of this to a public page — use `listPublicPlayers`
  * or `toPublicPlayer` instead.
  */
-export async function listPlayerProfiles(search?: string): Promise<PlayerProfile[]> {
-  let q = db().from("player_profiles").select("*").is("merged_into_profile_id", null);
-  if (search && search.trim()) {
-    q = q.ilike("public_name", `%${search.trim()}%`);
+export async function listPlayerProfiles(orgId: string, search?: string): Promise<PlayerProfile[]> {
+  // The organisation's players only, with its own (org-private) approval, notes and level.
+  const { data: mine } = await db()
+    .from("organization_players")
+    .select("player_profile_id, approval_status, notes, level")
+    .eq("organization_id", orgId)
+    .limit(20000);
+  const own = new Map(
+    ((mine ?? []) as { player_profile_id: string; approval_status: PlayerProfile["approval_status"]; notes: string | null; level: string | null }[]).map((r) => [r.player_profile_id, r]),
+  );
+  const ids = [...own.keys()];
+  const out: PlayerProfile[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    let q = db().from("player_profiles").select("*").is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
+    if (search && search.trim()) q = q.ilike("public_name", `%${search.trim()}%`);
+    const { data } = await q;
+    for (const p of (data ?? []) as PlayerProfile[]) {
+      const o = own.get(p.id)!;
+      out.push({ ...p, approval_status: p.approval_status === "merged" ? "merged" : o.approval_status, notes: o.notes, skill_level: o.level });
+    }
   }
-  const { data } = await q.order("public_name");
-  return (data ?? []) as PlayerProfile[];
+  return out.sort((a, b) => a.public_name.localeCompare(b.public_name));
 }
 
 export async function getPlayerProfile(id: string): Promise<PlayerProfile | null> {

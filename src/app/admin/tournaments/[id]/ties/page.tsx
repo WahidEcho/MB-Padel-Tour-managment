@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
 import { scoreSummary, type ScoreState } from "@/lib/scoring/engine";
 import { RUBBER_LABELS, isoToZonedInput } from "@/lib/tennis/ties";
@@ -18,6 +19,8 @@ const STATUS: Record<Tie["status"], [string, string]> = {
 
 export default async function TiesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/ties`);
   const tournament = await getTournament(id);
   if (!tournament) return null;
   if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Ties" />;

@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { formatSet } from "@/lib/scoring/engine";
-import { currentRole, can } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import {
   getBracket,
   getBrackets,
@@ -21,11 +21,11 @@ import { podiumDepthFor } from "@/lib/bracket";
 import { audit, slugify } from "@/lib/audit";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const role = await currentRole();
-  if (!can(role, "export")) {
-    return new Response("Not allowed", { status: 403 });
-  }
   const { id } = await params;
+  // Another organisation's tournament gets the same 404 as a missing one.
+  const gate = await staffRoute("export", { tournament: id });
+  if (!gate.ok) return gate.response;
+  const role = gate.staff.role;
   const tournament = await getTournament(id);
   if (!tournament) return new Response("Not found", { status: 404 });
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { currentRole, can } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import { renewLease } from "@/lib/scoringControl";
 
 /**
@@ -8,11 +8,11 @@ import { renewLease } from "@/lib/scoringControl";
  * lease goes stale on its own, so the next device to claim just takes it.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
-  const role = await currentRole();
-  if (!can(role, "score_match")) {
-    return NextResponse.json({ error: "Not allowed" }, { status: 403 });
-  }
   const { matchId } = await params;
+  // The match's own tournament decides the organisation (and an event code's
+  // scope); another organisation's match gets the same 404 as a missing one.
+  const gate = await staffRoute("score_match", { match: matchId });
+  if (!gate.ok) return gate.response;
   const { deviceId } = await request.json();
   if (!deviceId) return NextResponse.json({ error: "deviceId required" }, { status: 400 });
 

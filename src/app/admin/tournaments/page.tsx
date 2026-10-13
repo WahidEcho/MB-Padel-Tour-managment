@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/supabase";
+import { requireStaff } from "@/lib/guard";
 import type { Tournament } from "@/lib/types";
 import { seedDemoTournament } from "./demo";
 
@@ -13,10 +14,12 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function TournamentsPage() {
-  // `kind` filter hides the backing rows that friendly sessions own.
+  const staff = await requireStaff(["admin", "manager"], "/admin/tournaments");
+  // This organisation's only; the `kind` filter hides the backing rows that friendly sessions own.
   const { data } = await db()
     .from("tournaments")
     .select("*")
+    .eq("organization_id", staff.orgId)
     .eq("kind", "tournament")
     .order("created_at", { ascending: false });
   const tournaments = (data ?? []) as Tournament[];

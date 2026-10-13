@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { estimateCapacity } from "@/lib/friendly/capacity";
 import { listEntries, listPlayerProfiles, listSeasons, getSession } from "@/lib/friendly/data";
+import { requireEntityPage } from "@/lib/guard";
 import { db } from "@/lib/supabase";
 import type { FriendlyEntry, PlayerProfile } from "@/lib/types";
 import ShareButton from "@/components/ShareButton";
@@ -89,13 +90,15 @@ function EntryRow({
 
 export default async function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the session's organisation (through its hidden tournament) must be the staff member's.
+  const { staff } = await requireEntityPage({ session: id }, ["admin", "manager"], `/admin/friendly-sessions/${id}`);
   const session = await getSession(id);
   if (!session) notFound();
 
   const [entries, profiles, seasons, courtsRes, pairsRes, matchesRes] = await Promise.all([
     listEntries(id),
-    listPlayerProfiles(),
-    listSeasons(),
+    listPlayerProfiles(staff.orgId),
+    listSeasons(staff.orgId),
     db().from("courts").select("id, court_name, court_order").eq("tournament_id", session.tournament_id).order("court_order"),
     db()
       .from("friendly_pairs")

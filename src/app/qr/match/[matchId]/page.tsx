@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
 import { db } from "@/lib/supabase";
-import { requireRole } from "@/lib/guard";
+import { requireEntityPage } from "@/lib/guard";
 import { RUBBER_LABELS } from "@/lib/tennis/ties";
 import type { RubberType } from "@/lib/types";
 import { matchCheckinUrl, matchPrintedCode } from "@/lib/pass/venueCode";
@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function PrintedMatchQr({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
-  await requireRole(["admin", "manager", "operator"], `/qr/match/${matchId}`);
+  // The match's own tournament decides the organisation.
+  await requireEntityPage({ match: matchId }, ["admin", "manager", "operator"], `/qr/match/${matchId}`);
   if (!/^[0-9a-f-]{36}$/i.test(matchId)) notFound();
   const { data } = await db().from("matches").select("id, tournament_id, rubber_type, round_name, team_a_id, team_b_id, court_id").eq("id", matchId).maybeSingle();
   const m = data as { id: string; tournament_id: string; rubber_type: RubberType | null; round_name: string | null; team_a_id: string | null; team_b_id: string | null; court_id: string | null } | null;

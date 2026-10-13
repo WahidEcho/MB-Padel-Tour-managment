@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getGroups, getGroupTeams, getMatches, getTeams, getTournament } from "@/lib/data";
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 
 export default async function GroupsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/groups`);
   const [tournament, teams, groups, groupTeams, matches, brackets] = await Promise.all([
     getTournament(id),
     getTeams(id),

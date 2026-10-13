@@ -23,13 +23,30 @@ export const isCodeVerifier = (s: unknown): s is string => typeof s === "string"
 /** A base64url SHA-256 digest, unpadded: exactly 43 characters. */
 export const isCodeChallenge = (s: unknown): s is string => typeof s === "string" && /^[A-Za-z0-9_-]{43}$/.test(s);
 
+/** The web staff sign-in's callback path on the site (src/app/staff/auth/callback). */
+export const STAFF_WEB_CALLBACK_PATH = "/staff/auth/callback";
+
+/**
+ * The web staff sign-in's own callback: exactly `<site origin>/staff/auth/callback`,
+ * no query, fragment, user info or other path. The origin is the server's own
+ * configured site (never taken from the request), https except on localhost.
+ */
+export function isStaffWebRedirect(redirectTo: unknown, siteOrigin: string): redirectTo is string {
+  if (typeof redirectTo !== "string" || typeof siteOrigin !== "string") return false;
+  const origin = /^(https:\/\/[a-z0-9.-]+(:\d+)?|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/i.exec(siteOrigin.replace(/\/+$/, ""));
+  if (!origin) return false;
+  return redirectTo === `${origin[0]}${STAFF_WEB_CALLBACK_PATH}`;
+}
+
 /**
  * Where the browser may send the code back to: the app's own scheme (store and
- * development builds), Expo Go (`exp://…/--/auth/callback`), or a local web preview.
+ * development builds), Expo Go (`exp://…/--/auth/callback`), or a local web preview;
+ * with `siteOrigin`, also the site's own staff sign-in callback (isStaffWebRedirect).
  * Supabase's redirect allow-list is the second, authoritative check.
  */
-export function isAppRedirect(redirectTo: unknown): redirectTo is string {
+export function isAppRedirect(redirectTo: unknown, opts: { siteOrigin?: string } = {}): redirectTo is string {
   if (typeof redirectTo !== "string" || redirectTo.length > 300) return false;
+  if (opts.siteOrigin && isStaffWebRedirect(redirectTo, opts.siteOrigin)) return true;
   const m = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)(.*)$/i.exec(redirectTo);
   if (!m) return false;
   const scheme = m[1]!.toLowerCase();

@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { db } from "@/lib/supabase";
-import { currentRole, can } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import { getMatch, getSnapshot } from "@/lib/data";
 import { finalizeMatch, upsertSnapshotFromState, type EngineStateLike } from "@/lib/ops";
 import { claimLease, defaultDeviceLabel, getLease, isLeaseLive } from "@/lib/scoringControl";
@@ -31,11 +31,12 @@ function winnerTeamId(match: Match, state: EngineStateLike): string | null {
  * non-controlling devices so conflicts surface instead of corrupting state.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
-  const role = await currentRole();
-  if (!can(role, "score_match")) {
-    return NextResponse.json({ error: "Not allowed" }, { status: 403 });
-  }
   const { matchId } = await params;
+  // The match's own tournament decides the organisation (and an event code's
+  // scope); another organisation's match gets the same 404 as a missing one.
+  const gate = await staffRoute("score_match", { match: matchId });
+  if (!gate.ok) return gate.response;
+  const role = gate.staff.role;
   const body = await request.json();
   const deviceId: string = body.deviceId;
   const events: IncomingEvent[] = body.events ?? [];

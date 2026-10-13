@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { deleteUploads, uploadImage, uploadLogo } from "@/lib/upload";
 import { isHex, resolveSponsors } from "@/lib/sponsors";
@@ -49,8 +49,8 @@ function settingsPath(id: string) {
 }
 
 export async function updateGeneral(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   const name = String(formData.get("name") ?? "").trim();
   const lowerThird = String(formData.get("lower_third_text") ?? "").trim();
   if (!name) throw new Error("Name required");
@@ -114,8 +114,8 @@ export async function updateScoring(
   _prev: ScoringFormState,
   formData: FormData,
 ): Promise<ScoringFormState> {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   // A session's match rules are set when it is created; its scoring and the
   // ledger it feeds are not the tournament rules form's to change.
   const refusal = await tournamentRowRefusal(id);
@@ -221,8 +221,8 @@ export async function updateScoring(
 }
 
 export async function addCourt(formData: FormData) {
-  await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  await requireTournamentPermission("manage_tournament", id);
   const name = String(formData.get("court_name") ?? "").trim();
   if (!name) throw new Error("Court name required");
   const { count } = await db().from("courts").select("*", { count: "exact", head: true }).eq("tournament_id", id);
@@ -232,8 +232,8 @@ export async function addCourt(formData: FormData) {
 }
 
 export async function removeCourt(formData: FormData) {
-  await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  await requireTournamentPermission("manage_tournament", id);
   const courtId = String(formData.get("court_id"));
   // A session's scheduler assigns rounds to its courts. Adding one is shared with
   // sessions; removing one from here is not, and never another tournament's.
@@ -264,8 +264,8 @@ function fileFrom(formData: FormData, key: string): File | null {
  * its backing tournament's branding with the same form.
  */
 export async function saveBranding(_prev: BrandingFormState, formData: FormData): Promise<BrandingFormState> {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   const t = await getTournament(id);
   if (!t) return { ok: false, problems: ["Tournament not found."] };
   const branding: BrandingConfig = { ...t.branding_config };
@@ -409,7 +409,7 @@ export async function prepareBackgroundUpload(
   tournamentId: string,
   file: { type: string; size: number },
 ): Promise<BackgroundTicket> {
-  await requirePermission("manage_tournament");
+  await requireTournamentPermission("manage_tournament", String(tournamentId));
   const t = await getTournament(String(tournamentId));
   if (!t) return { ok: false, message: "Tournament not found." };
   return createBackgroundUpload(t.id, { type: String(file?.type ?? ""), size: Number(file?.size ?? 0) });
@@ -428,7 +428,7 @@ export async function finishBackgroundUpload(
   path: string,
   returnPath?: string,
 ): Promise<BackgroundResult> {
-  const role = await requirePermission("manage_tournament");
+  const role = (await requireTournamentPermission("manage_tournament", String(tournamentId))).staff.role;
   const t = await getTournament(String(tournamentId));
   if (!t) return { ok: false, message: "Tournament not found." };
   const previous = t.branding_config.background;

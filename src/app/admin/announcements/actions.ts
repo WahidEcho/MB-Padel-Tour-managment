@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/lib/guard";
+import { requireScopedPermission, requireStaffPermission, type StaffPrincipal } from "@/lib/guard";
+import { MOVE_BEYOND_SLUG } from "@/lib/orgs/roles";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/supabase";
 import { parseAudience } from "@/lib/messaging/audience";
@@ -42,6 +43,22 @@ function clean(raw: ComposeInput): ComposeInput {
   };
 }
 
+/**
+ * The audience and tournament must be the organisation's own ("not found"
+ * otherwise); app-wide pushes (every app user, a nation's followers) are Move
+ * Beyond's platform broadcasts.
+ */
+async function requireOwnAudience(input: ComposeInput, staff: StaffPrincipal): Promise<void> {
+  const a = input.audience;
+  for (const t of [input.tournamentId, a.type === "tournament" ? a.tournamentId : null]) {
+    if (t) await requireScopedPermission("send_messages", { tournament: t });
+  }
+  const platform = staff.orgSlug === MOVE_BEYOND_SLUG || staff.platformAdmin;
+  if (!platform && (a.type === "app_users" || (a.type === "nation" && input.channels.includes("push")))) {
+    throw new Error("Messages to every app user or to a nation's followers are sent by Move Beyond.");
+  }
+}
+
 async function specFor(input: ComposeInput) {
   if (!input.whatsapp) return null;
   const { templates } = await whatsappTemplates();
@@ -72,15 +89,16 @@ export interface PreviewResult {
 }
 
 export async function previewAction(raw: ComposeInput): Promise<PreviewResult> {
-  await requirePermission("send_messages");
+  const staff = await requireStaffPermission("send_messages");
   let input: ComposeInput;
   try {
     input = clean(raw);
+    await requireOwnAudience(input, staff);
   } catch (err) {
     return { ok: false, errors: [err instanceof Error ? err.message : String(err)], people: 0, channels: {}, pushDevices: null, rejectedLines: [], sample: [], sources: null, missingMergeFields: [], ready: {}, transport: transportMode() };
   }
   const errors = validateCompose(input, await specFor(input));
-  const { recipients, rejected } = await recipientsOf({ audience: input.audience, tournament_id: input.tournamentId });
+  const { recipients, rejected } = await recipientsOf({ audience: input.audience, tournament_id: input.tournamentId, organization_id: staff.orgId });
   const channels = input.channels.filter((c): c is Channel => c !== "push");
   const { preview } = planDeliveries(recipients, channels, { requireCode: input.kind === "access_codes" });
   const pushDevices = input.channels.includes("push") ? (await recipientsFor(pushTargets(input), "major")).length : null;
@@ -119,10 +137,12 @@ export async function previewAction(raw: ComposeInput): Promise<PreviewResult> {
 }
 
 export async function sendTestAction(raw: ComposeInput, to: { email?: string; phone?: string }) {
-  const role = await requirePermission("send_messages");
+  const staff = await requireStaffPermission("send_messages");
+  const role = staff.role;
   const input = clean(raw);
+  await requireOwnAudience(input, staff);
   // Use the first real recipient's values so the test reads like the real thing.
-  const { recipients, base } = await recipientsOf({ audience: input.audience, tournament_id: input.tournamentId }).catch(() => ({ recipients: [], base: {} }));
+  const { recipients, base } = await recipientsOf({ audience: input.audience, tournament_id: input.tournamentId, organization_id: staff.orgId }).catch(() => ({ recipients: [], base: {} }));
   const first = recipients.find((r) => input.kind !== "access_codes" || r.vars.code) ?? recipients[0];
   const vars = { ...base, ...(first?.vars ?? { name: "Test Player" }), ...(input.kind === "access_codes" && !first?.vars.code ? { code: "TEST-1234" } : {}) };
   const result = await sendTestMessage(
@@ -135,10 +155,12 @@ export async function sendTestAction(raw: ComposeInput, to: { email?: string; ph
 }
 
 export async function createAndSendAction(raw: ComposeInput): Promise<{ id?: string; errors?: string[]; queued?: number; skipped?: number }> {
-  const role = await requirePermission("send_messages");
+  const staff = await requireStaffPermission("send_messages");
+  const role = staff.role;
   let input: ComposeInput;
   try {
     input = clean(raw);
+    await requireOwnAudience(input, staff);
   } catch (err) {
     return { errors: [err instanceof Error ? err.message : String(err)] };
   }
@@ -160,6 +182,7 @@ export async function createAndSendAction(raw: ComposeInput): Promise<{ id?: str
       whatsapp_template: input.whatsapp,
       cta: input.cta,
       tournament_id: input.tournamentId ?? (input.audience.type === "tournament" ? input.audience.tournamentId : null),
+      organization_id: staff.orgId,
       created_by: role,
     })
     .select("id")
@@ -178,7 +201,7 @@ export async function createAndSendAction(raw: ComposeInput): Promise<{ id?: str
 
 /** The detail page calls this in a loop while an announcement is sending. */
 export async function pumpAction(id: string): Promise<{ status: string; remaining: number }> {
-  await requirePermission("send_messages");
+  await requireScopedPermission("send_messages", { announcement: id });
   const r = await drainMessages({ budgetMs: 15_000, announcementId: id });
   if (!r.remaining) await finishIfDone(id);
   const { data } = await db().from("message_announcements").select("status").eq("id", id).maybeSingle();
@@ -186,8 +209,8 @@ export async function pumpAction(id: string): Promise<{ status: string; remainin
 }
 
 export async function retryFailedAction(formData: FormData) {
-  const role = await requirePermission("send_messages");
   const id = String(formData.get("id"));
+  const role = (await requireScopedPermission("send_messages", { announcement: id })).staff.role;
   const channel = formData.get("channel");
   const n = await retryFailed(id, channel === "email" || channel === "whatsapp" ? channel : undefined);
   await audit({ actor_role: role, action: "ANNOUNCEMENT_RETRY", entity_type: "message_announcement", entity_id: id, new_value: { retried: n, channel } });
@@ -195,8 +218,8 @@ export async function retryFailedAction(formData: FormData) {
 }
 
 export async function cancelAction(formData: FormData) {
-  const role = await requirePermission("send_messages");
   const id = String(formData.get("id"));
+  const role = (await requireScopedPermission("send_messages", { announcement: id })).staff.role;
   await db().from("message_announcements").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("id", id).eq("status", "sending");
   await db()
     .from("message_deliveries")
@@ -208,7 +231,7 @@ export async function cancelAction(formData: FormData) {
 }
 
 export async function refreshTemplatesAction() {
-  await requirePermission("send_messages");
+  await requireStaffPermission("send_messages");
   await whatsappTemplates(true);
   revalidatePath("/admin/announcements/new");
 }

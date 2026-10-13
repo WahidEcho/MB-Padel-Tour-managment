@@ -1,7 +1,8 @@
+import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCourts, getTournament, listScreens } from "@/lib/data";
-import { can, currentRole } from "@/lib/auth";
+import { can } from "@/lib/auth";
 import { ensureMainScreen } from "@/lib/screens";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { removeScreen } from "@/app/operator/tournaments/[id]/control/actions";
@@ -10,11 +11,14 @@ export const dynamic = "force-dynamic";
 
 export default async function ScreensPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  const { staff } = await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/screens`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   await ensureMainScreen(id);
 
-  const [screens, courts, role] = await Promise.all([listScreens(id), getCourts(id), currentRole()]);
+  const [screens, courts] = await Promise.all([listScreens(id), getCourts(id)]);
+  const role = staff.role;
   const base = `/t/${tournament.slug}`;
   const canDelete = can(role, "delete_screen");
 

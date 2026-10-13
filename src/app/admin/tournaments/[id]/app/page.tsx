@@ -1,8 +1,8 @@
+import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { getTournament } from "@/lib/data";
-import { requireRole } from "@/lib/guard";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup } from "./actions";
 
@@ -25,11 +25,13 @@ interface GroupRow {
 
 export default async function AppSettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requireRole(["admin", "manager"], `/admin/tournaments/${id}/app`);
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  const { staff } = await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/app`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   const [{ data: groups }, { data: ann }] = await Promise.all([
-    db().from("event_groups").select("*").order("created_at", { ascending: false }),
+    // Only this organisation's groups: an event group never mixes organisations.
+    db().from("event_groups").select("*").eq("organization_id", staff.orgId).order("created_at", { ascending: false }),
     db().from("announcements").select("id, title, body, level, published_at, tournament_id").or(`tournament_id.eq.${id}${tournament.event_group_id ? `,event_group_id.eq.${tournament.event_group_id}` : ""}`).order("published_at", { ascending: false }).limit(20),
   ]);
   const allGroups = (groups ?? []) as GroupRow[];

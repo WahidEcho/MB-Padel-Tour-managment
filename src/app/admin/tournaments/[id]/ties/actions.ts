@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { delayOrderOfPlay, drawPlacement, generateGroupTies, lockLineups, resetPlacement, scheduleTie, setLineup } from "@/lib/tennis/tieOps";
 import { zonedToIso } from "@/lib/tennis/ties";
@@ -11,16 +11,16 @@ const path = (id: string) => `/admin/tournaments/${id}/ties`;
 export type TieFormState = { ok: boolean; message: string } | null;
 
 export async function generateTiesAction(formData: FormData) {
-  const role = await requirePermission("manage_groups");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   await generateGroupTies(id, role);
   revalidatePath(path(id));
 }
 
 export async function saveLineupAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
-  const role = await requirePermission("manage_teams");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const tieId = String(formData.get("tie_id"));
   const side = String(formData.get("side")) === "B" ? "B" : "A";
@@ -37,8 +37,8 @@ export async function saveLineupAction(_prev: TieFormState, formData: FormData):
 }
 
 export async function lockLineupsAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
-  const role = await requirePermission("manage_teams");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const result = await lockLineups(String(formData.get("tie_id")), role);
   revalidatePath(path(id));
@@ -46,8 +46,8 @@ export async function lockLineupsAction(_prev: TieFormState, formData: FormData)
 }
 
 export async function drawPlacementAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
-  const role = await requirePermission("manage_groups");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const result = await drawPlacement(id, role);
   revalidatePath(path(id));
@@ -55,8 +55,8 @@ export async function drawPlacementAction(_prev: TieFormState, formData: FormDat
 }
 
 export async function resetPlacementAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
-  const role = await requirePermission("manage_groups");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const result = await resetPlacement(id, role);
   revalidatePath(path(id));
@@ -64,8 +64,8 @@ export async function resetPlacementAction(_prev: TieFormState, formData: FormDa
 }
 
 export async function delayOrderOfPlayAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
-  const role = await requirePermission("manage_groups");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const minutes = Number(formData.get("minutes"));
   const courtId = String(formData.get("court_id") ?? "") || null;
@@ -77,8 +77,8 @@ export async function delayOrderOfPlayAction(_prev: TieFormState, formData: Form
 }
 
 export async function scheduleTieAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
-  const role = await requirePermission("manage_groups");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const local = String(formData.get("scheduled_local") ?? "").trim();
   const at = local ? zonedToIso(local) : null;
