@@ -232,10 +232,14 @@ describe("staff sign-in redirects", () => {
 
 describe("person fields (who sees a player's mobile, email, birth year, photo, consents)", () => {
   it("an organisation that created or added the player sees them", () => {
-    for (const source of ["backfill", "admin", "registration", "tournament", "league", "link"]) {
+    for (const source of ["backfill", "admin", "registration", "tournament", "link"]) {
       expect(personFieldsVisibleFor(source, 0), source).toBe(true);
       expect(personFieldsVisibleFor(source, 3), source).toBe(true);
     }
+  });
+  it("a player who only joined one of its leagues is like a matched one (joining vouches for nothing)", () => {
+    expect(personFieldsVisibleFor("league", 0)).toBe(true);
+    expect(personFieldsVisibleFor("league", 1)).toBe(false);
   });
   it("a profile only matched by a typed mobile is hidden while another organisation has it", () => {
     expect(personFieldsVisibleFor("matched", 1)).toBe(false);

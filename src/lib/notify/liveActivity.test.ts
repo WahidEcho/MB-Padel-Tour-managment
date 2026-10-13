@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MScore } from "../mobile/contract";
 import {
+  normalizeApnsToken,
   APNS_TOKEN,
   COUNTDOWN_GRACE_SECONDS,
   FINAL_DISMISS_SECONDS,
@@ -204,5 +205,15 @@ describe("apnsVerdict", () => {
     expect(apnsVerdict({ status: 400, reason: "TopicDisallowed" })).toBe("config");
     expect(apnsVerdict({ status: 429, reason: "TooManyRequests" })).toBe("retry");
     expect(apnsVerdict({ status: 0, reason: "stream error" })).toBe("retry");
+  });
+});
+
+describe("L7: one form of a push token, registering and ending", () => {
+  it("normalises case and spaces, and nothing else", () => {
+    const t = "AB".repeat(32);
+    expect(normalizeApnsToken(` ${t} `)).toBe("ab".repeat(32));
+    expect(normalizeApnsToken(normalizeApnsToken(t))).toBe(normalizeApnsToken(t));
+    expect(normalizeApnsToken(42)).toBe("");
+    expect(APNS_TOKEN.test(normalizeApnsToken(t))).toBe(true);
   });
 });

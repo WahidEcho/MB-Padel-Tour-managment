@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { verifyInstallToken } from "@/lib/mobile/identity";
 import { privateJson, readJson } from "@/lib/mobile/http";
-import { checkRateLimit } from "@/lib/ratelimit";
+import { takeRateLimit } from "@/lib/ratelimit";
 import { parseStartTokenBody } from "@/lib/notify/liveActivity";
 
 /** A token body is ~200 bytes; anything far larger is not ours. */
@@ -20,7 +20,7 @@ const MAX_BODY_BYTES = 2048;
 export async function POST(request: Request) {
   const install = verifyInstallToken(request.headers.get("x-install-token"));
   if (!install) return NextResponse.json({ error: "Register this phone first" }, { status: 401 });
-  const rl = await checkRateLimit({ key: `la-start-token:${install}`, limit: 30, windowSeconds: 3600 });
+  const rl = await takeRateLimit({ key: `la-start-token:${install}`, limit: 30, windowSeconds: 3600 });
   if (!rl.allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return NextResponse.json({ error: "Body too large" }, { status: 413 });
   const parsed = parseStartTokenBody(await readJson<unknown>(request));

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ownerOf } from "@/lib/mobile/identity";
 import { privateJson } from "@/lib/mobile/http";
-import { checkRateLimit } from "@/lib/ratelimit";
+import { takeRateLimit } from "@/lib/ratelimit";
 import { callForPlayer, markPresentAsPlayer } from "@/lib/matchday/server";
 
 /**
@@ -20,7 +20,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ matc
   const { owner } = await ownerOf(request);
   if (owner?.kind !== "user") return NextResponse.json({ error: "Sign in first" }, { status: 401 });
   if (!/^[0-9a-f-]{36}$/i.test(matchId)) return privateJson({ error: "Not found" }, 404);
-  const rl = await checkRateLimit({ key: `here-read:${owner.id}`, limit: 240, windowSeconds: 600 });
+  const rl = await takeRateLimit({ key: `here-read:${owner.id}`, limit: 240, windowSeconds: 600 });
   if (!rl.allowed) {
     return NextResponse.json({ error: "Too many tries. Wait a few minutes.", code: "rate_limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds), "Cache-Control": "no-store" } });
   }
@@ -34,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const { owner } = await ownerOf(request);
   if (owner?.kind !== "user") return NextResponse.json({ error: "Sign in first" }, { status: 401 });
   if (!/^[0-9a-f-]{36}$/i.test(matchId)) return privateJson({ error: "Not found" }, 404);
-  const rl = await checkRateLimit({ key: `here:${owner.id}`, limit: 30, windowSeconds: 600 });
+  const rl = await takeRateLimit({ key: `here:${owner.id}`, limit: 30, windowSeconds: 600 });
   if (!rl.allowed) {
     return NextResponse.json({ error: "Too many tries. Wait a few minutes.", code: "rate_limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds), "Cache-Control": "no-store" } });
   }

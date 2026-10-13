@@ -101,6 +101,7 @@ export default function ScoreClient({
   scoringMode = "point_by_point",
   matchDay = null,
   initialCall = null,
+  canCorrect = false,
 }: {
   match: Match;
   tournamentName: string;
@@ -121,6 +122,8 @@ export default function ScoreClient({
   matchDay?: MatchDayRules | null;
   /** The match's call to court when the page loaded. */
   initialCall?: CallSnapshot | null;
+  /** The organiser's staff (admin, manager) correct a finished result; a referee does not (append.ts correctionCut). */
+  canCorrect?: boolean;
 }) {
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
@@ -1033,7 +1036,7 @@ export default function ScoreClient({
                     Undo (reopen match)
                   </button>
                 )}
-                {resultAllowed && renderFinished && pendingCount === 0 && (
+                {resultAllowed && renderFinished && pendingCount === 0 && canCorrect && (
                   <button className="btn-secondary text-xs" onClick={() => openResultEntry(true)} data-testid="correct-result-button">
                     Correct result
                   </button>

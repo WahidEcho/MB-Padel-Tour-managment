@@ -7,15 +7,19 @@
  *      it; a bad score, a client state that differs, unknown fields and a
  *      point-by-point match are refused (400, typed problems) with nothing written.
  *   2. A partly scored match replaced by a result: an audited correction, the
- *      earlier events superseded.
+ *      earlier events superseded. Only the organiser's staff correct: a referee
+ *      code is refused (409 organiser_only) on a partly scored or finished match.
  *   3. Correction of a finished group match by the organiser (server action):
  *      standings follow, audit row with the old result.
- *   4. Knockout: the winner advances; a correction moves the new winner into the
- *      next round; once the next round has started the correction is refused.
+ *   4. Knockout: the winner advances; a correction (organiser) moves the new winner
+ *      into the next round; once the next round has started the correction is refused.
+ *      A session drawn as a knockout does the same (L4), and a Mexicano result is
+ *      frozen once the next round is drawn from it.
  *   5. Friendly session: ledger points from an entered result; a correction
  *      replaces them (no duplicates, the other pair now ahead).
  *   6. Chess: a knockout draw is recorded level (live, needsArbiter); a referee
- *      cannot pick who advances; the organiser does (decideWinner); a chess draw
+ *      cannot pick who advances, neither as a result nor by ending the match with a
+ *      winner of its own; the organiser does (decideWinner); a chess draw
  *      outside a knockout is refused (draws do not count in any table yet).
  *   7. Another organisation's referee (event code) and admin are refused.
  *
@@ -30,7 +34,7 @@ import { createHash, randomBytes, randomUUID } from "crypto";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { db } from "../../src/lib/supabase";
-import { createFriendlySession, addEntryForProfile, generateSchedule } from "../../src/lib/friendly/ops";
+import { createFriendlySession, addEntryForProfile, generateNextMexicanoRound, generateSchedule, generateSessionKnockout, setFixedPairs } from "../../src/lib/friendly/ops";
 import { getTournament } from "../../src/lib/data";
 import { awardPoint, initialScoreState, type ScoreState } from "../../src/lib/scoring/engine";
 import { matchTiebreakSet, stateFromFinalScore, type EnteredSet } from "../../src/lib/scoring/finalScore";
@@ -300,8 +304,10 @@ async function main() {
       const started = await send(g2.id, REFEREE, events, device);
       check(started.status === 200, "points are scored first", started.text);
       const sets: EnteredSet[] = [{ a: 2, b: 6 }, { a: 1, b: 6 }];
-      const res = await send(g2.id, REFEREE, [ev(5, "RESULT_ENTERED", s, built(groupRules, sets), { team_id: t3, payload: { sets } })], device);
-      check(res.status === 200, "the result replaces them", res.text);
+      const byRef = await send(g2.id, REFEREE, [ev(5, "RESULT_ENTERED", s, built(groupRules, sets), { team_id: t3, payload: { sets } })], device);
+      check(byRef.status === 409 && byRef.json?.conflict === "organiser_only" && (await eventCount(g2.id)) === 4, "a referee cannot replace points already scored with a result (the organiser's correction)", byRef.text);
+      const res = await send(g2.id, ADMIN, [ev(5, "RESULT_ENTERED", s, built(groupRules, sets), { team_id: t3, payload: { sets } })], device);
+      check(res.status === 200, "the organiser's result replaces them", res.text);
       const m = await matchRow(g2.id);
       check(m.status === "completed" && m.winner_team_id === t3 && m.result_source === "correction", "completed, the result's winner, result_source correction", `${m.status} ${m.result_source}`);
       const { data: rows } = await db().from("score_events").select("event_number, sync_status").eq("match_id", g2.id).order("event_number");
@@ -359,8 +365,10 @@ async function main() {
       const r1 = await sendResult(sf1, koRules, [{ a: 6, b: 2 }, { a: 6, b: 3 }], REFEREE);
       check(r1.status === 200, "a semi-final result is accepted", r1.text);
       check((await matchRow(fin.id)).team_a_id === t1, "its winner advances to the final");
-      const r2 = await sendResult(sf1, koRules, [{ a: 6, b: 2 }, { a: 4, b: 6 }, matchTiebreakSet(8, 10)], REFEREE);
-      check(r2.status === 200, "a referee corrects the finished semi-final (match tie-break 8-10)", r2.text);
+      const byRef = await sendResult(sf1, koRules, [{ a: 6, b: 2 }, { a: 4, b: 6 }, matchTiebreakSet(8, 10)], REFEREE);
+      check(byRef.status === 409 && byRef.json?.conflict === "organiser_only" && (await matchRow(sf1.id)).winner_team_id === t1, "a referee code cannot overwrite the finished semi-final's result", byRef.text);
+      const r2 = await sendResult(sf1, koRules, [{ a: 6, b: 2 }, { a: 4, b: 6 }, matchTiebreakSet(8, 10)], ADMIN);
+      check(r2.status === 200, "the organiser corrects the finished semi-final (match tie-break 8-10)", r2.text);
       const sf1Now = await matchRow(sf1.id);
       check(sf1Now.winner_team_id === t4 && sf1Now.result_source === "correction", "the semi-final has the new winner", sf1Now.result_source);
       const finNow = await matchRow(fin.id);
@@ -368,7 +376,7 @@ async function main() {
       const { data: slot } = await db().from("bracket_slots").select("team_id").eq("bracket_id", B).eq("round_name", "F").eq("slot_order", 0).single();
       check((slot as { team_id: string }).team_id === t4, "…and so does its bracket slot");
       await db().from("matches").update({ status: "live" }).eq("id", fin.id);
-      const r3 = await sendResult(sf1, koRules, [{ a: 6, b: 0 }, { a: 6, b: 0 }], REFEREE);
+      const r3 = await sendResult(sf1, koRules, [{ a: 6, b: 0 }, { a: 6, b: 0 }], ADMIN);
       check(r3.status === 409 && r3.json?.conflict === "downstream_started", "once the final has started, the semi-final cannot be corrected", r3.text);
       check((await matchRow(sf1.id)).winner_team_id === t4 && (await matchRow(fin.id)).team_a_id === t4, "…and nothing changed");
     }
@@ -419,11 +427,90 @@ async function main() {
       check(r1.status === 200, "a referee enters a session match's result", r1.text);
       const t1Points = await totals();
       check(t1Points.rows > 0 && t1Points.a > t1Points.b, "the winning pair gets the ledger points", t1Points);
-      const r2 = await sendResult(fm, fRules, [{ a: 2, b: 6 }], REFEREE);
-      check(r2.status === 200, "the referee corrects it", r2.text);
+      const byRef = await sendResult(fm, fRules, [{ a: 2, b: 6 }], REFEREE);
+      check(byRef.status === 409 && byRef.json?.conflict === "organiser_only", "the referee cannot change the recorded result", byRef.text);
+      const r2 = await sendResult(fm, fRules, [{ a: 2, b: 6 }], ADMIN);
+      check(r2.status === 200, "the organiser corrects it", r2.text);
       const t2Points = await totals();
       check(t2Points.b > t2Points.a && t2Points.unique && t2Points.b === t1Points.a, "the points move to the other pair, no duplicates left behind", t2Points);
       check((await matchRow(fm.id)).result_source === "correction", "result_source correction");
+    }
+
+    section("5b. sessions: a knockout's later round and Mexicano's next round (L4)");
+    {
+      const people = async (n: number, label: string) => {
+        const { data } = await db()
+          .from("player_profiles")
+          .insert(Array.from({ length: n }, (_, i) => ({ public_name: `${label} ${i} ${tag}`, approval_status: "approved" })))
+          .select("id");
+        const ids = (data as { id: string }[]).map((p) => p.id);
+        created.profiles.push(...ids);
+        return ids;
+      };
+      const newSession = async (name: string, pairingMode: "fixed" | "mexicano") => {
+        const s = await createFriendlySession({
+          name: `${name} ${tag}`,
+          seasonId: null,
+          startsAt: null,
+          durationMinutes: null,
+          scoringMode: "final_score",
+          courtCount: 2,
+          pairingMode,
+          rankingModel: "win_points",
+          setsToWinMatch: 1,
+          gamesToWinSet: 6,
+          maxPlayers: null,
+          registrationDeadline: null,
+          actorRole: "e2e",
+        });
+        created.sessions.push(s.id);
+        created.tournaments.push(s.tournament_id);
+        return s;
+      };
+
+      // A session drawn as a knockout: its matches carry stage 'friendly', yet its later round follows a correction.
+      const ko = await newSession("E2E Session Knockout", "fixed");
+      const kp = await people(8, "KO");
+      for (const p of kp) await addEntryForProfile(ko.id, p, "e2e");
+      await setFixedPairs(ko.id, [[kp[0], kp[1]], [kp[2], kp[3]], [kp[4], kp[5]], [kp[6], kp[7]]], "e2e");
+      await generateSessionKnockout(ko.id, "e2e");
+      const { data: kSlots } = await db().from("bracket_slots").select("round_name, slot_order, match_id").eq("tournament_id", ko.tournament_id).order("slot_order");
+      const slots = (kSlots ?? []) as { round_name: string; slot_order: number; match_id: string | null }[];
+      const sfId = slots.find((x) => x.round_name === "SF" && x.slot_order === 0)?.match_id;
+      const finId = slots.find((x) => x.round_name === "F")?.match_id;
+      check(Boolean(sfId && finId), "the session's knockout has a semi-final and a final", slots.map((x) => x.round_name));
+      if (sfId && finId) {
+        const sf = await matchRow(sfId);
+        check(sf.stage === "friendly", "its matches are stage 'friendly' (relabelled)", sf.stage);
+        const kst = await getTournament(ko.tournament_id);
+        const kRules = scoringConfigForMatch(kst, sf);
+        const r1 = await sendResult(sf, kRules, [{ a: 6, b: 2 }], ADMIN);
+        const finSlot = async () => (await db().from("bracket_slots").select("team_id").eq("tournament_id", ko.tournament_id).eq("round_name", "F").eq("slot_order", 0).single()).data as { team_id: string | null };
+        check(r1.status === 200 && (await matchRow(finId)).team_a_id === sf.team_a_id && (await finSlot()).team_id === sf.team_a_id, "the semi-final's winner reaches the session's final", r1.text);
+        const r2 = await sendResult(sf, kRules, [{ a: 2, b: 6 }], ADMIN);
+        check(r2.status === 200 && (await matchRow(finId)).team_a_id === sf.team_b_id && (await finSlot()).team_id === sf.team_b_id, "a correction moves the new winner into the final (the old one is taken back)", r2.text);
+        await db().from("matches").update({ status: "live" }).eq("id", finId);
+        const r3 = await sendResult(sf, kRules, [{ a: 6, b: 0 }], ADMIN);
+        check(r3.status === 409 && r3.json?.conflict === "downstream_started" && (await matchRow(finId)).team_a_id === sf.team_b_id, "once the session's final has started, the semi-final cannot be changed (and the final keeps its sides)", r3.text);
+      }
+
+      // Mexicano: each round is paired from the standings after the last one.
+      const mx = await newSession("E2E Session Mexicano", "mexicano");
+      for (const p of await people(4, "MX")) await addEntryForProfile(mx.id, p, "e2e");
+      await generateSchedule(mx.id, "e2e", { fit: "all" });
+      const { data: r1Rows } = await db().from("matches").select("*").eq("tournament_id", mx.tournament_id).order("match_order");
+      const round1 = (r1Rows ?? []) as Match[];
+      const mst = await getTournament(mx.tournament_id);
+      const mRules = scoringConfigForMatch(mst, round1[0]!);
+      for (const m of round1) await sendResult(m, mRules, [{ a: 6, b: 3 }], ADMIN);
+      const before = await sendResult(round1[0]!, mRules, [{ a: 3, b: 6 }], ADMIN);
+      check(before.status === 200, "a Mexicano result can be corrected while its round is the last one drawn", before.text);
+      await generateNextMexicanoRound(mx.id, "e2e");
+      const { count: drawn } = await db().from("friendly_match_participants").select("match_id", { count: "exact", head: true }).eq("session_id", mx.id).eq("round_number", 2);
+      check((drawn ?? 0) > 0, "the next round is drawn from the standings", drawn);
+      const after = await sendResult(round1[0]!, mRules, [{ a: 6, b: 0 }], ADMIN);
+      const kept = await matchRow(round1[0]!.id);
+      check(after.status === 409 && after.json?.conflict === "next_round_drawn" && kept.winner_team_id === round1[0]!.team_b_id, "once the next round is drawn from it, the earlier result is frozen (409), unchanged", after.text);
     }
 
     section("6. chess: win / draw / loss");
@@ -444,13 +531,24 @@ async function main() {
         if (!r.ok) throw new Error("fixture");
         return r.state;
       };
-      const draw = await send(chessMatch.id, REFEREE, [ev(1, "RESULT_ENTERED", null, chessState(["draw"], "knockout"), { payload: { chess: ["draw"] } })]);
+      const chessDev = `e2e-fs-chess-${tag}`;
+      const draw = await send(chessMatch.id, REFEREE, [ev(1, "RESULT_ENTERED", null, chessState(["draw"], "knockout"), { payload: { chess: ["draw"] } })], chessDev);
       check(draw.status === 200, "a referee records a knockout draw", draw.text);
       const afterDraw = await matchRow(chessMatch.id);
       const snap = (await lastEvent(chessMatch.id)).state as { needsArbiter?: boolean; matchOver?: boolean };
       check(afterDraw.status === "live" && !afterDraw.winner_team_id && snap.needsArbiter === true && snap.matchOver === false, "the pairing is level: live, nobody advanced, waiting for the organiser", `${afterDraw.status} ${JSON.stringify(snap)}`);
       const refAdvance = await send(chessMatch.id, REFEREE, [ev(2, "RESULT_ENTERED", snap, { ...chessState(["draw"], "knockout"), winner: "B", matchOver: true, needsArbiter: false }, { team_id: c2, payload: { chess: ["draw"], advance: "B" } })]);
       check(refAdvance.status === 400 && codeOf(refAdvance) === "advance_not_allowed", "a referee cannot pick who advances", refAdvance.text);
+      // Nor by ending the level match point by point with a winner of its own (decideWinner's state, or a payload winner).
+      const decidedByRef = { ...chessState(["draw"], "knockout"), winner: "B", matchOver: true, needsArbiter: false };
+      const refEnd = await send(chessMatch.id, REFEREE, [ev(2, "MATCH_ENDED", snap, decidedByRef, { team_id: c2, payload: { winner_team_id: c2 } })], chessDev);
+      const refForce = await send(chessMatch.id, REFEREE, [ev(2, "FORCE_END", snap, snap, { payload: { winner_team_id: c1 } })], chessDev);
+      const stillLevel = await matchRow(chessMatch.id);
+      check(
+        refEnd.status === 409 && refEnd.json?.conflict === "organiser_only" && refForce.status === 409 && refForce.json?.conflict === "organiser_only" && stillLevel.status === "live" && !stillLevel.winner_team_id,
+        "a referee cannot end a level pairing with a winner either (MATCH_ENDED or FORCE_END): still live, nobody advanced",
+        [refEnd.status, refEnd.json?.conflict, refForce.status, refForce.json?.conflict, stillLevel.status],
+      );
       // The device that recorded the draw holds the match; the organiser takes over once it is released.
       await db().from("scoring_leases").delete().eq("match_id", chessMatch.id);
       const decided = await enterMatchResult(C, chessMatch.id, { chess: ["draw"], advance: "B" }, ADMIN);

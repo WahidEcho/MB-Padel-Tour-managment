@@ -110,81 +110,33 @@ export async function reestimateSessionTable(tournamentId: string, now = Date.no
 /* ---------------- the players' own accounts ---------------- */
 
 /**
- * The night's player rows are new rows (one per pairing), so a player's account
- * is linked to them here, the way a claimed player code links every row of the
- * same profile (src/lib/players/identity.ts rule 1): through the profile's own
- * account (player_profiles.auth_user_id), the account that joined the league as
- * that profile, or an existing claim on another row of the profile (keeping
- * which code made it, so resetting that code undoes these rows too). A row that
- * is already claimed is left alone. Returns how many rows were linked.
+ * The night's player rows are new rows (one per pairing): each goes to its
+ * player's own account by the one linking rule (src/lib/players/link.ts
+ * linkProfileRowsIn): the profile's own account (player_profiles.auth_user_id),
+ * when the organisation vouches for the profile or the account itself joined this
+ * league (an active membership made by that same account). Never an account found
+ * only through league_members.auth_user_id or another row's claim. Derived claims
+ * hang on the code that gave the account its profile, so resetting it undoes them.
+ * Returns how many rows were linked.
  */
 export async function linkNightPlayers(tournamentId: string, leagueId: string | null): Promise<number> {
-  const { data: rows } = await db().from("players").select("id, player_profile_id").eq("tournament_id", tournamentId).not("player_profile_id", "is", null);
-  const players = (rows ?? []) as { id: string; player_profile_id: string }[];
-  if (!players.length) return 0;
-  const { data: claimed } = await db().from("player_claims").select("player_id").in("player_id", players.map((p) => p.id));
-  const taken = new Set(((claimed ?? []) as { player_id: string }[]).map((c) => c.player_id));
-  const open = players.filter((p) => !taken.has(p.id));
-  if (!open.length) return 0;
-  const profiles = [...new Set(open.map((p) => p.player_profile_id))];
-
-  const account = new Map<string, { userId: string; via: string | null }>();
-  // 1. The profile's own account (set when a player links their identity).
-  const { data: own } = await db().from("player_profiles").select("id, auth_user_id, merged_into_profile_id").in("id", profiles);
-  for (const p of (own ?? []) as { id: string; auth_user_id: string | null; merged_into_profile_id: string | null }[]) {
-    if (p.auth_user_id && !p.merged_into_profile_id) account.set(p.id, { userId: p.auth_user_id, via: null });
-  }
-  // 2. The account that joined this league as the profile.
-  if (leagueId) {
-    const { data: members } = await db()
-      .from("league_members")
-      .select("player_profile_id, auth_user_id, status")
-      .eq("league_id", leagueId)
-      .in("player_profile_id", profiles)
-      .not("auth_user_id", "is", null);
-    for (const m of (members ?? []) as { player_profile_id: string; auth_user_id: string; status: string }[]) {
-      if (m.status !== "removed" && !account.has(m.player_profile_id)) account.set(m.player_profile_id, { userId: m.auth_user_id, via: null });
-    }
-  }
-  // 3. A claim on another row of the same profile (newest first).
-  const missing = profiles.filter((p) => !account.has(p));
-  if (missing.length) {
-    const { data: others } = await db().from("players").select("id, player_profile_id").in("player_profile_id", missing).neq("tournament_id", tournamentId).limit(5000);
-    const profileOfRow = new Map(((others ?? []) as { id: string; player_profile_id: string }[]).map((r) => [r.id, r.player_profile_id]));
-    const rowIds = [...profileOfRow.keys()];
-    for (let i = 0; i < rowIds.length; i += 200) {
-      const { data: claims } = await db()
-        .from("player_claims")
-        .select("user_id, player_id, via_player_id, created_at")
-        .in("player_id", rowIds.slice(i, i + 200))
-        .order("created_at", { ascending: false });
-      for (const c of (claims ?? []) as { user_id: string | null; player_id: string; via_player_id: string | null }[]) {
-        const profile = profileOfRow.get(c.player_id);
-        if (c.user_id && profile && !account.has(profile)) account.set(profile, { userId: c.user_id, via: c.via_player_id ?? c.player_id });
-      }
-    }
-  }
-
-  const inserts = open.flatMap((p) => {
-    const a = account.get(p.player_profile_id);
-    return a ? [{ user_id: a.userId, player_id: p.id, via_player_id: a.via }] : [];
-  });
-  if (!inserts.length) return 0;
-  const { error } = await db().from("player_claims").upsert(inserts, { onConflict: "player_id", ignoreDuplicates: true });
-  if (error) throw new Error(error.message);
-  return inserts.length;
+  const { linkProfileRowsIn } = await import("../players/link");
+  return linkProfileRowsIn(tournamentId, { leagueId });
 }
 
 /* ---------------- which league a night belongs to ---------------- */
 
-/** The public league a session is a night of, or null (a stand-alone session, or a league that is not public). */
+/** The public league (of an approved organisation) a session is a night of, or null (a stand-alone session, or a league that is not public). */
 export async function publicLeagueOfSession(sessionId: string): Promise<{ id: string; slug: string } | null> {
   const { data: f } = await db().from("league_fixtures").select("league_id").eq("session_id", sessionId).eq("kind", "night").limit(1);
   const leagueId = ((f ?? []) as { league_id: string }[])[0]?.league_id;
   if (!leagueId) return null;
-  const { data: l } = await db().from("leagues").select("id, slug, status").eq("id", leagueId).maybeSingle();
-  const league = l as { id: string; slug: string; status: string } | null;
-  return league && ["active", "closed"].includes(league.status) ? { id: league.id, slug: league.slug } : null;
+  const { data: l } = await db().from("leagues").select("id, slug, status, organization_id").eq("id", leagueId).maybeSingle();
+  const league = l as { id: string; slug: string; status: string; organization_id: string } | null;
+  if (!league || !["active", "closed"].includes(league.status)) return null;
+  // A suspended or pending organisation's leagues are not public: no alerts, no links.
+  const { data: o } = await db().from("organizations").select("status").eq("id", league.organization_id).maybeSingle();
+  return (o as { status: string } | null)?.status === "approved" ? { id: league.id, slug: league.slug } : null;
 }
 
 /* ---------------- publishing ---------------- */

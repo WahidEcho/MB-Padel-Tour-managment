@@ -46,7 +46,7 @@
 import { db } from "../supabase";
 import { normalizeMobile } from "../friendly/mobile";
 import { ensureOrgPlayer } from "../orgs/scope";
-import { personFieldsVisibleFor } from "../orgs/personFields";
+import { NON_VOUCHING_SOURCES, personFieldsVisibleFor, sourceVouches } from "../orgs/personFields";
 import { linkedRows, normalizePersonName } from "./identity";
 import { toE164 } from "./phone";
 import {
@@ -183,7 +183,7 @@ async function soleVouched(candidates: ProfileRow[], rows: PlayerRow[], orgOf: M
 export async function offerOrgVouches(orgId: string, profileId: string): Promise<boolean> {
   const { data } = await db().from("organization_players").select("source").eq("organization_id", orgId).eq("player_profile_id", profileId).maybeSingle();
   const source = (data as { source: string } | null)?.source;
-  return Boolean(source) && source !== "matched";
+  return sourceVouches(source);
 }
 
 type ProfileDecision = { ok: true; profileId: string | null; created: boolean } | { ok: false; status: number; error: string };
@@ -353,10 +353,41 @@ export async function syncProfileClaims(userId: string): Promise<number> {
   const profile = await accountProfile(userId);
   if (!profile) return 0;
   const { data } = await db().from("players").select(PLAYER_COLUMNS).eq("player_profile_id", profile.id).limit(500);
-  const rows = (data ?? []) as PlayerRow[];
-  if (!rows.length) return 0;
-  const holders = await holdersOf(rows.map((r) => r.id));
-  const loose = rows.filter((r) => !holders.has(r.id));
+  return claimProfileRows(userId, profile, (data ?? []) as PlayerRow[]);
+}
+
+/**
+ * The claim a derived ('profile') claim hangs on: the code row that gave the account
+ * its profile, so resetting that code takes the derived rows with it
+ * (resetPlayerCode deletes by via_player_id). Null when the account holds the
+ * profile through a stronger proof (a phone code, its own email, an offer).
+ */
+export async function anchorVia(userId: string): Promise<string | null> {
+  const { data } = await db().from("player_claims").select("player_id, via_player_id, proof").eq("user_id", userId).limit(1000);
+  const list = (data ?? []) as { player_id: string; via_player_id: string | null; proof: string | null }[];
+  if (list.some((c) => c.proof === "phone" || c.proof === "email" || c.proof === "offer")) return null;
+  const code = list.find((c) => c.proof === "code" || c.proof === null);
+  return code ? (code.via_player_id ?? code.player_id) : null;
+}
+
+/**
+ * The one rule for rows an organisation made on a profile after the account linked
+ * it (a new tournament entry, a night's pairing rows): they go to the profile's own
+ * account (player_profiles.auth_user_id), never to an account found any other way,
+ * when the organisation vouches for the profile (or the player shared their details
+ * with it), within an offer's reach, and under the same name. `alsoTrusted`: extra
+ * organisations the account itself chose for this profile (a league it joined).
+ */
+async function claimProfileRows(
+  userId: string,
+  profile: ProfileRow,
+  rows: PlayerRow[],
+  opts: { alsoTrusted?: Set<string>; anyName?: Set<string> } = {},
+): Promise<number> {
+  const mine = rows.filter((r) => r.player_profile_id === profile.id);
+  if (!mine.length) return 0;
+  const holders = await holdersOf(mine.map((r) => r.id));
+  const loose = mine.filter((r) => !holders.has(r.id));
   if (!loose.length) return 0;
   const current = await claimedRows(userId);
   const name = current[0]?.full_name ?? profile.public_name;
@@ -364,14 +395,56 @@ export async function syncProfileClaims(userId: string): Promise<number> {
   const { data: rel } = await db().from("organization_players").select("organization_id, source").eq("player_profile_id", profile.id);
   const relations = (rel ?? []) as { organization_id: string; source: string }[];
   const trusted = new Set(relations.filter((r) => personFieldsVisibleFor(r.source, relations.filter((o) => o.organization_id !== r.organization_id).length)).map((r) => r.organization_id));
+  for (const org of opts.alsoTrusted ?? []) trusted.add(org);
   // Ownership through one organisation's offer reaches only that organisation (and those the account proved itself at).
   const reach = await profileReach(userId, profile);
   if (reach) for (const org of [...trusted]) if (!reach.has(org)) trusted.delete(org);
-  const add = loose.filter((r) => trusted.has(orgOf.get(r.tournament_id) ?? "") && normalizePersonName(r.full_name) === normalizePersonName(name));
+  const add = loose.filter((r) => {
+    const org = orgOf.get(r.tournament_id) ?? "";
+    if (!trusted.has(org)) return false;
+    return opts.anyName?.has(org) || normalizePersonName(r.full_name) === normalizePersonName(name);
+  });
+  if (!add.length) return 0;
+  const via = await anchorVia(userId);
   let n = 0;
   for (const r of add) {
-    const { error } = await db().from("player_claims").insert({ user_id: userId, player_id: r.id, via_player_id: null, proof: "profile" });
+    const { error } = await db().from("player_claims").insert({ user_id: userId, player_id: r.id, via_player_id: via, proof: "profile" });
     if (!error) n++;
+  }
+  return n;
+}
+
+/**
+ * A night's player rows (new rows, one per pairing) to their players' accounts, by
+ * the one rule above (claimProfileRows): only the profile's own account, never one
+ * found through league_members.auth_user_id or another row's claim. A league the
+ * account joined itself counts as its own choice of that organisation, but only
+ * while the membership is active and was made by the account that still speaks
+ * for the profile. Returns how many rows were linked.
+ */
+export async function linkProfileRowsIn(tournamentId: string, opts: { leagueId?: string | null } = {}): Promise<number> {
+  const { data } = await db().from("players").select(PLAYER_COLUMNS).eq("tournament_id", tournamentId).not("player_profile_id", "is", null).limit(2000);
+  const rows = (data ?? []) as PlayerRow[];
+  if (!rows.length) return 0;
+  const profileIds = [...new Set(rows.map((r) => r.player_profile_id).filter((x): x is string => Boolean(x)))];
+  const profiles = (await profilesById(profileIds)).filter((p) => p.auth_user_id);
+  if (!profiles.length) return 0;
+  const org = (await orgsOfTournaments([tournamentId])).get(tournamentId) ?? null;
+  const joined = new Map<string, string>();
+  if (opts.leagueId && org) {
+    const { data: members } = await db()
+      .from("league_members")
+      .select("player_profile_id, auth_user_id")
+      .eq("league_id", opts.leagueId)
+      .eq("status", "active")
+      .in("player_profile_id", profiles.map((p) => p.id));
+    for (const m of (members ?? []) as { player_profile_id: string; auth_user_id: string | null }[]) if (m.auth_user_id) joined.set(m.player_profile_id, m.auth_user_id);
+  }
+  let n = 0;
+  for (const p of profiles) {
+    const userId = p.auth_user_id!;
+    const own = org && joined.get(p.id) === userId ? new Set([org]) : undefined;
+    n += await claimProfileRows(userId, p, rows, { alsoTrusted: own, anyName: own });
   }
   return n;
 }
@@ -433,7 +506,7 @@ export async function orgShares(userId: string): Promise<OrgShare[]> {
     const mine = relations.find((r) => r.organization_id === o.id);
     const others = relations.filter((r) => r.organization_id !== o.id).length;
     const sharing = Boolean(mine) && personFieldsVisibleFor(mine!.source, others);
-    return { organizationId: o.id, name: o.name, slug: o.slug, sharing, canShare: Boolean(profile) && mine?.source === "matched" && !sharing };
+    return { organizationId: o.id, name: o.name, slug: o.slug, sharing, canShare: Boolean(profile) && Boolean(mine) && !sourceVouches(mine!.source) && !sharing };
   });
 }
 
@@ -454,7 +527,7 @@ export async function shareWithOrg(userId: string, organizationId: string): Prom
     .update({ source: "link", updated_at: new Date().toISOString() })
     .eq("organization_id", organizationId)
     .eq("player_profile_id", profile.id)
-    .eq("source", "matched")
+    .in("source", [...NON_VOUCHING_SOURCES])
     .select("organization_id");
   if (data?.length) await syncProfileClaims(userId);
   return Boolean(data?.length);

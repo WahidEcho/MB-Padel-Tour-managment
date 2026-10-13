@@ -253,6 +253,11 @@ export function apnsVerdict(r: ApnsResult): "ok" | "dead" | "config" | "retry" {
 /** APNs device, activity and push-to-start tokens: hex. Activity tokens are longer than device tokens and Apple may lengthen them again. */
 export const APNS_TOKEN = /^[0-9a-f]{40,400}$/i;
 
+/** APNs tokens are hex: stored and compared lower-case, so a phone that sends either case reaches the same row. */
+export function normalizeApnsToken(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
 /**
  * The start-token route's body: exactly `{ token }`, a hex APNs token. Unknown
  * fields are refused so a typo or an older shape never half-saves.

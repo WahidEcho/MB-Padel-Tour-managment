@@ -10,6 +10,13 @@
  * tokens, revoked and expired codes, a removed member and a suspended
  * organisation are refused on the next request. Move Beyond's backfill is checked.
  *
+ * Phases 2–8 (leagues, nights, court calls, results, the widget): B's league admin
+ * actions, night table, next round and session results named by A; B's court calls
+ * and "I'm at court"; the widget never shows a draft's, a hidden league night's or a
+ * suspended organisation's starred match; a referee code cannot correct a finished
+ * result; a code held for a moment, then reset, links none of a night's rows (H1);
+ * joining a league vouches for nothing; boards and league pages are masked.
+ *
  * Also (security review of 2e4e58a): B's ties, groups, bracket slots, nations,
  * leaderboard rows, courts and teams named alongside A's own tournament id; a
  * public registration form pulling B's player into A (A must not see their
@@ -102,7 +109,7 @@ interface ManifestEntry {
 const manifest = JSON.parse(readFileSync(join(process.cwd(), ".next/server/server-reference-manifest.json"), "utf8")) as { node: Record<string, ManifestEntry> };
 
 /** The attacker's own rows, to fill a page path the action is posted to (it must be a page that uses the action). */
-let ownParams: { tournament: string; session: string; announcement: string; match: string } = { tournament: "x", session: "x", announcement: "x", match: "x" };
+let ownParams: { tournament: string; session: string; announcement: string; match: string; league?: string } = { tournament: "x", session: "x", announcement: "x", match: "x" };
 function actionTarget(file: string, name: string): { id: string; page: string } {
   // The manifest's paths are relative to the build root: "src/app/…" normally, with a
   // prefix when the root is set above the checkout (a worktree), without "src/" under webpack.
@@ -116,6 +123,7 @@ function actionTarget(file: string, name: string): { id: string; page: string } 
       .replace(/^app/, "")
       .replace(/\/page$/, "")
       .replace(/friendly-sessions\/\[id\]/, `friendly-sessions/${ownParams.session}`)
+      .replace(/leagues\/\[id\]/, `leagues/${ownParams.league ?? ownParams.tournament}`)
       .replace(/announcements\/\[id\]/, `announcements/${ownParams.announcement}`)
       .replace(/\[matchId\]/, ownParams.match)
       .replace(/\[screenKey\]/, "main")
@@ -192,6 +200,15 @@ async function webGoogleSignIn(email: string, next = "/admin/tournaments"): Prom
 
 async function main() {
   const tag = randomUUID().slice(0, 6);
+  // Network addresses for the sign-in brakes: unique to this run and to each use
+  // (IPv6 documentation prefix), so no section's buckets (or an earlier run's,
+  // within their 15 minutes) can fill another's. A shared address once made the
+  // prefix check flaky: the guesses' addresses overlapped the address the
+  // "login brakes" section had exhausted, so one guess was refused at its address
+  // and never tried against the prefix.
+  const runNet = randomBytes(2).toString("hex");
+  let addrSeq = 0;
+  const freshAddr = () => `2001:db8:${runNet}::${(++addrSeq).toString(16)}`;
   const created = { orgs: [] as string[], tournaments: [] as string[], profiles: [] as string[], groups: [] as string[], seasons: [] as string[], announcements: [] as string[], sessions: [] as string[], mbMembers: [] as string[] };
 
   section("Move Beyond backfill");
@@ -901,12 +918,12 @@ async function main() {
 
     section("login brakes: per address, never platform-wide");
     {
-      const attacker = { "X-Forwarded-For": `203.0.113.${(randomBytes(1)[0] % 200) + 20}` };
+      const attacker = { "X-Forwarded-For": freshAddr() };
       let last = 0;
       for (let i = 0; i < 21; i++) last = (await http("POST", "/api/mobile/v1/staff/session", attacker, { code: generateEventCode() })).status;
       const blocked = await http("POST", "/api/mobile/v1/staff/session", attacker, { code: codeLock });
       check(last === 429 && blocked.status === 429, "one address guessing codes is stopped (even with a right code)", [last, blocked.status]);
-      const other = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": "192.0.2.77" }, { code: codeLock });
+      const other = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: codeLock });
       check(other.status === 200, "…while a referee on another address signs in with their code", other.status);
     }
 
@@ -1056,7 +1073,7 @@ async function main() {
       authorize.searchParams.set("login_hint", email);
       const back = await fetch(authorize, { redirect: "manual" });
       // Each browser from its own address (the callback has a per-address brake of its own).
-      const cb = await fetch(back.headers.get("location") ?? "", { redirect: "manual", headers: { Cookie: [state, cookieHeader(cookies)].filter(Boolean).join("; "), "X-Forwarded-For": `192.0.2.${(randomBytes(1)[0] % 200) + 20}` } });
+      const cb = await fetch(back.headers.get("location") ?? "", { redirect: "manual", headers: { Cookie: [state, cookieHeader(cookies)].filter(Boolean).join("; "), "X-Forwarded-For": freshAddr() } });
       return { landed: cb.headers.get("location") ?? "", jar: jar(new Map(cookies), cb), res: cb };
     }
     /** POST /invite/accept or /invite/decline, the way the "Join … ?" page's buttons do. */
@@ -1547,6 +1564,277 @@ async function main() {
       await db().from("platform_admins").delete().eq("auth_user_id", platformUser.id);
     }
 
+    section("Phases 2–8 attacked: leagues, nights, court calls, results, the widget");
+    {
+      const { createLeague, updateLeague, addMember, createNight } = await import("../../src/lib/leagues/ops");
+      const { storedNightTemplate, nightTemplate } = await import("../../src/lib/leagues/settings");
+      const { currentMonth } = await import("../../src/lib/leagues/server");
+      const { getTournament } = await import("../../src/lib/data");
+      const { stateFromFinalScore } = await import("../../src/lib/scoring/finalScore");
+      const { scoringConfigForMatch } = await import("../../src/lib/scoring/rules");
+      const { issuePlayerCode } = await import("../../src/lib/players/codeVault");
+      const template = storedNightTemplate({ ...nightTemplate({}), courts: 1, gamesToWinSet: 2, setsToWinMatch: 1, pairingMode: "americano", scoringMode: "either" });
+      const newProfile = async (name: string, org: string, source = "admin", typed: string | null = null) => {
+        const { data } = await db().from("player_profiles").insert({ public_name: name, approval_status: "approved" }).select("id").single();
+        const id = (data as { id: string }).id;
+        created.profiles.push(id);
+        await db().from("organization_players").insert({ organization_id: org, player_profile_id: id, source, approval_status: "approved", typed_name: typed });
+        return id;
+      };
+
+      // B's league: public, with a night of four of B's players (PB among them), its table generated.
+      const LB = await createLeague({ organizationId: B, name: `${SECRET_B} League`, kind: "nights", sport: "padel", actorRole: "e2e" });
+      await updateLeague(LB.id, { status: "active", night_template: template }, "e2e");
+      const DIV_B = ((await db().from("league_divisions").select("id").eq("league_id", LB.id).single()).data as { id: string }).id;
+      const bPlayers = [PB];
+      for (const n of ["Nb2", "Nb3", "Nb4"]) bPlayers.push(await newProfile(`${SECRET_B} ${n}`, B));
+      for (const p of bPlayers) await addMember(LB.id, p, DIV_B, "e2e");
+      const MEMBER_B = ((await db().from("league_members").select("id").eq("league_id", LB.id).eq("player_profile_id", PB).single()).data as { id: string }).id;
+      const nightB = await createNight(DIV_B, "2026-11-20", "e2e");
+      await generateSchedule(nightB.sessionId, "e2e");
+      const NIGHT_B_T = ((await db().from("friendly_sessions").select("tournament_id").eq("id", nightB.sessionId).single()).data as { tournament_id: string }).tournament_id;
+      const NIGHT_B_M = ((await db().from("matches").select("id").eq("tournament_id", NIGHT_B_T).order("match_order").limit(1).single()).data as { id: string }).id;
+      const FIXTURE_B = ((await db().from("league_fixtures").select("id").eq("league_id", LB.id).limit(1).single()).data as { id: string }).id;
+      const bLeagueIds = [LB.id, DIV_B, MEMBER_B, FIXTURE_B, NIGHT_B_M, nightB.sessionId];
+      const leakedL = (t: string) => leaked(t) || bLeagueIds.some((x) => t.includes(x));
+
+      // A's own league (the harness's positive control), with a member of A's own.
+      const LA = await createLeague({ organizationId: A, name: `Alpha League ${tag}`, kind: "nights", sport: "padel", actorRole: "e2e" });
+      await updateLeague(LA.id, { status: "active", night_template: template, counts_toward_top_of_all: true }, "e2e");
+      const DIV_A = ((await db().from("league_divisions").select("id").eq("league_id", LA.id).single()).data as { id: string }).id;
+      const PA = await newProfile(`Alpha Member ${tag}`, A);
+      await addMember(LA.id, PA, DIV_A, "e2e");
+      const MEMBER_A = ((await db().from("league_members").select("id").eq("league_id", LA.id).eq("player_profile_id", PA).single()).data as { id: string }).id;
+      ownParams = { ...ownParams, league: LA.id };
+      {
+        const own = await action("src/app/admin/leagues/actions.ts", "saveLeagueSettings", [form({ league_id: LA.id, name: `Alpha League ${tag} renamed`, status: "active", sport: "padel", timezone: "Africa/Cairo" })], aAdmin.headers);
+        const { data: la } = await db().from("leagues").select("name").eq("id", LA.id).single();
+        check(actionOk(own) && (la as { name: string }).name === `Alpha League ${tag} renamed`, "A's admin saves A's own league (the harness reaches league actions)", own.status);
+      }
+
+      const L = "src/app/admin/leagues/actions.ts";
+      const S = "src/app/admin/friendly-sessions/actions.ts";
+      const leagueAttacks: { label: string; file: string; name: string; args: () => unknown[] }[] = [
+        { label: "rename B's league", file: L, name: "saveLeagueSettings", args: () => [form({ league_id: LB.id, name: "PWNED", status: "archived", sport: "padel", timezone: "Africa/Cairo" })] },
+        { label: "change B's league points", file: L, name: "savePointsRules", args: () => [form({ league_id: LB.id, win: "100", loss: "0" })] },
+        { label: "change B's league boards", file: L, name: "savePeriods", args: () => [form({ league_id: LB.id, boards: "12", year_start_month: "5" })] },
+        { label: "change B's night template", file: L, name: "saveNightTemplate", args: () => [form({ league_id: LB.id, courts: "9", pairing_mode: "mexicano" })] },
+        { label: "set an invite code on B's league", file: L, name: "setInviteCodeAction", args: () => [null, form({ league_id: LB.id })] },
+        { label: "clear B's invite code", file: L, name: "clearInviteCodeAction", args: () => [form({ league_id: LB.id })] },
+        { label: "add a division to B's league", file: L, name: "addDivisionAction", args: () => [form({ league_id: LB.id, name: "PWNED" })] },
+        { label: "rename B's division", file: L, name: "renameDivisionAction", args: () => [form({ division_id: DIV_B, name: "PWNED" })] },
+        { label: "delete B's division", file: L, name: "deleteDivisionAction", args: () => [form({ division_id: DIV_B })] },
+        { label: "remove B's league member", file: L, name: "decideMemberAction", args: () => [form({ member_id: MEMBER_B, decision: "remove" })] },
+        { label: "move B's member out of its division", file: L, name: "setMemberDivisionAction", args: () => [form({ member_id: MEMBER_B, division_id: "" })] },
+        { label: "move A's member into B's division", file: L, name: "setMemberDivisionAction", args: () => [form({ member_id: MEMBER_A, division_id: DIV_B })] },
+        { label: "give B's member a partner", file: L, name: "setMemberPartnerAction", args: () => [form({ member_id: MEMBER_B, partner_profile_id: PA })] },
+        { label: "give A's member B's player as partner", file: L, name: "setMemberPartnerAction", args: () => [form({ member_id: MEMBER_A, partner_profile_id: PB })] },
+        { label: "add B's player to A's league", file: L, name: "addMemberAction", args: () => [form({ league_id: LA.id, profile_id: PB, division_id: DIV_A })] },
+        { label: "add A's player to B's league", file: L, name: "addMemberAction", args: () => [form({ league_id: LB.id, profile_id: PA, division_id: DIV_B })] },
+        { label: "add A's player to A's league in B's division", file: L, name: "addMemberAction", args: () => [form({ league_id: LA.id, profile_id: PA, division_id: DIV_B })] },
+        { label: "create a night in B's division", file: L, name: "createNightAction", args: () => [form({ division_id: DIV_B, date: "2026-12-01" })] },
+        { label: "delete B's night", file: L, name: "deleteNightAction", args: () => [form({ fixture_id: FIXTURE_B })] },
+        { label: "move B's night", file: L, name: "setFixtureDateAction", args: () => [form({ fixture_id: FIXTURE_B, date: "2027-01-01" })] },
+        { label: "generate fixtures in B's division", file: L, name: "generateFixturesAction", args: () => [form({ division_id: DIV_B, dates: "2026-12-01\n2026-12-08" })] },
+        { label: "count A's tournament toward B's division", file: L, name: "setCountsTowardAction", args: () => [form({ tournament_id: TA.id, division_id: DIV_B })] },
+        { label: "recalculate B's league", file: L, name: "recalculateLeagueAction", args: () => [form({ league_id: LB.id })] },
+        { label: "publish B's night table", file: S, name: "publishNightTableAction", args: () => [form({ session_id: nightB.sessionId, confirm_players: "1", match_minutes: "20" })] },
+        { label: "publish B's night table with A's player", file: S, name: "publishNightTableAction", args: () => [form({ session_id: SA.id, confirm_players: "1", playing: PB })] },
+        { label: "draw B's next round", file: S, name: "nextRoundAction", args: () => [form({ session_id: nightB.sessionId })] },
+        { label: "enter a result on B's night match", file: S, name: "enterSessionResult", args: () => [nightB.sessionId, NIGHT_B_M, { sets: [{ a: 2, b: 0 }] }] },
+        { label: "enter a result on B's night match through A's session", file: S, name: "enterSessionResult", args: () => [SA.id, NIGHT_B_M, { sets: [{ a: 2, b: 0 }] }] },
+      ];
+      const leagueSnapshot = async () => {
+        const [l, d, m, f, nm, nt, ta, ev, entries] = await Promise.all([
+          db().from("leagues").select("name, status, points_rules, periods, night_template, invite_code_hash, join_modes").eq("id", LB.id).maybeSingle(),
+          db().from("league_divisions").select("id, name").eq("league_id", LB.id).order("id"),
+          db().from("league_members").select("id, status, division_id, partner_profile_id").in("league_id", [LB.id, LA.id]).order("id"),
+          db().from("league_fixtures").select("id, date, kind").eq("league_id", LB.id).order("id"),
+          db().from("matches").select("id, status, winner_team_id").eq("tournament_id", NIGHT_B_T).order("id"),
+          db().from("tournaments").select("format_config").eq("id", NIGHT_B_T).maybeSingle(),
+          db().from("tournaments").select("counts_toward").eq("id", TA.id).maybeSingle(),
+          db().from("score_events").select("id").eq("match_id", NIGHT_B_M),
+          db().from("friendly_entries").select("player_profile_id, approval").eq("session_id", SA.id).order("player_profile_id"),
+        ]);
+        return JSON.stringify([l.data, d.data, m.data, f.data, nm.data, nt.data, ta.data, ev.data, entries.data]);
+      };
+      const lBefore = await leagueSnapshot();
+      for (const who of everyone) {
+        for (const atk of leagueAttacks) {
+          const r = await action(atk.file, atk.name, atk.args(), who.headers);
+          check(actionRefused(r) && !leakedL(r.text), `${who.label}: ${atk.label} refused`, `${r.status} ${r.text.slice(0, 120)}`);
+        }
+      }
+      check(lBefore === (await leagueSnapshot()), "B's league, divisions, members, nights, night table and results are unchanged, and A's league took none of B's rows", lBefore);
+
+      // App routes of B's league and night: public while B is approved and the league active, never after.
+      const lbPage = await http("GET", `/api/mobile/v1/leagues/${LB.slug}`);
+      // (The night's standings here; its bundle is first asked for below, while B is suspended: a bundle, and the
+      // live feed that reads it, are memoised for 10 s on an instance, like every tournament's.)
+      const nbLive = await http("GET", `/api/mobile/v1/t/${nightB.slug}/standings`);
+      check(lbPage.status === 200 && nbLive.status === 200, "B's public league and its night open in the app while B is approved", [lbPage.status, nbLive.status]);
+      const privateBits = ["invite_code_hash", "auth_user_id", "mobile_normalized", '"email"', "access_code", "player_profile_id", `${SECRET_B} note`];
+      check(!privateBits.some((x) => lbPage.text.includes(x)), "the league page carries no private field", privateBits.filter((x) => lbPage.text.includes(x)));
+
+      // Court calls: B's match and B's night match, from every A principal.
+      for (const who of everyone) {
+        for (const m of [TB.match, NIGHT_B_M]) {
+          const g = await http("GET", `/api/matches/${m}/call`, who.headers);
+          const p = await http("POST", `/api/matches/${m}/call`, who.headers, { action: "call", force: true });
+          const c = await http("POST", `/api/matches/${m}/call`, who.headers, { action: "cancel" });
+          check([g, p, c].every((r) => [401, 403, 404].includes(r.status) && !leakedL(r.text)), `${who.label}: B's court call (read, call, cancel) refused`, [g.status, p.status, c.status]);
+        }
+      }
+      const { count: callsB } = await db().from("match_calls").select("match_id", { count: "exact", head: true }).in("match_id", [TB.match, NIGHT_B_M]);
+      check(callsB === 0, "B's matches were never called", callsB);
+
+      // A player of A, signed in to the app: "I'm at court" and the widget.
+      const aPlayerUser = await standinUser(`e2e.a.player.${tag}@example.com`);
+      const asPlayer = bearer(aPlayerUser.accessToken);
+      await db().from("player_claims").insert({ user_id: aPlayerUser.id, player_id: TA.player, via_player_id: TA.player, proof: "code" });
+      const ownHere = await http("GET", `/api/mobile/v1/me/matches/${TA.match}/here`, asPlayer);
+      check(ownHere.status === 200 && ownHere.json?.side === "A", "the player reads their own match's call (the harness is real)", ownHere.text.slice(0, 160));
+      for (const m of [TB.match, NIGHT_B_M]) {
+        const g = await http("GET", `/api/mobile/v1/me/matches/${m}/here`, asPlayer);
+        const p = await http("POST", `/api/mobile/v1/me/matches/${m}/here`, asPlayer);
+        check(g.status === 404 && p.status === 404 && !leakedL(g.text + p.text), "\"I'm at court\" on a match of B's is the same 404 as a missing match", [g.status, p.status]);
+      }
+
+      // L2: the widget shows a starred match only while the app could show it anyway.
+      const { data: dt } = await db()
+        .from("tournaments")
+        .insert({ name: `${SECRET_B} Draft`, slug: `e2e-b-draft-${tag}`, organization_id: B, status: "draft", is_demo: true, public_access_enabled: false })
+        .select("id")
+        .single();
+      const DRAFT_B = (dt as { id: string }).id;
+      created.tournaments.push(DRAFT_B);
+      const { data: dteams } = await db().from("teams").insert([{ tournament_id: DRAFT_B, team_name: `${SECRET_B} D1` }, { tournament_id: DRAFT_B, team_name: `${SECRET_B} D2` }]).select("id");
+      const [d1, d2] = (dteams as { id: string }[]).map((x) => x.id);
+      const { data: dm } = await db().from("matches").insert({ tournament_id: DRAFT_B, stage: "group", round_name: "R1", match_order: 1, team_a_id: d1, team_b_id: d2, status: "scheduled" }).select("id").single();
+      const DRAFT_M = (dm as { id: string }).id;
+      for (const m of [TB.match, DRAFT_M, NIGHT_B_M]) await db().from("follows").insert({ owner_kind: "user", owner_id: aPlayerUser.id, target_kind: "match", target_key: m });
+      // The player's own next match (their earlier ones may be long finished, which the widget drops).
+      await db().from("matches").insert({ tournament_id: TA.id, stage: "group", round_name: "Round 3", match_order: 6, team_a_id: TA.team1, team_b_id: TA.team2, status: "scheduled", scheduled_time: new Date(Date.now() + 3600_000).toISOString() });
+      const widget = async () => (await http("GET", "/api/mobile/v1/me/widget", asPlayer)).text;
+      let w = await widget();
+      check(w.includes(TB.match) && w.includes(NIGHT_B_M) && !w.includes(DRAFT_M) && !w.includes(`${SECRET_B} D1`), "the widget shows starred public matches (B's tournament, B's public league night), never a draft's", { tb: w.includes(TB.match), night: w.includes(NIGHT_B_M), draft: w.includes(DRAFT_M) });
+      check(((JSON.parse(w) as { items: { id: string; mine: boolean }[] }).items ?? []).some((i) => i.mine), "…and the player's own matches (marked mine)", w.slice(0, 200));
+      const myMatches = await http("GET", "/api/mobile/v1/me/matches", asPlayer);
+      const mm = myMatches.json as { players?: { id: string }[]; matches?: { id: string }[] } | null;
+      check(myMatches.status === 200 && Boolean(mm?.players?.some((p) => p.id === TA.player)) && (mm?.matches?.length ?? 0) > 0 && !leakedL(myMatches.text), "GET /me/matches lists the player's own matches (player_claims read without an ambiguous embed)", myMatches.text.slice(0, 160));
+      await db().from("leagues").update({ status: "draft" }).eq("id", LB.id);
+      w = await widget();
+      const draftLeague = await http("GET", `/api/mobile/v1/leagues/${LB.slug}`);
+      check(!w.includes(NIGHT_B_M) && draftLeague.status === 404, "a league back in draft: its night leaves the widget and its page is gone", [w.includes(NIGHT_B_M), draftLeague.status]);
+      await db().from("leagues").update({ status: "active" }).eq("id", LB.id);
+      await db().from("organizations").update({ status: "suspended" }).eq("id", B);
+      try {
+        w = await widget();
+        const susLeague = await http("GET", `/api/mobile/v1/leagues/${LB.slug}`);
+        const susNight = await http("GET", `/api/mobile/v1/t/${nightB.slug}/bundle`);
+        check(!w.includes(TB.match) && !w.includes(NIGHT_B_M), "a suspended organisation's matches leave the widget", { tb: w.includes(TB.match), night: w.includes(NIGHT_B_M) });
+        check(susLeague.status === 404 && susNight.status === 404, "L3: a suspended organisation's league and its night are not public (league page, night bundle)", [susLeague.status, susNight.status]);
+      } finally {
+        await db().from("organizations").update({ status: "approved" }).eq("id", B);
+      }
+      await db().from("follows").delete().eq("owner_id", aPlayerUser.id);
+
+      // M1: a referee code cannot correct a finished result; the organiser can.
+      const { data: rm } = await db()
+        .from("matches")
+        .insert({ tournament_id: TA.id, stage: "group", round_name: "Round 2", match_order: 5, team_a_id: TA.team1, team_b_id: TA.team2, status: "scheduled", scoring_mode_override: "final_score" })
+        .select("*")
+        .single();
+      const RM = rm as { id: string; team_a_id: string; team_b_id: string; stage: string };
+      const entered = await action(`${T}/[id]/matches/actions.ts`, "enterMatchResult", [TA.id, RM.id, { sets: [{ a: 6, b: 2 }] }], aAdmin.headers);
+      check(actionOk(entered) && /"ok":true/.test(entered.text), "A's admin enters a result on A's match", entered.text.slice(-200));
+      const rules = scoringConfigForMatch(await getTournament(TA.id), RM as never);
+      const fixed = stateFromFinalScore(rules, [{ a: 2, b: 6 }]);
+      if (!fixed.ok) throw new Error("fixture");
+      const snap = ((await db().from("match_score_snapshots").select("last_event_number, snapshot_json").eq("match_id", RM.id).maybeSingle()).data as { last_event_number: number; snapshot_json: unknown } | null) ?? { last_event_number: 0, snapshot_json: null };
+      // A fresh referee code of A's (the earlier one was revoked by the codes section).
+      const { data: rc } = await db().from("organization_codes").insert({ organization_id: A, role: "referee", code_hash: hashEventCode(generateEventCode()), label: "e2e correction" }).select("id").single();
+      const freshReferee = bearer(staffToken({ kind: "code", codeId: (rc as { id: string }).id, orgId: A, role: "referee" }));
+      const byRef = await http("POST", `/api/matches/${RM.id}/events`, freshReferee, {
+        deviceId: `e2e-ref-${tag}`,
+        events: [{ client_event_id: randomUUID(), event_number: snap.last_event_number + 1, event_type: "RESULT_ENTERED", team_id: RM.team_b_id, previous_state: snap.snapshot_json, new_state: fixed.state, payload: { sets: [{ a: 2, b: 6 }] }, created_at_client: new Date().toISOString() }],
+      });
+      const afterRef = (await db().from("matches").select("winner_team_id, result_source").eq("id", RM.id).single()).data as { winner_team_id: string; result_source: string };
+      check(byRef.status === 409 && byRef.json?.conflict === "organiser_only" && afterRef.winner_team_id === RM.team_a_id, "A's referee code cannot overwrite the finished result (409 organiser_only, result unchanged)", byRef.text.slice(0, 200));
+      const corrected = await action(`${T}/[id]/matches/actions.ts`, "enterMatchResult", [TA.id, RM.id, { sets: [{ a: 2, b: 6 }] }], aAdmin.headers);
+      const afterFix = (await db().from("matches").select("winner_team_id, result_source").eq("id", RM.id).single()).data as { winner_team_id: string; result_source: string };
+      check(actionOk(corrected) && afterFix.winner_team_id === RM.team_b_id && afterFix.result_source === "correction", "the organiser corrects it", afterFix);
+
+      // H1: a code held for a moment, a league joined with it, the code reset: the night links nothing to that account.
+      const PX = await newProfile(`Code Holder ${tag}`, A);
+      const { data: rx } = await db().from("players").insert({ tournament_id: TA.id, team_id: TA.team2, full_name: `Code Holder ${tag}`, player_order: 3, player_profile_id: PX }).select("id").single();
+      const RX = (rx as { id: string }).id;
+      const code = await issuePlayerCode(RX);
+      const thief = await standinUser(`e2e.a.codethief.${tag}@example.com`);
+      const asCodeThief = { ...bearer(thief.accessToken), "X-Forwarded-For": freshAddr() };
+      const claimed = await http("POST", "/api/mobile/v1/me/player/claim", asCodeThief, { code });
+      const { data: pxNow } = await db().from("player_profiles").select("auth_user_id").eq("id", PX).single();
+      check(claimed.status === 200 && (pxNow as { auth_user_id: string | null }).auth_user_id === thief.id, "the code's holder links the player (and their profile, A vouches for it)", claimed.status);
+      await updateLeague(LA.id, { join_modes: ["approval"] }, "e2e");
+      const joined = await http("POST", `/api/mobile/v1/leagues/${LA.slug}/join`, asCodeThief, {});
+      const { data: pending } = await db().from("league_members").select("id, status, auth_user_id").eq("league_id", LA.id).eq("player_profile_id", PX).single();
+      check(joined.status === 200 && (pending as { status: string }).status === "pending" && (pending as { auth_user_id: string }).auth_user_id === thief.id, "…and asks to join A's league as that player (pending)", joined.text.slice(0, 160));
+      const reset = await action(`${T}/[id]/players/actions.ts`, "resetCode", [form({ tournament_id: TA.id, player_id: RX })], aAdmin.headers);
+      const { data: afterReset } = await db().from("league_members").select("auth_user_id").eq("id", (pending as { id: string }).id).single();
+      const { data: pxAfter } = await db().from("player_profiles").select("auth_user_id").eq("id", PX).single();
+      check(
+        actionOk(reset) && (pxAfter as { auth_user_id: string | null }).auth_user_id === null && (afterReset as { auth_user_id: string | null }).auth_user_id === null,
+        "A resets the code: the account lets go of the player, the profile and the league membership it made",
+        { profile: (pxAfter as { auth_user_id: string | null }).auth_user_id, member: (afterReset as { auth_user_id: string | null }).auth_user_id },
+      );
+      await db().from("league_members").update({ status: "active" }).eq("id", (pending as { id: string }).id);
+      // Even a membership still naming the account (as before this fix) links nothing on its own.
+      await db().from("league_members").update({ auth_user_id: thief.id }).eq("id", (pending as { id: string }).id);
+      const others = await Promise.all(["Ax2", "Ax3", "Ax4"].map((n) => newProfile(`${n} ${tag}`, A)));
+      for (const p of others) await addMember(LA.id, p, DIV_A, "e2e");
+      const nightA = await createNight(DIV_A, "2026-11-21", "e2e");
+      const pub = await action(S, "publishNightTableAction", [form({ session_id: nightA.sessionId })], aAdmin.headers);
+      const nightAT = ((await db().from("friendly_sessions").select("tournament_id").eq("id", nightA.sessionId).single()).data as { tournament_id: string }).tournament_id;
+      const { data: nightRows } = await db().from("players").select("id").eq("tournament_id", nightAT).eq("player_profile_id", PX);
+      const { data: thiefClaims } = await db().from("player_claims").select("player_id").eq("user_id", thief.id);
+      check(actionOk(pub) && (nightRows ?? []).length > 0 && (thiefClaims ?? []).length === 0, "H1: publishing A's night links none of the player's night rows to that account", { published: pub.status, rows: nightRows?.length, claims: thiefClaims?.length });
+      const asThiefPlayer = await http("GET", "/api/mobile/v1/me/player", asCodeThief);
+      const asThiefLeagues = await http("GET", "/api/mobile/v1/me/leagues", asCodeThief);
+      check(asThiefPlayer.status !== 200 || !asThiefPlayer.text.includes(`Code Holder ${tag}`), "…the account sees nothing of the player", asThiefPlayer.status);
+      check((asThiefLeagues.json as { profileLinked?: boolean } | null)?.profileLinked === false, "…and is nobody in leagues (profileForUser: auth_user_id only)", asThiefLeagues.text.slice(0, 120));
+      await db().from("player_claims").delete().eq("user_id", thief.id);
+
+      // Joining vouches for nothing: B's player joins A's league; A still sees none of their contact fields.
+      const PQ = await newProfile(`${SECRET_B} Joiner`, B);
+      await db().from("player_profiles").update({ email: `joiner.${tag}@example.com`, mobile_normalized: `+2015${String(Math.floor(Math.random() * 1e8)).padStart(8, "0")}` }).eq("id", PQ);
+      const joiner = await standinUser(`e2e.b.joiner.${tag}@example.com`);
+      await db().from("player_profiles").update({ auth_user_id: joiner.id }).eq("id", PQ);
+      await updateLeague(LA.id, { join_modes: ["open"] }, "e2e");
+      const jq = await http("POST", `/api/mobile/v1/leagues/${LA.slug}/join`, bearer(joiner.accessToken), {});
+      const { data: rel } = await db().from("organization_players").select("source, typed_name").eq("organization_id", A).eq("player_profile_id", PQ).maybeSingle();
+      const { visiblePersonFields } = await import("../../src/lib/orgs/personFields");
+      check(
+        jq.status === 200 && (rel as { source: string } | null)?.source === "matched" && !(await visiblePersonFields(A, [PQ])).has(PQ),
+        "a player of B who joins A's league gives A no contact field (source 'matched', not 'league' or 'link')",
+        rel,
+      );
+      const aPlayers = await http("GET", "/admin/players", aAdmin.headers);
+      check(aPlayers.status === 200 && !aPlayers.text.includes(`joiner.${tag}@example.com`), "…A's players page shows no email of theirs", aPlayers.status);
+
+      // Boards and league pages go through the masking: a profile A only matched while B has it.
+      const PH = await newProfile(`${SECRET_B} Hidden Name`, B);
+      await db().from("organization_players").insert({ organization_id: A, player_profile_id: PH, source: "matched", approval_status: "approved", typed_name: `Typed By A ${tag}` });
+      await addMember(LA.id, PH, DIV_A, "e2e");
+      await db().from("league_points").insert({ league_id: LA.id, division_id: DIV_A, player_profile_id: PH, match_id: RM.id, kind: "win", components: { base: 2, streak: 0 }, points: 2, month: currentMonth("Africa/Cairo") });
+      const laPage = await http("GET", `/api/mobile/v1/leagues/${LA.slug}`);
+      const top = await http("GET", "/api/mobile/v1/leagues/top");
+      const aOrg = await http("GET", `/api/mobile/v1/orgs/e2e-a-${tag}`);
+      check(laPage.status === 200 && laPage.text.includes(`Typed By A ${tag}`) && !laPage.text.includes(`${SECRET_B} Hidden Name`), "A's league board names the player as A typed them, never their profile's name", laPage.text.slice(0, 200));
+      check(!top.text.includes(`${SECRET_B} Hidden Name`) && !aOrg.text.includes(`${SECRET_B} Hidden Name`), "…on the platform board and A's organisation page too", [top.status, aOrg.status]);
+      const adminLeague = await http("GET", `/admin/leagues/${LA.id}`, aAdmin.headers);
+      check(adminLeague.status === 200 && adminLeague.text.includes(`Typed By A ${tag}`) && !adminLeague.text.includes(`${SECRET_B} Hidden Name`), "…and on A's own admin league page", adminLeague.status);
+    }
+
     section("player identity across organisations (Phase 1 review, 0026)");
     {
       const { hashOneTimeCode } = await import("../../src/lib/players/codeVault");
@@ -1604,24 +1892,28 @@ async function main() {
     {
       const codeMany = generateEventCode();
       await db().from("organization_codes").insert({ organization_id: A, role: "referee", code_hash: hashEventCode(codeMany), label: "e2e venue" });
-      const venue = { "X-Forwarded-For": `192.0.2.${(randomBytes(1)[0] % 200) + 20}` };
+      const venue = { "X-Forwarded-For": freshAddr() };
       const statuses: number[] = [];
       for (let i = 0; i < 45; i++) statuses.push((await http("POST", "/api/mobile/v1/staff/session", venue, { code: codeMany })).status);
       check(statuses.every((s) => s === 200), "45 referees sharing one event code on one venue Wi-Fi all sign in", statuses.filter((s) => s !== 200).length);
       // Wrong codes that start like it, from many addresses: the prefix brake still stops guessing.
-      let prefixLast = 0;
+      const guessStatuses: number[] = [];
       for (let i = 0; i < 40; i++) {
         const wrongCode = `${codeMany.slice(0, 4)}${generateEventCode().slice(4)}`;
-        prefixLast = (await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": `203.0.113.${i + 10}` }, { code: wrongCode })).status;
+        guessStatuses.push((await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: wrongCode })).status);
       }
-      const afterGuess = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": "198.51.100.200" }, { code: codeMany });
-      check(prefixLast === 401 && afterGuess.status === 429, "40 failed guesses at one prefix, spread over addresses, still close it", [prefixLast, afterGuess.status]);
+      const afterGuess = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: codeMany });
+      check(
+        guessStatuses.every((x) => x === 401) && afterGuess.status === 429,
+        "40 failed guesses at one prefix (each tried: 401), spread over addresses, still close it",
+        { notTried: guessStatuses.filter((x) => x !== 401), after: afterGuess.status },
+      );
       // M3: counted before the attempt, atomically: a simultaneous wave gets no more tries than the limit.
-      const wave = { "X-Forwarded-For": `198.51.100.${(randomBytes(1)[0] % 150) + 50}` };
+      const wave = { "X-Forwarded-For": freshAddr() };
       const waveStatuses = await Promise.all(Array.from({ length: 60 }, () => http("POST", "/api/mobile/v1/staff/session", wave, { code: generateEventCode() }).then((r) => r.status)));
       const tried = waveStatuses.filter((x) => x === 401).length;
       check(tried <= 20 && waveStatuses.every((x) => x === 401 || x === 429), "60 simultaneous wrong codes from one address: at most 20 are tried", { tried, refused: waveStatuses.filter((x) => x === 429).length });
-      const pw = { "X-Forwarded-For": `198.51.100.${(randomBytes(1)[0] % 40) + 210}` };
+      const pw = { "X-Forwarded-For": freshAddr() };
       const pwStatuses = await Promise.all(Array.from({ length: 15 }, (_, i) => http("POST", "/api/mobile/v1/staff/session", pw, { code: `hunter2 #${i} ${tag}!` }).then((r) => r.status)));
       const pwTried = pwStatuses.filter((x) => x === 401).length;
       check(pwTried <= 6, "anything not shaped like an event code (a shared-password guess) gets a much smaller allowance, waves included", { tried: pwTried });

@@ -140,9 +140,15 @@ export async function releaseClaims(userId: string): Promise<void> {
   await releaseProfile(userId);
 }
 
-/** The account no longer speaks for its player profile. */
+/**
+ * The account no longer speaks for its player profile: nor for the league
+ * memberships it made as that profile (league_members.auth_user_id), which never
+ * link anything on their own but must not outlive the account's claim either.
+ */
 export async function releaseProfile(userId: string): Promise<void> {
-  await db().from("player_profiles").update({ auth_user_id: null, phone_verified_at: null, owner_scope_org: null, updated_at: new Date().toISOString() }).eq("auth_user_id", userId);
+  const now = new Date().toISOString();
+  await db().from("player_profiles").update({ auth_user_id: null, phone_verified_at: null, owner_scope_org: null, updated_at: now }).eq("auth_user_id", userId);
+  await db().from("league_members").update({ auth_user_id: null, updated_at: now }).eq("auth_user_id", userId);
 }
 
 export async function claimedRows(userId: string): Promise<(PlayerRow & { via_player_id: string | null; claimed_at: string })[]> {
@@ -379,8 +385,15 @@ export async function reconcileProfile(userId: string): Promise<void> {
   const ids = ((rows ?? []) as { id: string }[]).map((r) => r.id);
   // A profile with no tournament rows (sessions only) was not linked through a code: it stays.
   if (!ids.length) return;
-  const { data: held } = await db().from("player_claims").select("player_id").eq("user_id", userId).in("player_id", ids).limit(1);
-  if (held?.length) return;
+  const held: { player_id: string; proof: string | null }[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db().from("player_claims").select("player_id, proof").eq("user_id", userId).in("player_id", ids.slice(i, i + 200));
+    held.push(...((data ?? []) as { player_id: string; proof: string | null }[]));
+  }
+  // Rows linked by the account's own proof keep the profile; rows only derived from
+  // the profile (proof 'profile': a later entry, a night's rows) do not, and go with it.
+  if (held.some((c) => c.proof !== "profile")) return;
+  if (held.length) await db().from("player_claims").delete().eq("user_id", userId).eq("proof", "profile");
   await releaseProfile(userId);
 }
 

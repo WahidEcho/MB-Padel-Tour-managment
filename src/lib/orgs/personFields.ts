@@ -30,10 +30,23 @@ import type { PlayerProfile } from "../types";
 /** How a player came to an organisation (organization_players.source; migration 0023). */
 export type OrgPlayerSource = "backfill" | "admin" | "registration" | "matched" | "tournament" | "league" | "link";
 
+/**
+ * Sources that do not vouch for the profile: the organisation only matched it by a
+ * typed mobile ('matched'), or the player reached it by joining one of its leagues
+ * ('league'; joining says nothing about whose contact details the profile holds,
+ * and the player shares them only in My profile → Organisations, which records 'link').
+ */
+export const NON_VOUCHING_SOURCES: readonly string[] = ["matched", "league"];
+
+/** Whether an organisation's relation to a profile vouches for it (anything but matched / league). */
+export function sourceVouches(source: OrgPlayerSource | string | null | undefined): boolean {
+  return Boolean(source) && !NON_VOUCHING_SOURCES.includes(String(source));
+}
+
 /** The rule itself, for one profile: its source with this organisation, and how many other organisations have it. */
 export function personFieldsVisibleFor(source: OrgPlayerSource | string | null | undefined, otherOrgs: number): boolean {
   if (!source) return false; // not this organisation's player at all
-  return source !== "matched" || otherOrgs === 0;
+  return sourceVouches(source) || otherOrgs === 0;
 }
 
 /** The profile ids among `ids` whose person fields this organisation may see. */
@@ -54,7 +67,7 @@ export async function visiblePersonFields(orgId: string, ids: string[], opts: { 
     for (const id of wanted) out.add(id);
     return out;
   }
-  const matched = [...source].filter(([, s]) => s === "matched").map(([id]) => id);
+  const matched = [...source].filter(([, s]) => !sourceVouches(s)).map(([id]) => id);
   const elsewhere = new Set<string>();
   for (let i = 0; i < matched.length; i += 200) {
     const { data } = await db()
@@ -76,7 +89,7 @@ export async function visiblePersonFields(orgId: string, ids: string[], opts: { 
  * organisation does have it. A profile nobody else has stays visible.
  */
 export function personFieldsHiddenFor(source: OrgPlayerSource | string | null | undefined, otherOrgs: number): boolean {
-  return (!source || source === "matched") && otherOrgs > 0;
+  return !sourceVouches(source) && otherOrgs > 0;
 }
 
 /**
@@ -100,7 +113,7 @@ export async function hiddenPersonFields(orgId: string | null | undefined, ids: 
       for (const r of (data ?? []) as { player_profile_id: string; source: string }[]) source.set(r.player_profile_id, r.source);
     }
   }
-  const candidates = wanted.filter((id) => !source.has(id) || source.get(id) === "matched");
+  const candidates = wanted.filter((id) => !sourceVouches(source.get(id)));
   for (let i = 0; i < candidates.length; i += 200) {
     let q = db().from("organization_players").select("player_profile_id").in("player_profile_id", candidates.slice(i, i + 200));
     if (isUuid(orgId)) q = q.neq("organization_id", orgId);
@@ -155,7 +168,7 @@ export async function matchedElsewhere(orgId: string | null | undefined, ids: st
       .from("organization_players")
       .select("player_profile_id, typed_name")
       .eq("organization_id", orgId)
-      .eq("source", "matched")
+      .in("source", [...NON_VOUCHING_SOURCES])
       .in("player_profile_id", wanted.slice(i, i + 200));
     for (const r of (data ?? []) as { player_profile_id: string; typed_name: string | null }[]) typed.set(r.player_profile_id, r.typed_name);
   }
@@ -169,4 +182,43 @@ export async function matchedElsewhere(orgId: string | null | undefined, ids: st
     for (const r of (data ?? []) as { player_profile_id: string }[]) out.set(r.player_profile_id, typed.get(r.player_profile_id)?.trim() || UNNAMED_MATCHED);
   }
   return out;
+}
+
+/**
+ * How an organisation's surfaces name these profiles: its admin pages, the team
+ * names its sessions make, its boards, league pages, night tables, screens and
+ * alerts. One rule, main's: a profile whose person fields this organisation may
+ * not show (hiddenPersonFields) is named by what this organisation typed for it
+ * (organization_players.typed_name), else `fallback` (the name on the
+ * organisation's own row), else "Registered player", and has no photo; every other
+ * profile by its public name. `hidden` lists the masked ones (no photo for them).
+ */
+export async function orgDisplayNames(
+  orgId: string | null | undefined,
+  ids: (string | null | undefined)[],
+  opts: { platformAdmin?: boolean; fallback?: Map<string, string> } = {},
+): Promise<{ names: Map<string, string>; hidden: Set<string> }> {
+  const wanted = [...new Set(ids.filter((x): x is string => isUuid(x)))];
+  const names = new Map<string, string>();
+  if (!wanted.length) return { names, hidden: new Set() };
+  const hidden = await hiddenPersonFields(orgId, wanted, { platformAdmin: opts.platformAdmin });
+  const typed = new Map<string, string>();
+  const masked = [...hidden];
+  if (isUuid(orgId)) {
+    for (let i = 0; i < masked.length; i += 200) {
+      const { data } = await db()
+        .from("organization_players")
+        .select("player_profile_id, typed_name")
+        .eq("organization_id", orgId)
+        .in("player_profile_id", masked.slice(i, i + 200));
+      for (const r of (data ?? []) as { player_profile_id: string; typed_name: string | null }[]) if (r.typed_name?.trim()) typed.set(r.player_profile_id, r.typed_name.trim());
+    }
+  }
+  const open = wanted.filter((id) => !hidden.has(id));
+  for (let i = 0; i < open.length; i += 200) {
+    const { data } = await db().from("player_profiles").select("id, public_name").in("id", open.slice(i, i + 200));
+    for (const p of (data ?? []) as { id: string; public_name: string }[]) names.set(p.id, p.public_name);
+  }
+  for (const id of masked) names.set(id, typed.get(id) ?? (opts.fallback?.get(id)?.trim() || UNNAMED_MATCHED));
+  return { names, hidden };
 }

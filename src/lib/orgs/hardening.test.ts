@@ -11,7 +11,7 @@ import { INVITE_CONFIRM_TTL_MS, openInviteConfirm, sealInviteConfirm } from "./i
 import { applicationSlug, nameKey, orgNameProblem, slugFromName } from "./profile";
 import { PERSONAL_ACCOUNT_ONLY, staffCan } from "../auth";
 import { refundRateLimit, takeRateLimit } from "../ratelimit";
-import { staffLoginBuckets } from "../staffLogin";
+import { STAFF_LOGIN_PER_PREFIX, staffLoginAttempt, staffLoginBuckets } from "../staffLogin";
 import { noAutolink, textToHtml } from "../email/layout";
 import { vetImageBytes, MAX_PIXELS } from "../upload";
 
@@ -26,10 +26,15 @@ describe("H1/M1: a profile an organisation does not vouch for", () => {
     expect(personFieldsHiddenFor(null, 1)).toBe(true);
     expect(personFieldsHiddenFor(undefined, 2)).toBe(true);
   });
+  it("joining one of its leagues vouches for nothing either (source 'league' is like 'matched')", () => {
+    expect(personFieldsHiddenFor("league", 1)).toBe(true);
+    expect(personFieldsVisibleFor("league", 1)).toBe(false);
+    expect(personFieldsVisibleFor("league", 0)).toBe(true);
+  });
   it("is not hidden when nobody else has it, or when the organisation created, added or was shown it", () => {
     expect(personFieldsHiddenFor("matched", 0)).toBe(false);
     expect(personFieldsHiddenFor(null, 0)).toBe(false);
-    for (const s of ["backfill", "admin", "registration", "tournament", "league", "link"]) {
+    for (const s of ["backfill", "admin", "registration", "tournament", "link"]) {
       expect(personFieldsHiddenFor(s, 3), s).toBe(false);
       expect(personFieldsVisibleFor(s, 3), s).toBe(true);
     }
@@ -137,6 +142,27 @@ describe("M3: staff sign-in brakes count atomically, before the attempt", () => 
     const pass = staffLoginBuckets("1.2.3.4", "hunter2").map((b) => b.key.split(":")[0]);
     expect(pass).toEqual(["staff-login", "staff-code", "staff-pass"]);
     expect(staffLoginBuckets("1.2.3.4").map((b) => b.key.split(":")[0])).toEqual(["staff-login"]);
+  });
+});
+
+describe("the code-prefix brake closes after exactly its limit of tried guesses", () => {
+  it("40 wrong guesses spread over 40 addresses close the prefix; the 41st (a right code) is refused", async () => {
+    const { client } = fakeCounters();
+    const code = "K7QM-W3XT-9HRP";
+    for (let i = 0; i < STAFF_LOGIN_PER_PREFIX.limit; i++) {
+      const a = await staffLoginAttempt(`2001:db8::${i}`, `K7QM-AAAA-${String(i).padStart(4, "2")}`, client);
+      expect(a.allowed).toBe(true); // tried (and wrong: never refunded)
+    }
+    const right = await staffLoginAttempt("2001:db8::ff", code, client);
+    expect(right.allowed).toBe(false);
+  });
+  it("a guess refused at its address is not tried, so it does not count against the prefix (deterministic: counts, not timing)", async () => {
+    const { rows, client } = fakeCounters();
+    rows.set("staff-login:2001:db8::full", { window_started_at: new Date().toISOString(), count: 20 });
+    const refused = await staffLoginAttempt("2001:db8::full", "K7QM-AAAA-BBBB", client);
+    expect(refused.allowed).toBe(false);
+    const prefix = [...rows.keys()].find((k) => k.startsWith("staff-code:"));
+    expect(prefix === undefined || rows.get(prefix)!.count === 0).toBe(true);
   });
 });
 

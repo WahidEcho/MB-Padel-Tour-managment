@@ -93,7 +93,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   the deploy the owner reaches Discover/flags/merging only by signing in with their own Google or email
   account (owner SQL in `docs/organizations.md`). Production needs `STAFF_SESSION_SECRET` and
   `EVENT_CODE_PEPPER`; the web staff cookie is `__Host-mb_session` (plain `mb_session` on localhost only).
-  `supabase/gate/reopen_open_access.sql` must never reopen the private tables (`src/lib/gateSql.test.ts`).
+  `supabase/gate/reopen_open_access.sql` must never reopen the private tables (`src/lib/gateSql.test.ts`: every table from migration
+  0022 on is classified, incl. `match_calls` and the Live Activity start tokens).
 - Organisations part B (onboarding): apply `/organizations/apply` → platform admins decide in
   `admin/platform/organizations`; invites `src/lib/orgs/invites.ts` (HMAC-only tokens, email-bound,
   single use, 7 days, token in the link's `#fragment`; a sign-in never accepts or is blocked by one — it asks
@@ -135,7 +136,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `enterMatchResult` on the matches page): the server rebuilds the state with `stateFromFinalScore`/`chessStateFromResults` and
   refuses a bad score or a differing client state (400 `code: "final_score"`, typed `problems`). Allowed only when the match's
   mode (override → session → match-day rules) is `final_score`/`either`. A result over a partly scored or finished match is an
-  audited correction (`RESULT_CORRECTED`; earlier events `sync_status = 'superseded'`; undo paths retract the bracket / ledger /
+  audited correction by the organiser's staff only (admin/manager; a referee code gets 409 `organiser_only`, decided before the lease is
+  touched — `correctionCut`; in chess, ending a level pairing with a winner is the organiser's too, `chessDecisionCut`); a session's
+  knockout retracts its later round like a tournament's, and a Mexicano result is frozen once the next round is drawn (409
+  `next_round_drawn`) (`RESULT_CORRECTED`; earlier events `sync_status = 'superseded'`; undo paths retract the bracket / ledger /
   tie first); `matches.result_source` is `point_by_point|final_score|correction` (0022 check). A result ends the undo chain
   (`getReopenState`, bootstrap history). Chess: every format today is a knockout, so a level pairing stays live
   (`needsArbiter`) until the organiser picks who advances (`decideWinner`); a draw outside a knockout is refused
@@ -147,7 +151,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   "Match soon" runs from `append.ts` after each batch and goes once per match (`matches.match_soon_at`, claimed with a
   filtered update) to the next match on the court's linked players, never for a TBD side or players live on another court.
   Calls live in `match_calls` (status `called|started|walkover|cancelled`; match status `ready` while called); routes
-  `api/matches/[matchId]/call` (staff, `score_match`, org-scoped) and `api/mobile/v1/me/matches/[matchId]/here` (only the
+  `api/matches/[matchId]/call` (staff, `score_match`, org-scoped; call/extend/cancel at most 12 per match per 10 min, atomic
+  `takeRateLimit`; "called to court" reaches the players at most once per match per 10 min) and `api/mobile/v1/me/matches/[matchId]/here` (only the
   account's own match via `player_claims`); a court QR check-in by a player marks them present; opening the match on a
   referee console auto-calls it (rules toggle, match days). Alerts `match_soon`/`called_to_court`/`call_reminder`
   (category `court`); `payload.self` = the players' own wording, chosen per phone in the drain; `recipientsFor` adds
@@ -158,12 +163,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (shared with the app through `@core`), server `src/lib/leagues/{server,ops,inviteCode}.ts`, admin `admin/leagues`, app API
   `leagues/[slug]`, `leagues/[slug]/join`, `leagues/top`, `me/leagues`; app screens `league/[slug]`, `leagues`. Points are recomputed from
   results by the hooks in `src/lib/results/hooks.ts` (finalise, undo, correction, reset), unique per match + player. "Which profile is
-  this user" is `profileForUser` only (switches to `auth_user_id` with Phase 1). League sessions (nights, season fixtures) are the only
-  friendly sessions the app shows. Gate: `npm run e2e:leagues` (stand-in).
+  this user" is `profileForUser` only (reads `player_profiles.auth_user_id`, nothing else). Joining makes the player the organisation's as
+  `matched` (vouches for nothing; `league` is non-vouching too, `sourceVouches`). Boards, league pages and admin league pages name players
+  through `orgDisplayNames`; the platform "Top of all" board scores results on the default scale (`onPlatformScale`). League sessions
+  (nights, season fixtures) of approved organisations are the only friendly sessions the app shows. Gate: `npm run e2e:leagues` (stand-in).
 - Americano / Mexicano nights (Phase 8, no migration): pure `src/lib/friendly/nightTable.ts` (`buildNightTable` view model every surface
   draws, `reestimateNight`; `NIGHT_TABLE_LAYOUT` is the one switch for the owner's pending reference layout), server
   `src/lib/friendly/nights.ts` (`publishNightTable` = "Confirm players and publish table", `reestimateSessionTable` from the
-  `results/hooks.ts` finish/undo hooks and match start, `linkNightPlayers` adds `player_claims` for a night's new rows by profile). Order
+  `results/hooks.ts` finish/undo hooks and match start, `linkNightPlayers` = `linkProfileRowsIn` in `src/lib/players/link.ts`: the one linking
+  rule, never `league_members.auth_user_id` alone). Order
   of play per court = `match_order`; estimates in `matches.scheduled_time`; published flag `format_config.nightTable`. Alerts only to the
   players' own accounts, only for public league nights. The Americano points format is unchanged (still 3 / 0 + fire on the night's
   own table; league points from the league rules). Gate: `npm run e2e:nights` (stand-in, `PUSH_DRY_RUN=1`).

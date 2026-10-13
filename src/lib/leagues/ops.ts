@@ -14,7 +14,7 @@ import { randomBytes } from "node:crypto";
 import { db } from "../supabase";
 import { audit } from "../audit";
 import { createFriendlySession } from "../friendly/ops";
-import { matchedElsewhere } from "../orgs/personFields";
+import { orgDisplayNames } from "../orgs/personFields";
 import { ensureOrgPlayer } from "../orgs/scope";
 import { zonedToIso } from "../tennis/ties";
 import { newTournamentMatchDayRules } from "../matchday/rules";
@@ -207,16 +207,9 @@ export async function addMember(leagueId: string, profileId: string, divisionId:
 
 /* ---------------- nights ---------------- */
 
-/** Display names for profiles, as this organisation may show them (src/lib/orgs/personFields.ts). */
+/** Display names for profiles, as this organisation may show them (src/lib/orgs/personFields.ts orgDisplayNames). */
 async function namesFor(orgId: string, ids: string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(ids)];
-  const names = new Map<string, string>();
-  for (let i = 0; i < unique.length; i += 200) {
-    const { data } = await db().from("player_profiles").select("id, public_name").in("id", unique.slice(i, i + 200));
-    for (const p of (data ?? []) as { id: string; public_name: string }[]) names.set(p.id, p.public_name);
-  }
-  for (const [id, typed] of await matchedElsewhere(orgId, unique)) names.set(id, typed);
-  return names;
+  return (await orgDisplayNames(orgId, ids)).names;
 }
 
 /** The hidden tournament of a league session: the league's sport, match-day rules, day and a clean name. */

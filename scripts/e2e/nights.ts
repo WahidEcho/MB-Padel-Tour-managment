@@ -7,9 +7,13 @@
  *      then courts) and "about" times (each match starts when its court and its
  *      players are free) stored in matches.scheduled_time.
  *   3. Alerts (PUSH_DRY_RUN): one per match, to its players only, through their
- *      own accounts — linked by the profile's account, by joining the league, or
- *      by a claim on another row of the profile; a phone with "scheduled" off, an
- *      unlinked phone and a follower of the night get nothing.
+ *      own accounts — the one linking rule (src/lib/players/link.ts): the profile's
+ *      own account (player_profiles.auth_user_id) when the organisation vouches for
+ *      the profile, or when that same account joined the league itself; never an
+ *      account named only by league_members.auth_user_id (H1). Derived claims hang
+ *      on the code that gave the account its profile: resetting it undoes them.
+ *      A phone with "scheduled" off, an unlinked phone and a follower of the night
+ *      get nothing.
  *   4. Re-estimates: a match that finishes early pulls its court's next match
  *      forward (through the scoring hooks); one that runs long or finishes late
  *      pushes it back.
@@ -183,8 +187,10 @@ async function main() {
     const P = await Promise.all(["N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9"].map((n) => profile(n, A.id)));
     const PB = await profile("Nb1", B.id);
 
-    // Accounts: U1 is P1's own (profile.auth_user_id); U2 claimed P2's code in another event;
-    // U3 joined the league as P3; U5 is P5's own with "scheduled" alerts off; U4 is nobody's.
+    // Accounts: U1 is P1's own (profile.auth_user_id); U2 became P2's own by claiming P2's code
+    // in another event (a code link: profile + code claim); U3 is P3's own and joined the league
+    // itself, while org A only matched P3 (org B added them); U5 is P5's own with "scheduled"
+    // alerts off; U4 is nobody's, yet names P4 on a stale league membership (H1).
     const user = async (key: string) => {
       const u = await appUser(`e2e.nt.${key}.${tag}@example.com`);
       created.users.push(u.userId);
@@ -197,7 +203,12 @@ async function main() {
     const { data: otherTeam } = await db().from("teams").insert({ tournament_id: (otherT as { id: string }).id, team_name: `Other ${tag}` }).select("id").single();
     const { data: otherRow } = await db().from("players").insert({ tournament_id: (otherT as { id: string }).id, team_id: (otherTeam as { id: string }).id, full_name: `N2 ${tag}`, player_order: 1, player_profile_id: P[1] }).select("id").single();
     const P2Row = (otherRow as { id: string }).id;
-    await db().from("player_claims").insert({ user_id: U2.userId, player_id: P2Row, via_player_id: P2Row });
+    await db().from("player_claims").insert({ user_id: U2.userId, player_id: P2Row, via_player_id: P2Row, proof: "code" });
+    await db().from("player_profiles").update({ auth_user_id: U2.userId }).eq("id", P[1]);
+    // P3: org B's player that org A only matched (typed name); U3 speaks for the profile.
+    await db().from("organization_players").update({ source: "matched", typed_name: `N3 typed ${tag}` }).eq("organization_id", A.id).eq("player_profile_id", P[2]);
+    await db().from("organization_players").insert({ organization_id: B.id, player_profile_id: P[2], source: "admin", approval_status: "approved" });
+    await db().from("player_profiles").update({ auth_user_id: U3.userId }).eq("id", P[2]);
 
     const device = async (name: string, userId: string | null, prefs: Record<string, unknown> = {}) => {
       const installationId = `e2e-nt-${tag}-${name}`;
@@ -225,6 +236,8 @@ async function main() {
     const DIV = (dRows as { id: string }[])[0].id;
     for (const p of P) await addMember(L.id, p, DIV, "admin");
     await db().from("league_members").update({ auth_user_id: U3.userId }).eq("league_id", L.id).eq("player_profile_id", P[2]);
+    // H1: an account that once joined as P4 (say with a code it held for a moment) and no longer speaks for P4.
+    await db().from("league_members").update({ auth_user_id: U4.userId }).eq("league_id", L.id).eq("player_profile_id", P[3]);
     const today = todayIn("Africa/Cairo");
     const night = await createNight(DIV, today, "admin");
     const { data: ns } = await db().from("friendly_sessions").select("tournament_id, scoring_mode").eq("id", night.sessionId).single();
@@ -281,9 +294,10 @@ async function main() {
     const claims = (claimRows ?? []) as { user_id: string; player_id: string; via_player_id: string | null }[];
     const claimedBy = (p: string) => new Set(claims.filter((c) => rowsOf(p).includes(c.player_id)).map((c) => c.user_id));
     check(rowsOf(P[0]).length > 0 && [...claimedBy(P[0])].join() === U1.userId, "P1's rows tonight are linked to P1's own account");
-    check([...claimedBy(P[1])].join() === U2.userId && claims.filter((c) => rowsOf(P[1]).includes(c.player_id)).every((c) => c.via_player_id === P2Row), "P2's rows to the account that claimed P2's code elsewhere (a reset of that code undoes them too)");
-    check([...claimedBy(P[2])].join() === U3.userId, "P3's rows to the account that joined the league as P3");
+    check([...claimedBy(P[1])].join() === U2.userId && claims.filter((c) => rowsOf(P[1]).includes(c.player_id)).every((c) => c.via_player_id === P2Row), "P2's rows to the account that claimed P2's code elsewhere, hung on that code (via_player_id)");
+    check([...claimedBy(P[2])].join() === U3.userId, "P3's rows to P3's own account, which joined the league itself (org A only matched P3)");
     check([P[3], P[5], P[6], P[7]].every((p) => claimedBy(p).size === 0), "players without an account stay unlinked");
+    check(claimedBy(P[3]).size === 0 && claims.every((c) => c.user_id !== U4.userId), "H1: a league membership naming an account (league_members.auth_user_id) links nothing on its own");
     const { data: parts } = await db().from("friendly_match_participants").select("match_id, team_a_player_one, team_a_player_two, team_b_player_one, team_b_player_two").eq("session_id", night.sessionId);
     const playsIn = (p: string) => ((parts ?? []) as Record<string, string>[]).filter((r) => [r.team_a_player_one, r.team_a_player_two, r.team_b_player_one, r.team_b_player_two].includes(p)).map((r) => r.match_id);
     const eventOf = new Map(events.map((e) => [e.match_id, e.id]));
@@ -312,6 +326,18 @@ async function main() {
     await db().from("follows").insert({ owner_kind: "install", owner_id: D6.installationId, target_kind: "tournament", target_key: T1, tournament_id: T1 });
     await http("POST", "/api/internal/notifications/drain", { Authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` }, {});
     check((await deliveries()).every((x) => x.device_id !== D6.id), "a follower of the night (not a player) gets nothing");
+    {
+      // H1: resetting the code that gave U2 its profile takes the night's derived rows with it.
+      const { resetPlayerCode } = await import("../../src/lib/players/claims");
+      await resetPlayerCode(P2Row);
+      const { data: left } = await db().from("player_claims").select("player_id").eq("user_id", U2.userId);
+      const { data: p2 } = await db().from("player_profiles").select("auth_user_id").eq("id", P[1]).single();
+      check((left ?? []).length === 0 && (p2 as { auth_user_id: string | null }).auth_user_id === null, "resetting P2's code unlinks U2 from P2's night rows and from the profile", { left: left?.length, profile: (p2 as { auth_user_id: string | null }).auth_user_id });
+      const { linkNightPlayers } = await import("../../src/lib/friendly/nights");
+      await linkNightPlayers(T1, L.id);
+      const { data: again } = await db().from("player_claims").select("player_id").eq("user_id", U2.userId);
+      check((again ?? []).length === 0, "…and linking the night again does not bring them back", again?.length);
+    }
 
     section("4. the table everywhere: public session page, app bundle and league page, TV");
     const s1 = await sessionOf(T1);
@@ -342,6 +368,14 @@ async function main() {
     check(xPage.status === 404 && !xPage.text.includes("publish-night-table"), "another organisation's admin cannot open it", xPage.status);
     const tv = await http("GET", `/t/${night.slug}/screen?mode=bracket`);
     check(tv.status === 200 && tv.text.includes('data-testid="night-table"') && /about \d\d:\d\d/.test(tv.text), "the TV's bracket scene is the night's order of play", tv.status);
+    const hero = await http("GET", "/api/mobile/v1/courts/live");
+    const surfaces = { page: pubPage.text, league: lp.text, tv: tv.text, bundle: bundle.text, live: live.text, hero: hero.text };
+    const publicName = Object.entries(surfaces).filter(([, t]) => t.includes(`N3 ${tag}`)).map(([k]) => k);
+    check(
+      publicName.length === 0 && (pubPage.text.includes(`N3 typed ${tag}`) || lp.text.includes(`N3 typed ${tag}`)),
+      "a player org A only matched (org B's) is named as A typed them on the page, league page, TV, bundle, live feed and hero: never their profile's name",
+      publicName,
+    );
 
     section("5. final results on a night: the organiser and a referee");
     const first = m1[0];

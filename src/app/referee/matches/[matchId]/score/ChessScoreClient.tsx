@@ -77,6 +77,7 @@ export default function ChessScoreClient({
   competition = "knockout",
   matchDay = null,
   initialCall = null,
+  canDecide = false,
 }: {
   match: Match;
   tournamentName: string;
@@ -93,6 +94,8 @@ export default function ChessScoreClient({
   matchDay?: MatchDayRules | null;
   /** The match's call to court when the page loaded. */
   initialCall?: CallSnapshot | null;
+  /** The organiser's staff (admin, manager) decide who advances from a level pairing; a referee does not. */
+  canDecide?: boolean;
 }) {
   const [state, setState] = useState<ChessState | null>(null);
   const [history, setHistory] = useState<ChessState[]>([]);
@@ -562,13 +565,17 @@ export default function ChessScoreClient({
             <div className="card mt-3 border-warning/50 text-center">
               <p className="text-sm font-bold text-warning">
                 {legs === 2 ? "Match tied " : "Game drawn "}
-                {matchScoreSummary(renderState)} — arbiter decides who advances:
+                {matchScoreSummary(renderState)} — {canDecide ? "decide who advances:" : "level pairing"}
               </p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {(["A", "B"] as Side[]).map((k) => (
-                  <button key={k} className="btn-primary" onClick={() => doDecide(k)}>{team(k).name}</button>
-                ))}
-              </div>
+              {canDecide ? (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {(["A", "B"] as Side[]).map((k) => (
+                    <button key={k} className="btn-primary" onClick={() => doDecide(k)}>{team(k).name}</button>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted" data-testid="arbiter-organiser-only">The organiser (an admin or manager) decides who advances.</p>
+              )}
             </div>
           )}
 
@@ -587,7 +594,7 @@ export default function ChessScoreClient({
                   Undo (reopen)
                 </button>
               )}
-              {resultAllowed && renderFinished && pendingCount === 0 && (
+              {resultAllowed && renderFinished && pendingCount === 0 && canDecide && (
                 <button className="btn-secondary ml-2 mt-2 text-xs" onClick={() => openResultEntry(true)} data-testid="correct-result-button">
                   Correct result
                 </button>

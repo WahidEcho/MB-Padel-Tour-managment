@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { staffRoute } from "@/lib/guard";
+import { takeRateLimit } from "@/lib/ratelimit";
 import { answerNoShow, callToCourt, cancelCall, extendCall, getCall, markPresent, type NoShowAnswer } from "@/lib/matchday/server";
 
 /**
@@ -16,7 +17,13 @@ import { answerNoShow, callToCourt, cancelCall, extendCall, getCall, markPresent
  * Staff only (score_match: admin, manager, referee). The match's own tournament
  * decides the organisation (and an event code's scope): another organisation's
  * match is the same 404 as a missing one. Answers carry no player data.
+ *
+ * call, extend and cancel reach the players' phones (a call alert, a new deadline),
+ * so each match takes at most CALL_LIMIT of them per 10 minutes, counted atomically
+ * before the work (429 after); and a match's players hear "called to court" at most
+ * once per 10 minutes however often it is called (matchday/server.ts).
  */
+const CALL_LIMIT = { limit: 12, windowSeconds: 600 };
 const NO_STORE = { "Cache-Control": "private, no-store" };
 const ACTIONS = new Set(["call", "present", "extend", "answer", "cancel"]);
 const ANSWERS = new Set<NoShowAnswer>(["wait", "walkover_to_a", "walkover_to_b", "both_no_show"]);
@@ -42,6 +49,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const action = body.action;
   if (typeof action !== "string" || !ACTIONS.has(action)) return bad("action must be call, present, extend, answer or cancel.");
   const role = gate.staff.role;
+  if (action === "call" || action === "extend" || action === "cancel") {
+    const rl = await takeRateLimit({ key: `match-call:${matchId}`, ...CALL_LIMIT });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "This match was called, extended or withdrawn too often. Wait a few minutes.", code: "rate_limited" },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds), ...NO_STORE } },
+      );
+    }
+  }
 
   let out;
   switch (action) {

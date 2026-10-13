@@ -1103,6 +1103,9 @@ export async function retractKnockout(match: Match): Promise<{ ok: boolean; reas
     if (slot.match_id) {
       const field = slot.slot_order % 2 === 0 ? "team_a_id" : "team_b_id";
       await db().from("matches").update({ [field]: null }).eq("id", slot.match_id);
+      // A session's later round (not started, checked above) may already hold who
+      // plays it; it is written again when its sides are known (applyFriendlyResult).
+      await db().from("friendly_match_participants").delete().eq("match_id", slot.match_id);
     }
   }
   return { ok: true };

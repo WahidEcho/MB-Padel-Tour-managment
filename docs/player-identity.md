@@ -87,6 +87,22 @@ WhatsApp uses the authentication template `mb_login_code` (definition and submis
 `docs/messaging.md`); until `WA_OTP_TEMPLATE` is set the server answers `sent: false` and the app offers
 email. Delivery rows never hold a code.
 
+## Rows made later: one rule (`claimProfileRows` in `link.ts`)
+
+Rows an organisation makes on a profile after the account linked it (a new tournament entry, a league
+night's pairing rows) are claimed (`proof = 'profile'`) for **the profile's own account only**
+(`player_profiles.auth_user_id`), when the organisation vouches for the profile (or the player shared with
+it), within an offer's reach, under the same name — `syncProfileClaims` on every profile read, and
+`linkProfileRowsIn` when a night's table is published. A league the account joined itself counts as its own
+choice of that organisation, but only for an **active** membership made by the account that still speaks for
+the profile. Nothing is ever linked from `league_members.auth_user_id` alone or from another row's claim.
+Derived claims hang on the code that gave the account its profile (`via_player_id`, `anchorVia`), so a code
+reset takes them along; and `reconcileProfile` counts only claims made by the account's own proof, so an
+account left holding derived rows only lets go of them and of the profile. Releasing a profile (unlink,
+reset, account deletion) also clears the account from the league memberships it made
+(`league_members.auth_user_id`). Leagues ask "which profile is this account" through `profileForUser`, which
+reads `auth_user_id` only.
+
 ## Player codes at rest
 
 Codes used for sign-in and claims are looked up by `players.access_code_hash` =

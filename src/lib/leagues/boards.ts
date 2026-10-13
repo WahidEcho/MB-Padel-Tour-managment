@@ -11,7 +11,12 @@
  *                    ending at the month instead.
  *   top of all       per organisation and platform-wide: a player's total points
  *                    over every league that counts toward it, for a month.
- *                    Organisations may opt out of the platform board.
+ *                    Organisations may opt out of the platform board. The
+ *                    platform board counts every result by the platform's own
+ *                    scale (the default rules: win 2, loss 1, …, no streak
+ *                    bonus), so one organisation's scale (up to 100 a win) cannot
+ *                    crowd everyone else off it; an organisation's board keeps
+ *                    its own points.
  *
  * Order and ties follow the friendly rankings (src/lib/friendly/ranking.ts):
  * total points → wins → game difference → games won; players still level share
@@ -19,7 +24,7 @@
  *
  * Pure: shared with the Move Score app through move-score-app/src/core/index.ts.
  */
-import type { LeaguePointsRow } from "./points";
+import { DEFAULT_LEAGUE_POINTS_RULES, type LeagueResultKind, type LeaguePointsRow } from "./points";
 
 /** One player's points from one source (a league_points row, or a sum of them). */
 export interface BoardEntry {
@@ -33,6 +38,8 @@ export interface BoardEntry {
   gamesLost?: number;
   played?: number;
   leagueId?: string;
+  /** What the result was (league_points.kind): the platform board scores it on its own scale. */
+  kind?: Exclude<LeagueResultKind, "void">;
 }
 
 export interface BoardLine {
@@ -192,10 +199,26 @@ export function topOfAllLeagues(entries: BoardEntry[], leagues: BoardLeague[], s
       .filter((l) => (scope.kind === "organization" ? l.organizationId === scope.organizationId : !optedOut.has(l.organizationId)))
       .map((l) => l.id),
   );
-  return monthlyBoard(
-    entries.filter((e) => e.leagueId !== undefined && counting.has(e.leagueId)),
-    month,
-  );
+  const counted = entries.filter((e) => e.leagueId !== undefined && counting.has(e.leagueId));
+  return monthlyBoard(scope.kind === "platform" ? counted.map(onPlatformScale) : counted, month);
+}
+
+/**
+ * One result on the platform's scale: the default rules' points for its kind
+ * (no streak bonus). An entry without a kind cannot be rescaled and is capped at
+ * a default win, so no organisation's own scale reaches past the platform's.
+ */
+export function onPlatformScale(e: BoardEntry): BoardEntry {
+  const d = DEFAULT_LEAGUE_POINTS_RULES;
+  const scale: Record<Exclude<LeagueResultKind, "void">, number> = {
+    win: d.win,
+    draw: d.draw,
+    loss: d.loss,
+    walkover_win: d.walkoverWin,
+    walkover_loss: d.walkoverLoss,
+  };
+  const points = e.kind ? scale[e.kind] : Math.min(Math.max(0, e.points), d.win * Math.max(1, e.played ?? 1));
+  return { ...e, points };
 }
 
 /** A player's line on a board, or null when they are not on it. */

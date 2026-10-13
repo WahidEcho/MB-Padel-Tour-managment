@@ -61,6 +61,7 @@ import {
 assertStandIn("match-day.ts");
 
 const REF = staff("referee");
+const ADMIN = staff("admin");
 const MIN = 60_000;
 
 interface EventRow {
@@ -379,6 +380,15 @@ async function main() {
 
       const cancel = await call(N3.id, { action: "cancel" });
       check(cancel.status === 200 && (await callRow(N3.id))?.status === "cancelled" && (await matchRow(N3.id)).status === "scheduled", "the call is withdrawn: N3 back to scheduled", cancel.text);
+      // L1: a call / cancel loop neither spams the players nor runs forever.
+      const recall = await call(N3.id, { action: "call" });
+      check(recall.status === 201 && (await events(N3.id, "called_to_court")).length <= 1, "called again within 10 minutes: no second \"called to court\" alert", { status: recall.status, alerts: (await events(N3.id, "called_to_court")).length });
+      const statuses: number[] = [];
+      for (let i = 0; i < 14 && !statuses.includes(429); i++) statuses.push((await call(N3.id, { action: i % 2 === 0 ? "cancel" : "call" })).status);
+      // So far: call, cancel, call (3 of 12 per 10 minutes) — the 10th more is the 13th.
+      check(statuses.includes(429) && statuses.length === 10 && statuses.slice(0, -1).every((x) => x === 200 || x === 201), "call / extend / cancel: at most 12 per match per 10 minutes, counted atomically (then 429)", statuses);
+      check((await events(N3.id, "called_to_court")).length <= 1, "…and the players heard \"called to court\" once, whatever the loop", (await events(N3.id, "called_to_court")).length);
+      await db().from("request_counters").delete().eq("bucket_key", `match-call:${N3.id}`);
     }
 
     section("8. Phase 2 leftovers: Undo after a result; no second \"finished\"");
@@ -396,9 +406,11 @@ async function main() {
       const fix: EnteredSet[] = [{ a: 2, b: 6 }];
       const fixed = stateFromFinalScore(rules, fix);
       if (!fixed.ok) throw new Error("fixture");
-      const c = await sendEvents(R1.id, REF, [scoreEvent(2, "RESULT_ENTERED", built.state, fixed.state, { team_id: team(2).id, payload: { sets: fix } })], `${device}-r1`);
+      const byRef = await sendEvents(R1.id, REF, [scoreEvent(2, "RESULT_ENTERED", built.state, fixed.state, { team_id: team(2).id, payload: { sets: fix } })], `${device}-r1`);
+      check(byRef.status === 409 && byRef.json?.conflict === "organiser_only" && (await matchRow(R1.id)).winner_team_id === team(1).id, "a referee code cannot correct the finished result (409 organiser_only)", byRef.text);
+      const c = await sendEvents(R1.id, ADMIN, [scoreEvent(2, "RESULT_ENTERED", built.state, fixed.state, { team_id: team(2).id, payload: { sets: fix } })], `${device}-r1`);
       const m = await matchRow(R1.id);
-      check(c.status === 200 && m.winner_team_id === team(2).id && m.result_source === "correction", "the corrected result is recorded", c.text);
+      check(c.status === 200 && m.winner_team_id === team(2).id && m.result_source === "correction", "the organiser's corrected result is recorded", c.text);
       await sleep(500);
       check((await events(R1.id, "match_finished")).length === 1, "the correction sends no second \"match finished\"");
     }

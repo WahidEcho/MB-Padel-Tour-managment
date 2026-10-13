@@ -17,6 +17,7 @@ import {
   boardLineOf,
   boardMonths,
   monthlyBoard,
+  onPlatformScale,
   periodBoard,
   rankBoard,
   topOfAllLeagues,
@@ -252,13 +253,37 @@ describe("boards", () => {
     ];
     const org1 = topOfAllLeagues(entries, leagues, { kind: "organization", organizationId: "org1" }, "2026-10");
     expect(org1.map((l) => [l.profileId, l.points])).toEqual([["a", 5]]);
+    // The platform board has its own scale: an entry without a result kind is capped at a default win (2).
     const platform = topOfAllLeagues(entries, leagues, { kind: "platform", optedOut: [] }, "2026-10");
     expect(platform.map((l) => [l.profileId, l.points])).toEqual([
-      ["a", 9],
-      ["b", 7],
+      ["a", 4],
+      ["b", 2],
     ]);
     const without2 = topOfAllLeagues(entries, leagues, { kind: "platform", optedOut: new Set(["org2"]) }, "2026-10");
-    expect(without2.map((l) => [l.profileId, l.points])).toEqual([["a", 5]]);
+    expect(without2.map((l) => [l.profileId, l.points])).toEqual([["a", 2]]);
+  });
+
+  it("L5: the platform board scores results on the platform's scale, so a league's own scale cannot dominate it", () => {
+    const leagues: BoardLeague[] = [
+      { id: "BIG", organizationId: "org1", countsTowardTopOfAll: true },
+      { id: "STD", organizationId: "org2", countsTowardTopOfAll: true },
+    ];
+    // BIG gives 100 a win; STD the defaults (win 2, loss 1).
+    const entries: BoardEntry[] = [
+      { profileId: "big", month: "2026-10", points: 100, wins: 1, played: 1, leagueId: "BIG", kind: "win" },
+      { profileId: "std", month: "2026-10", points: 2, wins: 1, played: 1, leagueId: "STD", kind: "win" },
+      { profileId: "std", month: "2026-10", points: 2, wins: 1, played: 1, leagueId: "STD", kind: "win" },
+      { profileId: "std", month: "2026-10", points: 1, losses: 1, played: 1, leagueId: "STD", kind: "loss" },
+    ];
+    const platform = topOfAllLeagues(entries, leagues, { kind: "platform", optedOut: [] }, "2026-10");
+    expect(platform.map((l) => [l.profileId, l.points])).toEqual([
+      ["std", 5],
+      ["big", 2],
+    ]);
+    // The organisation's own board keeps its own points.
+    const own = topOfAllLeagues(entries, leagues, { kind: "organization", organizationId: "org1" }, "2026-10");
+    expect(own.map((l) => [l.profileId, l.points])).toEqual([["big", 100]]);
+    expect(onPlatformScale({ profileId: "x", month: "2026-10", points: 100, kind: "walkover_win" }).points).toBe(2);
   });
 });
 

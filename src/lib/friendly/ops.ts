@@ -37,7 +37,7 @@ import {
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
 import { ensureMainScreen } from "../screens";
 import { ensureOrgPlayer, orgsOfProfile, orgTournamentIds, resolveEntity } from "../orgs/scope";
-import { matchedElsewhere } from "../orgs/personFields";
+import { orgDisplayNames } from "../orgs/personFields";
 
 /* ------------------------------------------------------------------ */
 /* Session creation                                                    */
@@ -717,18 +717,12 @@ async function loadSessionContext(sessionId: string) {
     .eq("approval", "approved");
 
   const profileIds = (entries ?? []).map((e) => e.player_profile_id as string);
-  const { data: profiles } = await db()
-    .from("player_profiles")
-    .select("id, public_name")
-    .in("id", profileIds.length > 0 ? profileIds : ["00000000-0000-0000-0000-000000000000"]);
-
-  const names = new Map(
-    ((profiles ?? []) as { id: string; public_name: string }[]).map((p) => [p.id, p.public_name])
-  );
-  // Team names are the organisation's to see: a profile it only matched by a typed
-  // mobile is named as typed on its form (src/lib/orgs/personFields.ts).
+  // Team names are the organisation's to see (src/lib/orgs/personFields.ts
+  // orgDisplayNames): a profile it may not show is named as typed on its form, and
+  // those names are what every surface of the session shows (its page, table, TV,
+  // the app and the alerts), so the masking happens here, once.
   const orgId = (await resolveEntity({ session: sessionId }))?.orgId ?? null;
-  for (const [id, typed] of await matchedElsewhere(orgId, profileIds)) names.set(id, typed);
+  const { names } = await orgDisplayNames(orgId, profileIds);
   const courts = await getCourts(session.tournament_id);
 
   return { session, profileIds, names, courts };
@@ -1511,6 +1505,21 @@ export async function revertFriendlyResult(matchId: string, actorRole: string): 
     const { onMatchReopened } = await import("../results/hooks");
     await onMatchReopened(m as { id: string; tournament_id: string });
   }
+}
+
+/**
+ * Whether a later Mexicano round was drawn after this match's round (its pairings
+ * came from the standings this result was part of). False for anything that is not
+ * a Mexicano session's match.
+ */
+export async function laterMexicanoRound(matchId: string): Promise<boolean> {
+  const { data: part } = await db().from("friendly_match_participants").select("session_id, round_number").eq("match_id", matchId).maybeSingle();
+  const p = part as { session_id: string; round_number: number | null } | null;
+  if (!p || p.round_number == null) return false;
+  const { data: session } = await db().from("friendly_sessions").select("pairing_mode").eq("id", p.session_id).maybeSingle();
+  if ((session as { pairing_mode: string } | null)?.pairing_mode !== "mexicano") return false;
+  const { data: later } = await db().from("friendly_match_participants").select("match_id").eq("session_id", p.session_id).gt("round_number", p.round_number).limit(1);
+  return (later ?? []).length > 0;
 }
 
 /**

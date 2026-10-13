@@ -86,6 +86,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         competition={chessCompetitionFor(match.stage)}
         matchDay={matchDay}
         initialCall={initialCall}
+        canDecide={staff.role === "admin" || staff.role === "manager"}
       />
     );
   }
@@ -122,6 +123,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       scoringMode={scoringMode}
       matchDay={matchDay}
       initialCall={initialCall}
+      canCorrect={staff.role === "admin" || staff.role === "manager"}
     />
   );
 }

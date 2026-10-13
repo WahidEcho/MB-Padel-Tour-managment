@@ -32,11 +32,14 @@ import { sportOf } from "../sports/registry";
 import {
   FINISHED_MATCH_STATUSES,
   batchProblem,
+  chessDecisionCut,
+  correctionCut,
   finishedMatchCut,
   reopensMatch,
   undoAfterResultCut,
   sameState,
   shadowMismatches,
+  NON_SCORING_EVENTS,
 } from "./eventGuard";
 import {
   RESULT_ENTERED,
@@ -224,6 +227,27 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
     correctingResult = true;
   }
 
+  // Who may record what, decided before the lease is touched (a refused batch must not
+  // take the match from the device holding it, nor claim a finished match). A result
+  // over a match that already has a score is a correction, the organiser's staff only
+  // (a referee code must not overwrite a recorded result); in chess, who advances from
+  // a level pairing is the organiser's too.
+  const roleCuts: { cut: ReturnType<typeof correctionCut>; conflict: string }[] = [];
+  {
+    const batch = events.filter((e) => !existing.has(e.client_event_id)).sort((a, b) => a.event_number - b.event_number);
+    let scoredBefore = (FINISHED_MATCH_STATUSES as readonly string[]).includes(match.status);
+    if (!scoredBefore && batch.some((e) => e.event_type === RESULT_ENTERED)) {
+      const { data: prior } = await db().from("score_events").select("event_type").eq("match_id", matchId).limit(5000);
+      scoredBefore = ((prior ?? []) as { event_type: string }[]).some((r) => !NON_SCORING_EVENTS.has(r.event_type));
+    }
+    roleCuts.push(
+      { cut: correctionCut(String(role), scoredBefore, batch), conflict: "organiser_only" },
+      { cut: sportOf(ownerRow ?? undefined).engine === "chess" ? chessDecisionCut(String(role), batch) : null, conflict: "organiser_only" },
+    );
+    const early = roleCuts.map((c) => c.cut).find((c) => c?.index === 0);
+    if (early) return { status: 409, body: { error: early.error, conflict: "organiser_only", applied: [], event: batch[0]?.client_event_id ?? null } };
+  }
+
   // Same shape as before, translated to a lease: refuse a live lease held by
   // someone else, and silently claim an unheld (or stale) one for whichever
   // device's events are landing — an offline-first sync can arrive before its
@@ -311,12 +335,13 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
   const cuts = [
     { cut: finishedMatchCut(match.status, fresh, requiresConfirmation), conflict: "finished" },
     { cut: undoAfterResultCut(resultStored, fresh), conflict: "result_entered" },
+    ...roleCuts,
   ].filter((c): c is { cut: NonNullable<typeof c.cut>; conflict: string } => c.cut !== null);
   const first = cuts.sort((a, b) => a.cut.index - b.cut.index)[0] ?? null;
   const cut = first?.cut ?? null;
   const cutConflict = first?.conflict ?? "finished";
   if (cut && cut.index === 0) {
-    return { status: 409, body: { error: cut.error, conflict: cutConflict, applied: [] } };
+    return { status: 409, body: { error: cut.error, conflict: cutConflict, applied: [], event: fresh[0]?.client_event_id ?? null } };
   }
   if (cut) fresh.splice(cut.index);
   const reopens = finishedNow && fresh.some((e) => reopensMatch(e, requiresConfirmation));
@@ -330,8 +355,26 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
       if (!check.ok) {
         return { status: 409, body: { error: check.message, conflict: check.reason, applied: [] } };
       }
-    } else if (match.stage !== "group" && match.stage !== "friendly") {
+    } else if (match.stage !== "group") {
+      // A session's matches carry stage 'friendly' whatever their round: a session
+      // drawn as a knockout still has bracket slots, and its later round is checked
+      // and taken back like a tournament's (a no-op without slots).
       const { retractKnockout } = await import("../ops");
+      if (match.stage === "friendly") {
+        // Mexicano pairs each round from the standings after the last one: once the
+        // next round is drawn, an earlier result is part of it and cannot change.
+        const { laterMexicanoRound } = await import("../friendly/ops");
+        if (await laterMexicanoRound(match.id)) {
+          return {
+            status: 409,
+            body: {
+              error: "The next Mexicano round was drawn from this result, so it cannot be changed. Correct it only before the next round is drawn.",
+              conflict: "next_round_drawn",
+              applied: [],
+            },
+          };
+        }
+      }
       const retraction = await retractKnockout(match);
       if (!retraction.ok) {
         return {

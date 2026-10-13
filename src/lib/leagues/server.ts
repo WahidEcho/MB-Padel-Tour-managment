@@ -34,7 +34,7 @@ import type {
 } from "../mobile/contract";
 import { isUuid, MOVE_BEYOND_SLUG } from "../orgs/roles";
 import { ensureOrgPlayer } from "../orgs/scope";
-import { matchedElsewhere, UNNAMED_MATCHED } from "../orgs/personFields";
+import { orgDisplayNames, UNNAMED_MATCHED } from "../orgs/personFields";
 import { leaguePoints, leaguePointsKey, leaguePointsRules, type LeaguePointsRow, type LeagueResult } from "./points";
 import { boardMonths, rankBoard, topOfAllLeagues, type BoardEntry, type BoardLength, type BoardLine, BOARD_LENGTHS } from "./boards";
 import { joinDecision, normalizeJoinModes, type JoinMode, type MembershipStatus } from "./join";
@@ -159,43 +159,27 @@ export async function getFixtures(leagueId: string): Promise<FixtureRow[]> {
 
 export interface UserProfile {
   profileId: string;
-  /**
-   * The profile is the account's own, confirmed one (player_profiles.auth_user_id
-   * is this account). A profile reached only through a claimed player code is
-   * the account's player, but not yet confirmed as the same person everywhere.
-   */
-  confirmed: boolean;
+  /** Always true: the profile is the account's own (player_profiles.auth_user_id). */
+  confirmed: true;
+  /** The profile's public name, for the name an organisation the player joins sees. */
+  publicName: string;
 }
 
 /**
- * The player profile this app account plays as: its claimed players
- * (player_claims → players.player_profile_id), newest claim first.
- *
- * The one place leagues ask "which profile is this user". Phase 1 (player
- * identity, src/lib/players/link.ts) sets player_profiles.auth_user_id at link
- * time; that is read first here, so the switch needs no change elsewhere.
+ * The player profile this app account plays as: the profile it speaks for
+ * (player_profiles.auth_user_id, set by Phase 1's linking, src/lib/players/link.ts),
+ * and nothing else. A claimed row whose profile the proof did not reach (rows
+ * linked without their profile) does not make the account that player here, and
+ * neither does an earlier league membership: an account that lost its profile
+ * (unlinked, or the code it came through was reset) plays as nobody.
  */
 export async function profileForUser(userId: string): Promise<UserProfile | null> {
   if (!isUuid(userId)) return null;
-  const { data: own } = await db().from("player_profiles").select("id, merged_into_profile_id").eq("auth_user_id", userId).limit(5);
-  const linked = ((own ?? []) as { id: string; merged_into_profile_id: string | null }[]).find((p) => !p.merged_into_profile_id);
-  if (linked) return { profileId: linked.id, confirmed: true };
-  const { data: claims } = await db().from("player_claims").select("player_id, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(50);
-  const ids = ((claims ?? []) as { player_id: string }[]).map((c) => c.player_id);
-  if (!ids.length) return null;
-  const players = await chunked<{ id: string; player_profile_id: string | null }>(ids, (part) => db().from("players").select("id, player_profile_id").in("id", part));
-  const byId = new Map(players.map((p) => [p.id, p.player_profile_id]));
-  for (const id of ids) {
-    let profileId = byId.get(id) ?? null;
-    if (!profileId) continue;
-    // A merged profile lives on in the one it was merged into.
-    const { data: prof } = await db().from("player_profiles").select("id, merged_into_profile_id").eq("id", profileId).maybeSingle();
-    const p = prof as { id: string; merged_into_profile_id: string | null } | null;
-    if (!p) continue;
-    if (p.merged_into_profile_id) profileId = p.merged_into_profile_id;
-    return { profileId, confirmed: false };
-  }
-  return null;
+  const { data: own } = await db().from("player_profiles").select("id, public_name, merged_into_profile_id, approval_status").eq("auth_user_id", userId).limit(5);
+  const linked = ((own ?? []) as { id: string; public_name: string; merged_into_profile_id: string | null; approval_status: string }[]).find(
+    (p) => !p.merged_into_profile_id && p.approval_status !== "merged",
+  );
+  return linked ? { profileId: linked.id, confirmed: true, publicName: linked.public_name } : null;
 }
 
 /* ---------------- which league a match counts in ---------------- */
@@ -237,7 +221,7 @@ export function leagueSessionTournamentIds(): Promise<Set<string>> {
   });
 }
 
-/** Whether a hidden session tournament belongs to a league whose page is public. Uncached: for single lookups. */
+/** Whether a hidden session tournament belongs to a public league of an approved organisation. Uncached: for single lookups. */
 export async function isPublicLeagueSession(tournamentId: string): Promise<boolean> {
   if (!isUuid(tournamentId)) return false;
   const { data: s } = await db().from("friendly_sessions").select("id").eq("tournament_id", tournamentId).maybeSingle();
@@ -249,8 +233,12 @@ export async function isPublicLeagueSession(tournamentId: string): Promise<boole
   ]);
   const leagueId = ((f ?? []) as { league_id: string }[])[0]?.league_id ?? ((d ?? []) as { league_id: string }[])[0]?.league_id;
   if (!leagueId) return false;
-  const { data: l } = await db().from("leagues").select("status").eq("id", leagueId).maybeSingle();
-  return Boolean(l && (PUBLIC_LEAGUE_STATUSES as readonly string[]).includes((l as { status: string }).status));
+  const { data: l } = await db().from("leagues").select("status, organization_id").eq("id", leagueId).maybeSingle();
+  const league = l as { status: string; organization_id: string } | null;
+  if (!league || !(PUBLIC_LEAGUE_STATUSES as readonly string[]).includes(league.status)) return false;
+  // Only an approved organisation's leagues are public (a suspended or pending one's are not).
+  const { data: o } = await db().from("organizations").select("status").eq("id", league.organization_id).maybeSingle();
+  return (o as { status: string } | null)?.status === "approved";
 }
 
 /* ---------------- recomputing a league's points ---------------- */
@@ -490,6 +478,7 @@ function toEntry(r: PointsRowDb): BoardEntry {
     gamesLost: r.games_lost,
     played: 1,
     leagueId: r.league_id,
+    kind: r.kind as BoardEntry["kind"],
   };
 }
 
@@ -509,25 +498,30 @@ async function pointsRows(filter: { leagueIds: string[]; months: string[] }): Pr
 }
 
 /**
- * Names to show for these profiles on a board of `orgId` (null: the platform).
- * Public names, except a profile an organisation only matched by a typed mobile
- * while another organisation has it: the name typed on that organisation's form.
- * On the platform board, `contributing` says which organisations' leagues a
- * player's points came from; any of them that only matched the player hides the name.
+ * Names to show for these profiles on a board of `orgId` (null: the platform), by
+ * main's masking rule (orgDisplayNames over hiddenPersonFields): a profile the
+ * organisation may not show is named as that organisation typed it, never by its
+ * public name. On the platform board, `contributing` says which organisations'
+ * leagues a player's points came from; any of them that may not show the player
+ * hides the name.
  */
 async function boardNames(ids: string[], orgId: string | null, contributing?: Map<string, Set<string>>): Promise<Map<string, string>> {
+  if (orgId) return (await orgDisplayNames(orgId, ids)).names;
   const names = new Map<string, string>();
   const profiles = await chunked<{ id: string; public_name: string }>(ids, (part) => db().from("player_profiles").select("id, public_name").in("id", part));
   for (const p of profiles) names.set(p.id, p.public_name);
-  if (orgId) {
-    for (const [id, typed] of await matchedElsewhere(orgId, ids)) names.set(id, typed);
-  } else if (contributing) {
-    const orgs = new Set([...contributing.values()].flatMap((s) => [...s]));
-    for (const org of orgs) {
-      const these = ids.filter((id) => contributing.get(id)?.has(org));
-      for (const [id, typed] of await matchedElsewhere(org, these)) names.set(id, typed);
+  const orgs = new Set([...(contributing?.values() ?? [])].flatMap((s) => [...s]));
+  const masked = new Set<string>();
+  for (const org of orgs) {
+    const these = ids.filter((id) => contributing?.get(id)?.has(org) && !masked.has(id));
+    const shown = await orgDisplayNames(org, these);
+    for (const id of shown.hidden) {
+      masked.add(id);
+      names.set(id, shown.names.get(id) ?? UNNAMED_MATCHED);
     }
   }
+  // With no contributing organisation to ask, nobody's public name is shown.
+  for (const id of ids) if (!contributing?.get(id)?.size && !masked.has(id)) names.set(id, UNNAMED_MATCHED);
   for (const id of ids) if (!names.has(id)) names.set(id, UNNAMED_MATCHED);
   return names;
 }
@@ -903,8 +897,7 @@ const JOIN_REFUSALS: Record<string, [number, string]> = {
  * An app account asks to join a public league. Needs a linked player profile.
  * The invite code is compared with its stored hash (guesses rate-limited); the
  * join modes decide the rest (src/lib/leagues/join.ts). Joining makes the player
- * one of the organisation's players: source 'link' only when the profile is the
- * account's own confirmed one, 'league' otherwise.
+ * one of the organisation's players as 'matched' (addAsOrgPlayer: it vouches for nothing).
  */
 export async function joinLeague(input: { slug: string; userId: string; code?: unknown; divisionId?: unknown }): Promise<JoinOutcome> {
   const found = await publicLeagueBySlug(input.slug);
@@ -928,8 +921,9 @@ export async function joinLeague(input: { slug: string; userId: string; code?: u
   const modes = normalizeJoinModes(league.join_modes) as JoinMode[];
   let inviteCode: { valid: boolean } | null = null;
   if (modes.includes("invite_code") && typeof input.code === "string" && input.code.trim()) {
-    const { checkRateLimit } = await import("../ratelimit");
-    const limit = await checkRateLimit({ key: `league-code:${input.userId}`, limit: 8, windowSeconds: 900 });
+    // Counted before the compare, atomically (a wave of guesses cannot all read the same count).
+    const { takeRateLimit } = await import("../ratelimit");
+    const limit = await takeRateLimit({ key: `league-code:${input.userId}`, limit: 8, windowSeconds: 900 });
     if (!limit.allowed) return { ok: false, status: 429, code: "too_many", error: "Too many tries. Wait a few minutes and try again." };
     const { data: h } = await db().from("leagues").select("invite_code_hash").eq("id", league.id).maybeSingle();
     inviteCode = { valid: leagueInviteCodeMatches(input.code, (h as { invite_code_hash: string | null } | null)?.invite_code_hash) };
@@ -985,19 +979,15 @@ export async function joinLeague(input: { slug: string; userId: string; code?: u
   return { ok: true, outcome, status, payAtVenue, message };
 }
 
-/** The player becomes one of the organisation's players (never downgrading an existing row). */
+/**
+ * The player becomes one of the organisation's players, never changing an existing
+ * relation. Joining vouches for nothing: the relation is 'matched' with the
+ * player's public name as the name the organisation sees, so the organisation sees
+ * no contact field of a profile another organisation also has until the player
+ * shares their details with it (My profile → Organisations, which records 'link').
+ */
 export async function addAsOrgPlayer(orgId: string, me: UserProfile): Promise<void> {
-  await ensureOrgPlayer(orgId, me.profileId, me.confirmed ? "link" : "league", "approved");
-  // A profile the organisation only matched by a typed mobile becomes visible to it
-  // once the player confirms it is theirs (src/lib/orgs/personFields.ts).
-  if (me.confirmed) {
-    await db()
-      .from("organization_players")
-      .update({ source: "link", updated_at: new Date().toISOString() })
-      .eq("organization_id", orgId)
-      .eq("player_profile_id", me.profileId)
-      .eq("source", "matched");
-  }
+  await ensureOrgPlayer(orgId, me.profileId, "matched", "approved", me.publicName);
 }
 
 /** Every board length a league can show, for validating input. */

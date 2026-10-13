@@ -151,7 +151,7 @@ Other organisations and their staff arrive through applications and invites (bel
   shows that organisation the **name typed on its own form** (`organization_players.typed_name`), not the
   profile's public name, everywhere it shows names: admin players and session pages (a name search
   matches the typed name only), the team names its sessions make, and its public session pages, rankings,
-  TV ranking and ceremony (`listPublicPlayers(ids, orgId)`, `matchedElsewhere`). No photo either.
+  TV ranking and ceremony (`listPublicPlayers(ids, orgId)`, now `orgDisplayNames`). No photo either.
 - Staff sign-in brakes end up counting **failed** attempts only: every attempt is counted **before** it
   is checked, atomically (`staffLoginAttempt` → `takeRateLimit`: a compare-and-set on
   `request_counters`, no RPC, so it works on the live project and the stand-in alike), and a right code
@@ -222,6 +222,14 @@ first four characters), never platform-wide, so one attacker cannot lock every o
   Move Beyond. The player can share their details with such an organisation from the app (My profile →
   Organisations, `POST /me/profile/share`), which records `source = 'link'` (Phase 1,
   `docs/player-identity.md`).
+  Joining one of its leagues in the app vouches for nothing either: the player becomes the organisation's
+  as `matched` (typed name = their public name), and `league` (an organiser approving a member) is
+  non-vouching too (`NON_VOUCHING_SOURCES`, `sourceVouches`); only a share makes it `link`.
+- Every surface that names players (admin pages, boards, league pages, night tables, the TV, `/f/[slug]`,
+  the live courts hero including league nights, the widget and alerts) names them through one rule,
+  `orgDisplayNames` (`hiddenPersonFields` + the name typed on the organisation's form): a profile the
+  organisation may not show is never named by its public name and lends no photo. Session team names are
+  built with it (`loadSessionContext`), so every surface reading `teams.team_name` is masked at source.
 - Every id a form posts besides the tournament (a tie, team, court, group, match, profile…) is checked
   against that tournament or organisation before use (`ownershipRefusal` / `entityRefusal` /
   scoped guards); the tie operations themselves also filter by tournament.

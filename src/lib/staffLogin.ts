@@ -26,7 +26,11 @@ import { normalizeEventCode } from "./orgs/codes";
  *   much smaller allowance.
  *
  * Once a bucket is full, every attempt in it is refused (a right code too) until
- * the window ends. There is deliberately no platform-wide ceiling: one attacker
+ * the window ends. A refused attempt is not tried, so it is not counted against
+ * the other buckets either (the address bucket is checked first): "40 wrong
+ * guesses close a prefix" means 40 guesses that were tried, whatever else was
+ * refused around them. The outcome depends only on the buckets' counts, never on
+ * timing: every take is a compare-and-set (takeRateLimit). There is deliberately no platform-wide ceiling: one attacker
  * could otherwise lock every organisation's staff out of signing in. (Event codes
  * are 12 characters from a 31-symbol alphabet, ~7.9e17 possibilities; guessing
  * one is not a matter of volume a ceiling would change.) The email sign-in adds
@@ -66,13 +70,13 @@ export interface StaffLoginAttempt {
  * checked. Refused when any bucket is full; whatever was taken for a refused
  * attempt is given back, so being refused costs nothing more.
  */
-export async function staffLoginAttempt(ip: string, typedCode?: string): Promise<StaffLoginAttempt> {
+export async function staffLoginAttempt(ip: string, typedCode?: string, client?: Parameters<typeof takeRateLimit>[1]): Promise<StaffLoginAttempt> {
   const taken: RateLimitOptions[] = [];
   const refund = async () => {
-    await Promise.all(taken.splice(0).map((b) => refundRateLimit(b)));
+    await Promise.all(taken.splice(0).map((b) => refundRateLimit(b, client)));
   };
   for (const b of staffLoginBuckets(ip, typedCode)) {
-    const r = await takeRateLimit(b);
+    const r = await takeRateLimit(b, client);
     if (r.taken) taken.push(b);
     if (!r.allowed) {
       await refund();

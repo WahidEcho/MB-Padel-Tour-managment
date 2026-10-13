@@ -9,8 +9,12 @@ import type { Match } from "@/lib/types";
 export async function GET(request: Request) {
   const { owner } = await ownerOf(request);
   if (owner?.kind !== "user") return NextResponse.json({ error: "Sign in first" }, { status: 401 });
-  const { data: claims } = await db().from("player_claims").select("player_id, players(id, full_name, team_id, tournament_id)").eq("user_id", owner.id);
-  const players = ((claims ?? []) as unknown as { players: { id: string; full_name: string; team_id: string; tournament_id: string } }[]).map((c) => c.players).filter(Boolean);
+  // Two plain reads: player_claims references players twice (player_id, via_player_id), so an embed
+  // is ambiguous (PostgREST refuses it, PGRST201) and used to answer with no players at all.
+  const { data: claims } = await db().from("player_claims").select("player_id").eq("user_id", owner.id);
+  const claimed = ((claims ?? []) as { player_id: string }[]).map((c) => c.player_id);
+  const { data: rows } = claimed.length ? await db().from("players").select("id, full_name, team_id, tournament_id").in("id", claimed) : { data: [] };
+  const players = (rows ?? []) as { id: string; full_name: string; team_id: string; tournament_id: string }[];
   if (!players.length) return privateJson({ players: [], matches: [] });
   const teamIds = [...new Set(players.map((p) => p.team_id))];
   const { data: ms } = await db()

@@ -428,12 +428,17 @@ async function main() {
     const P5 = await profile("Joiner5", A.id);
     const P7 = await profile("Stranger7", null);
     const P8 = await profile("Asker8", A.id);
-    const user = async (key: string, profileId: string | null) => {
+    // An account linked the way Phase 1 links a code: it holds the row (proof "code") and speaks for
+    // the profile (player_profiles.auth_user_id). ownsProfile false: the row was linked without its
+    // profile (the proof did not reach it), so the account is not that player in leagues.
+    const user = async (key: string, profileId: string | null, ownsProfile = true) => {
       const u = await appUser(`e2e.lg.u${key}.${tag}@example.com`);
       created.users.push(u.userId);
       if (profileId) {
         const { data: pl } = await db().from("players").insert({ tournament_id: TJ, team_id: (jteam as { id: string }).id, full_name: `U${key}`, player_order: 1, player_profile_id: profileId }).select("id").single();
-        await db().from("player_claims").insert({ user_id: u.userId, player_id: (pl as { id: string }).id });
+        const row = (pl as { id: string }).id;
+        await db().from("player_claims").insert({ user_id: u.userId, player_id: row, via_player_id: row, proof: "code" });
+        if (ownsProfile) await db().from("player_profiles").update({ auth_user_id: u.userId }).eq("id", profileId);
       }
       return { who: bearer(u.token), userId: u.userId };
     };
@@ -441,10 +446,14 @@ async function main() {
     const U5 = await user("5", P5);
     const U7 = await user("7", P7);
     const U8 = await user("8", P8);
+    const P9b = await profile("RowOnly9", A.id);
+    const U9 = await user("9", P9b, false);
     const join = (slug: string, who: Who, body: Record<string, unknown> = {}) => http("POST", `/api/mobile/v1/leagues/${slug}/join`, who, body);
 
     let j = await join(LA.slug, U0.who);
     check(j.status === 409 && (j.json as { code: string }).code === "link_profile" && /link your player profile/i.test(j.text), "no linked player profile: a clear 'link your player profile first'", j.text);
+    j = await join(LA.slug, U9.who);
+    check(j.status === 409 && (j.json as { code: string }).code === "link_profile", "a claimed row whose profile the account does not speak for is not enough (profileForUser reads auth_user_id only)", j.text);
     j = await join(LA.slug, {});
     check(j.status === 401, "signed out: 401", j.status);
     j = await join(LA.slug, U5.who);
@@ -455,7 +464,12 @@ async function main() {
     check(j.status === 409 && (j.json as { code: string }).code === "already_member", "joining twice: already a member", j.text);
     j = await join(LA.slug, U7.who);
     const { data: op7 } = await db().from("organization_players").select("source, approval_status").eq("organization_id", A.id).eq("player_profile_id", P7).maybeSingle();
-    check(j.status === 200 && (op7 as { source: string } | null)?.source === "league", "a player new to the organisation becomes one of its players (source 'league': not a confirmed own profile)", op7);
+    const { data: op7n } = await db().from("organization_players").select("typed_name").eq("organization_id", A.id).eq("player_profile_id", P7).maybeSingle();
+    check(
+      j.status === 200 && (op7 as { source: string } | null)?.source === "matched" && (op7n as { typed_name: string | null } | null)?.typed_name === `Stranger7 ${tag}`,
+      "a player new to the organisation becomes one of its players as 'matched' under their public name: joining vouches for nothing",
+      op7,
+    );
     const { data: op5 } = await db().from("organization_players").select("source").eq("organization_id", A.id).eq("player_profile_id", P5).single();
     check((op5 as { source: string }).source === "admin", "…an existing organisation player's row is left as it was", op5);
 

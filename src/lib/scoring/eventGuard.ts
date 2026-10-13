@@ -166,6 +166,79 @@ export function finishedMatchCut(
   return null;
 }
 
+/** The roles that decide a result someone else recorded: the organiser's staff, never a referee. */
+export const RESULT_DECIDERS: readonly string[] = ["admin", "manager"];
+
+/** Event types that put no score on the match: a match with only these has nothing to correct yet. */
+export const NON_SCORING_EVENTS: ReadonlySet<string> = new Set(["MATCH_STARTED", "MATCH_PAUSED", "MATCH_RESUMED", "SERVER_CHANGED"]);
+
+/**
+ * A final result over a match that already has a score (a finished match, or
+ * points, games or moves already recorded) replaces what someone recorded: an
+ * audited correction, for the organiser's staff (admin, manager) only. A referee
+ * still enters a match's first result, on a match with no score yet. `scoredBefore`:
+ * the match is finished, or its log already holds a scoring event (any status).
+ * The batch (fresh events, sorted) is walked in order. Returns the first refused
+ * event, or null.
+ */
+export function correctionCut(
+  role: string,
+  scoredBefore: boolean,
+  events: { event_number: number; event_type: string }[],
+): FinishedCut | null {
+  if (RESULT_DECIDERS.includes(role)) return null;
+  let scored = scoredBefore;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.event_type === "RESULT_ENTERED" && scored) {
+      return {
+        index: i,
+        error: `This match already has a score, so the result (event ${e.event_number}) is a correction: only the organiser (an admin or manager) can enter it.`,
+      };
+    }
+    if (!NON_SCORING_EVENTS.has(e.event_type)) scored = true;
+  }
+  return null;
+}
+
+/**
+ * Chess: a level pairing (every game played, equal match points) has a winner only by the organiser's
+ * decision (decideWinner on the arbiter card, or the advance on an entered result,
+ * which resultEntry already restricts). A scoring device's event that names a
+ * winner on a level score, in its state or as payload.winner_team_id, is that
+ * decision, and a referee may not make it. RESULT_ENTERED is left to the result
+ * check (its state is rebuilt by the server). Returns the first refused event, or null.
+ */
+export function chessDecisionCut(
+  role: string,
+  events: { event_number: number; event_type: string; new_state: unknown; payload: Record<string, unknown> | null }[],
+): FinishedCut | null {
+  if (RESULT_DECIDERS.includes(role)) return null;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.event_type === "RESULT_ENTERED") continue;
+    const s = (e.new_state && typeof e.new_state === "object" ? e.new_state : {}) as {
+      scoreA?: unknown;
+      scoreB?: unknown;
+      winner?: unknown;
+      legs?: unknown;
+      games?: { result?: unknown }[];
+    };
+    // Every game of the pairing played, and the match points equal: only a decision can end it.
+    const games = Array.isArray(s.games) ? s.games : [];
+    const allPlayed = games.length > 0 && games.length >= (typeof s.legs === "number" ? s.legs : 1) && games.every((g) => Boolean(g?.result));
+    const level = allPlayed && typeof s.scoreA === "number" && typeof s.scoreB === "number" && s.scoreA === s.scoreB;
+    const decides = Boolean(s.winner) || (e.payload?.winner_team_id != null && e.event_type !== "UNDO");
+    if (level && decides) {
+      return {
+        index: i,
+        error: `The pairing is level, so who advances is the organiser's decision (event ${e.event_number} was refused). Ask an admin or manager to decide it.`,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * An UNDO sent after a final result (RESULT_ENTERED) is refused: the result's
  * state was rebuilt by the server from the sets entered, not reached point by

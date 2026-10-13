@@ -15,6 +15,7 @@
  * Server-only.
  */
 import { db } from "../supabase";
+import { sourceVouches } from "../orgs/personFields";
 
 interface IdRow {
   id: string;
@@ -127,7 +128,8 @@ export async function mergeIdentity(plan: Extract<MergePlan, { ok: true }>): Pro
       await db().from("organization_players").insert({ ...r, player_profile_id: survivorId });
       continue;
     }
-    const source = mine.source === "matched" && r.source !== "matched" ? r.source : mine.source;
+    // A vouching relation beats a non-vouching one (matched, league).
+    const source = !sourceVouches(mine.source) && sourceVouches(r.source) ? r.source : mine.source;
     const categories = [...new Set([...(mine.categories ?? []), ...(r.categories ?? [])])];
     await db()
       .from("organization_players")

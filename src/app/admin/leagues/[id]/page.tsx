@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/supabase";
 import { requireEntityPage } from "@/lib/guard";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
-import { matchedElsewhere } from "@/lib/orgs/personFields";
+import { orgDisplayNames } from "@/lib/orgs/personFields";
 import { leaguePointsRules } from "@/lib/leagues/points";
 import { normalizeJoinModes } from "@/lib/leagues/join";
 import {
@@ -83,12 +83,7 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
     .limit(1000);
   const orgPlayerIds = ((orgPlayerRows ?? []) as { player_profile_id: string }[]).map((r) => r.player_profile_id);
   const profileIds = [...new Set([...members.flatMap((m) => [m.player_profile_id, m.partner_profile_id ?? ""]), ...orgPlayerIds].filter(Boolean))];
-  const names = new Map<string, string>();
-  for (let i = 0; i < profileIds.length; i += 200) {
-    const { data } = await db().from("player_profiles").select("id, public_name").in("id", profileIds.slice(i, i + 200));
-    for (const p of (data ?? []) as { id: string; public_name: string }[]) names.set(p.id, p.public_name);
-  }
-  for (const [pid, typed] of await matchedElsewhere(staff.orgId, profileIds, { platformAdmin: staff.platformAdmin })) names.set(pid, typed);
+  const { names } = await orgDisplayNames(staff.orgId, profileIds, { platformAdmin: staff.platformAdmin });
   const nameOf = (pid: string | null | undefined) => (pid ? (names.get(pid) ?? "Player") : "—");
   const memberIds = new Set(members.map((m) => m.player_profile_id));
   const addable = orgPlayerIds.filter((pid) => !memberIds.has(pid)).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));

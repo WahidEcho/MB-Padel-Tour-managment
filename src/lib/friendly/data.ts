@@ -19,7 +19,7 @@ import type {
 } from "../types";
 import { DEFAULT_FOCAL } from "../portrait";
 import { orgTournamentIds } from "../orgs/scope";
-import { maskPersonFields, matchedElsewhere, visiblePersonFields } from "../orgs/personFields";
+import { maskPersonFields, orgDisplayNames, UNNAMED_MATCHED, visiblePersonFields } from "../orgs/personFields";
 
 /* ---------------- Sessions ---------------- */
 
@@ -192,21 +192,18 @@ export function toPublicPlayer(p: PublicPlayerRow): PublicPlayer {
 /**
  * Public-safe lookup for a set of profile ids: names and faces, nothing else.
  * `orgId`: the organisation whose page, ranking or screen this is. A profile it
- * only matched by a typed mobile (src/lib/orgs/personFields.ts) shows the name
+ * may not show (src/lib/orgs/personFields.ts orgDisplayNames) shows the name
  * typed on its form and no photo. Every caller showing an organisation's
  * players passes it.
  */
 export async function listPublicPlayers(ids: string[], orgId: string | null): Promise<Map<string, PublicPlayer>> {
   if (ids.length === 0) return new Map();
-  const [{ data }, masked] = await Promise.all([
-    db().from("player_profiles").select(PUBLIC_PLAYER_COLUMNS).in("id", ids),
-    matchedElsewhere(orgId, ids),
-  ]);
+  const [{ data }, shown] = await Promise.all([db().from("player_profiles").select(PUBLIC_PLAYER_COLUMNS).in("id", ids), orgDisplayNames(orgId, ids)]);
   const rows = (data ?? []) as unknown as PublicPlayerRow[];
   return new Map(
     rows.map((r) => {
-      const typed = masked.get(r.id);
-      return [r.id, toPublicPlayer(typed === undefined ? r : { ...r, public_name: typed, photo_url: null, portrait_url: null })];
+      if (!shown.hidden.has(r.id)) return [r.id, toPublicPlayer(r)];
+      return [r.id, toPublicPlayer({ ...r, public_name: shown.names.get(r.id) ?? UNNAMED_MATCHED, photo_url: null, portrait_url: null })];
     }),
   );
 }

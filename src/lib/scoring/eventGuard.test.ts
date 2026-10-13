@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchProblem, endsMatch, finishedMatchCut, reopensMatch, sameState, shadowMismatches, undoAfterResultCut, MAX_EVENTS_PER_BATCH } from "./eventGuard";
+import { batchProblem, chessDecisionCut, correctionCut, endsMatch, finishedMatchCut, reopensMatch, sameState, shadowMismatches, undoAfterResultCut, MAX_EVENTS_PER_BATCH } from "./eventGuard";
 import { awardPoint, initialScoreState } from "./engine";
 import { DEFAULT_SCORING_CONFIG } from "../types";
 
@@ -138,5 +138,46 @@ describe("undoAfterResultCut", () => {
   it("lets an UNDO through when no result was entered, and a new result after a result", () => {
     expect(undoAfterResultCut(false, [ev(1, "MATCH_STARTED"), ev(2, "POINT_AWARDED"), ev(3, "UNDO")])).toBeNull();
     expect(undoAfterResultCut(true, [ev(6, "RESULT_ENTERED")])).toBeNull();
+  });
+});
+
+describe("M1: a result over a recorded score is the organiser's (correctionCut)", () => {
+  const e = (n: number, t: string) => ({ event_number: n, event_type: t });
+  it("a referee enters a first result on a match with no score yet (started, paused, serve chosen)", () => {
+    expect(correctionCut("referee", false, [e(1, "RESULT_ENTERED")])).toBeNull();
+    expect(correctionCut("referee", false, [e(1, "MATCH_STARTED"), e(2, "SERVER_CHANGED"), e(3, "RESULT_ENTERED")])).toBeNull();
+  });
+  it("a referee may not replace a score: a finished match, stored points, or points earlier in the batch", () => {
+    expect(correctionCut("referee", true, [e(9, "RESULT_ENTERED")])?.index).toBe(0);
+    expect(correctionCut("referee", false, [e(1, "MATCH_STARTED"), e(2, "POINT_AWARDED"), e(3, "RESULT_ENTERED")])?.index).toBe(2);
+    expect(correctionCut("referee", false, [e(1, "RESULT_ENTERED"), e(2, "RESULT_ENTERED")])?.index).toBe(1);
+    expect(correctionCut("referee", false, [e(4, "MOVE_MADE"), e(5, "RESULT_ENTERED")])?.index).toBe(1);
+  });
+  it("an admin or manager corrects", () => {
+    expect(correctionCut("admin", true, [e(9, "RESULT_ENTERED")])).toBeNull();
+    expect(correctionCut("manager", true, [e(9, "RESULT_ENTERED")])).toBeNull();
+  });
+});
+
+describe("M1 (chess): who advances from a level pairing is the organiser's (chessDecisionCut)", () => {
+  const level = (winner: string | null) => ({
+    legs: 1,
+    games: [{ result: "draw" }],
+    scoreA: 0.5,
+    scoreB: 0.5,
+    needsArbiter: winner === null,
+    winner,
+    matchOver: winner !== null,
+  });
+  const e = (t: string, state: unknown, payload: Record<string, unknown> | null = null) => ({ event_number: 7, event_type: t, new_state: state, payload });
+  it("a referee's MATCH_ENDED naming a winner of a level pairing is refused, in the state or the payload", () => {
+    expect(chessDecisionCut("referee", [e("MATCH_ENDED", level("A"))])?.index).toBe(0);
+    expect(chessDecisionCut("referee", [e("FORCE_END", level(null), { winner_team_id: "t-b" })])?.index).toBe(0);
+  });
+  it("the organiser decides; a decisive result and a walkover before any game stay the referee's", () => {
+    expect(chessDecisionCut("admin", [e("MATCH_ENDED", level("A"))])).toBeNull();
+    expect(chessDecisionCut("referee", [e("MOVE_MADE", { legs: 1, games: [{ result: "white" }], scoreA: 1, scoreB: 0, winner: "A", matchOver: true })])).toBeNull();
+    expect(chessDecisionCut("referee", [e("WALKOVER", { legs: 1, games: [{ result: null }], scoreA: 0, scoreB: 0, winner: null }, { winner_team_id: "t-a" })])).toBeNull();
+    expect(chessDecisionCut("referee", [e("DRAW_DECLARED", level(null))])).toBeNull();
   });
 });

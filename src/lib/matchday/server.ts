@@ -280,6 +280,23 @@ export async function onScoreProgress(input: { match: Match; before: unknown; af
 
 /* ---------------- alerts for a call ---------------- */
 
+/** How long a match's players hear "called to court" only once, however often it is called. */
+export const CALL_ALERT_DEDUPE_MS = 10 * MINUTE;
+
+/** Whether this match's players were told "called to court" in the last 10 minutes. */
+async function calledRecently(matchId: string, nowMs: number): Promise<boolean> {
+  const since = new Date(nowMs - CALL_ALERT_DEDUPE_MS).toISOString();
+  const { data } = await db()
+    .from("notification_events")
+    .select("id")
+    .eq("match_id", matchId)
+    .eq("kind", "called_to_court")
+    .neq("status", "cancelled")
+    .gte("created_at", since)
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
 async function callAlerts(day: Day, row: CallRow, opts: { announce: boolean; nowMs: number }) {
   const { match, tournament, rules } = day;
   if (!rules.alerts.on || quiet(tournament, rules, opts.nowMs)) return;
@@ -299,7 +316,7 @@ async function callAlerts(day: Day, row: CallRow, opts: { announce: boolean; now
     timeZone: ctx.tournament.timezone,
     deadline: new Date(deadline).toISOString(),
   };
-  if (opts.announce) {
+  if (opts.announce && !(await calledRecently(match.id, opts.nowMs))) {
     await enqueueAlert({
       kind: "called_to_court",
       tournamentId: match.tournament_id,
