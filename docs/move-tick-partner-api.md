@@ -78,8 +78,8 @@ GET /api/partner/v1/payment-sessions/{sessionId}   → the same shape, or 404 PA
 Move Score uses it when a webhook may have been lost (the payer's return page, My registrations, Pay
 again): the answer goes through the same idempotent path as a webhook (event id
 `reconcile:<session>:<status>`), amount check included. It asks about open checkouts **and ones it marked
-`expired`** (a late payment is not lost), each payment **at most once per 30 seconds** (`reconciled_at`,
-a compare-and-set), except right before a new checkout would be made.
+`expired` or `failed`** (a late payment is not lost), each payment **at most once per 30 seconds** (`reconciled_at`,
+a compare-and-set), except right before a new checkout would be made. Before Move Tick opens a new session for a reference whose last checkout lapsed, it reads that checkout at XPay and closes it there (never while a card is still being authorised), so an old payment page can't take money later.
 
 ### Refund
 
@@ -176,7 +176,7 @@ and the daily housekeeping cron.
 |---|---|
 | `unconfirmed` | a web guest's entry until the link emailed to the typed address is opened (24 h, then cancelled); holds no place, reaches no organiser, never paid |
 | `pending_approval` | waiting for the organiser (default approval mode: the organiser approves) |
-| `awaiting_payment` | approved, online payment due (approval comes before payment); holds a place for 24 h (`hold_until`, renewed when a checkout is made) |
+| `awaiting_payment` | approved, online payment due (approval comes before payment); holds a place for 24 h from approval (`hold_until`); making a checkout can stretch it to at most 25 h from approval, so pressing Pay again and again keeps no place. A payment that lands after the hold lapsed, into a full event, is flagged `needs_review` for refund instead of overfilling |
 | `confirmed` | in the event (paid online, due at the venue, or free) |
 | `refused` / `cancelled` | turned down by the organiser / withdrawn by the player before paying |
 | `refunded` | paid online and refunded by the organiser |
@@ -189,7 +189,7 @@ and the daily housekeeping cron.
 
 Capacity counts `confirmed` entries and unexpired payment holds only (never requests waiting for the
 organiser or unconfirmed guests), enforced atomically by the trigger `registration_capacity_guard`
-(0029). One live entry per verified email per event (`registrations_contact_event_uq`).
+(0029). One live entry per verified email per event (`registrations_contact_event_uq`). The web form is limited per typed email: 3 per event and 10 overall (atomic counters).
 
 Messages about an entry go **by email only, to its verified address only** (`registrations.notify_email`),
 in the server's own words with no typed name; the link is the signed status page, where an approved entry
@@ -212,10 +212,10 @@ venue (the registration pages say so). Missing any of Move Tick's: the partner A
 
 ## 5. Deploy order
 
-1. Move Tick: apply `20261069_partner_payment_sessions.sql`, set the four `MOVE_SCORE_*` variables, deploy
+1. Move Tick: apply `20261069_partner_payment_sessions.sql` then `20261070_partner_one_open_session.sql` (one open session per reference; it first closes older duplicate open rows), set the four `MOVE_SCORE_*` variables, deploy
    the branch (after review), schedule `/api/cron/partner-webhooks` every 5 minutes (pg_cron + pg_net
    with the Vault `CRON_SECRET`, like `20261068`; the daily housekeeping cron retries too).
-2. Move Score: apply `0028_registration.sql` (after 0022–0027), set `MOVE_TICK_*` (with
+2. Move Score: apply `0028_registration.sql` then `0029_registration_hardening.sql` (after 0022–0027), set `MOVE_TICK_*` (with
    `MOVE_TICK_MODE=test` and Move Tick on an `sk_test_` key first), deploy.
 3. Rehearse with a test card end to end (register → approve → pay → webhook → refund), then switch both
    sides to live together (`MOVE_TICK_MODE=live`, `sk_live_`).
