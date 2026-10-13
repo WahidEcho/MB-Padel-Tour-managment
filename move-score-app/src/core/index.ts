@@ -23,3 +23,7 @@ export { toE164, displayPhone } from "../../../src/lib/players/phone";
 export * from "../../../src/lib/auth/password";
 export { SITE_URL, SITE_HOST, APP_PAGE_URL } from "../../../src/lib/site";
 export { isSessionRevoked, REFRESH_AHEAD_SECONDS, SESSION_REVOKED } from "../../../src/lib/auth/sessionRules";
+export { SPORTS, sportOf } from "../../../src/lib/sports/registry";
+export type { SportDef, SportEngine, SportNouns, SportSupports } from "../../../src/lib/sports/registry";
+export { DEFAULT_MATCH_DAY_RULES, OFF_MATCH_DAY_RULES, matchDayRules, publicMatchDay, resolveScoringMode } from "../../../src/lib/matchday/rules";
+export type { MatchDayRules, ScoringModeChoice } from "../../../src/lib/matchday/rules";

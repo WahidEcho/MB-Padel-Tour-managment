@@ -29,6 +29,7 @@ const PREF_LABELS: [keyof MAlertPrefs, string, string][] = [
   ["scheduled", "Set or moved", "A court or time is set, changed or delayed"],
   ["starting", "Starting soon", "15 minutes before play"],
   ["live", "On court now", "The moment a match starts"],
+  ["court", "Court calls", "Your match is next, you are called to court, and the reminder"],
   ["finished", "Results", "When a match you follow finishes"],
   ["tie", "Tie results", "When a nation you support wins or loses a tie"],
   ["major", "Big announcements", "Start of play, finals, delays. Rare."],

@@ -76,3 +76,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Public site: `https://tour.mbeg.org` (one constant, `src/lib/site.ts`, shared with the app through `@core`; server links read
   `PUBLIC_SITE_URL` first via `siteUrl()` in `src/lib/messaging/links.ts`). Never write the old `mb-tournament.vercel.app` host
   into links, emails or docs; it survives only as the legacy universal-link host in `move-score-app/app.config.ts`.
+- Match day (plan Phase 0; migration 0022, not yet on the live project — apply it before deploying, the new-tournament insert
+  writes `match_day_rules`): sports registry `src/lib/sports/registry.ts` (`sportOf()`; ratchet test caps `sport === "…"`
+  branches), rules `src/lib/matchday/rules.ts` (`{}` = off until the admin **Match day** tab saves; new tournaments get the
+  defaults), `isMatchDay` in `src/lib/matchday/eventDay.ts`, Admin → Discover (`admin/platform/discover`, admin only) for the
+  hero order (`platform_settings.discover_order`, featured events) and app flags. `migrations.test.ts` fails any table from
+  0022 on without RLS. Prefs PATCH merges with what is stored.

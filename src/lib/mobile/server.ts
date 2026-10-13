@@ -38,6 +38,7 @@ import { memo } from "./http";
 import { appleWalletConfigured, googleWalletConfigured } from "../pass/wallet";
 import { authProviders } from "../auth/users";
 import { APP_PAGE_URL } from "../site";
+import { DISCOVER_ORDER_KEY, inDiscoverOrder, parseDiscoverOrder } from "../platform/discoverOrder";
 
 const CARD_COLUMNS =
   "id, slug, name, sport, kind, status, is_demo, public_access_enabled, branding_config, format_config, lower_third_text, updated_at, event_group_id, venue_name, city, timezone, starts_on, ends_on, app_skin";
@@ -89,11 +90,14 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
   return memo(`discover:${includeDemo}`, 5_000, async () => {
     const rows = await visibleTournaments(includeDemo);
     const ids = rows.map((r) => r.id);
-    const [live, teams, groupsRes] = await Promise.all([
+    const [live, teams, groupsRes, orderRes] = await Promise.all([
       liveCounts(ids),
       teamCounts(ids),
       db().from("event_groups").select("*").order("featured_rank", { ascending: true }),
+      db().from("platform_settings").select("value_json").eq("key", DISCOVER_ORDER_KEY).maybeSingle(),
     ]);
+    // Admin → Discover sets this order; featured_rank (kept in step by the same page) is the fallback.
+    const order = parseDiscoverOrder((orderRes.data as { value_json: unknown } | null)?.value_json);
     const cards = rows.map((r) => toCard(r, live.get(r.id) ?? 0, teams.get(r.id) ?? 0));
     const groups = ((groupsRes.data ?? []) as GroupRow[]).map((g): MEventGroup => {
       const members = cards.filter((c) => c.eventGroupId === g.id);
@@ -112,7 +116,11 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
         tournaments: members,
       };
     });
-    const featured = groups.filter((g, i) => g.tournaments.length > 0 && ((groupsRes.data as GroupRow[])[i]?.featured_rank ?? null) !== null);
+    const featured = inDiscoverOrder(
+      groups.filter((g, i) => g.tournaments.length > 0 && ((groupsRes.data as GroupRow[])[i]?.featured_rank ?? null) !== null),
+      (g) => [g.id],
+      order,
+    );
     const inFeatured = new Set(featured.flatMap((g) => g.tournaments.map((t) => t.id)));
     const today = new Date().toISOString().slice(0, 10);
     const rest = cards.filter((c) => !inFeatured.has(c.id));
@@ -121,27 +129,27 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
     return {
       generatedAt: new Date().toISOString(),
       featured,
-      live: rest.filter((c) => c.liveCount > 0),
+      live: inDiscoverOrder(rest.filter((c) => c.liveCount > 0), (c) => [c.id, c.eventGroupId], order),
       upcoming: rest.filter((c) => c.liveCount === 0 && isUpcoming(c)),
       past: rest.filter((c) => c.liveCount === 0 && !isUpcoming(c)),
     };
   });
 }
 
-async function tournamentBySlug(slug: string): Promise<TournamentRow | null> {
-  const { data } = await db()
-    .from("tournaments")
-    .select(CARD_COLUMNS)
-    .eq("slug", slug)
-    .eq("kind", "tournament")
-    .eq("public_access_enabled", true)
-    .maybeSingle();
+async function tournamentBySlug(slug: string, withMatchDay = false): Promise<TournamentRow | null> {
+  const query = (columns: string) =>
+    db().from("tournaments").select(columns).eq("slug", slug).eq("kind", "tournament").eq("public_access_enabled", true).maybeSingle();
+  // match_day_rules arrives with migration 0022. Until it is applied, the bundle
+  // still loads and reads as "match day off" rather than the app losing the event.
+  if (!withMatchDay) return ((await query(CARD_COLUMNS)).data as unknown as TournamentRow | null) ?? null;
+  let { data, error } = await query(`${CARD_COLUMNS}, match_day_rules`);
+  if (error && /match_day_rules/.test(error.message)) ({ data, error } = await query(CARD_COLUMNS));
   return (data as unknown as TournamentRow | null) ?? null;
 }
 
 export function getBundle(slug: string): Promise<MBundle | null> {
   return memo(`bundle:${slug}`, 10_000, async () => {
-    const t = await tournamentBySlug(slug);
+    const t = await tournamentBySlug(slug, true);
     if (!t) return null;
     const [teams, courts, groups, groupTeams, live] = await Promise.all([
       getTeams(t.id),

@@ -3,6 +3,7 @@ import { updateScreen, type WriteResult } from "../screens";
 import type { ScreenSettings, Tournament } from "../types";
 import { resolveScreenCommand, type CommandContext, type ScreenCommand } from "./commands";
 import { ceremonyLastStep } from "./ceremonyServer";
+import { sportOf } from "../sports/registry";
 
 /**
  * The facts a command needs about the tournament, read once however many screens
@@ -11,7 +12,7 @@ import { ceremonyLastStep } from "./ceremonyServer";
  * builds on every wall together.
  */
 async function sharedContext(tournament: Tournament, command: ScreenCommand, nowMs: number) {
-  const base = { nowMs, isChess: tournament.sport === "chess" };
+  const base = { nowMs, isChess: sportOf(tournament).engine === "chess" };
   if (command.kind !== "replay_entrance") return { ...base, courts: [] as Awaited<ReturnType<typeof getCourts>>, live: new Map<string, string | null>(), events: new Map<string, number>() };
   const [matches, snapshots, courts] = await Promise.all([
     getMatches(tournament.id),

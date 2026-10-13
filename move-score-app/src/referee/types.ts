@@ -1,4 +1,4 @@
-import type { Match, MatchSnapshot, ScoringConfig } from "@core";
+import type { Match, MatchDayRules, MatchSnapshot, ScoringConfig, ScoringModeChoice } from "@core";
 
 /** GET /api/mobile/v1/referee/matches/:id/bootstrap (src/lib/referee/bootstrap.ts). */
 export interface RefereeSide {
@@ -25,4 +25,7 @@ export interface RefereeBootstrap {
   history: unknown[];
   redBlueTeams: boolean;
   lease: { deviceId: string; deviceLabel: string | null; expiresAt: string; isLive: boolean } | null;
+  /** Absent from servers before match day (migration 0022). */
+  matchDay?: MatchDayRules;
+  scoringMode?: ScoringModeChoice;
 }

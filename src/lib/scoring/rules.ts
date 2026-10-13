@@ -5,6 +5,7 @@ import {
   type Stage,
   type StageRuleKey,
 } from "../types";
+import { sportOf } from "../sports/registry";
 
 /**
  * Which bracket a knockout match belongs to. Resolved from `matches.bracket_id`
@@ -108,7 +109,7 @@ export function scoringConfigForMatch(
     ? { ...base, ...(parentKey ? pickRules(overrides[parentKey]) : {}), ...pickRules(overrides[key]) }
     : base;
   // Padel is always doubles under its base rules; only tennis separates them.
-  if (opts.doubles && tournament?.sport === "tennis") return { ...staged, ...pickRules(base.doubles) };
+  if (opts.doubles && sportOf(tournament).id === "tennis") return { ...staged, ...pickRules(base.doubles) };
   return staged;
 }
 

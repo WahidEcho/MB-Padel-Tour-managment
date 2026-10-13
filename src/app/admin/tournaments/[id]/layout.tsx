@@ -13,6 +13,7 @@ const PADEL_TABS = [
   ["/leaderboard", "Leaderboard"],
   ["/bracket", "Bracket"],
   ["/screens", "Screens"],
+  ["/match-day", "Match day"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -28,6 +29,7 @@ const TIE_TABS = [
   ["/matches", "Rubbers"],
   ["/screens", "Screens"],
   ["/replay", "Replay"],
+  ["/match-day", "Match day"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -40,6 +42,7 @@ const CHESS_TABS = [
   ["/bracket", "Bracket"],
   ["/matches", "Games"],
   ["/screens", "Screens"],
+  ["/match-day", "Match day"],
   ["/settings", "Settings"],
 ] as const;
 
@@ -49,6 +52,7 @@ const SESSION_TABS = [
   ["/screens", "Screens"],
   ["/settings", "Courts & branding"],
   ["/matches", "Scoring locks"],
+  ["/match-day", "Match day"],
 ] as const;
 
 export default async function TournamentLayout({

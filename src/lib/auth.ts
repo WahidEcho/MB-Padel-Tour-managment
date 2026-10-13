@@ -112,6 +112,8 @@ const PERMISSIONS: Record<string, Role[]> = {
   check_in_session: ["admin", "manager", "referee"],
   // Announcements: email and WhatsApp to players (Admin → Announcements).
   send_messages: ["admin", "manager"],
+  // Platform-wide app settings (Admin → Discover): Discover order and feature flags.
+  manage_platform: ["admin"],
 };
 
 export function can(role: Role | null, action: keyof typeof PERMISSIONS): boolean {

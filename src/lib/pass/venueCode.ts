@@ -6,6 +6,10 @@
  * daily six-digit code. Both are HMACs of a server secret: nothing is stored.
  */
 import { createHmac } from "crypto";
+import { eventDay } from "../matchday/eventDay";
+
+// Day counting moved to src/lib/matchday/eventDay.ts (pure); re-exported for existing callers.
+export { eventDay, isEventDay } from "../matchday/eventDay";
 
 export const WINDOW_SECONDS = 45;
 
@@ -33,21 +37,6 @@ export function rotatingCode(groupSlug: string, atMs = Date.now()): string {
 export function dailyCode(groupSlug: string, day: string): string {
   const n = mac(`venue:${groupSlug}:day:${day}`).readUInt32BE(0) % 1_000_000;
   return String(n).padStart(6, "0");
-}
-
-/** The event's calendar day for an instant. */
-export function eventDay(timeZone: string, atMs = Date.now()): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(atMs));
-  return parts;
-}
-
-/**
- * Whether a day (YYYY-MM-DD, the event's zone) is one of the event's days. Without
- * dates every day counts; with only a start, the event is that one day.
- */
-export function isEventDay(day: string, startsOn: string | null, endsOn: string | null): boolean {
-  if (!startsOn) return true;
-  return day >= startsOn && day <= (endsOn ?? startsOn);
 }
 
 /** Accepts the current and the previous window, and today's daily code. */

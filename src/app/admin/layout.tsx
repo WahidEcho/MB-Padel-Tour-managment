@@ -18,7 +18,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <a href="/logout" className="text-muted hover:text-foreground">Log out</a>
         </div>
       </header>
-      <AdminNav />
+      <AdminNav role={role} />
       <main className="mx-auto w-full max-w-6xl flex-1 p-4">{children}</main>
     </div>
   );

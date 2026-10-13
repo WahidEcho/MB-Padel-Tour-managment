@@ -50,6 +50,7 @@ import { DEFAULT_SCORING_CONFIG, DEFAULT_TENNIS_SCORING_CONFIG } from "./types";
 import { ensureMainScreen } from "./screens";
 import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, tournamentRowRefusal } from "./rowGuards";
 import { endLease, endLeasesForTournament } from "./scoringControl";
+import { newTournamentMatchDayRules } from "./matchday/rules";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -1205,6 +1206,7 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
       format_config: source.format_config,
       court_config: source.court_config,
       lower_third_text: opts.copyBranding ? source.lower_third_text : undefined,
+      match_day_rules: opts.copyScoring ? (source.match_day_rules ?? {}) : newTournamentMatchDayRules(source.sport),
     })
     .select()
     .single();

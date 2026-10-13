@@ -44,6 +44,7 @@ import { GUTTER, ROWS, STAGE, bracketFontPx, leaderboardPlan } from "@/lib/tv/la
 import { sizedImageSrc } from "@/lib/portrait";
 import { getTies, isTieFormat } from "@/lib/tennis/tieOps";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
+import { sportOf } from "@/lib/sports/registry";
 import TennisCourts, { type TvNation, type TvRubber } from "@/components/tennis/TennisCourts";
 
 const VALID_MODES: DisplayMode[] = [
@@ -115,7 +116,7 @@ export default async function TvScreen({
   const tm = teamMap(teams);
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
-  const isChess = tournament.sport === "chess";
+  const isChess = sportOf(tournament).engine === "chess";
 
   // URL overrides give a court its own permanent link, independent of whatever
   // the operator has this screen showing. Without params the stored settings

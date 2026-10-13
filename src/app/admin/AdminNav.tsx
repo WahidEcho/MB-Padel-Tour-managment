@@ -17,11 +17,15 @@ const SECTIONS = [
   { href: "/admin/announcements", label: "Announcements" },
 ];
 
-export default function AdminNav() {
+/** Move Beyond's own settings for the whole app: admins only. */
+const ADMIN_SECTIONS = [{ href: "/admin/platform/discover", label: "Discover" }];
+
+export default function AdminNav({ role }: { role?: string }) {
   const pathname = usePathname();
+  const sections = role === "admin" ? [...SECTIONS, ...ADMIN_SECTIONS] : SECTIONS;
   return (
     <nav className="flex gap-1 overflow-x-auto border-b border-border px-4">
-      {SECTIONS.map((s) => {
+      {sections.map((s) => {
         const active = pathname === s.href || pathname.startsWith(`${s.href}/`);
         return (
           <Link

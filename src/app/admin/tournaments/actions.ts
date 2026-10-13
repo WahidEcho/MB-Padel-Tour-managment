@@ -9,6 +9,7 @@ import { cloneTournament as cloneOp, deleteTournamentRow, resetTournamentLiveDat
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { DEFAULT_CHESS_FORMAT, DEFAULT_SCORING_CONFIG, DEFAULT_TENNIS_SCORING_CONFIG, type FormatConfig } from "@/lib/types";
 import { ensureMainScreen } from "@/lib/screens";
+import { newTournamentMatchDayRules } from "@/lib/matchday/rules";
 
 export async function createTournament(formData: FormData) {
   const role = await requirePermission("manage_tournament");
@@ -47,6 +48,8 @@ export async function createTournament(formData: FormData) {
         requireResultConfirmation: !isChess,
       },
       ...(formatConfig ? { format_config: formatConfig } : {}),
+      // Match day starts on for new tournaments; existing ones stay off until saved.
+      match_day_rules: newTournamentMatchDayRules(sport),
       created_by: role,
     })
     .select()

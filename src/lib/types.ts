@@ -315,6 +315,10 @@ export interface Tournament {
   starts_on?: string | null;
   ends_on?: string | null;
   app_skin?: { seedA?: string | null; seedB?: string | null; mode?: "dark" | "light" | null; artworkUrl?: string | null; logoUrl?: string | null; showPhotos?: boolean } | null;
+  /** Migration 0022. Raw: read through matchDayRules() in src/lib/matchday/rules.ts; `{}` = all off. */
+  match_day_rules?: Record<string, unknown> | null;
+  /** When the first match starts (refunds and "soon" are measured from it). */
+  starts_at?: string | null;
 }
 
 export interface Team {
@@ -418,6 +422,10 @@ export interface Match {
   /** The nominated players for this rubber, from the captains' line-ups. */
   team_a_player_ids?: string[] | null;
   team_b_player_ids?: string[] | null;
+  /** A referee's per-match choice of how to record it (migration 0003; 'either' since 0022). */
+  scoring_mode_override?: ScoringMode | null;
+  /** How the finished result was recorded (migration 0022); null before that. */
+  result_source?: "points" | "final_score" | null;
 }
 
 /**
@@ -661,9 +669,11 @@ export type RegistrationMode = "individual" | "team" | "either";
  * How a referee records a match.
  *  - "point_by_point": the full scoring screen, every rally.
  *  - "final_score": enter the finished set score in one go.
+ *  - "either": the referee picks per match (migration 0022); a session set to it
+ *    defers to its tournament's match-day rules.
  * Set per session; a referee may override it on an individual match.
  */
-export type ScoringMode = "point_by_point" | "final_score";
+export type ScoringMode = "point_by_point" | "final_score" | "either";
 
 /** How matches are drawn when a session's schedule is generated. */
 export type MatchFormat = "rotating" | "group_stage" | "knockout";

@@ -85,7 +85,7 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
         <section className="card space-y-3">
           <h2 className="font-bold">Event: {group.name}</h2>
           <p className="text-sm text-muted">
-            Featured events lead Discover in the app. Gate code page:{" "}
+            Gate code page:{" "}
             <Link className="text-accent underline" href={`/venue/${group.slug}/qr`}>/venue/{group.slug}/qr</Link>
           </p>
           <form action={saveEventGroup} className="grid grid-cols-2 gap-2">
@@ -99,7 +99,11 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
             <label><span className="label">First day</span><input type="date" name="starts_on" defaultValue={group.starts_on ?? ""} className="input" /></label>
             <label><span className="label">Last day</span><input type="date" name="ends_on" defaultValue={group.ends_on ?? ""} className="input" /></label>
             <label><span className="label">Time zone</span><input name="timezone" defaultValue={group.timezone} className="input" /></label>
-            <label><span className="label">Featured order (blank = not featured)</span><input name="featured_rank" type="number" min={0} max={99} defaultValue={group.featured_rank ?? ""} className="input" /></label>
+            <p className="col-span-2 self-end text-xs text-muted">
+              {group.featured_rank !== null ? "Featured on Discover. " : "Not featured. "}
+              Move Beyond sets the featured events and their order on{" "}
+              <Link className="text-accent underline" href="/admin/platform/discover">Admin → Discover</Link>.
+            </p>
             <label className="col-span-2"><span className="label">Artwork URL</span><input name="artwork_url" defaultValue={group.artwork_url ?? ""} className="input" /></label>
             <button className="btn-primary col-span-2">Save event</button>
           </form>

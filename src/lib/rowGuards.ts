@@ -53,6 +53,20 @@ export async function tournamentRowRefusal(tournamentId: string): Promise<string
 }
 
 /**
+ * Null when the row exists and is a tournament or a friendly session's hidden
+ * row. For the few settings both run by — match-day rules — where a session must
+ * not be refused, but nothing else (an unknown id, a future kind) may pass.
+ * Never use it where tournamentRowRefusal guards a session's history.
+ */
+export async function tournamentOrSessionRefusal(tournamentId: string): Promise<string | null> {
+  if (!tournamentId) return "Tournament not found.";
+  const { data } = await db().from("tournaments").select("kind").eq("id", tournamentId).maybeSingle();
+  if (!data) return "Tournament not found.";
+  const kind = (data as { kind: string }).kind;
+  return kind === "tournament" || kind === "friendly_session" ? null : "This row has no match-day rules.";
+}
+
+/**
  * Null when every named row exists and belongs to `tournamentId`, without the
  * kind check — for the few actions sessions legitimately share, like releasing a
  * stuck scoring lock, which still must not reach into another tournament.

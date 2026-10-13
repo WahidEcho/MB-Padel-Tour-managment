@@ -60,14 +60,13 @@ export async function saveAppSettings(formData: FormData) {
   revalidatePath(path(id));
 }
 
-/** Featured on Discover (lower first), plus the group's own details. */
+/** The group's own details. Whether it is featured, and where, is set on Admin → Discover. */
 export async function saveEventGroup(formData: FormData) {
   const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
   // A friendly session's hidden row has no app settings of its own.
   refuse(await tournamentRowRefusal(id));
   const groupId = String(formData.get("group_id"));
-  const rank = String(formData.get("featured_rank") ?? "").trim();
   const patch = {
     name: text(formData, "name", 80) ?? "Event",
     subtitle: text(formData, "subtitle", 120),
@@ -78,7 +77,6 @@ export async function saveEventGroup(formData: FormData) {
     starts_on: text(formData, "starts_on", 10),
     ends_on: text(formData, "ends_on", 10),
     artwork_url: text(formData, "artwork_url", 500),
-    featured_rank: rank === "" ? null : Math.max(0, Math.min(99, parseInt(rank, 10) || 0)),
     updated_at: new Date().toISOString(),
   };
   await db().from("event_groups").update(patch).eq("id", groupId);

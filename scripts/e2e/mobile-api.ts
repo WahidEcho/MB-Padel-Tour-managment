@@ -110,6 +110,18 @@ async function main() {
     check(bundle.status === 200 && bundle.json.teams.length === 2, "Bundle has both nations");
     check(!JSON.stringify(bundle.json).includes("+2010") && !JSON.stringify(bundle.json).includes("private note"), "Bundle carries no phone or notes");
     check(bundle.json.tournament.isTies === true && bundle.json.teams[0].iso2 !== undefined, "Bundle knows it is a nations event, with flags");
+    // Match day (migration 0022): a tournament never saved reads as off; saved rules reach the bundle, sanitised.
+    const md = bundle.json.tournament.matchDay;
+    check(md?.on === false && md?.showcase === false && md?.courtCall === false, "Bundle carries matchDay, off until the tab is saved", md);
+    await db()
+      .from("tournaments")
+      .update({ match_day_rules: { configured: true, courtCall: { on: true, minutes: 99 }, noShow: { maxExtensions: 9 }, secret: "x" }, updated_at: new Date().toISOString() })
+      .eq("id", tid);
+    await sleep(10_500); // the bundle is memoised for 10 s
+    const mdBundle = await call("GET", `/api/mobile/v1/t/${t!.slug}/bundle`);
+    const md2 = mdBundle.json?.tournament?.matchDay;
+    check(md2?.on === true && md2?.courtCall === true && md2?.callMinutes === 30 && md2?.showcase === true, "Saved match-day rules reach the bundle, minutes clamped", md2);
+    check(!JSON.stringify(mdBundle.json).includes("secret") && md2?.noShow === undefined, "The bundle carries only the public match-day switches", Object.keys(md2 ?? {}));
 
     // ---- a phone registers and follows Egypt
     const installationId = `e2e-${randomUUID()}`;
@@ -146,7 +158,13 @@ async function main() {
     const prefsGot = await call("GET", "/api/mobile/v1/me/prefs", { headers: inst });
     check(prefsSet.status === 200 && prefsGot.json?.prefs?.live === true && prefsGot.json?.prefs?.major === false && prefsGot.json?.prefs?.finished === true, "Alert types are saved for the phone", prefsGot.json);
     check((await call("GET", "/api/mobile/v1/me/prefs")).status === 401, "Alert types need the phone's install token");
-    await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: {} }); // back to the defaults for the alert checks below
+    check(prefsGot.json?.prefs?.court === true, "Court calls are on by default", prefsGot.json?.prefs);
+    // An app that predates a kind must not reset it: kinds left out keep their saved values.
+    await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: { court: false } });
+    const merged = await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: { finished: false, bogus: true } });
+    check(merged.json?.prefs?.court === false && merged.json?.prefs?.live === true && merged.json?.prefs?.major === false && merged.json?.prefs?.finished === false && merged.json?.prefs?.bogus === undefined, "A prefs change merges with what is saved (unknown kinds ignored)", merged.json?.prefs);
+    // back to the defaults for the alert checks below
+    await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: { scheduled: true, starting: true, live: false, finished: true, tie: true, major: true, court: true } });
     const fol = await call("POST", "/api/mobile/v1/me/follows", { headers: inst, body: { add: [{ kind: "nation", key: "EGY", tournamentId: tid }, { kind: "match", key: mid, tournamentId: tid }] } });
     check(fol.status === 200 && fol.json.follows.length === 2, "It follows Egypt and stars the rubber", fol.json?.follows?.length);
     check(/no-store/.test(fol.cache), "Personal answers are never cached", fol.cache);
@@ -161,6 +179,11 @@ async function main() {
     const ref = { Authorization: `Bearer ${staff.json.token}` };
     const boot = await call("GET", `/api/mobile/v1/referee/matches/${mid}/bootstrap`, { headers: ref });
     check(boot.status === 200 && boot.json.tennis === true && boot.json.sideA?.name?.includes("Hassan"), "Bootstrap gives rules and the nominated sides", boot.json?.sideA?.name);
+    check(
+      boot.json?.matchDay?.courtCall?.minutes === 30 && boot.json?.matchDay?.noShow?.maxExtensions === 5 && boot.json?.scoringMode === "either",
+      "Bootstrap gives the referee the full match-day rules and how to record the match",
+      { courtCall: boot.json?.matchDay?.courtCall, scoringMode: boot.json?.scoringMode },
+    );
     const noAuth = await call("GET", `/api/mobile/v1/referee/matches/${mid}/bootstrap`);
     check(noAuth.status === 403, "Bootstrap needs the referee token");
 

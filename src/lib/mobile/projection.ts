@@ -8,6 +8,7 @@ import type { Match, MatchSnapshot, Standing, Team, Tie, Tournament, BrandingCon
 import { resolveSponsors } from "../sponsors";
 import { resolvePortrait, portraitSrc, sizedImageSrc } from "../portrait";
 import { rubberPlan } from "../tennis/ties";
+import { matchDayRules, publicMatchDay } from "../matchday/rules";
 import type {
   AppSkin,
   MBundle,
@@ -118,6 +119,7 @@ export function toBundle(
       showPhotos,
       rubberPlan: isTies ? rubberPlan(t.format_config?.ties) : [],
       lowerThird: t.lower_third_text || null,
+      matchDay: publicMatchDay(matchDayRules(t.match_day_rules, t)),
     },
     teams: teams.map((tm) => toTeam(tm, groupOf.get(tm.id) ?? null, showPhotos)),
     courts: courts.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.court_name, order: c.court_order })),

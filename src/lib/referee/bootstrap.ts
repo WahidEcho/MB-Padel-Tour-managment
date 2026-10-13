@@ -10,6 +10,8 @@ import { db } from "../supabase";
 import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "../data";
 import { isDoublesMatch, scoringConfigForMatch } from "../scoring/rules";
 import { redBlueTeams } from "../sides";
+import { sportOf } from "../sports/registry";
+import { matchDayRules, resolveScoringMode, type MatchDayRules, type ScoringModeChoice } from "../matchday/rules";
 import { getLease, isLeaseLive } from "../scoringControl";
 import type { Match, MatchSnapshot, ScoringConfig, Team } from "../types";
 
@@ -39,6 +41,10 @@ export interface RefereeBootstrap {
   history: unknown[];
   redBlueTeams: boolean;
   lease: { deviceId: string; deviceLabel: string | null; expiresAt: string; isLive: boolean } | null;
+  /** The tournament's match-day rules in full (court call, no-show prompt, extras). */
+  matchDay: MatchDayRules;
+  /** How this match is recorded: the match's override, its session's mode, then the rules. */
+  scoringMode: ScoringModeChoice;
 }
 
 const HISTORY_EVENTS = 300;
@@ -92,6 +98,13 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
     else if (r.previous_state_json) history.push(r.previous_state_json);
   }
   const court = courts.find((c) => c.id === match.court_id);
+  const sport = sportOf(tournament);
+  const matchDay = matchDayRules(tournament.match_day_rules, tournament);
+  // A friendly session's mode sits on the session, not its hidden tournament row.
+  const session =
+    tournament.kind === "friendly_session"
+      ? ((await db().from("friendly_sessions").select("scoring_mode").eq("tournament_id", tournament.id).maybeSingle()).data as { scoring_mode: string } | null)
+      : null;
   return {
     match,
     tournament: { id: tournament.id, name: tournament.name, sport: tournament.sport, timezone: tournament.timezone || "Africa/Cairo" },
@@ -99,8 +112,8 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
     config: scoringConfigForMatch(tournament, match, tier, {
       doubles: match.rubber_type ? match.rubber_type === "D" : isDoublesMatch(teamA ?? undefined, teamB ?? undefined),
     }),
-    tennis: tournament.sport === "tennis",
-    chess: tournament.sport === "chess",
+    tennis: sport.id === "tennis",
+    chess: sport.engine === "chess",
     waitingForLineups: !teamA ? nationA.team_name : !teamB ? nationB.team_name : null,
     sideA: side(teamA),
     sideB: side(teamB),
@@ -111,5 +124,7 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
     lease: lease
       ? { deviceId: lease.device_id, deviceLabel: lease.device_label, expiresAt: lease.expires_at, isLive: isLeaseLive(lease, Date.now()) }
       : null,
+    matchDay,
+    scoringMode: resolveScoringMode({ matchOverride: match.scoring_mode_override, sessionMode: session?.scoring_mode, rules: matchDay }),
   };
 }

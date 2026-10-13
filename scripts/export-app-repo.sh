@@ -24,6 +24,7 @@ SHARED=(
   mobile/alertsSwitch.ts
   mobile/oauth.ts
   friendly/mobile.ts
+  matchday/rules.ts
   players/accessCode.ts
   players/phone.ts
   scoring/conduct.ts
@@ -33,6 +34,7 @@ SHARED=(
   scoring/rules.ts
   scoringLease.ts
   site.ts
+  sports/registry.ts
   tennis/nations.ts
   tennis/ties.ts
   types.ts

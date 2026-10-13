@@ -100,6 +100,28 @@ export interface MSponsor {
   tier: string | null;
 }
 
+/** A tournament's match-day switches as the app sees them. `on` is false until an organiser saves the Match day tab. */
+export interface MMatchDay {
+  on: boolean;
+  /** The live courts hero on Discover, and whether only on the event's days. */
+  showcase: boolean;
+  eventDaysOnly: boolean;
+  alerts: boolean;
+  matchSoon: boolean;
+  courtCall: boolean;
+  /** Minutes players have to reach the court once called. */
+  callMinutes: number;
+  liveActivities: boolean;
+  countdown: boolean;
+  autoStartMine: boolean;
+  autoStartStarred: boolean;
+  widgets: boolean;
+  imAtCourt: boolean;
+  qrCheckIn: boolean;
+  /** Warm-up timer length, or null when there is none. */
+  warmUpMinutes: number | null;
+}
+
 export interface MBundle {
   version: string;
   tournament: MTournamentCard & {
@@ -108,6 +130,8 @@ export interface MBundle {
     /** Rubber order for team competitions: ["S2","S1","D"]. */
     rubberPlan: string[];
     lowerThird: string | null;
+    /** Match-day switches the app acts on (src/lib/matchday/rules.ts publicMatchDay). Absent from older servers. */
+    matchDay?: MMatchDay;
   };
   teams: MTeam[];
   courts: { id: string; name: string; order: number }[];
@@ -337,6 +361,8 @@ export interface MAlertPrefs {
   finished: boolean;
   tie: boolean;
   major: boolean;
+  /** Match day: your match is soon, you are called to court, the reminder. */
+  court: boolean;
 }
 
 /** One tournament the signed-in player is entered in. */
@@ -395,6 +421,7 @@ export const DEFAULT_ALERT_PREFS: MAlertPrefs = {
   finished: true,
   tie: true,
   major: true,
+  court: true,
 };
 
 /* ---------- pure helpers shared by server and app ---------- */

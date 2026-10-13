@@ -45,6 +45,11 @@ const OWNERSHIP_ONLY: Record<string, string> = {
   releaseScoringLock: "a stuck tablet is the same problem on a session",
 };
 
+/** Settings sessions run by too: any tournament or session row, but nothing else. */
+const SESSION_AWARE: Record<string, string> = {
+  saveMatchDayRules: "sessions have match-day rules too",
+};
+
 function actionFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
@@ -86,6 +91,12 @@ describe("tournament admin actions refuse a friendly session's hidden row", () =
           const at = body.indexOf("ownershipRefusal(");
           expect(at, `${name} must check the match belongs to the posted tournament`).toBeGreaterThan(-1);
           if (dbAt !== -1) expect(at, `${name} must check ownership before touching the database`).toBeLessThan(dbAt);
+          return;
+        }
+        if (SESSION_AWARE[name]) {
+          const at = body.indexOf("tournamentOrSessionRefusal(");
+          expect(at, `${name} must refuse rows that are neither a tournament nor a session`).toBeGreaterThan(-1);
+          if (dbAt !== -1) expect(at, `${name} must refuse before touching the database`).toBeLessThan(dbAt);
           return;
         }
         const positions = GUARDS.map((g) => body.indexOf(g)).filter((i) => i !== -1);
