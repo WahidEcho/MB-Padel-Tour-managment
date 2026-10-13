@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchProblem, endsMatch, finishedMatchCut, reopensMatch, sameState, shadowMismatches, MAX_EVENTS_PER_BATCH } from "./eventGuard";
+import { batchProblem, endsMatch, finishedMatchCut, reopensMatch, sameState, shadowMismatches, undoAfterResultCut, MAX_EVENTS_PER_BATCH } from "./eventGuard";
 import { awardPoint, initialScoreState } from "./engine";
 import { DEFAULT_SCORING_CONFIG } from "../types";
 
@@ -108,5 +108,35 @@ describe("finishedMatchCut", () => {
     expect(endsMatch(e(5, "POINT_AWARDED", won), false)).toBe(true);
     expect(endsMatch(e(5, "RETIREMENT", live), true)).toBe(true);
     expect(reopensMatch(e(5, "POINT_AWARDED", live), true)).toBe(false);
+  });
+  it("a final result ends the match even when results need confirming (it was confirmed on entry)", () => {
+    expect(endsMatch(e(5, "RESULT_ENTERED", won), true)).toBe(true);
+    // A level chess knockout is recorded but stays open for the organiser.
+    expect(endsMatch(e(5, "RESULT_ENTERED", { matchOver: false, winner: null }), false)).toBe(false);
+    expect(finishedMatchCut("live", [e(5, "RESULT_ENTERED", won), e(6, "POINT_AWARDED", live)], true)?.index).toBe(1);
+  });
+  it("a final result may correct a finished match; nothing else may follow it", () => {
+    expect(finishedMatchCut("completed", [e(9, "RESULT_ENTERED", won)], false)).toBeNull();
+    expect(finishedMatchCut("walkover", [e(9, "RESULT_ENTERED", { ...won, winner: "B" })], true)).toBeNull();
+    expect(finishedMatchCut("completed", [e(9, "RESULT_ENTERED", won), e(10, "MATCH_ENDED", won)], false)?.index).toBe(1);
+  });
+  it("accepts RESULT_ENTERED as an event type", () => {
+    expect(batchProblem([{ ...ev(), event_type: "RESULT_ENTERED", payload: { sets: [{ a: 6, b: 4 }] } }], match)).toBeNull();
+  });
+});
+
+describe("undoAfterResultCut", () => {
+  const ev = (n: number, event_type: string) => ({ event_number: n, event_type });
+  it("refuses an UNDO once a result is stored: corrections go through a new result", () => {
+    const cut = undoAfterResultCut(true, [ev(4, "UNDO")]);
+    expect(cut?.index).toBe(0);
+    expect(cut?.error).toMatch(/enter the corrected result/);
+  });
+  it("refuses an UNDO after a result in the same batch, keeping what came before", () => {
+    expect(undoAfterResultCut(false, [ev(3, "UNDO"), ev(4, "RESULT_ENTERED"), ev(5, "UNDO")])?.index).toBe(2);
+  });
+  it("lets an UNDO through when no result was entered, and a new result after a result", () => {
+    expect(undoAfterResultCut(false, [ev(1, "MATCH_STARTED"), ev(2, "POINT_AWARDED"), ev(3, "UNDO")])).toBeNull();
+    expect(undoAfterResultCut(true, [ev(6, "RESULT_ENTERED")])).toBeNull();
   });
 });

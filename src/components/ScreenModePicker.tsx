@@ -7,7 +7,7 @@ import type { ScreenFormState } from "@/app/operator/tournaments/[id]/control/ac
 export const MODES: { mode: DisplayMode; label: string; hint: string }[] = [
   { mode: "live", label: "🎾 Live courts", hint: "The courts this screen covers" },
   { mode: "leaderboard", label: "📊 Leaderboard", hint: "Group standings" },
-  { mode: "bracket", label: "🏆 Bracket", hint: "Knockout tree" },
+  { mode: "bracket", label: "🏆 Bracket", hint: "Knockout tree · a night's order of play" },
   // The ceremony supersedes the static winner scene; screens saved on "winner"
   // still render it, and read as the ceremony here.
   { mode: "ceremony", label: "🥇 Ceremony", hint: "Podium, revealed place by place" },

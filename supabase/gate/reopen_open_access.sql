@@ -2,12 +2,17 @@
 -- tables that had it, and NEVER for the private tables below.
 --
 -- PRIVATE TABLES (kept in sync with the migrations by src/lib/gateSql.test.ts:
--- every table a migration from 0023 on creates must be listed here):
+-- every table a migration from 0022 on creates must be listed here):
 --   organizations, organization_members, organization_codes, platform_admins,
 --   organization_players, organization_invites, phone_verifications,
---   player_link_offers, rls_canary
+--   player_link_offers, rls_canary,
+--   leagues, league_divisions, league_members, league_fixtures, league_points,
+--   match_calls, live_activity_start_tokens, live_activity_starts
 -- They hold event-code hashes, member emails, platform admins, organisations'
--- private player notes, invite and one-time-code hashes and their status. The anon and authenticated keys must
+-- private player notes, invite and one-time-code hashes and their status, league
+-- invite-code hashes and the organisers' membership decisions, referee devices and
+-- presence on court calls, and phones' push-to-start tokens and installation ids.
+-- The anon and authenticated keys must
 -- never read or write them, rollback or not: they stay RLS-on with no policy and
 -- no grant. (So after this rollback, with the anon key back in SUPABASE_KEY, staff
 -- sign-in and everything organisation-scoped stop working: that needs the secret
@@ -24,7 +29,15 @@ declare
     'organization_invites',
     'phone_verifications',
     'player_link_offers',
-    'rls_canary'
+    'rls_canary',
+    'leagues',
+    'league_divisions',
+    'league_members',
+    'league_fixtures',
+    'league_points',
+    'match_calls',
+    'live_activity_start_tokens',
+    'live_activity_starts'
   ];
 begin
   for t in select tablename from pg_tables where schemaname = 'public' and not (tablename = any (private_tables)) loop

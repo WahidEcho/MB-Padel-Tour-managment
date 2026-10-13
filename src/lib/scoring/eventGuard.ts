@@ -23,6 +23,8 @@ export const SCORE_EVENT_TYPES = [
   "WALKOVER",
   "DISQUALIFICATION",
   "RETIREMENT",
+  // A final result entered in one go (resultEntry.ts); the server rebuilds its state.
+  "RESULT_ENTERED",
   // Chess
   "MOVE_MADE",
   "RESIGN",
@@ -93,8 +95,13 @@ export function batchProblem(
 /** Match statuses the server treats as a final result. */
 export const FINISHED_MATCH_STATUSES = ["completed", "walkover", "disqualified", "retired"] as const;
 
-/** Events that end a match whatever the score says. */
-const ENDING_EVENTS = new Set(["FORCE_END", "MATCH_ENDED", "WALKOVER", "DISQUALIFICATION", "RETIREMENT"]);
+/**
+ * Events that end a match whatever the score says. RESULT_ENTERED is already the
+ * confirmed result (the entry form has its own two-step confirmation), so result
+ * confirmation never holds it — except a level chess knockout, which stays open
+ * for the organiser to decide (its state is not over).
+ */
+const ENDING_EVENTS = new Set(["FORCE_END", "MATCH_ENDED", "WALKOVER", "DISQUALIFICATION", "RETIREMENT", "RESULT_ENTERED"]);
 
 type OverLike = { matchOver?: unknown; winner?: unknown };
 const overOf = (s: unknown): OverLike | null => (s && typeof s === "object" ? (s as OverLike) : null);
@@ -111,6 +118,7 @@ export function reopensMatch(e: { event_type: string; new_state: unknown }, requ
 
 /** Whether the server finalises the match on this event (the events route's own rule). */
 export function endsMatch(e: { event_type: string; new_state: unknown }, requiresConfirmation: boolean): boolean {
+  if (e.event_type === "RESULT_ENTERED") return Boolean(overOf(e.new_state)?.matchOver);
   if (ENDING_EVENTS.has(e.event_type)) return true;
   const s = overOf(e.new_state);
   return Boolean(s?.matchOver && s.winner) && !requiresConfirmation;
@@ -123,9 +131,11 @@ export interface FinishedCut {
 }
 
 /**
- * Once a match is finished, the only event that may follow is an UNDO that
- * reopens it. A second MATCH_ENDED, or a WALKOVER after the match was won, would
- * otherwise rewrite a result that standings, brackets and screens already used.
+ * Once a match is finished, the only events that may follow are an UNDO that
+ * reopens it and a RESULT_ENTERED, which is an audited correction (the server
+ * reopens the match, takes back what it awarded and finalises the new result).
+ * A second MATCH_ENDED, or a WALKOVER after the match was won, would otherwise
+ * rewrite a result that standings, brackets and screens already used.
  * Walks the batch in order (fresh events only, sorted), so a batch that finishes
  * the match, reopens it and plays on is still accepted.
  */
@@ -142,12 +152,43 @@ export function finishedMatchCut(
         finished = false;
         continue;
       }
+      if (e.event_type === "RESULT_ENTERED") {
+        finished = endsMatch(e, requiresConfirmation);
+        continue;
+      }
       return {
         index: i,
         error: `This match is already finished, so event ${e.event_number} (${e.event_type}) was refused. Only Undo can reopen it; load the server's score to carry on.`,
       };
     }
     if (endsMatch(e, requiresConfirmation)) finished = true;
+  }
+  return null;
+}
+
+/**
+ * An UNDO sent after a final result (RESULT_ENTERED) is refused: the result's
+ * state was rebuilt by the server from the sets entered, not reached point by
+ * point, so there is nothing to step back to. A result is changed only by a new
+ * RESULT_ENTERED (an audited correction). `resultStored` is whether the match's
+ * log already holds a result that is not superseded; the batch (fresh events,
+ * sorted) is walked in order, so an UNDO before the result in the same batch is
+ * still fine. Returns the first refused event, or null.
+ */
+export function undoAfterResultCut(
+  resultStored: boolean,
+  events: { event_number: number; event_type: string }[],
+): FinishedCut | null {
+  let result = resultStored;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.event_type === "RESULT_ENTERED") result = true;
+    else if (e.event_type === "UNDO" && result) {
+      return {
+        index: i,
+        error: `This match's result was entered in one go, so Undo (event ${e.event_number}) was refused. To change it, enter the corrected result.`,
+      };
+    }
   }
   return null;
 }

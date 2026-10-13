@@ -44,6 +44,12 @@ export async function checkInToMatch(owner: Owner, matchId: string, code: { c?: 
     .maybeSingle();
   const match = m as MatchRow | null;
   if (!match) return refuse(404, "not_found", "That match is not in Move Score any more.");
+  // A player of this match scanning its court code is at the court (match day,
+  // "QR check-in = present"): the call records it, whatever the pass says next.
+  {
+    const { presentFromCheckIn } = await import("../matchday/server");
+    await presentFromCheckIn(owner, matchId);
+  }
   const { data: t } = await db().from("tournaments").select("id, event_group_id, public_access_enabled").eq("id", match.tournament_id).maybeSingle();
   const tournament = t as { id: string; event_group_id: string | null; public_access_enabled: boolean | null } | null;
   if (!tournament || tournament.public_access_enabled === false) return refuse(404, "not_found", "That match is not in Move Score any more.");

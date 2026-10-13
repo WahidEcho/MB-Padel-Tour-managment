@@ -158,12 +158,16 @@ export async function getSnapshot(matchId: string): Promise<MatchSnapshot | null
 export async function getReopenState(matchId: string): Promise<Record<string, unknown> | null> {
   const { data } = await db()
     .from("score_events")
-    .select("event_number, previous_state_json, new_state_json")
+    .select("event_number, event_type, previous_state_json, new_state_json")
     .eq("match_id", matchId)
     .order("event_number", { ascending: false })
     .limit(50);
-  type Row = { previous_state_json: { matchOver?: boolean } | null; new_state_json: { matchOver?: boolean } | null };
-  const crossing = ((data ?? []) as Row[]).find(
+  type Row = { event_type?: string; previous_state_json: { matchOver?: boolean } | null; new_state_json: { matchOver?: boolean } | null };
+  const rows = (data ?? []) as Row[];
+  // A final result entered in one go supersedes everything before it: it is
+  // changed by entering a correction, never undone back into the old points.
+  const entered = rows.findIndex((e) => e.event_type === "RESULT_ENTERED");
+  const crossing = (entered === -1 ? rows : rows.slice(0, entered)).find(
     (e) => e.new_state_json?.matchOver === true && e.previous_state_json && e.previous_state_json.matchOver !== true,
   );
   return (crossing?.previous_state_json as Record<string, unknown> | undefined) ?? null;

@@ -41,6 +41,7 @@ import type {
   BracketSlot,
   BracketTier,
   Match,
+  ResultSource,
   MatchSnapshot,
   Standing,
   Team,
@@ -327,6 +328,9 @@ export async function deleteManualMatch(tournamentId: string, matchId: string, a
   const { error } = await db().from("matches").delete().eq("id", matchId).eq("tournament_id", tournamentId);
   if (error) return { ok: false, message: error.message };
   await audit({ tournament_id: tournamentId, actor_role: actorRole, action: "MATCH_DELETED", entity_type: "match", entity_id: matchId });
+  // Its league points went with it (cascade); later streak bonuses are re-evaluated.
+  const { onTournamentReset } = await import("./results/hooks");
+  await onTournamentReset(tournamentId);
   return { ok: true };
 }
 
@@ -372,6 +376,9 @@ export async function resetTournamentLiveData(
   await db().from("standings_snapshots").delete().eq("tournament_id", id);
   await db().from("brackets").delete().eq("tournament_id", id);
   await db().from("teams").update({ check_in_status: "not_arrived", team_status: "active" }).eq("tournament_id", id);
+  // Points it gave a league it counts toward go with its results.
+  const { onTournamentReset } = await import("./results/hooks");
+  await onTournamentReset(id);
   await audit({
     tournament_id: id,
     actor_role: actorRole,
@@ -1111,6 +1118,19 @@ export interface FinalizeOptions {
   actorRole: string;
   note?: string;
   pendingSync?: boolean;
+  /**
+   * How the result was recorded (matches.result_source): scored point by point, a
+   * final score entered in one go, or a final score that replaced a partly scored
+   * or finished match. Left as it is when not given (admin tools that finish a
+   * match some other way).
+   */
+  resultSource?: ResultSource;
+  /**
+   * False when the match was already finished and this replaces its result (a
+   * correction): the players and fans already had "match finished", and no alert
+   * kind says "result corrected", so none is sent again. Default true.
+   */
+  notifyFinished?: boolean;
 }
 
 /** Central completion path: updates the match, standings, and bracket. */
@@ -1122,6 +1142,7 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
       winner_team_id: opts.winnerTeamId,
       ended_at: new Date().toISOString(),
       is_pending_sync: opts.pendingSync ?? false,
+      ...(opts.resultSource ? { result_source: opts.resultSource } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", match.id);
@@ -1135,11 +1156,18 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
     action: `MATCH_${opts.status.toUpperCase()}`,
     entity_type: "match",
     entity_id: match.id,
-    new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null },
+    new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null, result_source: opts.resultSource ?? null },
   });
-  {
+  if (opts.notifyFinished !== false) {
     const { notifyMatchFinished } = await import("./notify/hooks");
     await notifyMatchFinished(match.id);
+  }
+
+  // League points (Phase 7) for a tournament that counts toward a league. A
+  // session's matches reach the same hook through applyFriendlyResult below.
+  if (match.stage !== "friendly") {
+    const { onMatchFinalized } = await import("./results/hooks");
+    await onMatchFinalized(match);
   }
 
   if (match.tie_id) {

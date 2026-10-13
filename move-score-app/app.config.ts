@@ -41,6 +41,22 @@ const PRIVACY_MANIFEST = {
   ],
 };
 
+// iPhone lock screen and home screen (expo-widgets). The widget extension shares
+// data with the app through an App Group, which must be in both provisioning
+// profiles (app and ExpoWidgetsTarget) — see docs/device-install.md. The store
+// bundle's group is group.org.mbeg.movescore (already in the App Store and ad-hoc
+// profiles); dev and staging bundles keep expo-widgets' own default, group.<bundle id>.
+//   MS_LIVE_ACTIVITIES=0  no widget extension at all (no App Group needed): builds
+//                         with profiles that lack the group; no lock-screen cards.
+//   MS_WIDGETS=0          the extension carries only the Live Activity, no My matches widget.
+//   MS_APP_GROUP=…        another App Group id (must match both profiles).
+const flag = (v: string | undefined, fallback: boolean) => (v === undefined || v === "" ? fallback : !/^(0|false|off|no)$/i.test(v));
+const IOS_BUNDLE = `${BUNDLE}${suffix}`;
+const LIVE_ACTIVITIES = flag(process.env.MS_LIVE_ACTIVITIES, true);
+const WIDGETS = LIVE_ACTIVITIES && flag(process.env.MS_WIDGETS, true);
+const APP_GROUP = process.env.MS_APP_GROUP || (IOS_BUNDLE === "org.mbeg.movescore" ? "group.org.mbeg.movescore" : `group.${IOS_BUNDLE}`);
+const WIDGET_TARGET_BUNDLE = `${IOS_BUNDLE}.ExpoWidgetsTarget`;
+
 // One camera string for every use (story photo, player photo, venue code), set the same way by every plugin.
 const CAMERA_USAGE = "Take a photo for your Move Score story or your player photo. The camera also scans the venue code that stamps your event pass.";
 const PHOTOS_USAGE = "Choose a photo for your Move Score story or your player photo.";
@@ -59,7 +75,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   runtimeVersion: { policy: "appVersion" },
   updates: EAS_PROJECT_ID ? { url: `https://u.expo.dev/${EAS_PROJECT_ID}` } : undefined,
   ios: {
-    bundleIdentifier: `${BUNDLE}${suffix}`,
+    bundleIdentifier: IOS_BUNDLE,
     supportsTablet: true,
     usesAppleSignIn: true,
     associatedDomains: LINK_HOSTS.map((h) => `applinks:${h}`),
@@ -69,8 +85,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     infoPlist: {
       NSCameraUsageDescription: CAMERA_USAGE,
       NSPhotoLibraryUsageDescription: PHOTOS_USAGE,
-      NSSupportsLiveActivities: true,
-      NSSupportsLiveActivitiesFrequentUpdates: true,
+      ...(LIVE_ACTIVITIES ? { NSSupportsLiveActivities: true, NSSupportsLiveActivitiesFrequentUpdates: true } : {}),
       ITSAppUsesNonExemptEncryption: false,
     },
     privacyManifests: PRIVACY_MANIFEST,
@@ -127,19 +142,37 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         microphonePermission: false,
       },
     ],
-    ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00" }],
+    // remote-notification background mode: iOS may wake the app for a push (and for a
+    // card started by push) so it can register the card's update token and refresh the widget.
+    ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00", enableBackgroundRemoteNotifications: true }],
     ["react-native-share", { ios: ["instagram-stories", "instagram", "whatsapp"], android: ["com.instagram.android", "com.whatsapp"] }],
-    [
-      "expo-widgets",
-      {
-        // The lock-screen score is registered at runtime (src/live/MatchScoreActivity.tsx).
-        widgets: [],
-        enablePushNotifications: true,
-        // The plugin writes NSSupportsLiveActivitiesFrequentUpdates from this
-        // option (false when missing), overriding infoPlist above.
-        frequentUpdates: true,
-      },
-    ],
+    ...(LIVE_ACTIVITIES
+      ? [
+          [
+            "expo-widgets",
+            {
+              bundleIdentifier: WIDGET_TARGET_BUNDLE,
+              groupIdentifier: APP_GROUP,
+              // The lock-screen card is registered at runtime (src/live/MatchScoreActivity.tsx);
+              // the My matches widget's layout is src/live/MyMatchesWidget.tsx.
+              widgets: WIDGETS
+                ? [
+                    {
+                      name: "MyMatches",
+                      displayName: "My matches",
+                      description: "Your next match, its court and time, and the live score.",
+                      supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular", "accessoryInline", "accessoryCircular"],
+                    },
+                  ]
+                : [],
+              enablePushNotifications: true,
+              // The plugin writes NSSupportsLiveActivitiesFrequentUpdates from this
+              // option (false when missing), overriding infoPlist above.
+              frequentUpdates: true,
+            },
+          ] as [string, object],
+        ]
+      : []),
     ["expo-build-properties", { ios: { deploymentTarget: "16.4" }, android: { minSdkVersion: 26 } }],
     ...(process.env.SENTRY_ORG ? [["@sentry/react-native/expo", { organization: process.env.SENTRY_ORG, project: "move-score" }] as [string, object]] : []),
   ],
@@ -149,6 +182,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     apiBaseUrl: API,
     sentryDsn: process.env.SENTRY_DSN || undefined,
     metaAppId: process.env.META_APP_ID || undefined,
+    liveActivities: LIVE_ACTIVITIES,
+    widgets: WIDGETS,
     eas: EAS_PROJECT_ID ? { projectId: EAS_PROJECT_ID } : undefined,
   },
 });

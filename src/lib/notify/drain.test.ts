@@ -269,3 +269,83 @@ describe("receipts", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("[push:receipts] InvalidCredentials"));
   });
 });
+
+describe("match-day alerts: the players' own phones and wording", () => {
+  /** Two linked players (p1 on u1's phone d3, p2 on u2's phone d4), a fan's phone following the match. */
+  function seedCourt(payload: Partial<Row> = {}, prefs: Record<string, Row> = {}) {
+    seed({
+      kind: "called_to_court",
+      payload: {
+        title: "Called to Court 2: A v B",
+        body: "Players to the court by 14:35",
+        url: "movescore://match/m1",
+        category: "court",
+        targets: [],
+        self: { playerIds: ["p1", "p2"], title: "You're called to Court 2", body: "A v B: be at the court by 14:35 (5 min)." },
+        ...payload,
+      },
+    });
+    tables.push_devices!.push(
+      { id: "d3", installation_id: "inst-3", user_id: "u1", expo_push_token: "ExponentPushToken[3]", prefs: prefs.d3 ?? {}, disabled_at: null },
+      { id: "d4", installation_id: "inst-4", user_id: "u2", expo_push_token: "ExponentPushToken[4]", prefs: prefs.d4 ?? {}, disabled_at: null },
+    );
+    tables.player_claims = [
+      { user_id: "u1", player_id: "p1" },
+      { user_id: "u2", player_id: "p2" },
+    ];
+  }
+  const messages = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith("/push/send"))
+      .flatMap(([, init]) => JSON.parse(String((init as RequestInit).body)) as { to: string; title: string; body: string; data: Row }[]);
+
+  it("reaches the linked players' phones with their own wording, and nobody else when there are no targets", async () => {
+    seedCourt();
+    replies({ tickets: [{ status: "ok", id: "t3" }, { status: "ok", id: "t4" }] });
+    expect(await drainNotifications()).toEqual({ events: 1, sent: 2 });
+    const sent = messages();
+    expect(sent.map((m) => m.to).sort()).toEqual(["ExponentPushToken[3]", "ExponentPushToken[4]"]);
+    expect(sent.every((m) => m.title === "You're called to Court 2" && m.data.self === true)).toBe(true);
+  });
+
+  it("gives starred fans the general wording beside the players' own", async () => {
+    seedCourt({ targets: [{ kind: "match", key: "m1" }] });
+    replies({ tickets: [{ status: "ok" }, { status: "ok" }, { status: "ok" }, { status: "ok" }] });
+    await drainNotifications();
+    const byToken = new Map(messages().map((m) => [m.to, m.title]));
+    expect(byToken.get("ExponentPushToken[1]")).toBe("Called to Court 2: A v B");
+    expect(byToken.get("ExponentPushToken[3]")).toBe("You're called to Court 2");
+  });
+
+  it("respects a phone's court switch", async () => {
+    seedCourt({}, { d4: { court: false } });
+    replies({ tickets: [{ status: "ok", id: "t3" }] });
+    await drainNotifications();
+    expect(messages().map((m) => m.to)).toEqual(["ExponentPushToken[3]"]);
+    expect(delivery("d4")).toBeUndefined();
+  });
+
+  it("adds linked players to a player target (own-match alerts for live and finished)", async () => {
+    seed({ payload: { title: "X won", body: "6–4", url: "movescore://match/m1", category: "finished", targets: [{ kind: "player", key: "p1" }] } });
+    tables.follows = [];
+    tables.push_devices!.push({ id: "d3", installation_id: "inst-3", user_id: "u1", expo_push_token: "ExponentPushToken[3]", prefs: {}, disabled_at: null });
+    tables.player_claims = [{ user_id: "u1", player_id: "p1" }];
+    replies({ tickets: [{ status: "ok", id: "t3" }] });
+    await drainNotifications();
+    expect(messages().map((m) => [m.to, m.title])).toEqual([["ExponentPushToken[3]", "X won"]]);
+  });
+
+  it("PUSH_DRY_RUN sends nothing and records which wording each phone would have had", async () => {
+    vi.stubEnv("PUSH_DRY_RUN", "1");
+    try {
+      seedCourt({ targets: [{ kind: "match", key: "m1" }] });
+      expect(await drainNotifications()).toEqual({ events: 1, sent: 4 });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(delivery("d3")).toMatchObject({ status: "sent", ticket_id: "dry-run:self" });
+      expect(delivery("d1")).toMatchObject({ status: "sent", ticket_id: "dry-run" });
+      expect(await checkReceipts()).toEqual({ checked: 0, failed: 0 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

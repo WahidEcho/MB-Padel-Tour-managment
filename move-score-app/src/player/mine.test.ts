@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MMatch, MMyPlayer } from "@core";
-import { isMine, playsIn } from "./mine";
+import { isMine, mySide, playsIn } from "./mine";
 
 const match = (over: Partial<MMatch>): MMatch => ({
   id: "m1",
@@ -47,5 +47,18 @@ describe("Mine on the Matches tab", () => {
     expect(playsIn(match({}), null)).toBe(false);
     expect(isMine(match({ a: "teamC", b: "teamD" }), null, ["m1"])).toBe(true);
     expect(isMine(match({ a: "teamC", b: "teamD" }), me, [])).toBe(false);
+  });
+});
+
+describe("mySide (which side \"I'm at court\" marks)", () => {
+  it("is the side of the player's team, or the side they were nominated on", () => {
+    expect(mySide(match({}), me)).toBe("A");
+    expect(mySide(match({ a: "teamC", b: "teamA" }), me)).toBe("B");
+    expect(mySide(match({ tieId: "t1", a: "teamC", b: "teamA", aPlayers: ["q1"], bPlayers: ["p1"] }), me)).toBe("B");
+  });
+  it("is null for someone else's match or without a linked player", () => {
+    expect(mySide(match({ a: "teamC", b: "teamD" }), me)).toBeNull();
+    expect(mySide(match({ tieId: "t1", aPlayers: ["p2"], bPlayers: ["q1"] }), me)).toBeNull();
+    expect(mySide(match({}), null)).toBeNull();
   });
 });

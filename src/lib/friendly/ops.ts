@@ -29,7 +29,9 @@ import {
   generateFixedSchedule,
   nextMexicanoRound,
   type FixedPair,
+  estimateTimes,
   type MexicanoPairing,
+  type ScheduledMatch,
   type ScheduledRound,
 } from "./scheduler";
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
@@ -133,7 +135,8 @@ export async function createFriendlySession(input: CreateSessionInput) {
       starts_at: input.startsAt,
       duration_minutes: input.durationMinutes,
       registration_mode: input.registrationMode ?? "individual",
-      scoring_mode: input.scoringMode ?? "point_by_point",
+      // Phase 2: a referee or organiser may score point by point or enter the final result.
+      scoring_mode: input.scoringMode ?? "either",
       registration_deadline: input.registrationDeadline,
       expected_match_minutes: scoringConfig.setsToWinMatch > 1 ? 60 : 30,
       pairing_mode: input.pairingMode,
@@ -742,7 +745,8 @@ async function clearUnstartedMatches(tournamentId: string): Promise<number> {
     .select("id")
     .eq("tournament_id", tournamentId)
     .eq("stage", "friendly")
-    .eq("status", "scheduled");
+    // "ready" is called to court but not started: still part of the unplayed schedule.
+    .in("status", ["scheduled", "ready"]);
   const ids = (removable ?? []).map((m) => m.id as string);
   if (ids.length === 0) return 0;
 
@@ -751,20 +755,47 @@ async function clearUnstartedMatches(tournamentId: string): Promise<number> {
   return ids.length;
 }
 
-/** Turn scheduler output into real `matches` + participant snapshots. */
+/** When a night starts and how long its matches take: the inputs of the "about 19:40" estimates. */
+interface EstimateBasis {
+  startsAt: string | null;
+  matchMinutes: number;
+  changeoverMinutes: number;
+}
+
+/**
+ * Turn scheduler output into real `matches` + participant snapshots.
+ *
+ * The order of play per court is the match order: rounds in order, and within a
+ * round the courts in order, so each court's matches sort by `match_order` the
+ * way they go on (src/lib/friendly/nightTable.ts reads positions from it). With a
+ * start time, each match also gets its estimated start (`scheduled_time`, from
+ * `estimateTimes`): a match starts when its court and its four players are free.
+ * Matches already played are history and are not moved; `reestimateSessionTable`
+ * replans what is waiting from what actually happened.
+ */
 async function persistRounds(
   sessionId: string,
   tournamentId: string,
   rounds: ScheduledRound[],
   names: Map<string, string>,
   courts: { id: string }[],
-  startingOrder: number
+  startingOrder: number,
+  basis?: EstimateBasis
 ): Promise<number> {
   const cache = new Map<string, PairTeam>();
   let order = startingOrder;
   let created = 0;
+  const ordered = [...rounds]
+    .sort((a, b) => a.round - b.round)
+    .map((r) => ({ ...r, matches: [...r.matches].sort((x, y) => x.courtIndex - y.courtIndex) }));
+  const estimates = new Map<ScheduledMatch, string>();
+  if (basis?.startsAt) {
+    for (const e of estimateTimes(ordered, basis.startsAt, basis.matchMinutes, basis.changeoverMinutes)) {
+      estimates.set(e.match, e.startsAtIso);
+    }
+  }
 
-  for (const round of rounds) {
+  for (const round of ordered) {
     for (const m of round.matches) {
       const a = await ensurePairTeam(sessionId, tournamentId, m.teamA[0], m.teamA[1], names, cache, round.round);
       const b = await ensurePairTeam(sessionId, tournamentId, m.teamB[0], m.teamB[1], names, cache, round.round);
@@ -777,6 +808,7 @@ async function persistRounds(
           round_name: `R${round.round}`,
           match_order: order++,
           court_id: courts[m.courtIndex]?.id ?? null,
+          scheduled_time: estimates.get(m) ?? null,
           team_a_id: a.teamId,
           team_b_id: b.teamId,
           status: "scheduled",
@@ -802,6 +834,24 @@ async function persistRounds(
     }
   }
   return created;
+}
+
+function estimateBasis(session: { starts_at: string | null; expected_match_minutes: number | null; turnover_minutes: number | null }): EstimateBasis {
+  return {
+    startsAt: session.starts_at,
+    matchMinutes: session.expected_match_minutes ?? 30,
+    changeoverMinutes: session.turnover_minutes ?? 5,
+  };
+}
+
+/** Re-estimates a session's waiting matches; a failure is logged, never thrown into scheduling. */
+async function reestimateQuietly(tournamentId: string): Promise<void> {
+  try {
+    const { reestimateSessionTable } = await import("./nights");
+    await reestimateSessionTable(tournamentId);
+  } catch (err) {
+    console.error("night re-estimate failed", err);
+  }
 }
 
 export interface ScheduleResult {
@@ -915,13 +965,16 @@ export async function generateSchedule(
     rounds,
     names,
     courts,
-    startingOrder
+    startingOrder,
+    estimateBasis(session)
   );
 
   await db()
     .from("friendly_sessions")
     .update({ status: "scheduled", updated_at: new Date().toISOString() })
     .eq("id", sessionId);
+  // A regenerate part-way through the night: what is left starts when courts free up.
+  await reestimateQuietly(session.tournament_id);
 
   await audit({
     tournament_id: session.tournament_id,
@@ -1021,8 +1074,11 @@ export async function generateNextMexicanoRound(
     [round],
     names,
     courts,
-    rows.length + 1
+    rows.length + 1,
+    estimateBasis(session)
   );
+  // The new round goes on as courts free up: estimated from now, not from the night's start.
+  await reestimateQuietly(session.tournament_id);
 
   await audit({
     tournament_id: session.tournament_id,
@@ -1054,7 +1110,8 @@ export async function setFixedPairs(
     .select("id", { count: "exact", head: true })
     .eq("tournament_id", session.tournament_id)
     .eq("stage", "friendly")
-    .neq("status", "scheduled");
+    // A match called to court ("ready") has not started either.
+    .not("status", "in", "(scheduled,ready)");
   if ((started ?? 0) > 0) {
     throw new Error("Matches have already started — pairs can no longer be rebuilt wholesale");
   }
@@ -1447,6 +1504,13 @@ export async function revertFriendlyResult(matchId: string, actorRole: string): 
     entity_id: matchId,
     new_value: { players: players.length, sessions_recalculated: affected.size },
   });
+
+  // A league night or season fixture: its league points follow (Phase 7).
+  const { data: m } = await db().from("matches").select("id, tournament_id").eq("id", matchId).maybeSingle();
+  if (m) {
+    const { onMatchReopened } = await import("../results/hooks");
+    await onMatchReopened(m as { id: string; tournament_id: string });
+  }
 }
 
 /**
@@ -1566,6 +1630,10 @@ export async function applyFriendlyResult(
     entity_id: match.id,
     new_value: { ranking_model: session.ranking_model, status: opts.status },
   });
+
+  // A session that belongs to a league division: the league's points (Phase 7).
+  const { onMatchFinalized } = await import("../results/hooks");
+  await onMatchFinalized(match);
 }
 
 /**

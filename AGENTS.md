@@ -124,3 +124,46 @@ This version has breaking changes — APIs, conventions, and file structure may 
   showcase is on and `supports.showcase`; flag `live_courts`), app `move-score-app/src/ui/LiveCourtsHero.tsx` on Discover.
   Explicit columns only — `courts.test.ts` fails on a private column or field. The bundle also carries `rules` (per stage,
   `rulesForMatch`) and `sides` (red/blue); `MMatch.bracketId` tells a Plate match.
+- iPhone Live Activities + widgets (Phase 6): card phases soon|called|live|final and payloads in
+  `src/lib/notify/liveActivity.ts` (pure, `@core`), transport + `pushToStart` in `src/lib/notify/apns.ts`,
+  `notifyLiveActivityPhase` in `hooks.ts`, start tokens `api/mobile/v1/me/live-activity/start-token`, widget rows
+  `api/mobile/v1/me/widget`. App: `move-score-app/src/live/*`, expo-widgets patched (`move-score-app/patches/`),
+  switches `MS_LIVE_ACTIVITIES` / `MS_WIDGETS` / `MS_APP_GROUP` in `app.config.ts`. Profiles, install, checklist:
+  `move-score-app/docs/device-install.md`; spike `scripts/live-activity/start-spike.ts`.
+- Final-result entry (plan Phase 2): event `RESULT_ENTERED` (payload `{sets}` or chess `{chess, advance?}`, `src/lib/scoring/resultEntry.ts`,
+  shared via `@core`). The one write path for score events is `src/lib/scoring/append.ts` (events route + admin action
+  `enterMatchResult` on the matches page): the server rebuilds the state with `stateFromFinalScore`/`chessStateFromResults` and
+  refuses a bad score or a differing client state (400 `code: "final_score"`, typed `problems`). Allowed only when the match's
+  mode (override → session → match-day rules) is `final_score`/`either`. A result over a partly scored or finished match is an
+  audited correction (`RESULT_CORRECTED`; earlier events `sync_status = 'superseded'`; undo paths retract the bracket / ledger /
+  tie first); `matches.result_source` is `point_by_point|final_score|correction` (0022 check). A result ends the undo chain
+  (`getReopenState`, bootstrap history). Chess: every format today is a knockout, so a level pairing stays live
+  (`needsArbiter`) until the organiser picks who advances (`decideWinner`); a draw outside a knockout is refused
+  (`draw_unsupported`) because standings have no draws. Web UI `src/components/scoring/FinalScoreEntry.tsx`; offline queue
+  helpers `src/lib/offline/finalResult.ts`. Gate `npm run e2e:final-score` (stand-in).
+  An UNDO after an entered result is refused (409 `conflict: "result_entered"`); a correction of a finished match sends no
+  second "match finished" (`finalizeMatch({ notifyFinished: false })`).
+- Match-day engine (plan Phase 3): `src/lib/matchday/server.ts` over the pure `call.ts`/`nearEnd.ts`/`courtQueue.ts`.
+  "Match soon" runs from `append.ts` after each batch and goes once per match (`matches.match_soon_at`, claimed with a
+  filtered update) to the next match on the court's linked players, never for a TBD side or players live on another court.
+  Calls live in `match_calls` (status `called|started|walkover|cancelled`; match status `ready` while called); routes
+  `api/matches/[matchId]/call` (staff, `score_match`, org-scoped) and `api/mobile/v1/me/matches/[matchId]/here` (only the
+  account's own match via `player_claims`); a court QR check-in by a player marks them present; opening the match on a
+  referee console auto-calls it (rules toggle, match days). Alerts `match_soon`/`called_to_court`/`call_reminder`
+  (category `court`); `payload.self` = the players' own wording, chosen per phone in the drain; `recipientsFor` adds
+  accounts linked to `player` targets. The reminder is a future `notification_events` row sent by the scheduled drain.
+  `PUSH_DRY_RUN=1` sends nothing (tickets `dry-run[:self]`). Gate `npm run e2e:match-day` (stand-in; server started with
+  `PUSH_DRY_RUN=1`).
+- Leagues (Phase 7, migration `0027_leagues`, not yet on the live project): pure `src/lib/leagues/{points,boards,join,settings,fixtures,results}.ts`
+  (shared with the app through `@core`), server `src/lib/leagues/{server,ops,inviteCode}.ts`, admin `admin/leagues`, app API
+  `leagues/[slug]`, `leagues/[slug]/join`, `leagues/top`, `me/leagues`; app screens `league/[slug]`, `leagues`. Points are recomputed from
+  results by the hooks in `src/lib/results/hooks.ts` (finalise, undo, correction, reset), unique per match + player. "Which profile is
+  this user" is `profileForUser` only (switches to `auth_user_id` with Phase 1). League sessions (nights, season fixtures) are the only
+  friendly sessions the app shows. Gate: `npm run e2e:leagues` (stand-in).
+- Americano / Mexicano nights (Phase 8, no migration): pure `src/lib/friendly/nightTable.ts` (`buildNightTable` view model every surface
+  draws, `reestimateNight`; `NIGHT_TABLE_LAYOUT` is the one switch for the owner's pending reference layout), server
+  `src/lib/friendly/nights.ts` (`publishNightTable` = "Confirm players and publish table", `reestimateSessionTable` from the
+  `results/hooks.ts` finish/undo hooks and match start, `linkNightPlayers` adds `player_claims` for a night's new rows by profile). Order
+  of play per court = `match_order`; estimates in `matches.scheduled_time`; published flag `format_config.nightTable`. Alerts only to the
+  players' own accounts, only for public league nights. The Americano points format is unchanged (still 3 / 0 + fire on the night's
+  own table; league points from the league rules). Gate: `npm run e2e:nights` (stand-in, `PUSH_DRY_RUN=1`).

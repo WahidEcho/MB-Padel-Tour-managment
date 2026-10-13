@@ -6,13 +6,19 @@ import { isDoublesMatch, scoringConfigForMatch } from "@/lib/scoring/rules";
 import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 import { redBlueTeams } from "@/lib/sides";
+import { matchScoringMode } from "@/lib/referee/bootstrap";
+import { autoCallOnOpen, getCall } from "@/lib/matchday/server";
+import { matchDayRules } from "@/lib/matchday/rules";
+import { chessCompetitionFor } from "@/lib/scoring/resultEntry";
 
 export const dynamic = "force-dynamic";
 
 export default async function ScorePage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
   // The match's own tournament decides the organisation (and an event code's scope).
-  await requireEntityPage({ match: matchId }, ["referee", "admin", "manager"], `/referee/matches/${matchId}/score`);
+  const { staff } = await requireEntityPage({ match: matchId }, ["referee", "admin", "manager"], `/referee/matches/${matchId}/score`);
+  // Opening the match calls it to court when the organiser turned that on (match day only).
+  await autoCallOnOpen(matchId, staff.role);
 
   const match = await getMatch(matchId);
   if (!match || !match.team_a_id || !match.team_b_id) notFound();
@@ -54,6 +60,10 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
     );
   }
 
+  const scoringMode = await matchScoringMode(match, tournament);
+  const matchDay = matchDayRules(tournament.match_day_rules, tournament);
+  const initialCall = (await getCall(matchId))?.call ?? null;
+
   if (tournament.sport === "chess") {
     return (
       <ChessScoreClient
@@ -72,6 +82,10 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
           players: teamB.players?.map((p) => ({ name: p.full_name, photo: p })) ?? [],
         }}
         serverSnapshot={snapshot}
+        scoringMode={scoringMode}
+        competition={chessCompetitionFor(match.stage)}
+        matchDay={matchDay}
+        initialCall={initialCall}
       />
     );
   }
@@ -105,6 +119,9 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       serverSnapshot={snapshot}
       reopenState={reopenState as ScoreState | null}
       redBlueTeams={redBlueTeams(tournament.branding_config)}
+      scoringMode={scoringMode}
+      matchDay={matchDay}
+      initialCall={initialCall}
     />
   );
 }

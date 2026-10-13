@@ -59,8 +59,20 @@ interface Ticket {
   details?: { error?: string };
 }
 
-export async function recipientsFor(targets: Target[], category: keyof MAlertPrefs): Promise<DeviceRow[]> {
-  if (!targets.length) return [];
+/** A phone to alert, and whether it belongs to one of the alert's own players (`payload.self`). */
+export interface Recipient extends DeviceRow {
+  self: boolean;
+}
+
+/**
+ * The phones an alert reaches: every phone following one of its targets, plus
+ * the phones of accounts linked (player_claims) to a `player` target or to one of
+ * `selfPlayerIds` — a player's own phone hears about their own match whether or
+ * not it follows anything. Each phone once, filtered by its alert switch for
+ * `category`. `self` marks the phones of `selfPlayerIds`' accounts, which read
+ * the alert's own-player wording.
+ */
+export async function recipientsFor(targets: Target[], category: keyof MAlertPrefs, selfPlayerIds: string[] = []): Promise<Recipient[]> {
   const cols = "id, installation_id, user_id, expo_push_token, prefs";
   const wants = (d: DeviceRow) => d.expo_push_token && ({ ...DEFAULT_ALERT_PREFS, ...(d.prefs ?? {}) })[category] !== false;
   if (targets.some((t) => t.kind === "all")) {
@@ -70,14 +82,27 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
       all.push(...((data ?? []) as DeviceRow[]));
       if ((data ?? []).length < 1000) break;
     }
-    return all.filter(wants);
+    return all.filter(wants).map((d) => ({ ...d, self: false }));
   }
+  if (!targets.length && !selfPlayerIds.length) return [];
   const owners = { install: new Set<string>(), user: new Set<string>() };
   const byKind = new Map<string, string[]>();
   for (const t of targets) byKind.set(t.kind, [...(byKind.get(t.kind) ?? []), t.key]);
   for (const [kind, keys] of byKind) {
     const { data } = await db().from("follows").select("owner_kind, owner_id").eq("target_kind", kind).in("target_key", keys);
     for (const f of (data ?? []) as { owner_kind: "install" | "user"; owner_id: string }[]) owners[f.owner_kind].add(f.owner_id);
+  }
+  // The players' own accounts, through their claimed player codes.
+  const selfSet = new Set(selfPlayerIds);
+  const linked = [...new Set([...(byKind.get("player") ?? []), ...selfPlayerIds])];
+  const selfUsers = new Set<string>();
+  for (let i = 0; i < linked.length; i += 200) {
+    const { data } = await db().from("player_claims").select("user_id, player_id").in("player_id", linked.slice(i, i + 200));
+    for (const c of (data ?? []) as { user_id: string | null; player_id: string }[]) {
+      if (!c.user_id) continue;
+      owners.user.add(c.user_id);
+      if (selfSet.has(c.player_id)) selfUsers.add(c.user_id);
+    }
   }
   const devices = new Map<string, DeviceRow>();
   const installs = [...owners.install];
@@ -90,7 +115,17 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
     const { data } = await db().from("push_devices").select(cols).in("user_id", users.slice(i, i + 200)).is("disabled_at", null);
     for (const d of (data ?? []) as DeviceRow[]) devices.set(d.id, d);
   }
-  return [...devices.values()].filter(wants);
+  return [...devices.values()].filter(wants).map((d) => ({ ...d, self: Boolean(d.user_id && selfUsers.has(d.user_id)) }));
+}
+
+/**
+ * PUSH_DRY_RUN=1: nothing leaves the server. Every message is answered with an
+ * "ok" ticket whose id says which wording it carried ("dry-run:self" for the
+ * players' own wording, "dry-run" otherwise), so tests can read who would have
+ * been alerted and how; receipts are never asked for.
+ */
+export function pushDryRun(env: Record<string, string | undefined> = process.env): boolean {
+  return env.PUSH_DRY_RUN === "1" || env.PUSH_DRY_RUN === "true";
 }
 
 function expoHeaders(): Record<string, string> {
@@ -99,7 +134,10 @@ function expoHeaders(): Record<string, string> {
   return headers;
 }
 
-async function sendExpo(messages: { to: string; title: string; body: string; data: Record<string, unknown>; sound: "default"; channelId: string }[]): Promise<Ticket[]> {
+type ExpoMessage = { to: string; title: string; body: string; data: Record<string, unknown>; sound: "default"; channelId: string };
+
+async function sendExpo(messages: ExpoMessage[]): Promise<Ticket[]> {
+  if (pushDryRun()) return messages.map((m) => ({ status: "ok", id: m.data.self ? "dry-run:self" : "dry-run" }));
   const res = await fetch(EXPO_URL, { method: "POST", headers: expoHeaders(), body: JSON.stringify(messages) });
   if (!res.ok) throw new Error(`Expo push ${res.status}`);
   const json = (await res.json()) as { data?: Ticket[] };
@@ -135,7 +173,8 @@ export async function recoverStuck(): Promise<void> {
 
 /** Sends one claimed event to whoever has not had it yet. Returns how many went out and, if some are left to retry, why. */
 async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | null }> {
-  const devices = await recipientsFor(ev.payload.targets ?? [], ev.payload.category);
+  const self = ev.payload.self && Array.isArray(ev.payload.self.playerIds) ? ev.payload.self : null;
+  const devices = await recipientsFor(ev.payload.targets ?? [], ev.payload.category, self?.playerIds ?? []);
   if (!devices.length) return { sent: 0, retry: null };
   const ids = devices.map((d) => d.id);
   // One delivery row per phone; rows from an earlier try are kept as they are.
@@ -168,9 +207,10 @@ async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | 
       tickets = await sendExpo(
         chunk.map((d) => ({
           to: d.expo_push_token!,
-          title: ev.payload.title,
-          body: ev.payload.body,
-          data: { url: ev.payload.url, kind: ev.kind },
+          // Built per phone: a player's own phone reads "You're called to Court 2".
+          title: d.self && self ? self.title : ev.payload.title,
+          body: d.self && self ? self.body : ev.payload.body,
+          data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true } : {}) },
           sound: "default",
           channelId: ev.payload.category === "major" ? "announcements" : "matches",
         })),
@@ -256,6 +296,7 @@ export async function drainNotifications(limit = 25): Promise<{ events: number; 
  * ticket with no receipt yet is asked about again on the next run.
  */
 export async function checkReceipts(limit = 1000): Promise<{ checked: number; failed: number }> {
+  if (pushDryRun()) return { checked: 0, failed: 0 };
   const nowMs = Date.now();
   const { data, error } = await db()
     .from("notification_deliveries")

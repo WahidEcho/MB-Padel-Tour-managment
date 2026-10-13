@@ -29,9 +29,28 @@ function tablesCreatedFrom(from: number): { table: string; file: string }[] {
     );
 }
 
-const MUST_STAY_CLOSED = ["organizations", "organization_members", "organization_codes", "platform_admins", "organization_players", "organization_invites", "phone_verifications", "player_link_offers", "rls_canary"];
+const MUST_STAY_CLOSED = [
+  "organizations",
+  "organization_members",
+  "organization_codes",
+  "platform_admins",
+  "organization_players",
+  "organization_invites",
+  "phone_verifications",
+  "player_link_offers",
+  "rls_canary",
+  "leagues",
+  "league_divisions",
+  "league_members",
+  "league_fixtures",
+  "league_points",
+  // 0022 (match day): referee devices and presence, phones' push-to-start tokens.
+  "match_calls",
+  "live_activity_start_tokens",
+  "live_activity_starts",
+];
 
-/** Tables from 0023 on that may be reopened (none yet): table → why it holds nothing private. */
+/** Tables from 0022 on that may be reopened (none yet): table → why it holds nothing private. */
 const REOPEN_OK: Record<string, string> = {};
 
 describe("the open-access rollback never reopens private tables", () => {
@@ -41,8 +60,8 @@ describe("the open-access rollback never reopens private tables", () => {
     for (const t of MUST_STAY_CLOSED) expect(list, `${t} must be in reopen_open_access.sql's private_tables`).toContain(t);
   });
 
-  it("every table created from migration 0023 on is classified", () => {
-    for (const { table, file } of tablesCreatedFrom(23)) {
+  it("every table created from migration 0022 on is classified", () => {
+    for (const { table, file } of tablesCreatedFrom(22)) {
       expect(list.includes(table) || Boolean(REOPEN_OK[table]), `${file} creates ${table}: add it to private_tables in reopen_open_access.sql (or REOPEN_OK here, with a reason)`).toBe(true);
     }
   });
@@ -60,7 +79,7 @@ describe("the open-access rollback never reopens private tables", () => {
   });
 
   it("every new table ships with row-level security on", () => {
-    for (const file of readdirSync(migrationsDir).filter((f) => parseInt(f, 10) >= 23)) {
+    for (const file of readdirSync(migrationsDir).filter((f) => parseInt(f, 10) >= 22)) {
       const sql = readFileSync(join(migrationsDir, file), "utf8");
       for (const m of sql.matchAll(/create table (?:if not exists )?(?:public\.)?([a-z_]+)/gi)) {
         expect(sql, `${file}: ${m[1]} needs "alter table ${m[1]} enable row level security"`).toMatch(new RegExp(`alter table ${m[1]} enable row level security`));

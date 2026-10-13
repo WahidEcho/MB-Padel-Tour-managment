@@ -148,8 +148,7 @@ categories, its open link offers, and its place in every organisation (anything 
 3. Apply `0024_player_identity.sql`, then `0026_identity_hardening.sql`, to the live project (both additive:
    columns, indexes, two private tables). 0026 must be on before the deploy: the code reads
    `players.self_reported_phone`, `phone_verifications.email_hash` and `player_profiles.owner_scope_org`.
-   (0025 is the organisations hardening; a leagues migration in another branch also took 0025 and is
-   renumbered at merge.)
+   (0025 is the organisations hardening; the leagues migration is `0027_leagues.sql`, Phase 7.)
 4. Deploy.
 5. Run once, with the production pepper and the secret key:
    `PLAYER_CODE_PEPPER=… SUPABASE_URL=… SUPABASE_KEY=<secret> npx tsx scripts/ops/hash-player-codes.ts --dry-run`

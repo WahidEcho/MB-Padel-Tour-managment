@@ -130,6 +130,8 @@ const PERMISSIONS = {
   send_messages: ["admin", "manager"],
   // Event codes for referees and TV operators (Admin → Event codes).
   manage_codes: ["admin", "manager"],
+  // Leagues (Admin → Leagues): settings, divisions, members, nights and fixtures.
+  manage_leagues: ["admin", "manager"],
   // Members and invites (Admin → Members): owners and admins; who may give which
   // role is decided by the organisation role (src/lib/orgs/roles.ts mayAssignRole).
   manage_members: ["admin"],

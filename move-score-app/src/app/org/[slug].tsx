@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Linking, Platform, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
-import type { MTournamentCard } from "@core";
+import { monthLabel, type MTournamentCard } from "@core";
 import { useOrg } from "../../api/queries";
 import { dateRange } from "../../api/model";
 import { toggleFollow, useFollowing } from "../../state/follows";
@@ -12,7 +12,8 @@ import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, LivePill, SectionHeader } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
-import { openTournament } from "../../nav/links";
+import { openLeagues, openTournament } from "../../nav/links";
+import { BoardTable, LeagueLine } from "../../ui/Board";
 
 /** The venue in the phone's maps app. */
 function openMaps(place: string) {
@@ -34,9 +35,9 @@ function TournamentLine({ c }: { c: MTournamentCard }) {
 }
 
 /**
- * A club, academy or organiser: who they are, their venues and tournaments, and
- * a follow. Leagues and top boards arrive later (Phase 7) and are shown as such,
- * never with sample data. Opened from a tournament's page or movescore://org/<slug>.
+ * A club, academy or organiser: who they are, their venues, tournaments and
+ * leagues, its top board this month, and a follow. Opened from a tournament's
+ * page or movescore://org/<slug>.
  */
 function OrgPage({ slug }: { slug: string }) {
   const { t } = useTheme();
@@ -51,7 +52,10 @@ function OrgPage({ slug }: { slug: string }) {
       </Screen>
     );
   }
-  const { organization: o, tournaments, comingSoon } = q.data;
+  // An older server may still answer without leagues (Phase 7): nothing to show then.
+  const { organization: o, tournaments } = q.data;
+  const leagues = q.data.leagues ?? [];
+  const topBoard = q.data.topBoard ?? null;
   const any = tournaments.live.length + tournaments.upcoming.length + tournaments.past.length > 0;
   const follow = async () => {
     setBusy(true);
@@ -103,10 +107,16 @@ function OrgPage({ slug }: { slug: string }) {
       {tournaments.past.map((c) => <TournamentLine key={c.id} c={c} />)}
       {!any && <Empty title="No public tournaments yet" body="Its tournaments appear here once they are published." />}
 
-      {comingSoon.length > 0 && (
+      {leagues.length > 0 && <SectionHeader title="Leagues" />}
+      <View style={{ gap: 8 }}>
+        {leagues.map((l) => <LeagueLine key={l.slug} l={l} />)}
+      </View>
+
+      {topBoard && (
         <>
-          <SectionHeader title={comingSoon.includes("leagues") && comingSoon.includes("boards") ? "Leagues and top boards" : comingSoon.includes("leagues") ? "Leagues" : "Top boards"} />
-          <Body tone="ink3" size={13}>Coming to Move Score soon.</Body>
+          <SectionHeader title="Top of all leagues" action="All clubs" onAction={openLeagues} />
+          <Body tone="ink2" size={12.5} style={{ marginBottom: 8 }}>{`${o.name}'s leagues, ${monthLabel(topBoard.month)}`}</Body>
+          <BoardTable lines={topBoard.lines} limit={10} empty="No league results this month yet." />
         </>
       )}
     </Screen>

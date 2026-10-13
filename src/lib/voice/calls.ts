@@ -80,6 +80,8 @@ export function classifyEvent(eventType: string): VoiceEventKind {
     case "WALKOVER":
     case "RETIREMENT":
     case "DISQUALIFICATION":
+    // A final result typed in one go: nothing was played on this device to call.
+    case "RESULT_ENTERED":
       return "terminal";
     default:
       return "passive";

@@ -24,7 +24,12 @@ export type EntityRef =
   | { category: string }
   | { code: string }
   | { member: string }
-  | { invite: string };
+  | { invite: string }
+  // Leagues (migration 0027): a league, and its divisions, members and fixtures through it.
+  | { league: string }
+  | { division: string }
+  | { leagueMember: string }
+  | { fixture: string };
 
 export interface EntityScope {
   orgId: string;
@@ -68,6 +73,13 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
     if (a.tournament_id) return tournamentScope(a.tournament_id);
     return a.event_group_id ? resolveEntity({ eventGroup: a.event_group_id }) : null;
   }
+  if ("division" in ref || "leagueMember" in ref || "fixture" in ref) {
+    const [table, id] =
+      "division" in ref ? ["league_divisions", ref.division] : "leagueMember" in ref ? ["league_members", ref.leagueMember] : ["league_fixtures", ref.fixture];
+    if (!isUuid(id)) return null;
+    const row = await one<{ league_id: string }>(table, "league_id", id);
+    return row ? resolveEntity({ league: row.league_id }) : null;
+  }
   const direct: [string, string, string | undefined] =
     "announcement" in ref
       ? ["message_announcements", "organization_id, tournament_id", ref.announcement]
@@ -81,7 +93,9 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
               ? ["organization_members", "organization_id", ref.member]
               : "invite" in ref
                 ? ["organization_invites", "organization_id", ref.invite]
-                : ["organization_codes", "organization_id, tournament_id", ref.code];
+                : "league" in ref
+                  ? ["leagues", "organization_id", ref.league]
+                  : ["organization_codes", "organization_id, tournament_id", ref.code];
   const [table, columns, id] = direct;
   if (!isUuid(id)) return null;
   const row = await one<{ organization_id: string; tournament_id?: string | null }>(table, columns, id);

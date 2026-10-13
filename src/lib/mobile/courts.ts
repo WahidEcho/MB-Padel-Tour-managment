@@ -1,7 +1,8 @@
 /**
  * GET /api/mobile/v1/courts/live: everything the app's live courts hero draws,
  * in one call. The featured event and every live tournament, in the Discover
- * order Move Beyond sets (src/lib/platform/discoverOrder.ts), each with its
+ * order Move Beyond sets (src/lib/platform/discoverOrder.ts), then the league
+ * nights on now whose showcase is on (Phase 8), each with its
  * courts, the matches and ties on them, the teams with their faces, the rules,
  * the red/blue identity and the open court calls. The phone turns that into a
  * scene per court (src/lib/tv/showcase.ts), on its own clock between polls.
@@ -20,6 +21,7 @@ import { showcaseOn, showcaseSubset } from "../tv/showcase";
 import { resolvePortrait } from "../portrait";
 import { profilesWithoutPhoto } from "../data";
 import { memo } from "./http";
+import { isPublicLeagueSession, leagueSessionTournamentIds } from "../leagues/server";
 import { CARD_COLUMNS, MATCH_COLUMNS, SNAPSHOT_COLUMNS, getDiscover, getFlags, plateBrackets } from "./server";
 import { toCard, toCourtCall, toCourtTeam, toMatch, toSides, toStageRules, toTie, type CallRow, type TournamentRow } from "./projection";
 
@@ -68,12 +70,41 @@ async function openCalls(ids: string[]): Promise<(CallRow & { tournament_id: str
   return error ? [] : ((data ?? []) as unknown as (CallRow & { tournament_id: string })[]);
 }
 
+/**
+ * League nights on now (Phase 8): the hidden session of a public league's night
+ * with a match on court. They follow the tournaments on the hero; each still
+ * needs its own showcase switch (the league's match-day rules) to be shown.
+ */
+export async function liveLeagueNights(): Promise<MTournamentCard[]> {
+  const nightIds = await leagueSessionTournamentIds();
+  if (!nightIds.size) return [];
+  const { data: onCourt } = await db().from("matches").select("tournament_id").eq("stage", "friendly").in("status", ["live", "paused"]).limit(3000);
+  const live = new Map<string, number>();
+  for (const r of (onCourt ?? []) as { tournament_id: string }[]) {
+    if (nightIds.has(r.tournament_id)) live.set(r.tournament_id, (live.get(r.tournament_id) ?? 0) + 1);
+  }
+  const ids = [...live.keys()].slice(0, MAX_HERO_EVENTS * 2);
+  if (!ids.length) return [];
+  const [{ data: rows }, { data: teams }] = await Promise.all([
+    db().from("tournaments").select(CARD_COLUMNS).in("id", ids).eq("kind", "friendly_session").eq("status", "active").eq("public_access_enabled", true),
+    db().from("teams").select("tournament_id").in("tournament_id", ids),
+  ]);
+  const teamCount = new Map<string, number>();
+  for (const r of (teams ?? []) as { tournament_id: string }[]) teamCount.set(r.tournament_id, (teamCount.get(r.tournament_id) ?? 0) + 1);
+  const cards: MTournamentCard[] = [];
+  for (const r of (rows ?? []) as unknown as TournamentRow[]) {
+    if (await isPublicLeagueSession(r.id)) cards.push(toCard(r, live.get(r.id) ?? 0, teamCount.get(r.id) ?? 0));
+  }
+  return cards.sort((a, b) => b.liveCount - a.liveCount || a.name.localeCompare(b.name));
+}
+
 export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
   return memo(`courts:${includeDemo}`, 1_500, async () => {
     const flags = await getFlags();
     if (flags.live_courts === false) return EMPTY();
     const discover = await getDiscover(includeDemo);
-    const candidates = heroCandidates(discover.featured, discover.live).filter(
+    // Tournaments in the Discover order, then league nights on now.
+    const candidates = heroCandidates(discover.featured, [...discover.live, ...(await liveLeagueNights())]).filter(
       ({ card }) => card.status === "active" && sportOf(card.sport).supports.showcase,
     );
     if (!candidates.length) return EMPTY();
@@ -161,6 +192,10 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
           featured: p.featured,
           // Discover's card already carries the organisation's branding defaults.
           skin: p.card.skin ?? card.skin,
+          imAtCourt: (() => {
+            const md = matchDayRules(p.t.match_day_rules, p.t);
+            return md.courtCall.on && md.extras.imAtCourt;
+          })(),
         },
         rules: toStageRules(p.t, plate.get(p.card.id) ?? []),
         sides: toSides(p.t.branding_config),

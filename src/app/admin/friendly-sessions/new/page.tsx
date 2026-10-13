@@ -98,11 +98,12 @@ export default async function NewSessionPage() {
 
         <div>
           <label className="label" htmlFor="s-scoring">Referee scoring</label>
-          <select id="s-scoring" name="scoring_mode" defaultValue="point_by_point" className="input">
+          <select id="s-scoring" name="scoring_mode" defaultValue="either" className="input">
+            <option value="either">Either — live scoring or the final result</option>
             <option value="point_by_point">Point by point — full live scoring</option>
             <option value="final_score">Final score only — quick entry</option>
           </select>
-          <p className="mt-1 text-xs text-muted">A referee can switch this on any individual match.</p>
+          <p className="mt-1 text-xs text-muted">With &ldquo;either&rdquo;, the referee or organiser can enter a match&rsquo;s final result instead of scoring it live.</p>
         </div>
 
         <div>

@@ -14,7 +14,13 @@ export type AlertKind =
   | "match_live"
   | "match_finished"
   | "tie_decided"
-  | "announcement";
+  | "announcement"
+  /** Match day (Phase 3): the match before yours on the court is one game from the end. */
+  | "match_soon"
+  /** Match day: your match is called to its court. */
+  | "called_to_court"
+  /** Match day: the deadline to reach the court is close. */
+  | "call_reminder";
 
 /** Which alert switch on the phone governs each kind. */
 export const CATEGORY: Record<AlertKind, keyof MAlertPrefs> = {
@@ -27,6 +33,9 @@ export const CATEGORY: Record<AlertKind, keyof MAlertPrefs> = {
   match_finished: "finished",
   tie_decided: "tie",
   announcement: "major",
+  match_soon: "court",
+  called_to_court: "court",
+  call_reminder: "court",
 };
 
 export interface Target {
@@ -42,6 +51,19 @@ export interface AlertPayload {
   url: string;
   targets: Target[];
   category: keyof MAlertPrefs;
+  /**
+   * Wording for the players themselves. Phones signed in to an account linked to
+   * one of `playerIds` (player_claims) get this alert too, whether or not they
+   * follow anything, and read `title`/`body` here instead of the general one.
+   * Player row ids only: never a phone, email or code.
+   */
+  self?: SelfWording;
+}
+
+export interface SelfWording {
+  playerIds: string[];
+  title: string;
+  body: string;
 }
 
 export interface Side {
@@ -186,6 +208,106 @@ function nationTargets(...sides: Side[]): Target[] {
 
 function cityOf(timeZone: string): string {
   return timeZone.split("/").pop()!.replace(/_/g, " ");
+}
+
+/* ---------------- league nights (Phase 8) ---------------- */
+
+/**
+ * A night's table is out: this match's court, its place in the court's order of
+ * play and its estimated start ("about 19:40"; matches start when the court is
+ * free). For the players only (`self`): nobody else is targeted.
+ */
+export function composeNightMatch(o: {
+  matchId: string;
+  a: Side;
+  b: Side;
+  court: string | null;
+  position: number | null;
+  /** "about 19:40", or null when the night has no start time. */
+  about: string | null;
+  eventName: string;
+  playerIds: string[];
+}): AlertPayload {
+  const court = o.court ?? "Court to be announced";
+  const when = o.about ?? "time to be announced";
+  const place = o.position ? ` · match ${o.position} on ${court}` : "";
+  const title = `Your table: ${court}, ${when}`;
+  const body = `${o.a.name} v ${o.b.name}${place} · ${o.eventName}`;
+  return {
+    title,
+    body,
+    url: `movescore://match/${o.matchId}`,
+    targets: [],
+    category: CATEGORY.match_scheduled,
+    self: { playerIds: o.playerIds, title, body },
+  };
+}
+
+/* ---------------- match day (Phase 3) ---------------- */
+
+export interface CourtMatch {
+  matchId: string;
+  /** Side labels as the alerts name them: "Team A", or "Popa / Grant (ROU)" in a rubber. */
+  a: string;
+  b: string;
+  court: string;
+  /** Round or event name. */
+  label: string;
+}
+
+/**
+ * The match before this one on its court is one game from the end. Sent to this
+ * match's own players (`self`); starred fans (the match's followers) only when
+ * the organiser turned that on, so `targets` is empty otherwise.
+ */
+export function composeMatchSoon(o: CourtMatch & { playerIds: string[]; starredFans: boolean }): AlertPayload {
+  return {
+    title: `Next on ${o.court}: ${o.a} v ${o.b}`,
+    body: `The match on court is one game from the end · ${o.label}`,
+    url: `movescore://match/${o.matchId}`,
+    targets: o.starredFans ? [{ kind: "match", key: o.matchId }] : [],
+    category: CATEGORY.match_soon,
+    self: {
+      playerIds: o.playerIds,
+      title: `You're next on ${o.court}`,
+      body: `${o.a} v ${o.b}: the match on court is one game from the end. Get ready.`,
+    },
+  };
+}
+
+/** Called to court: the players have until `deadline` (shown in the event's zone). */
+export function composeCalledToCourt(o: CourtMatch & { playerIds: string[]; deadline: string; timeZone: string; minutes: number }): AlertPayload {
+  const by = localTime(o.deadline, o.timeZone);
+  return {
+    title: `Called to ${o.court}: ${o.a} v ${o.b}`,
+    body: `Players to the court by ${by} · ${o.label}`,
+    url: `movescore://match/${o.matchId}`,
+    targets: [],
+    category: CATEGORY.called_to_court,
+    self: {
+      playerIds: o.playerIds,
+      title: `You're called to ${o.court}`,
+      body: `${o.a} v ${o.b}: be at the court by ${by} (${o.minutes} min).`,
+    },
+  };
+}
+
+/** The deadline is close and these players are not at the court yet. */
+export function composeCallReminder(o: CourtMatch & { playerIds: string[]; deadline: string; timeZone: string; minutesLeft: number }): AlertPayload {
+  const by = localTime(o.deadline, o.timeZone);
+  const left = `${o.minutesLeft} min`;
+  return {
+    title: `${left} to reach ${o.court}`,
+    body: `${o.a} v ${o.b} · players to the court by ${by}`,
+    url: `movescore://match/${o.matchId}`,
+    targets: [],
+    category: CATEGORY.call_reminder,
+    self: {
+      playerIds: o.playerIds,
+      title: `${left} left to reach ${o.court}`,
+      body: `${o.a} v ${o.b}: be at the court by ${by}, or the referee may record a no-show.`,
+    },
+  };
 }
 
 /** The reminder fires this long before the scheduled start. */

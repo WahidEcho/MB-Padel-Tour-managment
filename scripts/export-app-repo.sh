@@ -22,11 +22,14 @@ SHARED=(
   auth/sessionRules.ts
   chess/result.ts
   friendly/mobile.ts
+  friendly/nightTable.ts
   friendly/scheduler.ts
   leagues/boards.ts
   leagues/join.ts
   leagues/points.ts
+  leagues/settings.ts
   matchday/call.ts
+  matchday/callCard.ts
   matchday/courtQueue.ts
   matchday/eventDay.ts
   matchday/nearEnd.ts
@@ -34,6 +37,8 @@ SHARED=(
   mobile/alertsSwitch.ts
   mobile/contract.ts
   mobile/oauth.ts
+  notify/liveActivity.ts
+  offline/finalResult.ts
   players/accessCode.ts
   players/otp.ts
   players/phone.ts
@@ -43,6 +48,7 @@ SHARED=(
   scoring/engine.ts
   scoring/eventGuard.ts
   scoring/finalScore.ts
+  scoring/resultEntry.ts
   scoring/rules.ts
   scoringLease.ts
   site.ts

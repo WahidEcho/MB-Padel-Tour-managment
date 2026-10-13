@@ -8,8 +8,14 @@
 --    organiser saves the Match day tab; new tournaments are created with the
 --    defaults on. tournaments.starts_at: when the first match starts (refunds and
 --    "soon" are measured from it).
--- 2. matches.result_source: how a finished result was recorded (points or a final
---    score entered in one go). Null for everything before this.
+-- 2. matches.result_source: how a finished result was recorded: point_by_point, a
+--    final score entered in one go (final_score), or a final score that replaced a
+--    partly scored or finished match (correction, audited). Null for everything
+--    before this, and while a match is not finished.
+--    matches.match_soon_at: when this match first came one game from the end and
+--    the next match on its court was told "soon" (src/lib/matchday/server.ts). Set
+--    once with a filtered update, so "soon" goes out at most once per match even
+--    when the score comes back from the brink and crosses again, or an undo does.
 -- 3. match_calls: one row per match called to its court (deadline, extensions,
 --    who is present, how the no-show prompt was answered).
 -- 4. live_activity_start_tokens / live_activity_starts: an iPhone's push-to-start
@@ -25,7 +31,8 @@
 alter table tournaments add column if not exists match_day_rules jsonb not null default '{}'::jsonb;
 alter table tournaments add column if not exists starts_at timestamptz;
 
-alter table matches add column if not exists result_source text check (result_source in ('points', 'final_score'));
+alter table matches add column if not exists result_source text check (result_source in ('point_by_point', 'final_score', 'correction'));
+alter table matches add column if not exists match_soon_at timestamptz;
 
 -- "Court busy" and "next on court" look up a court's live and ready matches.
 create index if not exists matches_court_status_idx on matches (court_id, status);

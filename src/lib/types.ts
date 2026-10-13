@@ -150,6 +150,11 @@ export interface FormatConfig {
       podiumDepth?: 1 | 2 | 3 | 4;
     };
   };
+  /**
+   * A friendly session's night table (Phase 8): set when the organiser confirms
+   * the players and publishes it (src/lib/friendly/nights.ts).
+   */
+  nightTable?: { publishedAt: string; publishedBy: string };
 }
 
 /** The three rubbers of a tie, in the default order of play. See src/lib/tennis/ties.ts. */
@@ -427,7 +432,9 @@ export interface Match {
   /** A referee's per-match choice of how to record it (migration 0003; 'either' since 0022). */
   scoring_mode_override?: ScoringMode | null;
   /** How the finished result was recorded (migration 0022); null before that. */
-  result_source?: "points" | "final_score" | null;
+  result_source?: ResultSource | null;
+  /** When the next match on its court was told "soon" (migration 0022); set once. */
+  match_soon_at?: string | null;
 }
 
 /**
@@ -676,6 +683,9 @@ export type RegistrationMode = "individual" | "team" | "either";
  * Set per session; a referee may override it on an individual match.
  */
 export type ScoringMode = "point_by_point" | "final_score" | "either";
+
+/** How a finished result was recorded (matches.result_source, migration 0022). */
+export type ResultSource = "point_by_point" | "final_score" | "correction";
 
 /** How matches are drawn when a session's schedule is generated. */
 export type MatchFormat = "rotating" | "group_stage" | "knockout";

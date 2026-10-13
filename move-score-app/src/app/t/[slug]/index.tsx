@@ -15,6 +15,8 @@ import { StaleBanner } from "../../../ui/Offline";
 import { LoadState } from "../../../ui/LoadState";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
 import { isNation, openOrg, openTeam } from "../../../nav/links";
+import { NightTable } from "../../../ui/NightTable";
+import { nightTableOf } from "../../../night/table";
 
 type Tab = "ties" | "matches" | "groups" | "nations";
 const TABS: Tab[] = ["ties", "matches", "groups", "nations"];
@@ -34,6 +36,8 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab ?? "ties");
   const following = useFollowsOf("nation");
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
+  // A league night (Phase 8): its order of play per court with "about" times.
+  const night = useMemo(() => (b.data ? nightTableOf(b.data, l.data) : null), [b.data, l.data]);
   if (!b.data || !v) {
     return (
       <Screen tabs={false} onRefresh={() => b.refetch()}>
@@ -122,8 +126,14 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
           {liveMatches(l.data).map((m) => (
             <MatchMini key={m.id} m={m} v={v} />
           ))}
-          {upcoming.length > 0 && <SectionHeader title="Coming up" />}
-          {upcoming.slice(0, 30).map((m) => (
+          {night && night.matches > night.finished ? (
+            <>
+              <SectionHeader title={b.data.tournament.night?.publishedAt ? "Order of play" : "Order of play (draft)"} />
+              <NightTable table={night} />
+            </>
+          ) : null}
+          {!night && upcoming.length > 0 && <SectionHeader title="Coming up" />}
+          {!night && upcoming.slice(0, 30).map((m) => (
             <MatchMini key={m.id} m={m} v={v} withDay={upcomingWithDay} />
           ))}
           {finishedMatches(l.data).length > 0 && <SectionHeader title="Results" />}

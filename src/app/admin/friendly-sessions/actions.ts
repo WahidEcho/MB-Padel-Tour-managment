@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { NOT_FOUND, requireScopedPermission, requireStaffPermission } from "@/lib/guard";
 import { profilesInOrg } from "@/lib/orgs/scope";
 import {
@@ -25,6 +26,8 @@ import { getTournament } from "@/lib/data";
 import { db } from "@/lib/supabase";
 import { audit } from "@/lib/audit";
 import type { PairingMode, RankingModel } from "@/lib/types";
+import { afterNightRoundAdded, publishNightTable } from "@/lib/friendly/nights";
+import { enterFinalResult, type EnterResultOutcome } from "@/lib/scoring/append";
 
 /** Every profile named must be one of the organisation's players ("not found" otherwise). */
 async function requireOwnPlayers(orgId: string, profileIds: string[]) {
@@ -63,7 +66,7 @@ export async function createSessionAction(formData: FormData) {
 
   const durationRaw = String(formData.get("duration_minutes") ?? "").trim();
   const regMode = String(formData.get("registration_mode") ?? "individual");
-  const scoreMode = String(formData.get("scoring_mode") ?? "point_by_point");
+  const scoreMode = String(formData.get("scoring_mode") ?? "either");
 
   const session = await createFriendlySession({
     name,
@@ -74,9 +77,10 @@ export async function createSessionAction(formData: FormData) {
     registrationMode: (["individual", "team", "either"].includes(regMode)
       ? regMode
       : "individual") as "individual" | "team" | "either",
-    scoringMode: (["point_by_point", "final_score"].includes(scoreMode)
+    // "either" (the default): the referee or organiser scores point by point or enters the final result.
+    scoringMode: (["point_by_point", "final_score", "either"].includes(scoreMode)
       ? scoreMode
-      : "point_by_point") as "point_by_point" | "final_score",
+      : "either") as "point_by_point" | "final_score" | "either",
     courtCount: num("courts", 2),
     pairingMode,
     rankingModel,
@@ -165,7 +169,54 @@ export async function nextRoundAction(formData: FormData) {
   if (!sessionId) throw new Error("Session is required");
 
   await generateNextMexicanoRound(sessionId, role);
+  // A published night: the new round's players hear their court and time.
+  await afterNightRoundAdded(sessionId);
   revalidatePath(`/admin/friendly-sessions/${sessionId}`);
+}
+
+/**
+ * "Confirm players and publish table" (Phase 8): the ticked players play
+ * tonight, the table is generated with its order of play per court and "about"
+ * times, and the players are told. The organisation comes from the session.
+ */
+export async function publishNightTableAction(formData: FormData) {
+  const sessionId = String(formData.get("session_id") ?? "");
+  if (!sessionId) throw new Error("Session is required");
+  const { staff } = await requireScopedPermission("manage_sessions", { session: sessionId });
+  const playing = formData.getAll("playing").map(String).filter(Boolean);
+  await requireOwnPlayers(staff.orgId, playing);
+  await publishNightTable(
+    sessionId,
+    {
+      playing: formData.get("confirm_players") === "1" ? playing : null,
+      matchMinutes: Number(formData.get("match_minutes") ?? "") || null,
+      changeoverMinutes: formData.get("changeover_minutes") === null || formData.get("changeover_minutes") === "" ? null : Number(formData.get("changeover_minutes")),
+    },
+    { role: staff.role, userId: staff.userId ?? null },
+  );
+  revalidatePath(`/admin/friendly-sessions/${sessionId}`);
+}
+
+/**
+ * A final result typed by the organiser on a session's page (Phase 2 on nights):
+ * the same RESULT_ENTERED path as a referee's device, refused when the session
+ * scores point by point only. The match must be one of this session's.
+ */
+export async function enterSessionResult(sessionId: string, matchId: string, payload: unknown): Promise<EnterResultOutcome> {
+  const { staff } = await requireScopedPermission("score_match", { match: matchId });
+  const session = await getSession(sessionId);
+  const { data: m } = await db().from("matches").select("tournament_id, stage").eq("id", matchId).maybeSingle();
+  const match = m as { tournament_id: string; stage: string } | null;
+  if (!session || !match || match.tournament_id !== session.tournament_id || match.stage !== "friendly") return { ok: false, error: NOT_FOUND };
+  const out = await enterFinalResult({
+    matchId,
+    payload,
+    role: staff.role,
+    actor: staff.userId ?? staff.codeId ?? staff.role,
+    defer: (task) => after(task),
+  });
+  if (out.ok) revalidatePath(`/admin/friendly-sessions/${sessionId}`);
+  return out;
 }
 
 export async function autoPairAction(formData: FormData) {

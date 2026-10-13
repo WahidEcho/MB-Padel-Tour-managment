@@ -1,10 +1,25 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { Linking, Pressable, ScrollView, TextInput, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useKeepAwake } from "expo-keep-awake";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Console, describeMatchRules, OFFENCE_LABELS, PENALTY_LABELS, currentServer, servingPlayer, type ScoreState, type TeamKey } from "@core";
+import {
+  Console,
+  chessCompetitionFor,
+  describeMatchRules,
+  enteredSetsFromState,
+  finalResultAllowed,
+  queueableResult,
+  OFFENCE_LABELS,
+  PENALTY_LABELS,
+  currentServer,
+  servingPlayer,
+  type ResultPayload,
+  type ResultProblem,
+  type ScoreState,
+  type TeamKey,
+} from "@core";
 import { api, ApiError } from "../../../api/client";
 import { config } from "../../../config";
 import { session, saveStaff } from "../../../state/session";
@@ -14,6 +29,11 @@ import { useConsole } from "../../../referee/useConsole";
 import { useLease } from "../../../referee/useLease";
 import type { RefereeBootstrap } from "../../../referee/types";
 import type { SyncState } from "../../../referee/sync";
+import { useCall } from "../../../referee/useCall";
+import { CallCard } from "../../../referee/CallCard";
+import { FinalScore } from "../../../referee/FinalScore";
+import { Sheet as Sheetish } from "../../../referee/Sheet";
+import { chessEntry } from "../../../referee/chessResult";
 import { Body, Display, Eyebrow, Num } from "../../../ui/Text";
 import { Button, Card, Chip, Flag } from "../../../ui/Bits";
 import { BackHeader } from "../../../ui/Header";
@@ -28,7 +48,16 @@ type Sheet =
   | { kind: "conflict" }
   | { kind: "reopen" }
   | { kind: "code" }
+  | { kind: "result" }
   | null;
+
+/** The final-result form: where it starts from, and the last refusal. */
+interface ResultForm {
+  correcting: boolean;
+  initial: ResultPayload | null;
+  /** Bumped each time the form opens, so it starts from `initial` again. */
+  key: number;
+}
 
 /** Statuses the server holds as over. */
 const SERVER_FINISHED = ["completed", "walkover", "disqualified", "retired", "cancelled"];
@@ -54,23 +83,6 @@ function SyncPill({ s, online }: { s: SyncState; online: boolean }) {
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
       <Body weight="bold" size={12} style={{ color }}>{label}</Body>
     </View>
-  );
-}
-
-function Sheetish({ open, onClose, children, title }: { open: boolean; onClose: () => void; children: ReactNode; title: string }) {
-  const { t } = useTheme();
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      {/* The sheet rides up with the keyboard, so the code field above it stays in sight. */}
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)" }} onPress={onClose} accessibilityLabel="Close" />
-        <View style={{ backgroundColor: t.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18, paddingBottom: insets.bottom + 18, gap: 10, maxHeight: "80%" }}>
-          <Eyebrow>{title}</Eyebrow>
-          <ScrollView contentContainerStyle={{ gap: 10 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
   );
 }
 
@@ -189,10 +201,36 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
   const expiringSoon = Boolean(staff) && !expired && expiresAt - clock < DAY_MS;
 
   const readOnly = !lease.isController;
-  const shown: ScoreState | null = readOnly ? ((lease.snapshot?.snapshot_json as ScoreState | null) ?? c.state) : c.state;
+  const raw = (readOnly ? ((lease.snapshot?.snapshot_json as ScoreState | null) ?? c.state) : c.state) as ScoreState | null;
+  // A chess state is not a games score: only its winner is read here (the web console plays the moves).
+  const shown: ScoreState | null = boot.chess ? null : raw;
   const status = readOnly ? (lease.match?.status ?? c.status) : c.status;
+  const winnerKey = (raw as { winner?: TeamKey | null } | null)?.winner ?? null;
+  // How this match is recorded (match override → session → match-day rules).
+  const mode = boot.scoringMode ?? "point_by_point";
+  const resultAllowed = finalResultAllowed(mode);
+  const resultOnly = mode === "final_score";
+  const organiser = staff?.role === "admin" || staff?.role === "manager";
+  const call = useCall(boot, { deviceId, matchStatus: status, onMatchDecided: () => void c.reload() });
+  const [form, setForm] = useState<ResultForm | null>(null);
+  const [formKey, setFormKey] = useState(0);
+  const [resultErr, setResultErr] = useState<{ message: string; problems: ResultProblem[] } | null>(null);
+  const [resultBusy, setResultBusy] = useState(false);
+  const openForm = (correcting: boolean, initial: ResultPayload | null, err: { message: string; problems: ResultProblem[] } | null = null) => {
+    setResultErr(err);
+    setFormKey((k) => k + 1);
+    setForm({ correcting, initial, key: formKey + 1 });
+  };
+  // The server refused a result this phone queued: the form again, filled in, with why.
+  useEffect(() => {
+    if (!c.refusal) return;
+    openForm(false, c.refusal.initial, { message: c.refusal.message, problems: c.refusal.problems });
+    if (!resultOnly) setSheet({ kind: "result" });
+    c.clearRefusal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c.refusal]);
   // An offline result (pending_sync) and a final score that needs no confirming both count as finished.
-  const finished = Console.isFinished(status, shown, c.opts.confirmFirst);
+  const finished = Console.isFinished(status, boot.chess ? (raw as ScoreState | null) : shown, c.opts.confirmFirst);
   const awaitingConfirm = c.opts.confirmFirst && Boolean(shown?.matchOver) && !finished;
   const server = shown ? currentServer(shown) : null;
   const servingIdx = shown && c.opts.doubles ? servingPlayer(shown) : null;
@@ -258,6 +296,81 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
     if (ok) setSheet(null);
     else setHandNote("No signal: the server's score could not be loaded. Try again.");
   };
+
+  /**
+   * A final result: games results are checked and queued like a point (offline
+   * too); a correction of a finished match and chess results go straight to the
+   * server (they need a connection).
+   */
+  const submitResult = async (payload: ResultPayload) => {
+    if (busy || resultBusy) return;
+    if (sync.kind === "conflict") {
+      setResultErr({ message: "Points are not reaching the server: sort that out first (What now?).", problems: [] });
+      return;
+    }
+    setResultBusy(true);
+    try {
+      let out: { ok: true } | { ok: false; message: string; problems: ResultProblem[] };
+      if (boot.chess) {
+        const e = chessEntry(payload, { mode, competition: chessCompetitionFor(m.stage), legs: boot.legs ?? 1, organiser });
+        out = e.ok ? await c.sendResultNow(e) : { ok: false, message: e.problems[0]?.message ?? "Check the result.", problems: e.problems };
+      } else if (finished) {
+        const q = queueableResult({ mode, engine: "games", rules: boot.config, payload });
+        out = q.ok ? await c.sendResultNow({ payload: q.payload, state: q.state, winner: q.winner }) : { ok: false, message: q.problems[0]?.message ?? "Check the score.", problems: q.problems };
+      } else {
+        out = await c.enterResult(payload);
+      }
+      if (out.ok) {
+        setForm(null);
+        setResultErr(null);
+        if (sheet?.kind === "result") setSheet(null);
+      } else {
+        setResultErr({ message: out.message, problems: out.problems });
+      }
+    } finally {
+      setResultBusy(false);
+    }
+  };
+
+  const resultEntry = (inline: boolean) => (
+    <FinalScore
+      key={form?.key ?? formKey}
+      engine={boot.chess ? "chess" : "games"}
+      rules={boot.config}
+      legs={boot.legs ?? 1}
+      competition={chessCompetitionFor(m.stage)}
+      sideA={A.name}
+      sideB={B.name}
+      initial={form?.initial ?? null}
+      correcting={form?.correcting ?? false}
+      canDecideAdvance={organiser && chessCompetitionFor(m.stage) === "knockout"}
+      busy={resultBusy || readOnly}
+      error={resultErr?.message ?? null}
+      problems={resultErr?.problems ?? null}
+      note={
+        readOnly
+          ? "Read-only: take control of the match to record a result."
+          : boot.chess || form?.correcting
+            ? "Sent straight to the server: it needs a connection."
+            : "Saved on this phone first: it reaches the server as soon as there is signal."
+      }
+      onSubmit={(p) => void submitResult(p)}
+      onCancel={
+        inline && !form
+          ? undefined
+          : () => {
+              setForm(null);
+              setResultErr(null);
+              if (sheet?.kind === "result") setSheet(null);
+            }
+      }
+    />
+  );
+  const showResultSheet = (correcting: boolean, initial: ResultPayload | null) => {
+    openForm(correcting, initial);
+    setSheet({ kind: "result" });
+  };
+  const correctable = resultAllowed && !readOnly && finished && SERVER_FINISHED.includes(status) && pendingN === 0;
 
   const scoreRow = (k: TeamKey) => {
     const s = side(k);
@@ -383,12 +496,23 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         </Card>
       )}
 
+      <CallCard c={call} readOnly={false} />
+
       <View style={{ flex: 1, marginTop: 10, gap: 10 }}>
-        {boot.chess ? (
-          <Card style={{ flex: 1, justifyContent: "center", gap: 10 }}>
-            <Display size={20}>Chess is scored on the web</Display>
-            <Button label="Open the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
-          </Card>
+        {(boot.chess || resultOnly) && !finished ? (
+          boot.chess && !resultAllowed ? (
+            <Card style={{ flex: 1, justifyContent: "center", gap: 10 }}>
+              <Display size={20}>Chess is scored on the web</Display>
+              <Button label="Open the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
+            </Card>
+          ) : (
+            <Card style={{ flex: 1, padding: 0 }}>
+              <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }} keyboardShouldPersistTaps="handled">
+                {resultEntry(true)}
+                {boot.chess ? <Button kind="ghost" label="Play the moves on the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} /> : null}
+              </ScrollView>
+            </Card>
+          )
         ) : !shown && !finished ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
             <Display size={22}>Who serves first?</Display>
@@ -396,6 +520,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
             {(["A", "B"] as TeamKey[]).map((k) => (
               <Button key={k} label={side(k).name} disabled={readOnly} onPress={() => guard(() => void c.start(k))} />
             ))}
+            {resultAllowed ? <Button kind="ghost" label="Enter the final result instead" disabled={readOnly} onPress={() => guard(() => showResultSheet(false, null))} /> : null}
           </Card>
         ) : awaitingConfirm ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
@@ -406,7 +531,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           </Card>
         ) : finished ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
-            <Display size={22}>{shown?.winner ? `${side(shown.winner).name} wins` : "Match finished"}</Display>
+            <Display size={22}>{winnerKey ? `${side(winnerKey).name} wins` : "Match finished"}</Display>
             <Body tone="ink2">
               {status === "pending_sync" || (pendingN > 0 && !readOnly)
                 ? `The result is saved on this phone. It becomes official once it reaches the server${pendingN > 0 ? ` (${pendingN} to send)` : ""}.`
@@ -415,6 +540,14 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
                   : `Ended: ${status}.`}
             </Body>
             {!readOnly && c.canUndo ? <Button kind="ghost" label="Undo (reopen the match)" onPress={() => guard(() => setSheet({ kind: "reopen" }))} /> : null}
+            {correctable ? (
+              <Button
+                kind="ghost"
+                label="Correct the result"
+                accessibilityHint="Replaces the recorded score. Needs a connection."
+                onPress={() => guard(() => showResultSheet(true, !boot.chess && shown?.completedSets.length ? { sets: enteredSetsFromState(shown) } : null))}
+              />
+            ) : null}
             <Button label="Back to matches" onPress={() => router.back()} />
           </Card>
         ) : (
@@ -446,7 +579,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       </View>
 
       {/* Play controls only while play is on, as on the web: a final score keeps just its own Undo. */}
-      {c.state && !finished && !shown?.matchOver && !boot.chess && (
+      {c.state && !finished && !shown?.matchOver && !boot.chess && !resultOnly && (
         <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
           {[
             ["↶", "Undo", () => guard(() => void c.undo()), !c.canUndo],
@@ -483,6 +616,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         {c.opts.doubles &&
           (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={`Swap ${side(k).name}'s server`} onPress={() => guard(() => { void c.swapServer(k); setSheet(null); })} />)}
         {boot.tennis && <Button kind="ghost" label="Code violation" onPress={() => guard(() => setSheet({ kind: "violation", team: null }))} />}
+        {resultAllowed ? <Button kind="ghost" label="Enter the final result" onPress={() => guard(() => showResultSheet(false, null))} /> : null}
         <Button kind="ghost" label="End the set" onPress={() => guard(() => setSheet({ kind: "end", event: "SET" }))} />
         <Button kind="ghost" label="Retirement" onPress={() => guard(() => setSheet({ kind: "end", event: "RETIREMENT" }))} />
         <Button kind="ghost" label="Walkover" onPress={() => guard(() => setSheet({ kind: "end", event: "WALKOVER" }))} />
@@ -555,6 +689,20 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           }}
         />
         <Button kind="ghost" label="Keep scoring on this phone" onPress={closeCode} />
+      </Sheetish>
+
+      <Sheetish
+        tall
+        open={sheet?.kind === "result"}
+        onClose={() => {
+          if (resultBusy) return;
+          setSheet(null);
+          setForm(null);
+          setResultErr(null);
+        }}
+        title={form?.correcting ? "Correct the result" : "Final result"}
+      >
+        {sheet?.kind === "result" ? resultEntry(false) : null}
       </Sheetish>
 
       <Sheetish open={sheet?.kind === "handover"} onClose={() => setSheet(null)} title="Hand over">

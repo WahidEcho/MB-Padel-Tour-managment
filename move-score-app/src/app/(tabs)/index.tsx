@@ -2,7 +2,7 @@ import { ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import type { MEventGroup, MTournamentCard } from "@core";
-import { queryClient, useBundle, useDiscover, useLive } from "../../api/queries";
+import { queryClient, useBundle, useDiscover, useLive, useTopBoard } from "../../api/queries";
 import { dateRange, liveMatches, makeView, needsDay, upcomingMatches } from "../../api/model";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -12,7 +12,8 @@ import { MatchMini, TieRow } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
 import { LoadState } from "../../ui/LoadState";
 import { ProfileButton } from "../../ui/Header";
-import { openTournament } from "../../nav/links";
+import { openLeagues, openTournament } from "../../nav/links";
+import { BoardTable } from "../../ui/Board";
 import { RegistrationBanner } from "../../auth/RegistrationBanner";
 import { LiveCourtsHero } from "../../ui/LiveCourtsHero";
 import { Pressable } from "react-native";
@@ -110,6 +111,18 @@ function TournamentLine({ c }: { c: MTournamentCard }) {
   );
 }
 
+/** The top five of all leagues this month (hidden until someone has league points). */
+function TopLeagues() {
+  const top = useTopBoard();
+  if (!top.data?.lines.length) return null;
+  return (
+    <>
+      <SectionHeader title="Top of all leagues" action="Leagues" onAction={openLeagues} />
+      <BoardTable lines={top.data.lines} limit={5} />
+    </>
+  );
+}
+
 export default function Discover() {
   const d = useDiscover();
   const data = d.data;
@@ -154,6 +167,7 @@ export default function Discover() {
       <View style={{ gap: 8 }}>{data?.live.map((c) => <TournamentLine key={c.id} c={c} />)}</View>
       {(data?.upcoming.length ?? 0) > 0 && <SectionHeader title="Coming up" />}
       <View style={{ gap: 8 }}>{data?.upcoming.map((c) => <TournamentLine key={c.id} c={c} />)}</View>
+      <TopLeagues />
       {(data?.past.length ?? 0) > 0 && <SectionHeader title="Results" />}
       <View style={{ gap: 8 }}>{data?.past.slice(0, 12).map((c) => <TournamentLine key={c.id} c={c} />)}</View>
       {!data && <LoadState queries={[d]} what="the latest events" />}

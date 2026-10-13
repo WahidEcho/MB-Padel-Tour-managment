@@ -6,10 +6,16 @@
  *
  * `flush()` is what a handover waits on: it resolves true only once the server
  * holds every point this phone recorded.
+ *
+ * A final result the server refuses (a 400 naming it, or a 409 while one is
+ * queued) never blocks the match: it leaves the queue with anything queued after
+ * it (kept apart, never sent; src/lib/offline/finalResult.ts), `onResultRefused`
+ * takes the console back to the score before it and reopens the form, and the
+ * points before it carry on to the server.
  */
 import { api, ApiError } from "../api/client";
-import { sameState } from "@core";
-import { queue } from "./queue";
+import { resultRejection, sameState, type ResultRejection } from "@core";
+import { queue, type QueuedEvent } from "./queue";
 
 export type SyncState =
   | { kind: "synced" }
@@ -21,7 +27,13 @@ export type SyncState =
 
 const BATCH = 50;
 
-export function createSyncer(matchId: string, deviceId: string, onState: (s: SyncState) => void, onRedBlue?: (on: boolean) => void) {
+export function createSyncer(
+  matchId: string,
+  deviceId: string,
+  onState: (s: SyncState) => void,
+  hooks: { onRedBlue?: (on: boolean) => void; onResultRefused?: (r: ResultRejection<QueuedEvent>) => Promise<void> } = {},
+) {
+  const { onRedBlue, onResultRefused } = hooks;
   let inflight: Promise<void> | null = null;
   let again = false;
   let backoff = 0;
@@ -74,6 +86,8 @@ export function createSyncer(matchId: string, deviceId: string, onState: (s: Syn
           again = true;
           return;
         }
+        const applied = new Set(body.applied ?? []);
+        if (await refuseResult(batch.filter((e) => !applied.has(e.client_event_id)), 409, body)) return;
         const stillLeft = body.applied?.length ? Math.max(0, left - body.applied.length) : left;
         emit({ kind: "conflict", reason: body.conflict === "device_lock" ? "device_lock" : body.conflict === "sequence" ? "sequence" : "other", message: body.error ?? "The server refused these points.", pending: stillLeft });
         return;
@@ -83,12 +97,26 @@ export function createSyncer(matchId: string, deviceId: string, onState: (s: Syn
         return;
       }
       if (err instanceof ApiError && err.status === 400) {
+        if (await refuseResult(batch, 400, err.body)) return;
         emit({ kind: "conflict", reason: "other", message: err.message, pending: left });
         return;
       }
       backoff = Math.min(30_000, backoff ? backoff * 2 : 3_000);
       emit({ kind: err instanceof ApiError && err.status !== 0 ? "pending" : "offline", pending: left });
     }
+  }
+
+  /** A refused final result: out of the queue (with what followed it), the console told, the rest sent. */
+  async function refuseResult(batch: QueuedEvent[], status: number, body: unknown): Promise<boolean> {
+    if (!onResultRefused) return false;
+    const r = resultRejection(batch, status, body);
+    if (!r) return false;
+    await queue().discard(r.drop.map((e) => e.client_event_id));
+    await onResultRefused(r);
+    const left = (await queue().pending(matchId)).length;
+    if (left > 0) again = true;
+    else emit({ kind: "synced" });
+    return true;
   }
 
   /** The server may already have these events (a lost reply): if its state equals one we sent, everything up to it is done. */

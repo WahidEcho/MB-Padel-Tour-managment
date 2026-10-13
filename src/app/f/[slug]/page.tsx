@@ -9,6 +9,8 @@ import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import PresenceBeat from "@/components/PresenceBeat";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
+import { nightTableFor } from "@/lib/friendly/nights";
+import NightTableView from "@/components/friendly/NightTableView";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +24,17 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const session = await getSessionBySlug(slug);
   if (!session || session.visibility !== "public") notFound();
 
-  const [matches, teams, courts, ranking, tournament] = await Promise.all([
+  const [matches, teams, courts, ranking, tournament, night] = await Promise.all([
     getMatches(session.tournament_id),
     getTeams(session.tournament_id),
     getCourts(session.tournament_id),
     getRankingSnapshot("session", session.id),
     getTournament(session.tournament_id),
+    nightTableFor(session.tournament_id),
   ]);
+  // The night's table (order of play per court, "about" times) once it is published or estimated;
+  // a session without either keeps the "Up next" list.
+  const table = night && night.table.matches > 0 && (night.publishedAt || night.estimated) ? night.table : null;
   const { main: mainSponsor, footer } = resolveSponsors(tournament?.branding_config);
   const backdrop = backgroundFor(tournament?.branding_config, "public");
   const sponsors = footer.map((sp) => sp.logoUrl);
@@ -38,7 +44,8 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const friendly = matches.filter((m) => m.stage === "friendly");
   const live = friendly.filter((m) => ["live", "paused"].includes(m.status));
-  const upcoming = friendly.filter((m) => m.status === "scheduled").slice(0, 6);
+  // "ready" is a match called to its court and not started yet (match day).
+  const upcoming = friendly.filter((m) => m.status === "scheduled" || m.status === "ready").slice(0, 6);
 
   const names = await listPublicPlayers(ranking.map((r) => r.player_profile_id), tournament?.organization_id ?? null);
   const label = (id: string | null) => (id ? (tm.get(id)?.team_name ?? "?") : "TBD");
@@ -89,7 +96,19 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
         </section>
       )}
 
-      {upcoming.length > 0 && (
+      {table && (
+        <section className="space-y-2" data-testid="night-table-section">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="label">Order of play</h2>
+            <span className="text-xs text-muted">
+              {table.finished}/{table.matches} played · times are estimates: each match starts when its court is free
+            </span>
+          </div>
+          <NightTableView table={table} />
+        </section>
+      )}
+
+      {!table && upcoming.length > 0 && (
         <section className="space-y-2">
           <h2 className="label">Up next</h2>
           <div className="grid gap-2 sm:grid-cols-2">

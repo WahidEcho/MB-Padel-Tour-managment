@@ -150,16 +150,29 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
   });
 }
 
+/**
+ * A public tournament by slug. A friendly session's hidden tournament is shown
+ * only when the session is a night or the season of a public league (Phase 7):
+ * every other session stays out of the app, as before.
+ */
 async function tournamentBySlug(slug: string, withMatchDay = false): Promise<TournamentRow | null> {
   const query = (columns: string) =>
-    db().from("tournaments").select(columns).eq("slug", slug).eq("kind", "tournament").eq("public_access_enabled", true).maybeSingle();
+    db().from("tournaments").select(columns).eq("slug", slug).in("kind", ["tournament", "friendly_session"]).eq("public_access_enabled", true).maybeSingle();
   // match_day_rules arrives with migration 0022. Until it is applied, the bundle
   // still loads and reads as "match day off" rather than the app losing the event.
-  if (!withMatchDay) return ((await query(CARD_COLUMNS)).data as unknown as TournamentRow | null) ?? null;
-  // The bundle also carries the per-stage scoring rules.
-  let { data, error } = await query(`${CARD_COLUMNS}, scoring_config, match_day_rules`);
-  if (error && /match_day_rules/.test(error.message)) ({ data, error } = await query(`${CARD_COLUMNS}, scoring_config`));
-  return (data as unknown as TournamentRow | null) ?? null;
+  let row: TournamentRow | null;
+  if (!withMatchDay) row = ((await query(CARD_COLUMNS)).data as unknown as TournamentRow | null) ?? null;
+  else {
+    // The bundle also carries the per-stage scoring rules.
+    let { data, error } = await query(`${CARD_COLUMNS}, scoring_config, match_day_rules`);
+    if (error && /match_day_rules/.test(error.message)) ({ data, error } = await query(`${CARD_COLUMNS}, scoring_config`));
+    row = (data as unknown as TournamentRow | null) ?? null;
+  }
+  if (row && row.kind === "friendly_session") {
+    const { isPublicLeagueSession } = await import("../leagues/server");
+    if (!(await isPublicLeagueSession(row.id))) return null;
+  }
+  return row;
 }
 
 export function getBundle(slug: string): Promise<MBundle | null> {

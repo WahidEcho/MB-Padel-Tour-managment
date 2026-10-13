@@ -40,7 +40,8 @@ import {
 import { useConfig, useCourtsLive, useScreenFocused } from "../api/queries";
 import { isAwaitingResult, timeIn } from "../api/model";
 import { useMyPlayer } from "../player/me";
-import { isMine } from "../player/mine";
+import { isMine, mySide } from "../player/mine";
+import { ImAtCourtPill } from "../player/ImAtCourt";
 import { useFollowsOf } from "../state/follows";
 import { openMatch, openTie, openTournament } from "../nav/links";
 import { SkinScope, useTheme } from "../theme/ThemeProvider";
@@ -250,7 +251,7 @@ function SceneBody({ ev, s, m, tie }: { ev: MCourtsEvent; s: ShowcaseScene; m: M
     case "live":
       return m ? <LiveScore ev={ev} m={m} /> : null;
     case "called":
-      return m ? <Called ev={ev} m={m} msLeft={s.msLeft} overdue={s.overdue} presentA={s.presentA} presentB={s.presentB} /> : null;
+      return m ? <Called ev={ev} m={m} msLeft={s.msLeft} overdue={s.overdue} presentA={s.presentA} presentB={s.presentB} canSayHere={ev.tournament.imAtCourt === true} /> : null;
     case "result":
       return m ? <Result ev={ev} m={m} /> : null;
     case "tie_score":
@@ -420,17 +421,24 @@ function mmss(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function Called({ ev, m, msLeft, overdue, presentA, presentB }: { ev: MCourtsEvent; m: MMatch; msLeft: number; overdue: boolean; presentA: boolean; presentB: boolean }) {
+function Called({ ev, m, msLeft, overdue, presentA, presentB, canSayHere }: { ev: MCourtsEvent; m: MMatch; msLeft: number; overdue: boolean; presentA: boolean; presentB: boolean; canSayHere: boolean }) {
   const { t } = useTheme();
+  // The player's own side gets "I'm at court" right on the card (the card itself opens the match).
+  const me = useMyPlayer().data ?? null;
+  const mine = canSayHere ? mySide(m, me) : null;
   const row = (side: SideKey, here: boolean) => (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <Identity id={idOf(ev, side === "A" ? m.a : m.b, side)} size={24} />
       <Body weight="semi" size={15} numberOfLines={1} style={{ flex: 1 }}>
         {sideName(ev, m, side)}
       </Body>
-      <Eyebrow size={10} style={{ color: here ? t.success : t.ink3 }}>
-        {here ? "✓ At court" : "On the way"}
-      </Eyebrow>
+      {!here && mine === side ? (
+        <ImAtCourtPill matchId={m.id} />
+      ) : (
+        <Eyebrow size={10} style={{ color: here ? t.success : t.ink3 }}>
+          {here ? "✓ At court" : "On the way"}
+        </Eyebrow>
+      )}
     </View>
   );
   return (

@@ -5,6 +5,7 @@
  * where private columns stop: every shape is built field by field, never spread.
  */
 import type { Match, MatchRules, MatchSnapshot, Player, Stage, StageRuleKey, Standing, Team, Tie, Tournament, BrandingConfig } from "../types";
+import { NIGHT_TABLE_LAYOUT } from "../friendly/nightTable";
 import { resolveSponsors } from "../sponsors";
 import { resolvePortrait, portraitSrc, sizedImageSrc, PORTRAIT_WIDTHS } from "../portrait";
 import { rubberPlan } from "../tennis/ties";
@@ -225,6 +226,7 @@ export function toBundle(
       rubberPlan: isTies ? rubberPlan(t.format_config?.ties) : [],
       lowerThird: t.lower_third_text || null,
       matchDay: publicMatchDay(matchDayRules(t.match_day_rules, t)),
+      ...(t.kind === "friendly_session" ? { night: { publishedAt: t.format_config?.nightTable?.publishedAt ?? null, layout: NIGHT_TABLE_LAYOUT } } : {}),
     },
     teams: teams.map((tm) => toTeam(tm, groupOf.get(tm.id) ?? null, showPhotos)),
     courts: courts.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.court_name, order: c.court_order })),

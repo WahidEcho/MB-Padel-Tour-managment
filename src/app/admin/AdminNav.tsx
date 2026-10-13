@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 const SECTIONS = [
   { href: "/admin/tournaments", label: "Tournaments" },
   { href: "/admin/friendly-sessions", label: "Friendly Sessions" },
+  { href: "/admin/leagues", label: "Leagues" },
   { href: "/admin/players", label: "Players" },
   { href: "/admin/seasons", label: "Seasons" },
   { href: "/admin/rankings", label: "Rankings" },
