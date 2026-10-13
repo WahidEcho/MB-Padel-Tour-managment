@@ -12,6 +12,7 @@
  *   npx tsx --env-file=.env.local scripts/e2e/lib/session.ts referee
  */
 import { createHmac } from "crypto";
+import { signStaffToken, staffSecret, type StaffTokenPayload } from "../../../src/lib/auth/staffToken";
 
 export type Role = "admin" | "manager" | "referee" | "operator";
 
@@ -29,6 +30,24 @@ export function sessionToken(role: Role = "admin", hours = SESSION_HOURS): strin
   const payload = `${role}.${Date.now() + hours * 3600_000}`;
   const sig = createHmac("sha256", secret()).update(payload).digest("base64url");
   return `${payload}.${sig}`;
+}
+
+/**
+ * An organisation staff token (`mbs1.`), the kind personal accounts and event
+ * codes get (src/lib/auth/staffToken.ts). Needs the server's STAFF_SESSION_SECRET
+ * in the environment (the server is a production build, which requires it).
+ */
+export function staffToken(
+  p: { kind: "member"; userId: string; orgId: string; role: "owner" | "admin" | "manager" | "referee" | "operator" } | { kind: "code"; codeId: string; orgId: string; role: "referee" | "operator"; tournamentId?: string | null },
+  opts: { hours?: number; now?: number; secret?: string } = {},
+): string {
+  const now = opts.now ?? Date.now();
+  const exp = now + (opts.hours ?? SESSION_HOURS) * 3600_000;
+  const payload: StaffTokenPayload =
+    p.kind === "member"
+      ? { v: 1, k: "m", u: p.userId, o: p.orgId, r: p.role, iat: now, exp }
+      : { v: 1, k: "c", c: p.codeId, o: p.orgId, r: p.role, t: p.tournamentId ?? null, iat: now, exp };
+  return signStaffToken(payload, opts.secret ?? staffSecret({ ...process.env, NODE_ENV: "production" }));
 }
 
 /** Ready to pass as a `Cookie:` request header. */

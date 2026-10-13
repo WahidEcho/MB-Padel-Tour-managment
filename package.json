@@ -22,6 +22,7 @@
     "e2e:tennis-ties": "tsx --env-file=.env.local scripts/e2e/tennis-ties.ts",
     "e2e:mobile-api": "tsx --env-file=.env.localdb scripts/e2e/mobile-api.ts",
     "e2e:lease-control": "tsx --env-file=.env.localdb scripts/e2e/lease-control.ts",
+    "e2e:organizations": "tsx --env-file=.env.localdb scripts/e2e/organizations.ts",
     "e2e:mobile-signin": "tsx --env-file=.env.localdb scripts/e2e/mobile-signin.ts",
     "localdb:seed-app": "tsx --env-file=.env.localdb scripts/localdb/seed-app-demo.ts",
     "e2e:messaging": "tsx --env-file=.env.e2e-messaging scripts/e2e/messaging.ts"
@@ -35,7 +36,7 @@
     "dexie": "^4.4.3",
     "exceljs": "^4.4.0",
     "jose": "^6.2.12",
-    "next": "16.2.9",
+    "next": "16.3.8",
     "node-forge": "^1.4.0",
     "passkit-generator": "^3.6.1",
     "qrcode": "^1.5.4",
@@ -50,11 +51,16 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.3.8",
     "flag-icons": "^7.5.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
     "typescript": "^5",
     "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "passkit-generator": {
+      "joi": "17.13.8"
+    }
   }
 }

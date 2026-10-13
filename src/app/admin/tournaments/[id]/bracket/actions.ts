@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { approveBracket, publishBracket, redrawBracket, resetBracketTier, type BracketOpResult } from "@/lib/ops";
 import { getBracket, getBrackets, getBracketSlots } from "@/lib/data";
@@ -61,16 +61,16 @@ async function asFormState(
 
 /** Draw, or Redraw, one tier. Played matches go only on a matching confirmation. */
 export async function generateAction(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
-  const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("edit_bracket", id)).staff.role;
   const tier = tierFrom(formData);
   return asFormState(id, tier, () => redrawBracket(id, role, tier, { confirm: confirmationFrom(formData) }));
 }
 
 /** Edit who-faces-who before publishing: reassign first-round slot teams. */
 export async function saveSlots(formData: FormData) {
-  const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("edit_bracket", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const bracket = await getBracket(id, tierFrom(formData));
   if (!bracket || bracket.status === "published") throw new Error("Bracket not editable");
@@ -107,8 +107,8 @@ export async function saveSlots(formData: FormData) {
 }
 
 export async function approveAction(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
-  const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("edit_bracket", id)).staff.role;
   const tier = tierFrom(formData);
   return asFormState(id, tier, () => approveBracket(id, role, tier));
 }
@@ -121,8 +121,8 @@ export async function approveAction(_prev: BracketFormState, formData: FormData)
  * number, so "both at once" would quietly become "one after another".
  */
 export async function publishAction(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
-  const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("edit_bracket", id)).staff.role;
   const strategy = (String(formData.get("court_strategy") ?? "parallel") === "sequential"
     ? "sequential"
     : "parallel") as CourtStrategy;
@@ -146,14 +146,14 @@ export async function publishAction(_prev: BracketFormState, formData: FormData)
  * matches go only on a confirmation naming them.
  */
 export async function resetBracket(_prev: BracketFormState, formData: FormData): Promise<BracketFormState> {
-  const role = await requirePermission("edit_bracket");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("edit_bracket", id)).staff.role;
   const tier = tierFrom(formData);
   return asFormState(id, tier, () => resetBracketTier(id, role, tier, { confirm: confirmationFrom(formData) }));
 }
 
 /** Every tier a tournament has drawn, for the page to render one section each. */
 export async function listBrackets(tournamentId: string) {
-  await requirePermission("edit_bracket");
+  await requireTournamentPermission("edit_bracket", tournamentId);
   return getBrackets(tournamentId);
 }

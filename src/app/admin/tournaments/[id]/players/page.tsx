@@ -1,7 +1,7 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { getTournament } from "@/lib/data";
-import { requireRole } from "@/lib/guard";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import SessionRowNotice from "../SessionRowNotice";
 import { formatAccessCode } from "@/lib/players/accessCode";
@@ -39,7 +39,8 @@ interface PlayerRow {
  */
 export default async function PlayerCodesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requireRole(["admin", "manager"], `/admin/tournaments/${id}/players`);
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/players`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Player codes" />;

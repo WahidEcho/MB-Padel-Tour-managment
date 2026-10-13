@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { notFound } from "next/navigation";
 import { getTournament } from "@/lib/data";
 import { cloneTournamentAction } from "../../actions";
@@ -17,6 +18,8 @@ const COPY_OPTIONS = [
 
 export default async function ClonePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/clone`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Clones" title="A friendly session cannot be cloned as a tournament." />;

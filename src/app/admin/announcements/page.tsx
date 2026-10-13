@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireRole } from "@/lib/guard";
+import { requireStaff } from "@/lib/guard";
 import { announcementStats, listAnnouncements } from "@/lib/messaging/data";
 import { AUDIENCE_LABEL } from "@/lib/messaging/audience";
 import { transportMode } from "@/lib/messaging/transport";
@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 const KIND_LABEL: Record<string, string> = { announcement: "Announcement", access_codes: "Access codes", new_tournament: "New tournament" };
 
 export default async function AnnouncementsPage() {
-  await requireRole(["admin", "manager"], "/admin/announcements");
-  const list = await listAnnouncements(100);
+  const staff = await requireStaff(["admin", "manager"], "/admin/announcements");
+  const list = await listAnnouncements(staff.orgId, 100);
   const stats = await announcementStats(list.map((a) => a.id));
   const dry = transportMode() === "dry-run";
 

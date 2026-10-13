@@ -294,6 +294,8 @@ export interface Tournament {
   slug: string;
   sport: string;
   kind: TournamentKind;
+  /** The owning organisation (migration 0023). */
+  organization_id?: string;
   status: "draft" | "active" | "completed" | "archived";
   is_demo: boolean;
   cloned_from_tournament_id: string | null;
@@ -728,6 +730,7 @@ export interface Season {
   starts_on: string | null;
   ends_on: string | null;
   status: "upcoming" | "active" | "closed";
+  organization_id?: string;
 }
 
 export interface RankingCategory {

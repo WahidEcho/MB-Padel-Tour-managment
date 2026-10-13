@@ -1,18 +1,35 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Every mutating server action under the tournament admin pages must refuse a
- * friendly session's hidden row, or be on the short list of tools sessions
- * legitimately share. This reads the action files themselves, so an action added
- * later without a guard fails here instead of quietly reaching a session's data.
+ * Source scans for the two guard layers of the staff console.
  *
- * The guards' behaviour against real rows is exercised by scripts/e2e/cup-plate.ts;
- * this only checks that each action calls one.
+ * 1. Every mutating server action under the tournament admin pages must refuse a
+ *    friendly session's hidden row, or be on the short list of tools sessions
+ *    legitimately share. (Behaviour against real rows: scripts/e2e/cup-plate.ts.)
+ * 2. Organisations (migration 0023): every staff action, page and route resolves
+ *    the organisation from the row it touches (src/lib/guard.ts) before it reaches
+ *    any data, lists are filtered by organisation, and nothing uses the old
+ *    unscoped role checks. (Behaviour: scripts/e2e/organizations.ts.)
+ *
+ * Reading the files themselves means an action, page or route added later
+ * without a guard fails here instead of quietly reaching another organisation.
  */
 
-const ROOT = join(__dirname, "..", "app", "admin", "tournaments");
+const APP = join(__dirname, "..", "app");
+const ROOT = join(APP, "admin", "tournaments");
+
+function walk(dir: string, keep: (name: string) => boolean): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return walk(path, keep);
+    return keep(name) ? [path] : [];
+  });
+}
+const rel = (path: string) => relative(APP, path);
+
+/* ---------------- 1. friendly sessions' hidden rows ---------------- */
 
 /** Anything that refuses a session's row, directly or through a guarded operation. */
 const GUARDS = [
@@ -51,11 +68,7 @@ const SESSION_AWARE: Record<string, string> = {
 };
 
 function actionFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) return actionFiles(path);
-    return name === "actions.ts" || name === "demo.ts" ? [path] : [];
-  });
+  return walk(dir, (name) => name === "actions.ts" || name === "demo.ts");
 }
 
 /**
@@ -82,9 +95,9 @@ describe("tournament admin actions refuse a friendly session's hidden row", () =
   });
 
   for (const file of files) {
-    const rel = file.slice(ROOT.length + 1);
+    const name0 = file.slice(ROOT.length + 1);
     for (const { name, body } of exportedActions(readFileSync(file, "utf8"))) {
-      it(`${rel} › ${name}`, () => {
+      it(`${name0} › ${name}`, () => {
         if (ALLOWED_UNGUARDED[name]) return;
         const dbAt = firstDirectDbCall(body);
         if (OWNERSHIP_ONLY[name]) {
@@ -100,11 +113,174 @@ describe("tournament admin actions refuse a friendly session's hidden row", () =
           return;
         }
         const positions = GUARDS.map((g) => body.indexOf(g)).filter((i) => i !== -1);
-        expect(positions.length > 0, `${name} in ${rel} changes data without refusing a session's row`).toBe(true);
+        expect(positions.length > 0, `${name} in ${name0} changes data without refusing a session's row`).toBe(true);
         if (dbAt !== -1) {
-          expect(Math.min(...positions), `${name} in ${rel} touches the database before refusing a session's row`).toBeLessThan(dbAt);
+          expect(Math.min(...positions), `${name} in ${name0} touches the database before refusing a session's row`).toBeLessThan(dbAt);
         }
       });
     }
+  }
+});
+
+/* ---------------- 2. organisations ---------------- */
+
+/** Guards that resolve the organisation from the row itself (src/lib/guard.ts), or check a player against it. */
+const SCOPED_GUARDS = [
+  "requireTournamentPermission(",
+  "requireScopedPermission(",
+  "requireOrgPermission(",
+  "requirePlatformPermission(",
+  // src/app/admin/players/actions.ts: the profile must be one of the organisation's players.
+  "requireOwnProfile(",
+  "profileInOrg(",
+];
+
+/**
+ * Actions that name no existing row: they create something new in the staff
+ * member's own organisation (and stamp `staff.orgId` on it), or act on the
+ * organisation as a whole. Any row they do name is checked with a scoped guard.
+ */
+const ORG_LEVEL: Record<string, string> = {
+  createTournament: "new tournament in the caller's organisation",
+  seedDemoTournament: "new demo tournament in the caller's organisation",
+  createSeason: "new season in the caller's organisation",
+  createSessionAction: "new session in the caller's organisation (its season is scope-checked)",
+  createPlayerProfile: "new player of the caller's organisation",
+  previewAction: "audience checked by requireOwnAudience, resolved inside the organisation",
+  sendTestAction: "audience checked by requireOwnAudience, resolved inside the organisation",
+  createAndSendAction: "audience checked by requireOwnAudience; the announcement is stamped with the organisation",
+  refreshTemplatesAction: "reads the WhatsApp template list only",
+  createEventCode: "new code in the caller's organisation (its tournament is scope-checked)",
+};
+
+/** Data helpers that read or write rows, besides db() itself. */
+const DATA_CALLS = ["db()", "getTournament(", "getSession(", "getMatch(", "getTeams(", "getCourts(", "recipientsOf(", "mergePlayerProfiles("];
+
+function firstDataCall(body: string): number {
+  const at = DATA_CALLS.map((c) => body.indexOf(c)).filter((i) => i !== -1);
+  return at.length ? Math.min(...at) : -1;
+}
+
+const staffActionFiles = [...actionFiles(join(APP, "admin")), ...actionFiles(join(APP, "operator"))];
+
+describe("every staff action resolves the organisation from the row it touches", () => {
+  it("finds the staff action files", () => {
+    expect(staffActionFiles.length).toBeGreaterThanOrEqual(15);
+  });
+
+  for (const file of staffActionFiles) {
+    for (const { name, body } of exportedActions(readFileSync(file, "utf8"))) {
+      it(`${rel(file)} › ${name}`, () => {
+        const scoped = SCOPED_GUARDS.map((g) => body.indexOf(g)).filter((i) => i !== -1);
+        const orgLevel = body.indexOf("requireStaffPermission(");
+        const dataAt = firstDataCall(body);
+        if (ORG_LEVEL[name]) {
+          expect(orgLevel, `${name} must check the staff member's permission first`).toBeGreaterThan(-1);
+          if (dataAt !== -1) expect(orgLevel, `${name} must check before reaching data`).toBeLessThan(dataAt);
+          // Whatever it creates is stamped with the caller's organisation, or it names no row at all.
+          const stamps = /organization_id: staff\.orgId|organizationId: staff\.orgId|requireOwnAudience\(|whatsappTemplates\(/.test(body);
+          expect(stamps, `${name} must stamp what it creates with staff.orgId`).toBe(true);
+          return;
+        }
+        expect(scoped.length > 0, `${name} in ${rel(file)} reaches data without resolving the organisation from the row`).toBe(true);
+        if (dataAt !== -1) {
+          expect(Math.min(...scoped), `${name} in ${rel(file)} reaches data before the organisation guard`).toBeLessThan(dataAt);
+        }
+      });
+    }
+  }
+});
+
+const sources = walk(APP, (name) => /\.(ts|tsx)$/.test(name)).map((path) => ({ path, text: readFileSync(path, "utf8") }));
+
+describe("nothing uses the old unscoped role checks", () => {
+  for (const { path, text } of sources) {
+    if (!/requirePermission\(|currentRole\(/.test(text)) continue;
+    it(`${rel(path)} uses requirePermission/currentRole`, () => {
+      expect(text, "use the organisation-scoped guards in src/lib/guard.ts").not.toMatch(/requirePermission\(|currentRole\(/);
+    });
+  }
+  it("guard.ts no longer exports requirePermission", () => {
+    expect(readFileSync(join(__dirname, "guard.ts"), "utf8")).not.toMatch(/export async function requirePermission\b/);
+  });
+});
+
+const PAGE_GUARDS = ["requireStaff(", "requireEntityPage(", "requireTournamentPage(", "requirePlatformPage("];
+const ROW_PAGE_GUARDS = ["requireEntityPage(", "requireTournamentPage("];
+/** Staff pages with no data of their own. */
+const PAGE_EXEMPT: Record<string, string> = {
+  "admin/page.tsx": "redirects to /admin/tournaments",
+  "admin/tournaments/new/page.tsx": "a client form; createTournament checks",
+  "staff/orgs/page.tsx": "lists the signed-in member's own organisations (currentStaff + staffOrgsFor)",
+};
+
+describe("every staff page checks the organisation itself (a layout is not re-run on navigation)", () => {
+  const pages = sources.filter(({ path }) => /^(admin|operator|referee|staff|qr|venue)\//.test(rel(path)) && path.endsWith("page.tsx"));
+  it("finds the staff pages", () => {
+    expect(pages.length).toBeGreaterThanOrEqual(35);
+  });
+  for (const { path, text } of pages) {
+    const r = rel(path);
+    if (PAGE_EXEMPT[r]) continue;
+    it(r, () => {
+      expect(PAGE_GUARDS.some((g) => text.includes(g)), `${r} has no page guard`).toBe(true);
+      // A page for one row ([id], [matchId], [slug]) must resolve that row's organisation.
+      if (/\[(id|matchId|slug)\]/.test(r)) {
+        expect(ROW_PAGE_GUARDS.some((g) => text.includes(g)), `${r} must use requireTournamentPage / requireEntityPage`).toBe(true);
+      }
+    });
+  }
+});
+
+describe("every staff route checks the organisation of the row it serves", () => {
+  const routes = sources.filter(({ path }) => {
+    const r = rel(path);
+    if (!r.endsWith("route.ts")) return false;
+    return (
+      (r.startsWith("api/matches/") && !r.includes("checkin-qr")) ||
+      r.startsWith("api/mobile/v1/referee/") ||
+      /^api\/(tournaments|f)\/\[[a-z]+\]\/export\//.test(r) ||
+      r.startsWith("admin/")
+    );
+  });
+  it("finds the staff routes", () => {
+    expect(routes.length).toBeGreaterThanOrEqual(13);
+  });
+  for (const { path, text } of routes) {
+    it(rel(path), () => {
+      const at = ["staffRoute(", "staffReaching("].map((g) => text.indexOf(g)).filter((i) => i !== -1);
+      expect(at.length > 0, `${rel(path)} has no staffRoute/staffReaching guard`).toBe(true);
+    });
+  }
+});
+
+/** Tables an organisation owns directly, and the column that scopes a child list. */
+const ORG_TABLES = ["tournaments", "event_groups", "seasons", "ranking_categories", "message_announcements", "organization_codes"];
+
+/** Line comments blanked out (same length), so a ";" in a comment never ends a statement. */
+const code = (text: string) => text.replace(/\/\/[^\n]*/g, (c) => " ".repeat(c.length));
+
+describe("staff lists are filtered by organisation", () => {
+  // Platform pages (Move Beyond's, platform admins only) see every organisation on purpose.
+  const scoped = sources.filter(({ path }) => /^(admin|operator|referee|api\/mobile\/v1\/referee)\//.test(rel(path)) && !rel(path).startsWith("admin/platform/"));
+  for (const { path, text: raw } of scoped) {
+    const text = code(raw);
+    const statements = [...text.matchAll(/\.from\("([a-z_]+)"\)/g)]
+      .filter((m) => ORG_TABLES.includes(m[1]) || m[1] === "friendly_sessions")
+      .map((m) => {
+        const rest = text.slice(m.index);
+        const stop = [rest.indexOf(";"), rest.indexOf("db()", 5)].filter((i) => i !== -1);
+        return { table: m[1], chain: rest.slice(0, stop.length ? Math.min(...stop) : rest.length) };
+      });
+    if (statements.length === 0) continue;
+    it(rel(path), () => {
+      for (const { table, chain } of statements) {
+        const ok =
+          /organization_id/.test(chain) ||
+          /\.eq\("(id|slug)"/.test(chain) ||
+          (table === "friendly_sessions" && /tournament_id|season_id/.test(chain));
+        expect(ok, `${rel(path)}: .from("${table}") without an organisation filter (or a single-row id lookup):\n${chain.slice(0, 200)}`).toBe(true);
+      }
+    });
   }
 });

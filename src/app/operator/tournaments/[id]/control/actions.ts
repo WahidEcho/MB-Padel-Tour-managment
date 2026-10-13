@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { getBrackets, getCourts, getScreenSettings, listScreens } from "@/lib/data";
 import {
   createScreen,
@@ -79,8 +79,8 @@ function patchFrom(formData: FormData, courts: { id: string }[]): ScreenPatch {
 
 /** Saves one screen, refusing to overwrite a change made since it was read. */
 export async function saveScreen(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
-  const role = await requirePermission("control_screen");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("control_screen", tournamentId)).staff.role;
   const screenKey = String(formData.get("screen_key") || "main");
   const expected = parseInt(String(formData.get("revision") ?? "0"), 10) || 0;
 
@@ -112,8 +112,8 @@ export async function saveScreen(_prev: ScreenFormState, formData: FormData): Pr
  * everywhere would destroy the court split that having several screens is for.
  */
 export async function applyToScreens(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
-  const role = await requirePermission("control_screen");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("control_screen", tournamentId)).staff.role;
   const selected = formData.getAll("screen_key").map(String);
 
   const [courts, screens] = await Promise.all([getCourts(tournamentId), listScreens(tournamentId)]);
@@ -157,8 +157,8 @@ export async function applyToScreens(_prev: ScreenFormState, formData: FormData)
 }
 
 export async function addScreen(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
-  const role = await requirePermission("manage_screens");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_screens", tournamentId)).staff.role;
   const result = await createScreen(tournamentId, String(formData.get("screen_name") ?? ""), role);
   revalidateAll(tournamentId, result.key);
   return result.ok
@@ -167,8 +167,8 @@ export async function addScreen(_prev: ScreenFormState, formData: FormData): Pro
 }
 
 export async function renameScreenAction(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
-  const role = await requirePermission("manage_screens");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_screens", tournamentId)).staff.role;
   const screenKey = String(formData.get("screen_key"));
   const result = await renameScreen(tournamentId, screenKey, String(formData.get("screen_name") ?? ""), role);
   revalidateAll(tournamentId, screenKey);
@@ -178,8 +178,8 @@ export async function renameScreenAction(_prev: ScreenFormState, formData: FormD
 }
 
 export async function removeScreen(formData: FormData) {
-  const role = await requirePermission("delete_screen");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("delete_screen", tournamentId)).staff.role;
   const screenKey = String(formData.get("screen_key"));
   const result = await deleteScreen(tournamentId, screenKey, role);
   if (!result.ok) throw new Error(result.message ?? "Could not delete that screen.");
@@ -188,8 +188,8 @@ export async function removeScreen(formData: FormData) {
 
 /** One live control — mute, break, replay entrance, a ceremony move — on one screen. */
 export async function screenCommand(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
-  const role = await requirePermission("control_screen");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("control_screen", tournamentId)).staff.role;
   const screenKey = String(formData.get("screen_key") || "main");
   const expected = parseInt(String(formData.get("revision") ?? "0"), 10) || 0;
   const command = parseScreenCommand((name) => (formData.has(name) ? String(formData.get(name)) : null));
@@ -210,8 +210,8 @@ export async function screenCommand(_prev: ScreenFormState, formData: FormData):
 
 /** One live control pushed to the selected screens, or to every screen. */
 export async function commandToScreens(_prev: ScreenFormState, formData: FormData): Promise<ScreenFormState> {
-  const role = await requirePermission("control_screen");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("control_screen", tournamentId)).staff.role;
   const command = parseScreenCommand((name) => (formData.has(name) ? String(formData.get(name)) : null));
   if (!command) return { ok: false, message: "That control is not recognised." };
 
@@ -236,6 +236,6 @@ export async function commandToScreens(_prev: ScreenFormState, formData: FormDat
 
 /** Used by the per-screen page to reload after a conflict. */
 export async function currentScreen(tournamentId: string, screenKey: string) {
-  await requirePermission("control_screen");
+  await requireTournamentPermission("control_screen", tournamentId);
   return getScreenSettings(tournamentId, screenKey);
 }

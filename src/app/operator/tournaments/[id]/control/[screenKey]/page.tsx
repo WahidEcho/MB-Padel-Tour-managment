@@ -10,7 +10,8 @@ import {
   getTournament,
   teamMap,
 } from "@/lib/data";
-import { can, currentRole } from "@/lib/auth";
+import { can } from "@/lib/auth";
+import { requireTournamentPage } from "@/lib/guard";
 import { isValidScreenKey } from "@/lib/screens";
 import AutoRefresh from "@/components/AutoRefresh";
 import ScreenControls from "./ScreenControls";
@@ -27,19 +28,16 @@ export default async function ScreenControlPage({
 }) {
   const { id, screenKey } = await params;
   if (!isValidScreenKey(screenKey)) notFound();
+  // Re-checked on every request: organisation, and an event code's tournament scope.
+  const { staff } = await requireTournamentPage(id, ["operator", "admin", "manager"], `/operator/tournaments/${id}/control/${screenKey}`);
 
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   const screen = await getScreenSettings(id, screenKey);
   if (!screen) notFound();
 
-  const [courts, matches, teams, role, brackets] = await Promise.all([
-    getCourts(id),
-    getMatches(id),
-    getTeams(id),
-    currentRole(),
-    getBrackets(id),
-  ]);
+  const [courts, matches, teams, brackets] = await Promise.all([getCourts(id), getMatches(id), getTeams(id), getBrackets(id)]);
+  const role = staff.role;
   const hasPlate = brackets.some((b) => b.tier === "plate" && b.status === "published");
   const ceremonyOnAir = screen.display_mode === "ceremony";
   // Off air, describe what going on air will start. Every way onto air uses one

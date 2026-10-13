@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { DEFAULT_FOCAL } from "@/lib/portrait";
 import { entityRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
@@ -39,8 +39,8 @@ function nationFields(formData: FormData) {
 }
 
 export async function addNation(formData: FormData) {
-  const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   refuse(await tournamentRowRefusal(tournamentId));
   const fields = nationFields(formData);
   const { data: team, error } = await db()
@@ -65,8 +65,8 @@ export async function addNation(formData: FormData) {
 }
 
 export async function updateNation(formData: FormData) {
-  const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   const teamId = String(formData.get("team_id"));
   refuse(await entityRefusal(tournamentId, "teams", teamId));
   const fields = nationFields(formData);
@@ -89,8 +89,8 @@ export async function updateNation(formData: FormData) {
 }
 
 export async function deleteNation(formData: FormData) {
-  const role = await requirePermission("manage_teams");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_teams", tournamentId)).staff.role;
   const teamId = String(formData.get("team_id"));
   refuse(await entityRefusal(tournamentId, "teams", teamId));
   const { count } = await db()

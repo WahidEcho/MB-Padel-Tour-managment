@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listSessions } from "@/lib/friendly/data";
+import { requireStaff } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function FriendlySessionsPage() {
-  const sessions = await listSessions();
+  const staff = await requireStaff(["admin", "manager"], "/admin/friendly-sessions");
+  const sessions = await listSessions(staff.orgId);
 
   return (
     <div className="space-y-4">

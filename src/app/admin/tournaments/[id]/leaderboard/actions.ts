@@ -2,15 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { recalcStandings } from "@/lib/ops";
 import { isManualStatus } from "@/lib/standings";
 import { entityRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 
 export async function recalcAction(formData: FormData) {
-  await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  await requireTournamentPermission("manage_tournament", id);
   // A session ranks players, not group standings; writing group standings onto
   // its row would feed a knockout draw from the tournament tools.
   refuse(await tournamentRowRefusal(id));
@@ -31,8 +31,8 @@ export type OverrideState = { ok: boolean; message: string } | null;
  * just made. A team's place in a group outlives the row that describes it.
  */
 export async function overrideQualification(_prev: OverrideState, formData: FormData): Promise<OverrideState> {
-  const role = await requirePermission("score_match"); // admin/manager/referee
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("score_match", id)).staff.role;
   const teamId = String(formData.get("team_id"));
   const groupId = String(formData.get("group_id"));
   const status = String(formData.get("status"));

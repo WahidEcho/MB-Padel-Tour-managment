@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { getCourts, getMatches, getTeams, getTournament } from "@/lib/data";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import { RUBBER_LABELS } from "@/lib/tennis/ties";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function ReplayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/replay`);
   const tournament = await getTournament(id);
   if (!tournament) return null;
   if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Replay" />;

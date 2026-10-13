@@ -7,8 +7,7 @@
  */
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
-import { currentRole } from "@/lib/auth";
-import { can } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +18,11 @@ function csvCell(value: unknown): string {
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }> }) {
-  const role = await currentRole();
-  if (!can(role, "export")) {
-    return NextResponse.json({ error: "Not allowed" }, { status: 403 });
-  }
-
   const { slug } = await ctx.params;
   const session = await getSessionBySlug(slug);
+  // A missing session and another organisation's give the same 404.
+  const gate = await staffRoute("export", { session: session?.id ?? "-" });
+  if (!gate.ok) return gate.response;
   if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const rows = await getRankingSnapshot("session", session.id);

@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCourts, getGroups, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
@@ -22,6 +23,8 @@ function heldAgo(renewedAt: string): string {
 
 export default async function MatchesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/matches`);
   const [tournament, matches, teams, courts, groups, brackets, leases] = await Promise.all([
     getTournament(id),
     getMatches(id),

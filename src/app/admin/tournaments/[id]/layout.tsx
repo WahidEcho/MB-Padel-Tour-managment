@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTournament } from "@/lib/data";
@@ -63,6 +64,8 @@ export default async function TournamentLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   // A friendly session's hidden row shares only a few tools with the tournament

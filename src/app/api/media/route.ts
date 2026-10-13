@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePermission } from "@/lib/guard";
+import { requireStaffPermission } from "@/lib/guard";
 import { PHOTO_TYPES, uploadImage } from "@/lib/upload";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   if (!target) return NextResponse.json({ error: "Unknown folder" }, { status: 400 });
 
   try {
-    await requirePermission(target.permission);
+    await requireStaffPermission(target.permission);
   } catch {
     return NextResponse.json({ error: "Not allowed" }, { status: 403 });
   }

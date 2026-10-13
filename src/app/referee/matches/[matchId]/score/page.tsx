@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireRole } from "@/lib/guard";
+import { requireEntityPage } from "@/lib/guard";
 import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "@/lib/data";
 import type { ScoreState } from "@/lib/scoring/engine";
 import { isDoublesMatch, scoringConfigForMatch } from "@/lib/scoring/rules";
@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ScorePage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
-  await requireRole(["referee", "admin", "manager"], `/referee/matches/${matchId}/score`);
+  // The match's own tournament decides the organisation (and an event code's scope).
+  await requireEntityPage({ match: matchId }, ["referee", "admin", "manager"], `/referee/matches/${matchId}/score`);
 
   const match = await getMatch(matchId);
   if (!match || !match.team_a_id || !match.team_b_id) notFound();

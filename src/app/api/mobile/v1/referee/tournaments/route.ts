@@ -1,17 +1,23 @@
 import { NextResponse } from "next/server";
-import { can, currentRole } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import { db } from "@/lib/supabase";
 
 /** What a referee can score: active and draft tournaments, newest first. */
 export async function GET() {
-  const role = await currentRole();
-  if (!can(role, "score_match")) return NextResponse.json({ error: "Sign in with the referee code" }, { status: 403 });
-  const { data } = await db()
+  const gate = await staffRoute("score_match");
+  if (!gate.ok) return gate.response;
+  const { staff } = gate;
+  const role = staff.role;
+  // This organisation's only, and only the one tournament an event code is scoped to.
+  let q = db()
     .from("tournaments")
     .select("id, name, slug, sport, status, is_demo, starts_on, ends_on")
-    .eq("kind", "tournament")
+    .eq("organization_id", staff.orgId)
+    .eq("kind", "tournament");
+  if (staff.scopeTournamentId) q = q.eq("id", staff.scopeTournamentId);
+  const { data } = await q
     .in("status", ["active", "draft"])
     .order("created_at", { ascending: false })
     .limit(40);
-  return NextResponse.json({ role, tournaments: data ?? [] }, { headers: { "Cache-Control": "private, no-store" } });
+  return NextResponse.json({ role, organization: { name: staff.orgName, slug: staff.orgSlug }, tournaments: data ?? [] }, { headers: { "Cache-Control": "private, no-store" } });
 }

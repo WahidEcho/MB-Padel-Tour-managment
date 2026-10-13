@@ -84,6 +84,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   defaults), `isMatchDay` in `src/lib/matchday/eventDay.ts`, Admin → Discover (`admin/platform/discover`, admin only) for the
   hero order (`platform_settings.discover_order`, featured events) and app flags. `migrations.test.ts` fails any table from
   0022 on without RLS. Prefs PATCH merges with what is stored.
+- Organisations (migration 0023, not yet on the live project; docs `docs/organizations.md`): every staff request
+  resolves a principal in `src/lib/auth/staff.ts` (member `mbs1.` cookie, event code, or the Move Beyond-only shared
+  passwords) re-checked in the DB each time; guards in `src/lib/guard.ts` resolve the organisation from the row
+  (`src/lib/orgs/scope.ts`), never a posted id. New admin actions/pages/staff routes must use them —
+  `src/lib/adminGuards.test.ts` fails otherwise. `STAFF_SESSION_SECRET` is required in production. Attack gate:
+  `npm run e2e:organizations` (stand-in; reads action ids from the build's `.next` manifest).
 - Live courts hero (plan Phase 4): scenes per court in `src/lib/tv/showcase.ts` (shared via `@core`; ties and one-match
   fixtures, `called` from `match_calls`, TV timings from `tennis/tvScene.ts`), server `src/lib/mobile/courts.ts` behind
   `GET /api/mobile/v1/courts/live` (CDN 2 s; featured + live tournaments in the Discover order, only where the Match day

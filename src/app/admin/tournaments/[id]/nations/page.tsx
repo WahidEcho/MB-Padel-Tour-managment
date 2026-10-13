@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { getTeams, getTournament } from "@/lib/data";
 import { NATIONS } from "@/lib/tennis/nations";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
@@ -72,6 +73,8 @@ function NationFields({ team, tournamentId }: { team?: Team; tournamentId: strin
 
 export default async function NationsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/nations`);
   const [tournament, teams] = await Promise.all([getTournament(id), getTeams(id)]);
   if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Nations" />;
   const sorted = [...teams].sort((a, b) => (a.seed_number ?? 999) - (b.seed_number ?? 999) || a.team_name.localeCompare(b.team_name));

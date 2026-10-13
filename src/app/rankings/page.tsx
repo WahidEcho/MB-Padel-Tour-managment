@@ -3,6 +3,8 @@ import AutoRefresh from "@/components/AutoRefresh";
 import RankingTable from "@/components/RankingTable";
 import ShareButton from "@/components/ShareButton";
 import { getRankingSnapshot, listPublicPlayers, listSeasons } from "@/lib/friendly/data";
+import { approvedOrgBySlug } from "@/lib/orgs/scope";
+import { MOVE_BEYOND_SLUG } from "@/lib/orgs/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -13,18 +15,22 @@ export const dynamic = "force-dynamic";
 export default async function PublicRankingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ scope?: string; season?: string; q?: string }>;
+  searchParams: Promise<{ scope?: string; season?: string; q?: string; org?: string }>;
 }) {
-  const { scope: rawScope, season: rawSeason, q } = await searchParams;
-  const seasons = await listSeasons();
+  const { scope: rawScope, season: rawSeason, q, org: orgSlug } = await searchParams;
+  // Rankings are per organisation; this page shows Move Beyond's unless another is named.
+  const org = await approvedOrgBySlug(orgSlug ?? MOVE_BEYOND_SLUG);
+  const seasons = org ? await listSeasons(org.id) : [];
   const active = seasons.find((s) => s.status === "active");
 
   const scope = rawScope === "lifetime" ? "lifetime" : "season";
-  const seasonId = rawSeason ?? active?.id ?? null;
+  const seasonId = seasons.some((s) => s.id === rawSeason) ? rawSeason! : (active?.id ?? null);
 
   const rows =
     scope === "lifetime"
-      ? await getRankingSnapshot("lifetime", null)
+      ? org
+        ? await getRankingSnapshot("lifetime", org.id)
+        : []
       : seasonId
         ? await getRankingSnapshot("season", seasonId)
         : [];

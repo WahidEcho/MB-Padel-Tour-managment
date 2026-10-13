@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireScopedPermission, requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { notifyAnnouncement } from "@/lib/notify/hooks";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
@@ -11,23 +11,35 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 const path = (id: string) => `/admin/tournaments/${id}/app`;
 const text = (f: FormData, k: string, max = 120) => String(f.get(k) ?? "").trim().slice(0, max) || null;
 
+/**
+ * The organisation's group of this name, or a new one. Slugs are unique across
+ * the platform, so a slug another organisation holds gets a suffix instead of
+ * being reused (the old upsert would have renamed that group and joined it).
+ */
+async function eventGroupFor(orgId: string, name: string): Promise<string> {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 50) || `event-${Date.now()}`;
+  const { data: own } = await db().from("event_groups").select("id").eq("slug", base).eq("organization_id", orgId).maybeSingle();
+  if (own) return (own as { id: string }).id;
+  for (let i = 0; i < 4; i++) {
+    const slug = i === 0 ? base : `${base}-${Math.random().toString(36).slice(2, 6)}`;
+    const { data, error } = await db().from("event_groups").insert({ slug, name, organization_id: orgId }).select("id").single();
+    if (!error && data) return (data as { id: string }).id;
+  }
+  throw new Error("Could not create the event group. Try another name.");
+}
+
 /** Where and when, the event group, and the look inside the app. */
 export async function saveAppSettings(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const { staff } = await requireTournamentPermission("manage_tournament", id);
+  const role = staff.role;
   // A friendly session's hidden row has no app settings of its own.
   refuse(await tournamentRowRefusal(id));
   let groupId = text(formData, "event_group_id", 40);
+  // An event group never mixes organisations: a group of another one is "not found".
+  if (groupId) await requireScopedPermission("manage_tournament", { eventGroup: groupId });
   const newGroup = text(formData, "new_group_name", 80);
-  if (newGroup) {
-    const slug = newGroup.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 50) || `event-${Date.now()}`;
-    const { data } = await db()
-      .from("event_groups")
-      .upsert({ slug, name: newGroup }, { onConflict: "slug" })
-      .select("id")
-      .single();
-    groupId = (data as { id: string } | null)?.id ?? groupId;
-  }
+  if (newGroup) groupId = await eventGroupFor(staff.orgId, newGroup);
   const seedA = text(formData, "seed_a", 7);
   const seedB = text(formData, "seed_b", 7);
   const mode = text(formData, "skin_mode", 5);
@@ -62,11 +74,12 @@ export async function saveAppSettings(formData: FormData) {
 
 /** The group's own details. Whether it is featured, and where, is set on Admin → Discover. */
 export async function saveEventGroup(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const groupId = String(formData.get("group_id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
+  await requireScopedPermission("manage_tournament", { eventGroup: groupId });
   // A friendly session's hidden row has no app settings of its own.
   refuse(await tournamentRowRefusal(id));
-  const groupId = String(formData.get("group_id"));
   const patch = {
     name: text(formData, "name", 80) ?? "Event",
     subtitle: text(formData, "subtitle", 120),
@@ -85,8 +98,8 @@ export async function saveEventGroup(formData: FormData) {
 }
 
 export async function postAnnouncement(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   // A friendly session's hidden row has no app settings of its own.
   refuse(await tournamentRowRefusal(id));
   const title = text(formData, "title", 120);
@@ -114,10 +127,13 @@ export async function postAnnouncement(formData: FormData) {
 }
 
 export async function deleteAnnouncement(formData: FormData) {
-  await requirePermission("manage_tournament");
   const id = String(formData.get("tournament_id"));
+  const announcementId = String(formData.get("announcement_id"));
+  await requireTournamentPermission("manage_tournament", id);
+  // The announcement's own tournament (or group) decides whose it is, not the posted id.
+  await requireScopedPermission("manage_tournament", { appAnnouncement: announcementId });
   // A friendly session's hidden row has no app settings of its own.
   refuse(await tournamentRowRefusal(id));
-  await db().from("announcements").delete().eq("id", String(formData.get("announcement_id")));
+  await db().from("announcements").delete().eq("id", announcementId);
   revalidatePath(path(id));
 }

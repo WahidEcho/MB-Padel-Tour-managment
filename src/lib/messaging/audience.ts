@@ -1,11 +1,12 @@
 /**
- * Who an announcement is for, resolved against the database.
+ * Who an announcement is for, resolved against the database — always inside the
+ * announcement's organisation: an organisation messages only its own players.
  *
- * - all_players: every player profile on the platform that is approved or
- *   awaiting approval (not rejected, not merged away). Contact details live on
- *   the profile (email, mobile_normalized).
- * - tournament / nation: the players entered in a tournament, or in every team
- *   carrying a nation code. Contact: the player's own phone/email (players.phone,
+ * - all_players: every one of the organisation's players (organization_players)
+ *   it has approved or not yet decided on (not rejected, not merged away).
+ *   Contact details live on the profile (email, mobile_normalized).
+ * - tournament / nation: the players entered in one of the organisation's
+ *   tournaments, or in its teams carrying a nation code. Contact: the player's own phone/email (players.phone,
  *   players.email), else their linked profile's, else the team's contact phone.
  * - app_users: Move Score app installs; reachable by push only.
  * - list: pasted names, emails and phone numbers.
@@ -17,6 +18,7 @@ import { db } from "../supabase";
 import { formatAccessCode } from "../players/accessCode";
 import { appLink, tournamentLink } from "./links";
 import { parsePastedList, type Recipient } from "./recipients";
+import { orgTournamentIds, resolveEntity } from "../orgs/scope";
 import type { Channel } from "./status";
 import type { Audience } from "./audienceSpec";
 
@@ -146,12 +148,27 @@ export interface Resolved {
   rejected: string[];
 }
 
-export async function resolveAudience(a: Audience): Promise<Resolved> {
+export async function resolveAudience(a: Audience, orgId: string): Promise<Resolved> {
   switch (a.type) {
     case "all_players": {
-      const profiles = await pageAll<ProfileRow>((from, to) =>
-        db().from("player_profiles").select("id, public_name, mobile_normalized, email").in("approval_status", ["approved", "pending"]).order("created_at").range(from, to),
+      const mine = await pageAll<{ player_profile_id: string }>((from, to) =>
+        db()
+          .from("organization_players")
+          .select("player_profile_id")
+          .eq("organization_id", orgId)
+          .in("approval_status", ["approved", "pending"])
+          .order("created_at")
+          .range(from, to),
       );
+      const profiles = (
+        await inChunks<ProfileRow & { approval_status: string; created_at: string }>(
+          mine.map((m) => m.player_profile_id),
+          (c) => db().from("player_profiles").select("id, public_name, mobile_normalized, email, approval_status, created_at").in("id", c),
+        )
+      )
+        .filter((p) => p.approval_status !== "merged")
+        .sort((x, y) => x.created_at.localeCompare(y.created_at));
+      const orgTournaments = new Set(await orgTournamentIds(orgId));
       const ids = profiles.map((p) => p.id);
       const optOut = await declined(ids);
       // Each profile's most recent access code, if the player-codes feature has issued one.
@@ -165,7 +182,11 @@ export async function resolveAudience(a: Audience): Promise<Resolved> {
           .range(from, to),
       ).catch(() => [] as PlayerRow[]);
       const codeOf = new Map<string, string>();
-      for (const p of coded) if (p.access_code && p.player_profile_id && !codeOf.has(p.player_profile_id)) codeOf.set(p.player_profile_id, formatAccessCode(p.access_code));
+      // Only codes from this organisation's own tournaments.
+      for (const p of coded) {
+        if (!orgTournaments.has(p.tournament_id)) continue;
+        if (p.access_code && p.player_profile_id && !codeOf.has(p.player_profile_id)) codeOf.set(p.player_profile_id, formatAccessCode(p.access_code));
+      }
       return {
         recipients: profiles.map((p) => ({
           kind: "player_profile",
@@ -180,13 +201,16 @@ export async function resolveAudience(a: Audience): Promise<Resolved> {
       };
     }
     case "tournament": {
+      // Another organisation's tournament reaches nobody.
+      if ((await resolveEntity({ tournament: a.tournamentId }))?.orgId !== orgId) return { recipients: [], rejected: [] };
       const players = await selectPlayers((cols) => db().from("players").select(cols).eq("tournament_id", a.tournamentId).order("created_at").limit(5000));
       return { recipients: await playersToRecipients(players), rejected: [] };
     }
     case "nation": {
-      const { data: teams, error } = await db().from("teams").select("id").eq("nation_code", a.nationCode);
+      const { data: teams, error } = await db().from("teams").select("id, tournament_id").eq("nation_code", a.nationCode);
       if (error) throw new Error(error.message);
-      const teamIds = ((teams ?? []) as { id: string }[]).map((t) => t.id);
+      const own = new Set(await orgTournamentIds(orgId));
+      const teamIds = ((teams ?? []) as { id: string; tournament_id: string }[]).filter((t) => own.has(t.tournament_id)).map((t) => t.id);
       const players: PlayerRow[] = [];
       for (let i = 0; i < teamIds.length; i += 200) {
         const chunk = teamIds.slice(i, i + 200);
@@ -203,10 +227,13 @@ export async function resolveAudience(a: Audience): Promise<Resolved> {
   }
 }
 
-/** Nation codes that have teams, for the audience picker. */
-export async function nationOptions(): Promise<{ code: string; teams: number }[]> {
-  const { data } = await db().from("teams").select("nation_code").not("nation_code", "is", null).limit(5000);
+/** Nation codes that have teams in the organisation's tournaments, for the audience picker. */
+export async function nationOptions(orgId: string): Promise<{ code: string; teams: number }[]> {
+  const { data } = await db().from("teams").select("nation_code, tournament_id").not("nation_code", "is", null).limit(5000);
+  const own = new Set(await orgTournamentIds(orgId));
   const counts = new Map<string, number>();
-  for (const r of (data ?? []) as { nation_code: string }[]) counts.set(r.nation_code, (counts.get(r.nation_code) ?? 0) + 1);
+  for (const r of (data ?? []) as { nation_code: string; tournament_id: string }[]) {
+    if (own.has(r.tournament_id)) counts.set(r.nation_code, (counts.get(r.nation_code) ?? 0) + 1);
+  }
   return [...counts].map(([code, teams]) => ({ code, teams })).sort((x, y) => x.code.localeCompare(y.code));
 }

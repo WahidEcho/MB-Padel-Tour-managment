@@ -34,6 +34,7 @@ import {
 } from "./scheduler";
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
 import { ensureMainScreen } from "../screens";
+import { ensureOrgPlayer, orgTournamentIds, resolveEntity } from "../orgs/scope";
 
 /* ------------------------------------------------------------------ */
 /* Session creation                                                    */
@@ -55,6 +56,12 @@ export interface CreateSessionInput {
   gamesToWinSet: number;
   maxPlayers: number | null;
   registrationDeadline: string | null;
+  /**
+   * The organisation the session (and its hidden tournament) belongs to. The
+   * admin action always passes it; scripts that leave it out get the database's
+   * transitional default (Move Beyond, migration 0023).
+   */
+  organizationId?: string;
   actorRole: string;
 }
 
@@ -94,6 +101,7 @@ export async function createFriendlySession(input: CreateSessionInput) {
       status: "active",
       scoring_config: scoringConfig,
       public_access_enabled: true,
+      ...(input.organizationId ? { organization_id: input.organizationId } : {}),
       created_by: input.actorRole,
     })
     .select()
@@ -335,6 +343,13 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
 
   await upsertEntry(input.sessionId, profileId);
   if (partnerId) await upsertEntry(input.sessionId, partnerId);
+
+  // A player who registers for an organisation's session becomes one of its players.
+  const orgId = (await resolveEntity({ session: input.sessionId }))?.orgId;
+  if (orgId) {
+    await ensureOrgPlayer(orgId, profileId, "registration");
+    if (partnerId) await ensureOrgPlayer(orgId, partnerId, "registration");
+  }
 
   // Remember the intended partnership so the organiser can honour it when
   // pairing, without it counting as an approved pair yet.
@@ -1910,21 +1925,43 @@ async function relabelAsFriendly(sessionId: string, tournamentId: string): Promi
  * Both are derived wholly from the ledger, so this can be run at any time and
  * always converges on the same answer.
  */
-export async function recalcSeasonAndLifetime(seasonId: string | null): Promise<void> {
+export async function recalcSeasonAndLifetime(seasonId: string | null, orgId?: string | null): Promise<void> {
+  // Rankings are per organisation: its lifetime table (scope_id = the organisation)
+  // and its seasons count only its own sessions. With no organisation named, every
+  // organisation's lifetime table is rebuilt (a merge can touch several).
+  let orgs: string[];
+  if (orgId) orgs = [orgId];
+  else if (seasonId) {
+    const s = await resolveEntity({ season: seasonId });
+    orgs = s ? [s.orgId] : [];
+  } else {
+    const { data } = await db().from("organizations").select("id");
+    orgs = ((data ?? []) as { id: string }[]).map((o) => o.id);
+  }
+  for (const org of orgs) await recalcOrgRankings(org, seasonId);
+}
+
+async function recalcOrgRankings(orgId: string, seasonId: string | null): Promise<void> {
   const { data: profiles } = await db().from("player_profiles").select("id, active_streak");
   const streaks = new Map(
     ((profiles ?? []) as { id: string; active_streak: number }[]).map((p) => [p.id, p.active_streak])
   );
+  const tournamentIds = await orgTournamentIds(orgId, ["friendly_session"]);
+  const orgSessions = new Set<string>();
+  for (let i = 0; i < tournamentIds.length; i += 200) {
+    const { data } = await db().from("friendly_sessions").select("id").in("tournament_id", tournamentIds.slice(i, i + 200));
+    for (const r of (data ?? []) as { id: string }[]) orgSessions.add(r.id);
+  }
+  if (seasonId && (await resolveEntity({ season: seasonId }))?.orgId !== orgId) seasonId = null;
 
-  const scopes: { scope: "season" | "lifetime"; scopeId: string | null }[] = [
-    { scope: "lifetime", scopeId: null },
-  ];
+  const scopes: { scope: "season" | "lifetime"; scopeId: string }[] = [{ scope: "lifetime", scopeId: orgId }];
   if (seasonId) scopes.push({ scope: "season", scopeId: seasonId });
 
   for (const { scope, scopeId } of scopes) {
     let q = db().from("player_score_ledger").select("*").eq("status", "official");
-    if (scope === "season" && scopeId) q = q.eq("season_id", scopeId);
-    const { data: ledger } = await q.order("id");
+    if (scope === "season") q = q.eq("season_id", scopeId);
+    const { data: all } = await q.order("id");
+    const ledger = ((all ?? []) as { session_id: string | null }[]).filter((r) => r.session_id && orgSessions.has(r.session_id));
 
     // Same stats the session table uses, so the tiebreak chain is identical in
     // every scope: points, then wins, then game difference, then games won.
@@ -1943,9 +1980,7 @@ export async function recalcSeasonAndLifetime(seasonId: string | null): Promise<
       activeStreaks: streaks,
     });
 
-    let del = db().from("friendly_ranking_snapshots").delete().eq("scope", scope);
-    del = scopeId === null ? del.is("scope_id", null) : del.eq("scope_id", scopeId);
-    await del;
+    await db().from("friendly_ranking_snapshots").delete().eq("scope", scope).eq("scope_id", scopeId);
 
     if (lines.length === 0) continue;
     const { error } = await db()
@@ -2055,7 +2090,7 @@ export async function finalizeSession(sessionId: string, actorRole: string): Pro
     .eq("id", sessionId);
 
   await recalcSessionRanking(sessionId);
-  await recalcSeasonAndLifetime(session.season_id);
+  await recalcSeasonAndLifetime(session.season_id, (await resolveEntity({ session: sessionId }))?.orgId ?? null);
 
   await audit({
     actor_role: actorRole,
@@ -2086,7 +2121,7 @@ export async function reopenSession(sessionId: string, actorRole: string): Promi
     .eq("id", sessionId);
 
   await recalcSessionRanking(sessionId);
-  await recalcSeasonAndLifetime(session.season_id);
+  await recalcSeasonAndLifetime(session.season_id, (await resolveEntity({ session: sessionId }))?.orgId ?? null);
 
   await audit({
     actor_role: actorRole,

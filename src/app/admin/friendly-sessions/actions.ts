@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/lib/guard";
+import { NOT_FOUND, requireScopedPermission, requireStaffPermission } from "@/lib/guard";
+import { profilesInOrg } from "@/lib/orgs/scope";
 import {
   addEntryForProfile,
   approveEntry,
@@ -25,11 +26,19 @@ import { db } from "@/lib/supabase";
 import { audit } from "@/lib/audit";
 import type { PairingMode, RankingModel } from "@/lib/types";
 
+/** Every profile named must be one of the organisation's players ("not found" otherwise). */
+async function requireOwnPlayers(orgId: string, profileIds: string[]) {
+  const ids = [...new Set(profileIds)];
+  const own = await profilesInOrg(orgId, ids);
+  if (ids.some((id) => !own.has(id))) throw new Error(NOT_FOUND);
+}
+
 const PAIRING_MODES: PairingMode[] = ["fixed", "americano", "mexicano"];
 const RANKING_MODELS: RankingModel[] = ["win_points", "games_won"];
 
 export async function createSessionAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
+  const staff = await requireStaffPermission("manage_sessions");
+  const role = staff.role;
 
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Session name is required");
@@ -49,6 +58,8 @@ export async function createSessionAction(formData: FormData) {
   const deadlineRaw = String(formData.get("registration_deadline") ?? "").trim();
   const maxPlayersRaw = String(formData.get("max_players") ?? "").trim();
   const seasonId = String(formData.get("season_id") ?? "").trim() || null;
+  // The season must be this organisation's own.
+  if (seasonId) await requireScopedPermission("manage_sessions", { season: seasonId });
 
   const durationRaw = String(formData.get("duration_minutes") ?? "").trim();
   const regMode = String(formData.get("registration_mode") ?? "individual");
@@ -75,6 +86,7 @@ export async function createSessionAction(formData: FormData) {
     gamesToWinSet: num("games_to_win", 6),
     maxPlayers: maxPlayersRaw ? num("max_players", 0) || null : null,
     registrationDeadline: deadlineRaw ? new Date(deadlineRaw).toISOString() : null,
+    organizationId: staff.orgId,
     actorRole: role,
   });
 
@@ -83,8 +95,8 @@ export async function createSessionAction(formData: FormData) {
 }
 
 export async function setStatusAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   const status = String(formData.get("status") ?? "");
   const allowed = ["draft", "open", "scheduled", "live", "completed", "finalized"];
   if (!sessionId || !allowed.includes(status)) throw new Error("Invalid session status");
@@ -95,8 +107,9 @@ export async function setStatusAction(formData: FormData) {
 }
 
 export async function approveEntryAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const entryId = String(formData.get("entry_id") ?? "");
+  // The registration's own session decides whose it is, not the posted session id.
+  const role = (await requireScopedPermission("manage_sessions", { entry: entryId })).staff.role;
   const sessionId = String(formData.get("session_id") ?? "");
   if (!entryId) throw new Error("Registration is required");
 
@@ -105,8 +118,9 @@ export async function approveEntryAction(formData: FormData) {
 }
 
 export async function releaseEntryAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const entryId = String(formData.get("entry_id") ?? "");
+  // The registration's own session decides whose it is, not the posted session id.
+  const role = (await requireScopedPermission("manage_sessions", { entry: entryId })).staff.role;
   const sessionId = String(formData.get("session_id") ?? "");
   const next = String(formData.get("next") ?? "rejected");
   if (!entryId) throw new Error("Registration is required");
@@ -117,8 +131,8 @@ export async function releaseEntryAction(formData: FormData) {
 }
 
 export async function promoteWaitlistAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   if (!sessionId) throw new Error("Session is required");
 
   await promoteFromWaitlist(sessionId, role);
@@ -126,8 +140,8 @@ export async function promoteWaitlistAction(formData: FormData) {
 }
 
 export async function generateScheduleAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   if (!sessionId) throw new Error("Session is required");
 
   const format = String(formData.get("format") ?? "rotating");
@@ -146,8 +160,8 @@ export async function generateScheduleAction(formData: FormData) {
 }
 
 export async function nextRoundAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   if (!sessionId) throw new Error("Session is required");
 
   await generateNextMexicanoRound(sessionId, role);
@@ -155,8 +169,8 @@ export async function nextRoundAction(formData: FormData) {
 }
 
 export async function autoPairAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   if (!sessionId) throw new Error("Session is required");
 
   await autoPair(sessionId, role);
@@ -165,16 +179,18 @@ export async function autoPairAction(formData: FormData) {
 
 /** Called from the drag-and-drop pairing board with typed args. */
 export async function savePairsAction(sessionId: string, couples: [string, string][]) {
-  const role = await requirePermission("manage_sessions");
   if (!sessionId) throw new Error("Session is required");
+  const { staff } = await requireScopedPermission("manage_sessions", { session: sessionId });
+  const role = staff.role;
+  await requireOwnPlayers(staff.orgId, couples.flat());
 
   await setFixedPairs(sessionId, couples, role);
   revalidatePath(`/admin/friendly-sessions/${sessionId}`);
 }
 
 export async function finalizeSessionAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   if (!sessionId) throw new Error("Session is required");
 
   await finalizeSession(sessionId, role);
@@ -183,8 +199,8 @@ export async function finalizeSessionAction(formData: FormData) {
 }
 
 export async function reopenSessionAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   if (!sessionId) throw new Error("Session is required");
 
   await reopenSession(sessionId, role);
@@ -202,8 +218,10 @@ export async function addPlayersAction(
   profileIds: string[],
   pairThem: boolean
 ) {
-  const role = await requirePermission("manage_sessions");
   if (!sessionId) throw new Error("Session is required");
+  const { staff } = await requireScopedPermission("manage_sessions", { session: sessionId });
+  const role = staff.role;
+  await requireOwnPlayers(staff.orgId, profileIds);
   if (profileIds.length === 0) throw new Error("Pick at least one player");
   if (pairThem && profileIds.length % 2 !== 0) {
     throw new Error("Fixed-partner sessions need an even number of players");
@@ -230,10 +248,12 @@ export async function addPlayersAction(
 }
 
 export async function addPlayerAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
   const profileId = String(formData.get("player_profile_id") ?? "");
   if (!sessionId || !profileId) throw new Error("Session and player are required");
+  const { staff } = await requireScopedPermission("manage_sessions", { session: sessionId });
+  const role = staff.role;
+  await requireOwnPlayers(staff.orgId, [profileId]);
 
   await addEntryForProfile(sessionId, profileId, role);
   revalidatePath(`/admin/friendly-sessions/${sessionId}`);
@@ -245,8 +265,8 @@ export async function addPlayerAction(formData: FormData) {
  * depth, so one ceremony serves both.
  */
 export async function setSessionPodiumDepthAction(formData: FormData) {
-  const role = await requirePermission("manage_sessions");
   const sessionId = String(formData.get("session_id") ?? "");
+  const role = (await requireScopedPermission("manage_sessions", { session: sessionId })).staff.role;
   const depth = Math.min(4, Math.max(1, parseInt(String(formData.get("podium_depth") ?? "3"), 10) || 3)) as 1 | 2 | 3 | 4;
   const session = await getSession(sessionId);
   if (!session) throw new Error("Session not found");

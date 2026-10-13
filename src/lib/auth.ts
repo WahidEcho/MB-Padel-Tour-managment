@@ -1,6 +1,16 @@
 import { createHash, createHmac, timingSafeEqual } from "crypto";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import type { Role } from "./types";
+import { permissionRole, type OrgRole } from "./orgs/roles";
+
+/*
+ * The shared role passwords (ADMIN_PASSWORD …) and their `role.expiry.signature`
+ * tokens, signed with AUTH_SECRET. Since organisations (migration 0023) they only
+ * ever reach the Move Beyond organisation (src/lib/auth/staff.ts), and they are
+ * retired at the end of Phase 0.5. Personal accounts and event codes use the
+ * `mbs1.` tokens in src/lib/auth/staffToken.ts. Who is signed in: currentStaff()
+ * in src/lib/auth/staff.ts; guards: src/lib/guard.ts.
+ */
 
 const COOKIE_NAME = "mb_session";
 const SESSION_HOURS = 24;
@@ -23,6 +33,7 @@ export function createSessionToken(role: Role, hours = SESSION_HOURS): string {
   return `${payload}.${sign(payload)}`;
 }
 
+/** The role of a valid legacy shared-password token (Move Beyond only; see staff.ts). */
 export function verifySessionToken(token: string | undefined): Role | null {
   if (!token) return null;
   const idx = token.lastIndexOf(".");
@@ -62,34 +73,13 @@ export function bearerToken(h: Headers): string | undefined {
   return v.slice(7).trim() || undefined;
 }
 
-export async function currentRole(): Promise<Role | null> {
-  // The app has no cookie jar for our domain: it sends the same signed token as a
-  // bearer header. A token that is not ours (a user's Supabase session) simply
-  // fails the signature check and falls through to the cookie.
-  const fromHeader = verifySessionToken(bearerToken(await headers()));
-  if (fromHeader) return fromHeader;
-  const store = await cookies();
-  return verifySessionToken(store.get(COOKIE_NAME)?.value);
-}
-
-export async function setSessionCookie(role: Role) {
-  const store = await cookies();
-  store.set(COOKIE_NAME, createSessionToken(role), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_HOURS * 3600,
-  });
-}
-
 export async function clearSessionCookie() {
   const store = await cookies();
   store.delete(COOKIE_NAME);
 }
 
 // Permission matrix (spec §4.4). Manager has admin-level tournament ops.
-const PERMISSIONS: Record<string, Role[]> = {
+const PERMISSIONS = {
   manage_tournament: ["admin", "manager"],
   clone_tournament: ["admin", "manager"],
   manage_teams: ["admin", "manager"],
@@ -112,13 +102,19 @@ const PERMISSIONS: Record<string, Role[]> = {
   check_in_session: ["admin", "manager", "referee"],
   // Announcements: email and WhatsApp to players (Admin → Announcements).
   send_messages: ["admin", "manager"],
+  // Event codes for referees and TV operators (Admin → Event codes).
+  manage_codes: ["admin", "manager"],
   // Platform-wide app settings (Admin → Discover): Discover order and feature flags.
+  // The role alone is not enough: guard.ts also requires a platform admin.
   manage_platform: ["admin"],
-};
+} satisfies Record<string, Role[]>;
 
-export function can(role: Role | null, action: keyof typeof PERMISSIONS): boolean {
+export type Permission = keyof typeof PERMISSIONS;
+
+/** Whether a role may do an action. An organisation's owner holds every admin permission. */
+export function can(role: Role | OrgRole | null | undefined, action: Permission): boolean {
   if (!role) return false;
-  return PERMISSIONS[action]?.includes(role) ?? false;
+  return (PERMISSIONS[action] as Role[] | undefined)?.includes(permissionRole(role)) ?? false;
 }
 
 export const COOKIE = COOKIE_NAME;

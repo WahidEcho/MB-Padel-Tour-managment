@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCourts, getMatches, getTeams, teamMap } from "@/lib/data";
 import { getSession } from "@/lib/friendly/data";
+import { requireEntityPage } from "@/lib/guard";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import AutoRefresh from "@/components/AutoRefresh";
 
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function RefereeSessionMatches({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requireEntityPage({ session: id }, ["referee", "admin", "manager"], `/referee/friendly-sessions/${id}/matches`);
   const session = await getSession(id);
   if (!session) notFound();
 

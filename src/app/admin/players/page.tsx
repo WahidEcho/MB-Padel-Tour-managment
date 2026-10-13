@@ -1,6 +1,7 @@
 import { db } from "@/lib/supabase";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { listPlayerProfiles } from "@/lib/friendly/data";
+import { requireStaff } from "@/lib/guard";
 import PlayerCard from "./PlayerCard";
 import { createPlayerProfile, mergePlayersAction } from "./actions";
 
@@ -11,22 +12,23 @@ export default async function PlayersPage({
 }: {
   searchParams: Promise<{ q?: string; status?: string; level?: string }>;
 }) {
+  const staff = await requireStaff(["admin", "manager"], "/admin/players");
   const { q, status, level } = await searchParams;
-  const all = await listPlayerProfiles(q);
+  // This organisation's players, with its own approval, notes and level.
+  const all = await listPlayerProfiles(staff.orgId, q);
 
   const profiles = all
     .filter((p) => (status && status !== "all" ? p.approval_status === status : true))
     .filter((p) => (level && level !== "all" ? (p.skill_level ?? "") === level : true));
 
-  const { data: consentRows } = await db()
-    .from("player_consents")
-    .select("player_profile_id, channel, granted");
+  const ids = all.map((p) => p.id);
+  const consentRows: { player_profile_id: string; channel: string; granted: boolean }[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db().from("player_consents").select("player_profile_id, channel, granted").in("player_profile_id", ids.slice(i, i + 200));
+    consentRows.push(...((data ?? []) as typeof consentRows));
+  }
   const consents = new Map<string, Set<string>>();
-  for (const c of (consentRows ?? []) as {
-    player_profile_id: string;
-    channel: string;
-    granted: boolean;
-  }[]) {
+  for (const c of consentRows) {
     if (!c.granted) continue;
     if (!consents.has(c.player_profile_id)) consents.set(c.player_profile_id, new Set());
     consents.get(c.player_profile_id)!.add(c.channel);
@@ -152,7 +154,7 @@ export default async function PlayersPage({
         </div>
       )}
 
-      {all.length > 1 && (
+      {staff.platformAdmin && all.length > 1 && (
         <details className="card">
           <summary className="cursor-pointer font-bold">Merge duplicate players</summary>
           <p className="mt-2 text-xs text-muted">

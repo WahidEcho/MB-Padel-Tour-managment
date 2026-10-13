@@ -14,6 +14,10 @@
  *
  * Server-only. Not placed inside the shared generators in ops.ts, which the
  * friendly-session code calls legitimately.
+ *
+ * These guards check rows against the posted tournament; the organisation is
+ * checked before them, from the tournament itself, by the action's
+ * requireTournamentPermission / requireScopedPermission (src/lib/guard.ts).
  */
 import { db } from "./supabase";
 
@@ -80,11 +84,10 @@ export async function ownershipRefusal(
   if (wanted.length === 0) return `No ${NOUN[table]} was named.`;
   const { data } = await db().from(table).select("id, tournament_id").in("id", wanted);
   const rows = (data ?? []) as { id: string; tournament_id: string }[];
-  if (rows.length !== wanted.length) {
-    return `That ${NOUN[table]} no longer exists. Reload the page.`;
-  }
-  if (rows.some((r) => r.tournament_id !== tournamentId)) {
-    return `That ${NOUN[table]} belongs to a different tournament.`;
+  // One answer for a row that does not exist and a row of another tournament (of
+  // this or another organisation), so a refusal never confirms that an id exists.
+  if (rows.length !== wanted.length || rows.some((r) => r.tournament_id !== tournamentId)) {
+    return `That ${NOUN[table]} is not part of this tournament. Reload the page.`;
   }
   return null;
 }

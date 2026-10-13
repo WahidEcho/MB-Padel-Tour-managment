@@ -2,18 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireScopedPermission, requireStaffPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 
-/** Only one season may be active at a time (enforced in the DB too). */
-async function closeOtherActiveSeasons(exceptId: string | null) {
-  let q = db().from("seasons").update({ status: "closed", updated_at: new Date().toISOString() }).eq("status", "active");
+/** Only one season per organisation may be active at a time (enforced in the DB too). */
+async function closeOtherActiveSeasons(orgId: string, exceptId: string | null) {
+  let q = db()
+    .from("seasons")
+    .update({ status: "closed", updated_at: new Date().toISOString() })
+    .eq("organization_id", orgId)
+    .eq("status", "active");
   if (exceptId) q = q.neq("id", exceptId);
   await q;
 }
 
 export async function createSeason(formData: FormData) {
-  const role = await requirePermission("manage_seasons");
+  const staff = await requireStaffPermission("manage_seasons");
+  const role = staff.role;
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Season name is required");
 
@@ -24,7 +29,7 @@ export async function createSeason(formData: FormData) {
   }
   const makeActive = formData.get("make_active") === "on";
 
-  if (makeActive) await closeOtherActiveSeasons(null);
+  if (makeActive) await closeOtherActiveSeasons(staff.orgId, null);
 
   const { data, error } = await db()
     .from("seasons")
@@ -33,6 +38,7 @@ export async function createSeason(formData: FormData) {
       starts_on: startsOn,
       ends_on: endsOn,
       status: makeActive ? "active" : "upcoming",
+      organization_id: staff.orgId,
     })
     .select()
     .single();
@@ -49,9 +55,9 @@ export async function createSeason(formData: FormData) {
 }
 
 export async function updateSeason(formData: FormData) {
-  const role = await requirePermission("manage_seasons");
   const id = String(formData.get("season_id") ?? "");
   if (!id) throw new Error("Season is required");
+  const role = (await requireScopedPermission("manage_seasons", { season: id })).staff.role;
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Season name is required");
 
@@ -78,16 +84,17 @@ export async function updateSeason(formData: FormData) {
 }
 
 export async function setSeasonStatus(formData: FormData) {
-  const role = await requirePermission("manage_seasons");
   const id = String(formData.get("season_id") ?? "");
   const status = String(formData.get("status") ?? "");
   if (!id) throw new Error("Season is required");
+  const { staff } = await requireScopedPermission("manage_seasons", { season: id });
+  const role = staff.role;
   if (!["upcoming", "active", "closed"].includes(status)) {
     throw new Error("Unknown season status");
   }
 
   // Activating a season closes whichever one was active.
-  if (status === "active") await closeOtherActiveSeasons(id);
+  if (status === "active") await closeOtherActiveSeasons(staff.orgId, id);
 
   const { error } = await db()
     .from("seasons")
@@ -106,9 +113,9 @@ export async function setSeasonStatus(formData: FormData) {
 }
 
 export async function deleteSeason(formData: FormData) {
-  const role = await requirePermission("manage_seasons");
   const id = String(formData.get("season_id") ?? "");
   if (!id) throw new Error("Season is required");
+  const role = (await requireScopedPermission("manage_seasons", { season: id })).staff.role;
 
   // A season with sessions attached is history — refuse rather than orphan it.
   const { count } = await db()

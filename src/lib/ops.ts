@@ -1196,6 +1196,8 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
       sport: source.sport,
       status: "draft",
       cloned_from_tournament_id: sourceId,
+      // A clone stays in its source's organisation.
+      ...(source.organization_id ? { organization_id: source.organization_id } : {}),
       branding_config: opts.copyBranding ? source.branding_config : {},
       scoring_config: opts.copyScoring
         ? source.scoring_config

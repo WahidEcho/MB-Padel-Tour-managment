@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { generateDraw, generateDrawOptions, groupName, type DrawOption } from "@/lib/draws";
 import { getGroups, getGroupTeams, getTeams } from "@/lib/data";
@@ -16,8 +16,8 @@ function path(id: string) {
 
 /** Creates N groups and randomly distributes all active teams. */
 export async function createGroups(formData: FormData) {
-  const role = await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", tournamentId)).staff.role;
   const count = Math.max(1, Math.min(26, parseInt(String(formData.get("group_count") ?? "2"), 10) || 2));
 
   // Recreating groups deletes their standings through the database's cascade, so
@@ -59,7 +59,7 @@ export async function createGroups(formData: FormData) {
 
 /** Returns multiple draw options without saving (spec §10). */
 export async function drawOptions(tournamentId: string, optionCount: number): Promise<DrawOption[]> {
-  await requirePermission("manage_groups");
+  await requireTournamentPermission("manage_groups", tournamentId);
   const [teams, groups, groupTeams] = await Promise.all([
     getTeams(tournamentId),
     getGroups(tournamentId),
@@ -79,7 +79,7 @@ export async function saveAssignment(
   tournamentId: string,
   assignment: string[][],
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const role = await requirePermission("manage_groups");
+  const role = (await requireTournamentPermission("manage_groups", tournamentId)).staff.role;
   // Moving a team between groups rewrites the standings a drawn knockout was
   // seeded from, the next time they are recalculated.
   const lock = await groupDrawLock(tournamentId);
@@ -114,8 +114,8 @@ export async function saveAssignment(
 }
 
 export async function toggleLock(formData: FormData) {
-  await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
+  await requireTournamentPermission("manage_groups", tournamentId);
   const groupTeamId = String(formData.get("group_team_id"));
   refuse(await entityRefusal(tournamentId, "group_teams", groupTeamId));
   const { data: gt } = await db().from("group_teams").select("is_locked").eq("id", groupTeamId).single();
@@ -126,8 +126,8 @@ export async function toggleLock(formData: FormData) {
 }
 
 export async function publishGroups(_prev: GroupStageFormState, formData: FormData): Promise<GroupStageFormState> {
-  const role = await requirePermission("manage_groups");
   const tournamentId = String(formData.get("tournament_id"));
+  const role = (await requireTournamentPermission("manage_groups", tournamentId)).staff.role;
   // Groups are marked published only once the guard has let regeneration through,
   // so a refusal leaves the draw exactly as it was.
   const state = await runGroupStageRegeneration(tournamentId, role, formData, { publishGroups: true });

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCourts, getTournament, listScreens } from "@/lib/data";
-import { currentRole, can } from "@/lib/auth";
+import { can } from "@/lib/auth";
+import { requireTournamentPage } from "@/lib/guard";
 import { ensureMainScreen } from "@/lib/screens";
 import AutoRefresh from "@/components/AutoRefresh";
 import ControlRoom from "./ControlRoom";
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ControlPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: organisation, and an event code's tournament scope.
+  const { staff } = await requireTournamentPage(id, ["operator", "admin", "manager"], `/operator/tournaments/${id}/control`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
 
@@ -17,7 +20,8 @@ export default async function ControlPage({ params }: { params: Promise<{ id: st
   // created on a read, and it is behind the operator login.
   await ensureMainScreen(id);
 
-  const [screens, courts, role] = await Promise.all([listScreens(id), getCourts(id), currentRole()]);
+  const [screens, courts] = await Promise.all([listScreens(id), getCourts(id)]);
+  const role = staff.role;
 
   return (
     <div className="space-y-4">

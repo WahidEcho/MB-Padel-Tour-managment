@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireRole } from "@/lib/guard";
+import { requireEntityPage } from "@/lib/guard";
 import { AUDIENCE_LABEL } from "@/lib/messaging/audience";
 import { FILTERS, announcementStats, getAnnouncement, listDeliveries, pushStats, type DeliveryFilter } from "@/lib/messaging/data";
 import { maskPhone } from "@/lib/messaging/phone";
@@ -24,7 +24,8 @@ export default async function AnnouncementDetail({
   searchParams: Promise<{ filter?: string; channel?: string; q?: string; page?: string; full?: string }>;
 }) {
   const { id } = await params;
-  await requireRole(["admin", "manager"], `/admin/announcements/${id}`);
+  // Re-checked on every request: the announcement must be this organisation's.
+  await requireEntityPage({ announcement: id }, ["admin", "manager"], `/admin/announcements/${id}`);
   const a = await getAnnouncement(id);
   if (!a) notFound();
   const sp = await searchParams;

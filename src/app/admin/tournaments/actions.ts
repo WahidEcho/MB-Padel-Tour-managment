@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireStaffPermission, requireTournamentPermission } from "@/lib/guard";
 import { audit, slugify } from "@/lib/audit";
 import { cloneTournament as cloneOp, deleteTournamentRow, resetTournamentLiveData, type CloneOptions } from "@/lib/ops";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
@@ -12,7 +12,8 @@ import { ensureMainScreen } from "@/lib/screens";
 import { newTournamentMatchDayRules } from "@/lib/matchday/rules";
 
 export async function createTournament(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
+  const staff = await requireStaffPermission("manage_tournament");
+  const role = staff.role;
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Name is required");
   const requested = String(formData.get("sport") ?? "padel");
@@ -50,6 +51,7 @@ export async function createTournament(formData: FormData) {
       ...(formatConfig ? { format_config: formatConfig } : {}),
       // Match day starts on for new tournaments; existing ones stay off until saved.
       match_day_rules: newTournamentMatchDayRules(sport),
+      organization_id: staff.orgId,
       created_by: role,
     })
     .select()
@@ -76,8 +78,8 @@ export async function createTournament(formData: FormData) {
 }
 
 export async function cloneTournamentAction(formData: FormData) {
-  const role = await requirePermission("clone_tournament");
   const sourceId = String(formData.get("source_id"));
+  const role = (await requireTournamentPermission("clone_tournament", sourceId)).staff.role;
   // Cloning a session's hidden row would make a tournament out of a session.
   refuse(await tournamentRowRefusal(sourceId));
   const opts: CloneOptions = {
@@ -95,8 +97,8 @@ export async function cloneTournamentAction(formData: FormData) {
 }
 
 export async function setTournamentStatus(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   const status = String(formData.get("status"));
   if (!["draft", "active", "completed", "archived"].includes(status)) throw new Error("Bad status");
   // A session's status (open, scheduled, finalized…) is its own; its hidden row's
@@ -116,8 +118,8 @@ export async function setTournamentStatus(formData: FormData) {
 }
 
 export async function deleteTournament(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   // Refuses a session's hidden row: the delete would cascade into the session.
   const result = await deleteTournamentRow(id, role);
   if (!result.ok) throw new Error(result.message);
@@ -126,8 +128,8 @@ export async function deleteTournament(formData: FormData) {
 
 /** Demo/training reset (spec §24): wipes live data, keeps setup. Tournaments only. */
 export async function resetTournamentData(formData: FormData) {
-  const role = await requirePermission("manage_tournament");
   const id = String(formData.get("id"));
+  const role = (await requireTournamentPermission("manage_tournament", id)).staff.role;
   const result = await resetTournamentLiveData(id, role);
   // The dashboard does not offer this for a friendly session's backing row; a
   // request that arrives anyway is refused before anything is deleted.

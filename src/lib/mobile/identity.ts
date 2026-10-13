@@ -6,6 +6,7 @@
  * session as a bearer token, verified here against the project's public signing
  * keys, so no Supabase key ever ships inside the app.
  */
+import { isStaffTokenShaped } from "../auth/staffToken";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
@@ -105,7 +106,8 @@ function keys() {
 
 /** The Supabase user id of a valid access token, or null. */
 export async function verifyUserToken(token: string | null | undefined): Promise<string | null> {
-  if (!token || token.split(".").length !== 3) return null;
+  // A staff token (event code, organiser, shared password) is never a user's session.
+  if (!token || isStaffTokenShaped(token) || token.split(".").length !== 3) return null;
   try {
     const { payload } = await jwtVerify(token, keys(), {
       issuer: `${process.env.SUPABASE_URL}/auth/v1`,

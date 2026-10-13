@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/supabase";
+import { requireStaff } from "@/lib/guard";
+import { orgTournamentIds } from "@/lib/orgs/scope";
 import type { FriendlySession, Tournament } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,19 +15,29 @@ const SESSION_BADGE: Record<string, string> = {
 };
 
 export default async function OperatorIndex() {
+  const staff = await requireStaff(["operator", "admin", "manager"], "/operator");
+  // This organisation's only, and only the one tournament an event code is scoped to.
+  let tq = db()
+    .from("tournaments")
+    .select("*")
+    .eq("organization_id", staff.orgId)
+    .eq("kind", "tournament")
+    .in("status", ["active", "draft", "completed"]);
+  if (staff.scopeTournamentId) tq = tq.eq("id", staff.scopeTournamentId);
+  const sessionTournaments = (await orgTournamentIds(staff.orgId, ["friendly_session"])).filter(
+    (id) => !staff.scopeTournamentId || id === staff.scopeTournamentId,
+  );
   const [tournamentsRes, sessionsRes] = await Promise.all([
-    db()
-      .from("tournaments")
-      .select("*")
-      .eq("kind", "tournament")
-      .in("status", ["active", "draft", "completed"])
-      .order("created_at", { ascending: false }),
+    tq.order("created_at", { ascending: false }),
     // A session drives a wall exactly like a tournament does: it owns a hidden
     // backing tournament, and the screens hang off that. Without this the
     // operator has no way to reach a session's screen at all.
-    db()
+    sessionTournaments.length === 0
+      ? Promise.resolve({ data: [] as FriendlySession[] })
+      : db()
       .from("friendly_sessions")
       .select("*")
+      .in("tournament_id", sessionTournaments.slice(0, 500))
       .in("status", ["scheduled", "live", "completed"])
       .order("starts_at", { ascending: false, nullsFirst: false }),
   ]);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireRole } from "@/lib/guard";
+import { requireStaff } from "@/lib/guard";
 import { db } from "@/lib/supabase";
 import { nationOptions } from "@/lib/messaging/audience";
 import { whatsappTemplates } from "@/lib/messaging/data";
@@ -12,13 +12,19 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export default async function NewAnnouncementPage({ searchParams }: { searchParams: Promise<{ preset?: string; tournament?: string }> }) {
-  await requireRole(["admin", "manager"], "/admin/announcements/new");
+  const staff = await requireStaff(["admin", "manager"], "/admin/announcements/new");
   const sp = await searchParams;
   const kind: AnnouncementKindInput = sp.preset === "access_codes" || sp.preset === "new_tournament" ? sp.preset : "announcement";
 
   const [{ data: tRows }, nations, wa] = await Promise.all([
-    db().from("tournaments").select("id, name, slug, status, starts_on").eq("kind", "tournament").order("created_at", { ascending: false }).limit(200),
-    nationOptions(),
+    db()
+      .from("tournaments")
+      .select("id, name, slug, status, starts_on")
+      .eq("organization_id", staff.orgId)
+      .eq("kind", "tournament")
+      .order("created_at", { ascending: false })
+      .limit(200),
+    nationOptions(staff.orgId),
     whatsappTemplates(),
   ]);
   const tournaments = (tRows ?? []) as { id: string; name: string; slug: string; status: string; starts_on: string | null }[];

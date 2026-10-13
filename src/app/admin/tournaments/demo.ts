@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { db } from "@/lib/supabase";
-import { requirePermission } from "@/lib/guard";
+import { requireStaffPermission } from "@/lib/guard";
 import { audit, slugify } from "@/lib/audit";
 import { generateDraw, groupName } from "@/lib/draws";
 import { generateGroupMatches, recalcStandings } from "@/lib/ops";
@@ -26,7 +26,8 @@ const DEMO_TEAMS: [string, string, string][] = [
 
 /** Seeds a complete 12-team demo tournament for training and screen testing (spec §24). */
 export async function seedDemoTournament() {
-  const role = await requirePermission("manage_tournament");
+  const staff = await requireStaffPermission("manage_tournament");
+  const role = staff.role;
   const name = "Demo Tournament";
   const slug = `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -38,6 +39,7 @@ export async function seedDemoTournament() {
       is_demo: true,
       status: "active",
       scoring_config: { ...DEFAULT_SCORING_CONFIG, requireResultConfirmation: true },
+      organization_id: staff.orgId,
       created_by: role,
     })
     .select()

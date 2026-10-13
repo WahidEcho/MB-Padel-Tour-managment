@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { can, currentRole } from "@/lib/auth";
+import { staffRoute } from "@/lib/guard";
 import { db } from "@/lib/supabase";
 import { getCourts, getMatches, getTeams } from "@/lib/data";
 import { getLiveLeasesByMatch } from "@/lib/scoringControl";
@@ -11,10 +11,11 @@ import { isViewersDevice, presentedDeviceId, shownDeviceId, verifyInstallToken }
  * token) or a handle, never another phone's installation id.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const role = await currentRole();
-  if (!can(role, "score_match")) return NextResponse.json({ error: "Sign in with the referee code" }, { status: 403 });
-  const viewer = { installationId: verifyInstallToken(request.headers.get("x-install-token")), deviceId: presentedDeviceId(request.headers), staff: true };
   const { id } = await params;
+  // Organisation and an event code's scope, from the tournament itself.
+  const gate = await staffRoute("score_match", { tournament: id });
+  if (!gate.ok) return gate.response;
+  const viewer = { installationId: verifyInstallToken(request.headers.get("x-install-token")), deviceId: presentedDeviceId(request.headers), staff: true };
   const [{ data: t }, matches, teams, courts, leases] = await Promise.all([
     db().from("tournaments").select("id, name, sport, timezone").eq("id", id).maybeSingle(),
     getMatches(id),

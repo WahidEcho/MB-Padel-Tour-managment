@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { can, currentRole } from "@/lib/auth";
+import { staffReaching } from "@/lib/guard";
 import { getMatch, getSnapshot } from "@/lib/data";
 import { getLease, isLeaseLive } from "@/lib/scoringControl";
 import { isViewersDevice, presentedDeviceId, shownDeviceId, verifyInstallToken } from "@/lib/mobile/identity";
@@ -21,12 +21,13 @@ import { isViewersDevice, presentedDeviceId, shownDeviceId, verifyInstallToken }
  */
 export async function GET(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
-  const [match, snapshot, lease, role] = await Promise.all([getMatch(matchId), getSnapshot(matchId), getLease(matchId), currentRole()]);
+  // Public for viewers; staff see more only for a match their organisation (and code scope) reaches.
+  const [match, snapshot, lease, staff] = await Promise.all([getMatch(matchId), getSnapshot(matchId), getLease(matchId), staffReaching({ match: matchId }, "score_match")]);
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
   const viewer = {
     installationId: verifyInstallToken(request.headers.get("x-install-token")),
     deviceId: presentedDeviceId(request.headers),
-    staff: can(role, "score_match"),
+    staff: staff !== null,
   };
   const asked = lease?.transfer_request ?? null;
   return NextResponse.json(

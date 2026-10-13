@@ -1,3 +1,4 @@
+import { requireTournamentPage } from "@/lib/guard";
 import { notFound } from "next/navigation";
 import { getCourts, getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: the staff member's organisation must own this tournament.
+  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/settings`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   const courts = await getCourts(id);

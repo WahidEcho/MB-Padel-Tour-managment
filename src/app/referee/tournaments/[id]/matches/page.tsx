@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
+import { requireTournamentPage } from "@/lib/guard";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import AutoRefresh from "@/components/AutoRefresh";
 
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 export default async function RefereeMatches({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Re-checked on every request: organisation, and an event code's tournament scope.
+  await requireTournamentPage(id, ["referee", "admin", "manager"], `/referee/tournaments/${id}/matches`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   const [matches, teams, courts] = await Promise.all([getMatches(id), getTeams(id), getCourts(id)]);

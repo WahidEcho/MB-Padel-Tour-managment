@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
 import { db } from "@/lib/supabase";
-import { requireRole } from "@/lib/guard";
+import { requireEntityPage, requireStaff } from "@/lib/guard";
 import AutoRefresh from "@/components/AutoRefresh";
 import { WINDOW_SECONDS, dailyCode, eventDay, rotatingCode, venueUrl } from "@/lib/pass/venueCode";
 
@@ -19,10 +19,12 @@ export const dynamic = "force-dynamic";
 export default async function VenueQrPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ staff?: string }> }) {
   const { slug } = await params;
   const { staff } = await searchParams;
-  await requireRole(["admin", "manager", "operator"], `/venue/${slug}/qr`);
-  const { data } = await db().from("event_groups").select("slug, name, timezone").eq("slug", slug).maybeSingle();
-  const group = data as { slug: string; name: string; timezone: string | null } | null;
+  await requireStaff(["admin", "manager", "operator"], `/venue/${slug}/qr`);
+  const { data } = await db().from("event_groups").select("id, slug, name, timezone").eq("slug", slug).maybeSingle();
+  const group = data as { id: string; slug: string; name: string; timezone: string | null } | null;
   if (!group) notFound();
+  // The group's own organisation must be the staff member's (a group of another one is a 404 too).
+  await requireEntityPage({ eventGroup: group.id }, ["admin", "manager", "operator"], `/venue/${slug}/qr`);
   const showStaffCode = staff === "1"; // the guard above already demands a staff session
   if (showStaffCode) {
     const day = eventDay(group.timezone || "Africa/Cairo");

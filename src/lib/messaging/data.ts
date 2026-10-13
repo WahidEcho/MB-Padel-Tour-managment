@@ -44,8 +44,14 @@ export async function pushStats(dedupeKey: string | null): Promise<PushStats | n
   };
 }
 
-export async function listAnnouncements(limit = 50): Promise<AnnouncementRow[]> {
-  const { data, error } = await db().from("message_announcements").select("*").order("created_at", { ascending: false }).limit(limit);
+/** An organisation's announcements, newest first. */
+export async function listAnnouncements(orgId: string, limit = 50): Promise<AnnouncementRow[]> {
+  const { data, error } = await db()
+    .from("message_announcements")
+    .select("*")
+    .eq("organization_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
   if (error) throw new Error(error.message);
   return (data ?? []) as AnnouncementRow[];
 }
