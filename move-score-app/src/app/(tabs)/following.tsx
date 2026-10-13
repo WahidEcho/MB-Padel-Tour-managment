@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { isDoneStatus, type MFollow, type MMatch } from "@core";
-import { refetchOnScreen, useBundle, useLive } from "../../api/queries";
+import { refetchOnScreen, useBundle, useLive, useOrg } from "../../api/queries";
 import { dayIn, isOnCourt, makeView, needsDay, timeIn, type View as Model } from "../../api/model";
 import { useFeaturedNeeds, useFeaturedSlugs } from "../../api/featured";
 import { LoadState } from "../../ui/LoadState";
@@ -10,8 +10,8 @@ import { Screen } from "../../ui/Screen";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, LinkChip, SectionHeader } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
-import { follows } from "../../state/follows";
-import { openNation, openPlayer, openTie, openTournament } from "../../nav/links";
+import { follows, useFollowsOf } from "../../state/follows";
+import { openNation, openOrg, openPlayer, openTie, openTournament } from "../../nav/links";
 
 function useMine(slug: string) {
   const b = useBundle(slug);
@@ -140,6 +140,28 @@ function FollowedChips({ slugs }: { slugs: string[] }) {
   );
 }
 
+/** One followed organisation, named from its (cached) page. */
+function OrgChip({ slug }: { slug: string }) {
+  const q = useOrg(slug);
+  return <LinkChip label={q.data?.organization.name ?? slug} onPress={() => openOrg(slug)} accessibilityLabel={`${q.data?.organization.name ?? slug}, organisation page`} />;
+}
+
+/** The clubs and organisers followed: not tied to the featured event. */
+function FollowedOrgs() {
+  const slugs = useFollowsOf("organization");
+  if (!slugs.length) return null;
+  return (
+    <>
+      <SectionHeader title="Organisations" />
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {slugs.slice(0, 20).map((s) => (
+          <OrgChip key={s} slug={s} />
+        ))}
+      </View>
+    </>
+  );
+}
+
 export default function Following() {
   const slugs = useFeaturedSlugs();
   const count = follows.use((f) => f.length);
@@ -159,6 +181,7 @@ export default function Following() {
         <>
           {slugs.map((s) => <Section key={`n${s.slug}`} slug={s.slug} part="next" />)}
           <FollowedChips slugs={slugs.map((s) => s.slug)} />
+          <FollowedOrgs />
           <SectionHeader title="Live now" />
           <View style={{ gap: 8 }}>{slugs.map((s) => <Section key={`l${s.slug}`} slug={s.slug} part="live" />)}</View>
           <SectionHeader title="Results" />

@@ -41,7 +41,7 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   // "ready" is a match called to its court and not started yet (match day).
   const upcoming = friendly.filter((m) => m.status === "scheduled" || m.status === "ready").slice(0, 6);
 
-  const names = await listPublicPlayers(ranking.map((r) => r.player_profile_id));
+  const names = await listPublicPlayers(ranking.map((r) => r.player_profile_id), tournament?.organization_id ?? null);
   const label = (id: string | null) => (id ? (tm.get(id)?.team_name ?? "?") : "TBD");
 
   const modelLabel = session.ranking_model === "games_won" ? "games won" : "points per win";

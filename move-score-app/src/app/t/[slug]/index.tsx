@@ -14,7 +14,7 @@ import { SponsorBand } from "../../../ui/Sponsors";
 import { StaleBanner } from "../../../ui/Offline";
 import { LoadState } from "../../../ui/LoadState";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
-import { isNation, openTeam } from "../../../nav/links";
+import { isNation, openOrg, openTeam } from "../../../nav/links";
 
 type Tab = "ties" | "matches" | "groups" | "nations";
 const TABS: Tab[] = ["ties", "matches", "groups", "nations"];
@@ -81,6 +81,17 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
           </Pressable>
         ) : null}
         {tr.startsOn ? <Body tone="ink2" size={13}>{dateRange(tr.startsOn, tr.endsOn)}</Body> : null}
+        {tr.organization ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`Run by ${tr.organization.name}, open its page`}
+            onPress={() => openOrg(tr.organization!.slug)}
+            hitSlop={8}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}
+          >
+            <Body tone="blue" size={13} weight="semi">{`by ${tr.organization.name} ›`}</Body>
+          </Pressable>
+        ) : null}
         {liveCount ? <LivePill label={`${liveCount} LIVE`} /> : null}
       </View>
       <Segments value={current} options={tabs as unknown as { key: Tab; label: string }[]} onChange={setTab} />

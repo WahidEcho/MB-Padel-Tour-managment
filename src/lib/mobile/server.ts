@@ -31,6 +31,7 @@ import {
   toMatch,
   toStandingRow,
   toTie,
+  type OrgBranding,
   type TimelineRow,
   type TournamentRow,
 } from "./projection";
@@ -41,7 +42,19 @@ import { APP_PAGE_URL } from "../site";
 import { DISCOVER_ORDER_KEY, inDiscoverOrder, parseDiscoverOrder } from "../platform/discoverOrder";
 
 export const CARD_COLUMNS =
-  "id, slug, name, sport, kind, status, is_demo, public_access_enabled, branding_config, format_config, lower_third_text, updated_at, event_group_id, venue_name, city, timezone, starts_on, ends_on, app_skin";
+  "id, slug, name, sport, kind, status, is_demo, public_access_enabled, branding_config, format_config, lower_third_text, updated_at, event_group_id, venue_name, city, timezone, starts_on, ends_on, app_skin, organization_id";
+
+/**
+ * Approved organisations' link and branding, by id, for tournament cards (the
+ * organisation's page and the skin defaults). Public fields only. A tournament of
+ * an organisation that is not approved shows no organisation.
+ */
+export function publicOrgBranding(): Promise<Map<string, OrgBranding>> {
+  return memo("orgs:branding", 30_000, async () => {
+    const { data } = await db().from("organizations").select("id, slug, name, status, colors, logo_url").eq("status", "approved").limit(2000);
+    return new Map(((data ?? []) as (OrgBranding & { status: string })[]).map((o) => [o.id, { id: o.id, slug: o.slug, name: o.name, colors: o.colors, logo_url: o.logo_url }]));
+  });
+}
 
 interface GroupRow {
   id: string;
@@ -90,15 +103,16 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
   return memo(`discover:${includeDemo}`, 5_000, async () => {
     const rows = await visibleTournaments(includeDemo);
     const ids = rows.map((r) => r.id);
-    const [live, teams, groupsRes, orderRes] = await Promise.all([
+    const [live, teams, groupsRes, orderRes, orgs] = await Promise.all([
       liveCounts(ids),
       teamCounts(ids),
       db().from("event_groups").select("*").order("featured_rank", { ascending: true }),
       db().from("platform_settings").select("value_json").eq("key", DISCOVER_ORDER_KEY).maybeSingle(),
+      publicOrgBranding(),
     ]);
     // Admin → Discover sets this order; featured_rank (kept in step by the same page) is the fallback.
     const order = parseDiscoverOrder((orderRes.data as { value_json: unknown } | null)?.value_json);
-    const cards = rows.map((r) => toCard(r, live.get(r.id) ?? 0, teams.get(r.id) ?? 0));
+    const cards = rows.map((r) => toCard(r, live.get(r.id) ?? 0, teams.get(r.id) ?? 0, orgs.get(r.organization_id ?? "") ?? null));
     const groups = ((groupsRes.data ?? []) as GroupRow[]).map((g): MEventGroup => {
       const members = cards.filter((c) => c.eventGroupId === g.id);
       return {
@@ -152,13 +166,14 @@ export function getBundle(slug: string): Promise<MBundle | null> {
   return memo(`bundle:${slug}`, 10_000, async () => {
     const t = await tournamentBySlug(slug, true);
     if (!t) return null;
-    const [teams, courts, groups, groupTeams, live, plate] = await Promise.all([
+    const [teams, courts, groups, groupTeams, live, plate, orgs] = await Promise.all([
       getTeams(t.id),
       db().from("courts").select("id, court_name, court_order, is_active").eq("tournament_id", t.id).order("court_order"),
       db().from("groups").select("id, group_name, group_order").eq("tournament_id", t.id).order("group_order"),
       db().from("group_teams").select("team_id, group_id").eq("tournament_id", t.id),
       liveCounts([t.id]),
       plateBrackets([t.id]),
+      publicOrgBranding(),
     ]);
     const groupOf = new Map(((groupTeams.data ?? []) as { team_id: string; group_id: string }[]).map((g) => [g.team_id, g.group_id]));
     return toBundle(
@@ -169,6 +184,7 @@ export function getBundle(slug: string): Promise<MBundle | null> {
       (groups.data ?? []) as { id: string; group_name: string; group_order: number }[],
       live.get(t.id) ?? 0,
       plate.get(t.id) ?? [],
+      orgs.get(t.organization_id ?? "") ?? null,
     );
   });
 }

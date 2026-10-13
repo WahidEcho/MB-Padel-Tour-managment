@@ -26,7 +26,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }
   if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const rows = await getRankingSnapshot("session", session.id);
-  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id));
+  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id), gate.scope?.orgId ?? null);
 
   const { data: matches } = await db()
     .from("matches")

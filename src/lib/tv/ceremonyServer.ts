@@ -22,7 +22,7 @@ export async function buildCeremony(
     const session = await getSessionByTournament(tournament.id);
     if (!session) return [];
     const ranking = await getRankingSnapshot("session", session.id);
-    const players = await listPublicPlayers(ranking.map((r) => r.player_profile_id));
+    const players = await listPublicPlayers(ranking.map((r) => r.player_profile_id), tournament.organization_id ?? null);
     const people = new Map<string, CeremonyPerson>(
       [...players.values()].map((p) => [
         p.id,

@@ -31,6 +31,8 @@
 --    Ranking category names are unique per organisation; one active season per
 --    organisation; lifetime rankings are kept per organisation (scope_id = org).
 -- 7. audit_logs.organization_id (actor_user_id already exists; added if missing).
+-- 8–12 (part B, at the end): status 'rejected', organization_players.typed_name,
+--    organization_invites, the last-owner trigger, and follows of an organisation.
 --
 -- Transitional: organization_id defaults to Move Beyond's id, so scripts and any
 -- code path not yet passing an organisation keep landing where everything lands
@@ -255,10 +257,91 @@ create trigger organization_codes_same_org
   before insert or update of tournament_id, organization_id on organization_codes
   for each row execute function organization_codes_same_org();
 
+-- ---------------------------------------------------------------------------
+-- Part B (onboarding, invites, profile). 0023 is not on the live project yet, so
+-- it is extended here, idempotently, rather than in a new file.
+-- ---------------------------------------------------------------------------
+
+-- 8. An application Move Beyond turns down is 'rejected' (kept, never public).
+alter table organizations drop constraint if exists organizations_status_check;
+alter table organizations add constraint organizations_status_check
+  check (status in ('applied', 'approved', 'rejected', 'suspended'));
+create index if not exists organizations_status_idx on organizations (status, created_at desc);
+
+-- 9. The name a player gave on an organisation's own registration form. For a
+--    profile the organisation only 'matched' by the mobile number typed there, the
+--    organisation sees this name instead of the profile's public name while another
+--    organisation has the player (src/lib/orgs/personFields.ts): a number typed on
+--    a form must not turn into the name of the person it belongs to.
+alter table organization_players add column if not exists typed_name text;
+alter table organization_players drop constraint if exists organization_players_typed_name_check;
+alter table organization_players add constraint organization_players_typed_name_check
+  check (typed_name is null or char_length(typed_name) between 1 and 80);
+
+-- 10. Staff invites: single-use links bound to one email address, valid 7 days.
+--     Only an HMAC-SHA256 of the link's token (keyed with the server's
+--     EVENT_CODE_PEPPER, domain-separated from event codes) is stored; the link
+--     itself is shown once to whoever sent it and emailed, never kept. Accepting
+--     needs a sign-in with that same (confirmed) email; membership activates then.
+create table if not exists organization_invites (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  email text not null check (char_length(email) between 3 and 254 and email = lower(email)),
+  role text not null check (role in ('owner', 'admin', 'manager', 'referee', 'operator')),
+  token_hash text not null unique check (token_hash ~ '^[0-9a-f]{64}$'),
+  expires_at timestamptz not null,
+  created_by uuid,
+  created_by_role text,
+  accepted_at timestamptz,
+  accepted_by uuid,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists organization_invites_org_idx on organization_invites (organization_id, created_at desc);
+
+-- 11. Nobody can remove an organisation's last owner: demoting or removing the
+--     only active owner is refused by the database, whatever writes the row (the
+--     members page checks first and says why).
+create or replace function organization_members_keep_owner() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  org uuid := coalesce(old.organization_id, new.organization_id);
+begin
+  -- The organisation itself is being deleted (its members go with it, by cascade).
+  if tg_op = 'DELETE' and not exists (select 1 from organizations o where o.id = org) then
+    return old;
+  end if;
+  if old.role = 'owner' and old.status = 'active'
+     and (tg_op = 'DELETE' or new.role <> 'owner' or new.status <> 'active' or new.organization_id <> old.organization_id)
+     and not exists (
+       select 1 from organization_members m
+       where m.organization_id = org and m.id <> old.id and m.role = 'owner' and m.status = 'active'
+     )
+  then
+    raise exception 'an organisation must keep at least one owner'
+      using errcode = '23514';
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+drop trigger if exists organization_members_keep_owner on organization_members;
+create trigger organization_members_keep_owner
+  before update or delete on organization_members
+  for each row execute function organization_members_keep_owner();
+
+-- 12. The app can follow an organisation (follows.target_key = its slug).
+alter table follows drop constraint if exists follows_target_kind_check;
+alter table follows add constraint follows_target_kind_check
+  check (target_kind in ('player', 'nation', 'tie', 'match', 'tournament', 'event_group', 'organization'));
+
 -- Row-level security: on, with no policy (see header).
 alter table organizations enable row level security;
 alter table platform_admins enable row level security;
 alter table organization_members enable row level security;
 alter table organization_codes enable row level security;
 alter table organization_players enable row level security;
-revoke all on organizations, platform_admins, organization_members, organization_codes, organization_players from anon, authenticated;
+alter table organization_invites enable row level security;
+revoke all on organizations, platform_admins, organization_members, organization_codes, organization_players, organization_invites from anon, authenticated;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { audit } from "@/lib/audit";
 import { clientIpFrom } from "@/lib/ratelimit";
-import { staffLoginAllowed } from "@/lib/staffLogin";
+import { staffLoginAllowed, staffLoginFailed } from "@/lib/staffLogin";
 import { readJson } from "@/lib/mobile/http";
 import { STAFF_APP_HOURS, signInWithAccessCode } from "@/lib/auth/staff";
 
@@ -18,7 +18,8 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export async function POST(request: Request) {
   const body = await readJson<{ code?: unknown }>(request);
   const code = typeof body?.code === "string" ? body.code.slice(0, 200) : "";
-  const gate = await staffLoginAllowed(clientIpFrom(request.headers), code);
+  const ip = clientIpFrom(request.headers);
+  const gate = await staffLoginAllowed(ip, code);
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many attempts. Wait a few minutes and try again." },
@@ -26,7 +27,11 @@ export async function POST(request: Request) {
     );
   }
   const r = await signInWithAccessCode(code, STAFF_APP_HOURS);
-  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 401, headers: NO_STORE });
+  if (!r.ok) {
+    // Only failures count against the brakes (src/lib/staffLogin.ts).
+    if (r.reason !== "unavailable") await staffLoginFailed(ip, code);
+    return NextResponse.json({ error: r.error }, { status: 401, headers: NO_STORE });
+  }
   // Never the code itself: which code (by id) and which organisation.
   await audit({
     organization_id: r.orgId,

@@ -151,6 +151,7 @@ const ORG_LEVEL: Record<string, string> = {
   createAndSendAction: "audience checked by requireOwnAudience; the announcement is stamped with the organisation",
   refreshTemplatesAction: "reads the WhatsApp template list only",
   createEventCode: "new code in the caller's organisation (its tournament is scope-checked)",
+  inviteMember: "new invite into the caller's organisation (never one named in the form)",
 };
 
 /** Data helpers that read or write rows, besides db() itself. */
@@ -255,7 +256,17 @@ describe("every staff route checks the organisation of the row it serves", () =>
 });
 
 /** Tables an organisation owns directly, and the column that scopes a child list. */
-const ORG_TABLES = ["tournaments", "event_groups", "seasons", "ranking_categories", "message_announcements", "organization_codes"];
+const ORG_TABLES = [
+  "tournaments",
+  "event_groups",
+  "seasons",
+  "ranking_categories",
+  "message_announcements",
+  "organization_codes",
+  "organizations",
+  "organization_members",
+  "organization_invites",
+];
 
 /** Line comments blanked out (same length), so a ";" in a comment never ends a statement. */
 const code = (text: string) => text.replace(/\/\/[^\n]*/g, (c) => " ".repeat(c.length));
@@ -296,6 +307,8 @@ describe("staff lists are filtered by organisation", () => {
  * scripts/e2e/organizations.ts.
  */
 const SECONDARY_GUARDS = [
+  // The posted organisation id must be the caller's own (src/lib/guard.ts).
+  "requireOrgPermission",
   "ownershipRefusal",
   "entityRefusal",
   "requireScopedPermission",
@@ -313,6 +326,10 @@ const SECONDARY_ID_ALLOWED: Record<string, string> = {
   "admin/friendly-sessions/actions.ts › releaseEntryAction › session_id": "only used to revalidate the page; the entry decides the organisation",
   "admin/tournaments/[id]/players/actions.ts › sendCode › player_id": "looked up together with .eq(\"tournament_id\", id) on the guarded tournament",
   "admin/tournaments/[id]/ties/actions.ts › delayOrderOfPlayAction › court_id": "only an extra filter on this tournament's own ties and rubbers (delayOrderOfPlay); never written",
+  "admin/platform/organizations/actions.ts › decideApplication › org_id": "platform admins (requirePlatformPermission) act on every organisation",
+  "admin/platform/organizations/actions.ts › setOrganizationStatus › org_id": "platform admins (requirePlatformPermission) act on every organisation",
+  "admin/platform/organizations/actions.ts › inviteToOrganization › org_id": "platform admins (requirePlatformPermission) act on every organisation",
+  "admin/platform/organizations/actions.ts › saveBilling › org_id": "platform admins (requirePlatformPermission) act on every organisation",
 };
 
 // (The screen controls' court ids are read in operator/…/control/actions.ts's helper

@@ -20,6 +20,7 @@ declare
     'organization_codes',
     'platform_admins',
     'organization_players',
+    'organization_invites',
     'rls_canary'
   ];
 begin

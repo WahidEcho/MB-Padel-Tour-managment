@@ -68,7 +68,7 @@ export function defaultParams(n: number, kind: "announcement" | "access_codes" |
 
 /* ---------------- transactional catalogue ---------------- */
 
-export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement";
+export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite";
 
 interface CatalogueEntry {
   email: (vars: Vars) => EmailInput;
@@ -112,6 +112,17 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
     }),
     whatsapp: { name: "mb_new_tournament", language: "en", params: ["first_name", "tournament", "message", "link"] },
     text: () => "Hi {first_name}, {tournament} is open for registration. {message} {link}",
+  },
+  // Email only (src/lib/orgs/invites.ts). The link is single-use and is never
+  // stored with the delivery (sendTransactional's `redact`).
+  staff_invite: {
+    email: () => ({
+      title: "Join {organization} on Move Score",
+      body: "Hi,\n\n{inviter} invited you to join {organization} on Move Score as {role}.\n\nOpen the link below and sign in with this email address ({email}), with Google or with your Move Score email and password. The link works once and expires in 7 days.\n\nIf you were not expecting this, ignore this email: nothing happens unless you open the link and sign in.",
+      cta: { label: "Accept the invitation", url: "{link}" },
+    }),
+    whatsapp: { name: "mb_staff_invite", language: "en", params: ["title", "link"] },
+    text: () => "{inviter} invited you to join {organization} on Move Score as {role}: {link}",
   },
   announcement: {
     email: () => ({ title: "{title}", body: "{message}", cta: null }),

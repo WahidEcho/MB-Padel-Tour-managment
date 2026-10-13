@@ -19,7 +19,7 @@ import type {
 } from "../types";
 import { DEFAULT_FOCAL } from "../portrait";
 import { orgTournamentIds } from "../orgs/scope";
-import { maskPersonFields, visiblePersonFields } from "../orgs/personFields";
+import { maskPersonFields, matchedElsewhere, visiblePersonFields } from "../orgs/personFields";
 
 /* ---------------- Sessions ---------------- */
 
@@ -114,26 +114,28 @@ export const ADMIN_PROFILE_COLUMNS =
 export async function listPlayerProfiles(orgId: string, search?: string, opts: { platformAdmin?: boolean } = {}): Promise<PlayerProfile[]> {
   const { data: mine } = await db()
     .from("organization_players")
-    .select("player_profile_id, approval_status, notes, level")
+    .select("player_profile_id, approval_status, notes, level, typed_name")
     .eq("organization_id", orgId)
     .limit(20000);
   const own = new Map(
-    ((mine ?? []) as { player_profile_id: string; approval_status: PlayerProfile["approval_status"]; notes: string | null; level: string | null }[]).map((r) => [r.player_profile_id, r]),
+    ((mine ?? []) as { player_profile_id: string; approval_status: PlayerProfile["approval_status"]; notes: string | null; level: string | null; typed_name: string | null }[]).map((r) => [r.player_profile_id, r]),
   );
   const ids = [...own.keys()];
   const visible = await visiblePersonFields(orgId, ids, opts);
   const out: PlayerProfile[] = [];
   for (let i = 0; i < ids.length; i += 200) {
-    let q = db().from("player_profiles").select(ADMIN_PROFILE_COLUMNS).is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
-    if (search && search.trim()) q = q.ilike("public_name", `%${search.trim()}%`);
-    const { data } = await q;
+    const { data } = await db().from("player_profiles").select(ADMIN_PROFILE_COLUMNS).is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
     for (const p of (data ?? []) as unknown as PlayerProfile[]) {
       const o = own.get(p.id)!;
       const row: PlayerProfile = { ...p, auth_user_id: null, approval_status: p.approval_status === "merged" ? "merged" : o.approval_status, notes: o.notes, skill_level: o.level };
-      out.push(visible.has(p.id) ? row : maskPersonFields(row));
+      out.push(visible.has(p.id) ? row : maskPersonFields(row, o.typed_name));
     }
   }
-  return out.sort((a, b) => a.public_name.localeCompare(b.public_name));
+  // Searched after masking: a hidden profile is found by the name this organisation
+  // sees (the typed one), never by its public name (which would confirm a guess).
+  const needle = search?.trim().toLowerCase();
+  const found = needle ? out.filter((p) => p.public_name.toLowerCase().includes(needle)) : out;
+  return found.sort((a, b) => a.public_name.localeCompare(b.public_name));
 }
 
 /** One profile, by id (server use). Not organisation-scoped: callers check the organisation first. */
@@ -186,15 +188,26 @@ export function toPublicPlayer(p: PublicPlayerRow): PublicPlayer {
   };
 }
 
-/** Public-safe lookup for a set of profile ids: names and faces, nothing else. */
-export async function listPublicPlayers(ids: string[]): Promise<Map<string, PublicPlayer>> {
+/**
+ * Public-safe lookup for a set of profile ids: names and faces, nothing else.
+ * `orgId`: the organisation whose page, ranking or screen this is. A profile it
+ * only matched by a typed mobile (src/lib/orgs/personFields.ts) shows the name
+ * typed on its form and no photo. Every caller showing an organisation's
+ * players passes it.
+ */
+export async function listPublicPlayers(ids: string[], orgId: string | null): Promise<Map<string, PublicPlayer>> {
   if (ids.length === 0) return new Map();
-  const { data } = await db()
-    .from("player_profiles")
-    .select(PUBLIC_PLAYER_COLUMNS)
-    .in("id", ids);
+  const [{ data }, masked] = await Promise.all([
+    db().from("player_profiles").select(PUBLIC_PLAYER_COLUMNS).in("id", ids),
+    matchedElsewhere(orgId, ids),
+  ]);
   const rows = (data ?? []) as unknown as PublicPlayerRow[];
-  return new Map(rows.map((r) => [r.id, toPublicPlayer(r)]));
+  return new Map(
+    rows.map((r) => {
+      const typed = masked.get(r.id);
+      return [r.id, toPublicPlayer(typed === undefined ? r : { ...r, public_name: typed, photo_url: null, portrait_url: null })];
+    }),
+  );
 }
 
 /* ---------------- Entries ---------------- */

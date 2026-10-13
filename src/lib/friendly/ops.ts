@@ -35,6 +35,7 @@ import {
 import { buildRanking, toMexicanoStandings, type LedgerEntry, type PlayerMatchStat } from "./ranking";
 import { ensureMainScreen } from "../screens";
 import { ensureOrgPlayer, orgsOfProfile, orgTournamentIds, resolveEntity } from "../orgs/scope";
+import { matchedElsewhere } from "../orgs/personFields";
 
 /* ------------------------------------------------------------------ */
 /* Session creation                                                    */
@@ -367,8 +368,9 @@ export async function registerForSession(input: RegistrationInput): Promise<Regi
   // found an existing one by the number typed (person fields then stay hidden from
   // this organisation while another one has the player).
   if (orgId) {
-    await ensureOrgPlayer(orgId, profileId, self.created ? "registration" : "matched");
-    if (partner) await ensureOrgPlayer(orgId, partner.id, partner.created ? "registration" : "matched");
+    // The name as typed is kept for a 'matched' profile: it is all the organisation sees of the name.
+    await ensureOrgPlayer(orgId, profileId, self.created ? "registration" : "matched", "pending", self.created ? null : publicName);
+    if (partner) await ensureOrgPlayer(orgId, partner.id, partner.created ? "registration" : "matched", "pending", partner.created ? null : partnerName);
   }
 
   // Remember the intended partnership so the organiser can honour it when
@@ -720,6 +722,10 @@ async function loadSessionContext(sessionId: string) {
   const names = new Map(
     ((profiles ?? []) as { id: string; public_name: string }[]).map((p) => [p.id, p.public_name])
   );
+  // Team names are the organisation's to see: a profile it only matched by a typed
+  // mobile is named as typed on its form (src/lib/orgs/personFields.ts).
+  const orgId = (await resolveEntity({ session: sessionId }))?.orgId ?? null;
+  for (const [id, typed] of await matchedElsewhere(orgId, profileIds)) names.set(id, typed);
   const courts = await getCourts(session.tournament_id);
 
   return { session, profileIds, names, courts };

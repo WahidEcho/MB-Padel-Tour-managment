@@ -204,7 +204,7 @@ export default async function TvScreen({
   if (mode === "leaderboard" && isSession) {
     if (session) {
       const ranking = await getRankingSnapshot("session", session.id);
-      const players = await listPublicPlayers(ranking.map((r) => r.player_profile_id));
+      const players = await listPublicPlayers(ranking.map((r) => r.player_profile_id), tournament.organization_id ?? null);
       rankingRows = ranking.flatMap((r) => {
         const p = players.get(r.player_profile_id);
         return p

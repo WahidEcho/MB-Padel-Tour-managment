@@ -65,6 +65,29 @@ export async function checkRateLimit({
 }
 
 /**
+ * Whether a bucket is still under its limit, without counting this request.
+ * With recordRateLimitHit, a brake that counts only what it is meant to (failed
+ * sign-ins, say) and never the requests that succeed.
+ */
+export async function peekRateLimit({ key, limit, windowSeconds }: RateLimitOptions): Promise<RateLimitResult> {
+  const now = Date.now();
+  const { data } = await db().from("request_counters").select("window_started_at, count").eq("bucket_key", key).maybeSingle();
+  const row = data as { window_started_at: string; count: number } | null;
+  const windowAge = row ? (now - new Date(row.window_started_at).getTime()) / 1000 : Infinity;
+  if (!row || windowAge >= windowSeconds) return { allowed: true, remaining: limit, retryAfterSeconds: 0 };
+  return {
+    allowed: row.count < limit,
+    remaining: Math.max(0, limit - row.count),
+    retryAfterSeconds: Math.max(1, Math.ceil(windowSeconds - windowAge)),
+  };
+}
+
+/** Counts one request against a bucket (the write half of checkRateLimit). */
+export async function recordRateLimitHit(opts: RateLimitOptions): Promise<void> {
+  await checkRateLimit(opts);
+}
+
+/**
  * Best-effort client IP from proxy headers.
  * Spoofable, so it is a throttle input only — never an identity or an
  * authorisation signal.

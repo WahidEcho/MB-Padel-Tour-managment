@@ -68,7 +68,61 @@ export async function visiblePersonFields(orgId: string, ids: string[], opts: { 
   return out;
 }
 
-/** Person fields blanked out; `person_hidden` tells the page why they are empty. */
-export function maskPersonFields<T extends Pick<PlayerProfile, "mobile_normalized" | "email" | "birth_year" | "gender" | "photo_url" | "portrait_url">>(p: T): T & { person_hidden: true } {
-  return { ...p, mobile_normalized: null, email: null, birth_year: null, gender: null, photo_url: null, portrait_url: null, person_hidden: true };
+/** What an organisation calls a profile it only matched, when nothing was typed on its form. */
+export const UNNAMED_MATCHED = "Registered player";
+
+/**
+ * Person fields blanked out; `person_hidden` tells the page why they are empty.
+ * The name too: the organisation sees the name typed on its own registration form
+ * (organization_players.typed_name), never the profile's public name, so typing
+ * a mobile number on a form can never turn it into the name of whose it is.
+ */
+export function maskPersonFields<T extends Pick<PlayerProfile, "public_name" | "mobile_normalized" | "email" | "birth_year" | "gender" | "photo_url" | "portrait_url">>(
+  p: T,
+  typedName?: string | null,
+): T & { person_hidden: true } {
+  return {
+    ...p,
+    public_name: typedName?.trim() || UNNAMED_MATCHED,
+    mobile_normalized: null,
+    email: null,
+    birth_year: null,
+    gender: null,
+    photo_url: null,
+    portrait_url: null,
+    person_hidden: true,
+  };
+}
+
+/**
+ * The profiles among `ids` this organisation only matched by a typed mobile while
+ * another organisation has them, with the name typed on its form. Everywhere the
+ * organisation shows a name (its admin pages, the team names its sessions make,
+ * its public session pages, rankings and screens), these show the typed name and
+ * no photo. Platform admins: none.
+ */
+export async function matchedElsewhere(orgId: string | null | undefined, ids: string[], opts: { platformAdmin?: boolean } = {}): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const wanted = [...new Set(ids.filter(isUuid))];
+  if (!isUuid(orgId) || opts.platformAdmin || wanted.length === 0) return out;
+  const typed = new Map<string, string | null>();
+  for (let i = 0; i < wanted.length; i += 200) {
+    const { data } = await db()
+      .from("organization_players")
+      .select("player_profile_id, typed_name")
+      .eq("organization_id", orgId)
+      .eq("source", "matched")
+      .in("player_profile_id", wanted.slice(i, i + 200));
+    for (const r of (data ?? []) as { player_profile_id: string; typed_name: string | null }[]) typed.set(r.player_profile_id, r.typed_name);
+  }
+  const matched = [...typed.keys()];
+  for (let i = 0; i < matched.length; i += 200) {
+    const { data } = await db()
+      .from("organization_players")
+      .select("player_profile_id")
+      .neq("organization_id", orgId)
+      .in("player_profile_id", matched.slice(i, i + 200));
+    for (const r of (data ?? []) as { player_profile_id: string }[]) out.set(r.player_profile_id, typed.get(r.player_profile_id)?.trim() || UNNAMED_MATCHED);
+  }
+  return out;
 }

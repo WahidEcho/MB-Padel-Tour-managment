@@ -262,11 +262,15 @@ export async function staffOrgsFor(userId: string): Promise<OrgChoice[]> {
  */
 export async function finishStaffSignIn(
   userId: string,
+  preferOrgId?: string | null,
 ): Promise<{ ok: true; token: string; org: OrgChoice; choices: number } | { ok: false; reason: "no_org" | "unavailable" }> {
   const orgs = await staffOrgsFor(userId);
   if (orgs.length === 0) return { ok: false, reason: "no_org" };
+  // Just accepted an invite: act for that organisation first.
+  const org = orgs.find((o) => o.id === preferOrgId) ?? orgs[0];
   try {
-    return { ok: true, token: memberToken(userId, orgs[0].id, orgs[0].role), org: orgs[0], choices: orgs.length };
+    // Several organisations: the switcher still comes next, so nobody lands in one unawares.
+    return { ok: true, token: memberToken(userId, org.id, org.role), org, choices: orgs.length };
   } catch (err) {
     console.error("staff sessions unavailable:", (err as Error).message);
     return { ok: false, reason: "unavailable" };

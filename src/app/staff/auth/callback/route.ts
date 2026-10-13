@@ -7,6 +7,7 @@ import { staffHome } from "@/lib/auth/staffRedirect";
 import { finishStaffSignIn, setStaffCookie, STAFF_WEB_HOURS } from "@/lib/auth/staff";
 import { audit } from "@/lib/audit";
 import { checkRateLimit, clientIpFrom } from "@/lib/ratelimit";
+import { acceptPendingInvite } from "@/lib/orgs/invites";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -35,7 +36,13 @@ export async function GET(request: Request) {
   const me = await getAuthUser(data.session.access_token);
   if (!me.ok || me.data.id !== data.user.id || me.data.is_anonymous) return to("/login?error=signin_failed");
 
-  const done = await finishStaffSignIn(me.data.id);
+  // An invite opened in this browser is accepted now, for this (confirmed) email only.
+  const invite = await acceptPendingInvite(me.data);
+  if (invite && !invite.ok) {
+    await signOutAuth(data.session.access_token).catch(() => false);
+    return to(`/invite?error=${invite.reason}`);
+  }
+  const done = await finishStaffSignIn(me.data.id, invite?.ok ? invite.orgId : null);
   await signOutAuth(data.session.access_token).catch(() => false);
   if (!done.ok) return to(`/login?error=${done.reason}`);
   await setStaffCookie(done.token, STAFF_WEB_HOURS);

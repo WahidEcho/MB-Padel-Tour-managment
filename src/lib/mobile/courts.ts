@@ -150,7 +150,8 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
           isTies: Boolean(p.t.format_config?.ties),
           showPhotos,
           featured: p.featured,
-          skin: card.skin,
+          // Discover's card already carries the organisation's branding defaults.
+          skin: p.card.skin ?? card.skin,
           imAtCourt: (() => {
             const md = matchDayRules(p.t.match_day_rules, p.t);
             return md.courtCall.on && md.extras.imAtCourt;

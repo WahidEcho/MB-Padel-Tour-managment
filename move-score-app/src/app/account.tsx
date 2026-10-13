@@ -246,6 +246,11 @@ export default function Account() {
         <Body tone="ink2" size={12.5}>For officials scoring matches at the event.</Body>
       </Card>
 
+      <Card onPress={() => void Linking.openURL(`${config.apiBaseUrl}/organizations/apply?via=app`)} accessibilityLabel="Run a club, academy or events? Apply to run them on Move Score" style={{ gap: 4 }}>
+        <Body weight="semi">Run a club, academy or events?</Body>
+        <Body tone="ink2" size={12.5}>Apply to run your tournaments on Move Score. Move Beyond reviews every application.</Body>
+      </Card>
+
       <SectionHeader title="About" />
       <Card style={{ gap: 10 }}>
         <Body tone="blue" weight="semi" onPress={() => void Linking.openURL(cfg.data?.privacyUrl ?? `${SITE}/privacy`)}>Privacy policy</Body>

@@ -22,7 +22,9 @@ export type EntityRef =
   | { eventGroup: string }
   | { season: string }
   | { category: string }
-  | { code: string };
+  | { code: string }
+  | { member: string }
+  | { invite: string };
 
 export interface EntityScope {
   orgId: string;
@@ -75,7 +77,11 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
           ? ["seasons", "organization_id", ref.season]
           : "category" in ref
             ? ["ranking_categories", "organization_id", ref.category]
-            : ["organization_codes", "organization_id, tournament_id", ref.code];
+            : "member" in ref
+              ? ["organization_members", "organization_id", ref.member]
+              : "invite" in ref
+                ? ["organization_invites", "organization_id", ref.invite]
+                : ["organization_codes", "organization_id, tournament_id", ref.code];
   const [table, columns, id] = direct;
   if (!isUuid(id)) return null;
   const row = await one<{ organization_id: string; tournament_id?: string | null }>(table, columns, id);
@@ -149,12 +155,14 @@ export async function ensureOrgPlayer(
   profileId: string,
   source: Exclude<OrgPlayerSource, "backfill">,
   approval: "pending" | "approved" = "pending",
+  typedName: string | null = null,
 ): Promise<void> {
   if (!isUuid(orgId) || !isUuid(profileId)) return;
+  const typed = typedName?.trim().slice(0, 80) || null;
   await db()
     .from("organization_players")
     .upsert(
-      { organization_id: orgId, player_profile_id: profileId, source, approval_status: approval },
+      { organization_id: orgId, player_profile_id: profileId, source, approval_status: approval, ...(typed ? { typed_name: typed } : {}) },
       { onConflict: "organization_id,player_profile_id", ignoreDuplicates: true },
     );
 }

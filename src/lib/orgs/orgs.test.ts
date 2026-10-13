@@ -39,6 +39,8 @@ describe("permission matrix", () => {
     check_in_session: ["owner", "admin", "manager", "referee"],
     send_messages: ["owner", "admin", "manager"],
     manage_codes: ["owner", "admin", "manager"],
+    manage_members: ["owner", "admin"],
+    manage_org_profile: ["owner", "admin"],
     manage_platform: ["owner", "admin"],
   };
   for (const [action, roles] of Object.entries(expected)) {
