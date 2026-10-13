@@ -30,7 +30,7 @@ export default async function LoginPage({
     "use server";
     const password = String(formData.get("password") ?? "");
     const nextUrl = safeNextPath(formData.get("next"));
-    const gate = await staffLoginAllowed(clientIpFrom(await headers()));
+    const gate = await staffLoginAllowed(clientIpFrom(await headers()), password);
     if (!gate.allowed) redirect(withNext("/login?error=2", nextUrl));
     const r = await signInWithAccessCode(password, STAFF_WEB_HOURS);
     if (!r.ok) redirect(withNext(`/login?error=${r.reason}`, nextUrl));

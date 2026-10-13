@@ -75,6 +75,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   The stand-in emulates sign-up, confirmation, password sign-in, recovery, OTP, anonymous users and its mailbox
   (`GET /auth/v1/_localdb/mail?to=`). Gates: `npm run e2e:mobile-signin` and the mobile-api E2E (player codes).
 - Vercel skips a deploy when the pushed head commit only touches `move-score-app/` (vercel.json ignoreCommand diffs HEAD^..HEAD). When a push ends with an app-only commit (e.g. a version bump) after server changes, push a commit that touches the server too, or redeploy from the Vercel dashboard.
+- Organisations (0023, `docs/organizations.md`): every posted id besides `tournament_id` goes through
+  `ownershipRefusal`/`entityRefusal` or a scoped guard (source-scanned in `src/lib/adminGuards.test.ts`);
+  person fields of a player another organisation has and this one only `matched` on its public form are
+  masked (`src/lib/orgs/personFields.ts`). The shared `ADMIN_PASSWORD` is **not** a platform admin: after
+  the deploy the owner reaches Discover/flags/merging only by signing in with their own Google or email
+  account (owner SQL in `docs/organizations.md`). Production needs `STAFF_SESSION_SECRET` and
+  `EVENT_CODE_PEPPER`; the web staff cookie is `__Host-mb_session` (plain `mb_session` on localhost only).
+  `supabase/gate/reopen_open_access.sql` must never reopen the private tables (`src/lib/gateSql.test.ts`).
 - Public site: `https://tour.mbeg.org` (one constant, `src/lib/site.ts`, shared with the app through `@core`; server links read
   `PUBLIC_SITE_URL` first via `siteUrl()` in `src/lib/messaging/links.ts`). Never write the old `mb-tournament.vercel.app` host
   into links, emails or docs; it survives only as the legacy universal-link host in `move-score-app/app.config.ts`.

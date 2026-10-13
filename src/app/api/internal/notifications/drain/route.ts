@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
+import { safeEqual } from "@/lib/auth/safeEqual";
 import { checkReceipts, drainNotifications } from "@/lib/notify/drain";
 
 /**
@@ -12,7 +12,7 @@ import { checkReceipts, drainNotifications } from "@/lib/notify/drain";
 async function run(request: Request) {
   const want = process.env.CRON_SECRET;
   const got = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  if (!want || got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) {
+  if (!want || !safeEqual(got, want)) {
     return NextResponse.json({ error: "Not allowed" }, { status: 401 });
   }
   const result = await drainNotifications(50);

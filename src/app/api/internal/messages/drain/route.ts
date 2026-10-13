@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
+import { safeEqual } from "@/lib/auth/safeEqual";
 import { drainMessages } from "@/lib/messaging/queue";
 
 /** Long announcements are sent in time-boxed chunks; one call sends for up to ~40 s. */
@@ -13,7 +13,7 @@ export const maxDuration = 60;
 async function run(request: Request) {
   const want = process.env.CRON_SECRET;
   const got = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  if (!want || got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) {
+  if (!want || !safeEqual(got, want)) {
     return NextResponse.json({ error: "Not allowed" }, { status: 401 });
   }
   const result = await drainMessages({ budgetMs: 40_000 });

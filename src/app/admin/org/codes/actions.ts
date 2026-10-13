@@ -13,7 +13,7 @@ export type CodeFormState = { ok: true; code: string; role: string; label: strin
 
 /**
  * A new event code for a referee or a TV operator. The code is shown once, here;
- * only its SHA-256 hash is stored, and it is never written to the audit log.
+ * only its peppered HMAC-SHA256 hash is stored, and it is never written to the audit log.
  */
 export async function createEventCode(_prev: CodeFormState, formData: FormData): Promise<CodeFormState> {
   const staff = await requireStaffPermission("manage_codes");
@@ -27,13 +27,20 @@ export async function createEventCode(_prev: CodeFormState, formData: FormData):
   const expiresAt = Number.isFinite(days) && days > 0 ? new Date(Date.now() + Math.min(days, 365) * 86_400_000).toISOString() : null;
 
   const code = generateEventCode();
+  let codeHash: string;
+  try {
+    codeHash = hashEventCode(code);
+  } catch (err) {
+    console.error("event codes unavailable:", (err as Error).message);
+    return { ok: false, message: "Event codes are not set up on this server yet (EVENT_CODE_PEPPER). Contact Move Beyond." };
+  }
   const { data, error } = await db()
     .from("organization_codes")
     .insert({
       organization_id: staff.orgId,
       role,
       tournament_id: tournamentId,
-      code_hash: hashEventCode(code),
+      code_hash: codeHash,
       label,
       expires_at: expiresAt,
       created_by: staff.userId,

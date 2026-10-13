@@ -10,6 +10,7 @@
 import { db } from "../supabase";
 import { isUuid } from "./roles";
 import type { StaffPrincipal } from "../auth/staff";
+import type { OrgPlayerSource } from "./personFields";
 
 export type EntityRef =
   | { tournament: string }
@@ -146,7 +147,7 @@ export async function profilesInOrg(orgId: string, ids: string[]): Promise<Set<s
 export async function ensureOrgPlayer(
   orgId: string,
   profileId: string,
-  source: "admin" | "registration" | "tournament" | "league" | "link",
+  source: Exclude<OrgPlayerSource, "backfill">,
   approval: "pending" | "approved" = "pending",
 ): Promise<void> {
   if (!isUuid(orgId) || !isUuid(profileId)) return;

@@ -65,7 +65,7 @@ function EntryRow({
           </span>
           {entry.source === "admin" && <span className="badge ml-1 bg-border text-muted">added by admin</span>}
         </p>
-        <p className="font-mono text-xs text-muted">{profile?.mobile_normalized ?? "no mobile"}</p>
+        <p className="font-mono text-xs text-muted">{profile?.person_hidden ? "contact details hidden" : (profile?.mobile_normalized ?? "no mobile")}</p>
       </div>
       <div className="flex flex-wrap gap-2">
         {live && (
@@ -97,7 +97,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
 
   const [entries, profiles, seasons, courtsRes, pairsRes, matchesRes] = await Promise.all([
     listEntries(id),
-    listPlayerProfiles(staff.orgId),
+    listPlayerProfiles(staff.orgId, undefined, { platformAdmin: staff.platformAdmin }),
     listSeasons(staff.orgId),
     db().from("courts").select("id, court_name, court_order").eq("tournament_id", session.tournament_id).order("court_order"),
     db()

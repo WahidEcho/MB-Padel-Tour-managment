@@ -172,10 +172,10 @@ async function nominateAll(t: Tournament, ties: Tie[]) {
   for (const tie of ties) {
     for (const side of ["A", "B"] as const) {
       const s = squad((side === "A" ? tie.team_a_id : tie.team_b_id)!);
-      const r = await setLineup(tie.id, side, { S1: s[0], S2: s[1], D: [s[0], s[2]] }, "e2e");
+      const r = await setLineup(tie.tournament_id, tie.id, side, { S1: s[0], S2: s[1], D: [s[0], s[2]] }, "e2e");
       if (!r.ok) throw new Error(r.message);
     }
-    await lockLineups(tie.id, "e2e");
+    await lockLineups(tie.tournament_id, tie.id, "e2e");
   }
 }
 
@@ -223,7 +223,7 @@ async function main() {
         for (const [i, tie] of list.entries()) {
           const court = courts[i % courts.length];
           const slot = Math.floor(i / courts.length);
-          const r = await scheduleTie(tie.id, court.id, zonedToIso(`${day}T${String(9 + slot * 3).padStart(2, "0")}:30`), "e2e");
+          const r = await scheduleTie(tie.tournament_id, tie.id, court.id, zonedToIso(`${day}T${String(9 + slot * 3).padStart(2, "0")}:30`), "e2e");
           if (!r.ok) throw new Error(r.message);
         }
       }
@@ -249,9 +249,9 @@ async function main() {
     {
       const teams = await getTeams(girls.t.id);
       const s = teams.find((x) => x.id === gTie.team_a_id)!.players!.sort((a, b) => a.player_order - b.player_order).map((p) => p.id);
-      const refused = await setLineup(gTie.id, "A", { S1: s[2], S2: s[1], D: [s[0], s[1]] }, "e2e");
+      const refused = await setLineup(gTie.tournament_id, gTie.id, "A", { S1: s[2], S2: s[1], D: [s[0], s[1]] }, "e2e");
       check("after the lock, a change without a reason is refused", !refused.ok);
-      const ok = await setLineup(gTie.id, "A", { S1: s[2], S2: s[1], D: [s[0], s[1]] }, "e2e", { lateChangeReason: "No. 1 player ill overnight" });
+      const ok = await setLineup(gTie.tournament_id, gTie.id, "A", { S1: s[2], S2: s[1], D: [s[0], s[1]] }, "e2e", { lateChangeReason: "No. 1 player ill overnight" });
       const s1 = (await getMatches(girls.t.id)).find((m) => m.tie_id === gTie.id && m.rubber_type === "S1")!;
       check("with a reason it goes through, and the rubber has the new player", ok.ok && s1.team_a_player_ids?.[0] === s[2]);
       const wall = await http(`/t/${girls.t.slug}/screen/court-2-tv`);

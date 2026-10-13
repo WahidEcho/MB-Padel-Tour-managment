@@ -33,6 +33,9 @@ export default function PlayerCard({
   duplicateOf?: string;
 }) {
   const age = ageFrom(player.birth_year);
+  // Another organisation's player that this one only matched by a typed mobile:
+  // the person's own fields are not shown, and not editable here.
+  const hidden = Boolean(player.person_hidden);
 
   // Only show the detail strip when there is something in it.
   const details: string[] = [];
@@ -53,12 +56,21 @@ export default function PlayerCard({
                 <span className="badge ml-1 bg-accent/15 text-accent">🔥 {player.active_streak}</span>
               )}
             </h3>
-            <p className="font-mono text-xs text-muted">
-              {player.mobile_normalized ?? "no mobile on file"}
-            </p>
-            <p className="text-[11px] text-muted">
-              {player.photo_url || player.portrait_url ? "Photo set" : "No photo"}
-            </p>
+            {hidden ? (
+              <p className="text-xs text-muted" data-testid="person-hidden">
+                Contact details hidden: this player also plays with another organisation and joined yours through your
+                registration form. They will see you in the Move Score app.
+              </p>
+            ) : (
+              <>
+                <p className="font-mono text-xs text-muted">
+                  {player.mobile_normalized ?? "no mobile on file"}
+                </p>
+                <p className="text-[11px] text-muted">
+                  {player.photo_url || player.portrait_url ? "Photo set" : "No photo"}
+                </p>
+              </>
+            )}
           </div>
         </div>
         <span className={`badge shrink-0 ${APPROVAL_BADGE[player.approval_status] ?? "bg-border text-muted"}`}>
@@ -78,6 +90,7 @@ export default function PlayerCard({
 
       {player.notes && <p className="text-xs text-muted">{player.notes}</p>}
 
+      {!hidden && (
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-xs font-semibold text-muted">Can contact via</span>
         {CHANNELS.map((c) => {
@@ -101,6 +114,7 @@ export default function PlayerCard({
           );
         })}
       </div>
+      )}
 
       <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-2">
         {player.approval_status !== "approved" && (
@@ -127,6 +141,10 @@ export default function PlayerCard({
           <summary className="cursor-pointer text-xs font-semibold text-muted">Edit details</summary>
           <form action={updatePlayerProfile} className="mt-2 grid gap-2 sm:grid-cols-2">
             <input type="hidden" name="profile_id" value={player.id} />
+            {hidden ? (
+              <input type="hidden" name="public_name" value={player.public_name} />
+            ) : (
+            <>
             <div className="sm:col-span-2">
               <PlayerPhotoField
                 name="player"
@@ -146,10 +164,14 @@ export default function PlayerCard({
               <label className="label">Mobile</label>
               <input name="mobile" defaultValue={player.mobile_normalized ?? ""} className="input text-sm" />
             </div>
+            </>
+            )}
             <div>
               <label className="label">Level</label>
               <input name="skill_level" defaultValue={player.skill_level ?? ""} className="input text-sm" placeholder="e.g. B, 4.5" />
             </div>
+            {!hidden && (
+            <>
             <div>
               <label className="label">Birth year</label>
               <input name="birth_year" type="number" min={1900} max={2100} defaultValue={player.birth_year ?? ""} className="input text-sm" placeholder="1994" />
@@ -167,6 +189,8 @@ export default function PlayerCard({
               <label className="label">Email</label>
               <input name="email" type="email" defaultValue={player.email ?? ""} className="input text-sm" />
             </div>
+            </>
+            )}
             <div className="sm:col-span-2">
               <label className="label">Notes</label>
               <input name="notes" defaultValue={player.notes ?? ""} className="input text-sm" placeholder="anything else, admin-only" />

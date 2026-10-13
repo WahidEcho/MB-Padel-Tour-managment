@@ -19,6 +19,7 @@ import type {
 } from "../types";
 import { DEFAULT_FOCAL } from "../portrait";
 import { orgTournamentIds } from "../orgs/scope";
+import { maskPersonFields, visiblePersonFields } from "../orgs/personFields";
 
 /* ---------------- Sessions ---------------- */
 
@@ -94,12 +95,23 @@ export async function listRankingCategories(orgId: string): Promise<RankingCateg
 /* ---------------- Player profiles ---------------- */
 
 /**
- * Admin-only: includes the mobile number.
+ * The columns an admin page reads from a profile. Spelled out rather than `*`,
+ * so a column added to player_profiles later (a private one) never reaches an
+ * admin page — or another organisation — by default.
+ */
+export const ADMIN_PROFILE_COLUMNS =
+  "id, public_name, mobile_normalized, approval_status, active_streak, streak_last_ledger_id, merged_into_profile_id, claim_status, email, birth_year, skill_level, gender, notes, photo_url, portrait_url, focal_x, focal_y, created_at, updated_at";
+
+/**
+ * Admin-only: the organisation's players, with its own (org-private) approval,
+ * notes and level. The person's own fields (mobile, email, birth year, gender,
+ * photo) are masked on a profile this organisation may not see them on
+ * (src/lib/orgs/personFields.ts): it only matched an existing player by the
+ * number typed on its public form, and another organisation has the player.
  * Never pass the result of this to a public page — use `listPublicPlayers`
  * or `toPublicPlayer` instead.
  */
-export async function listPlayerProfiles(orgId: string, search?: string): Promise<PlayerProfile[]> {
-  // The organisation's players only, with its own (org-private) approval, notes and level.
+export async function listPlayerProfiles(orgId: string, search?: string, opts: { platformAdmin?: boolean } = {}): Promise<PlayerProfile[]> {
   const { data: mine } = await db()
     .from("organization_players")
     .select("player_profile_id, approval_status, notes, level")
@@ -109,34 +121,37 @@ export async function listPlayerProfiles(orgId: string, search?: string): Promis
     ((mine ?? []) as { player_profile_id: string; approval_status: PlayerProfile["approval_status"]; notes: string | null; level: string | null }[]).map((r) => [r.player_profile_id, r]),
   );
   const ids = [...own.keys()];
+  const visible = await visiblePersonFields(orgId, ids, opts);
   const out: PlayerProfile[] = [];
   for (let i = 0; i < ids.length; i += 200) {
-    let q = db().from("player_profiles").select("*").is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
+    let q = db().from("player_profiles").select(ADMIN_PROFILE_COLUMNS).is("merged_into_profile_id", null).in("id", ids.slice(i, i + 200));
     if (search && search.trim()) q = q.ilike("public_name", `%${search.trim()}%`);
     const { data } = await q;
-    for (const p of (data ?? []) as PlayerProfile[]) {
+    for (const p of (data ?? []) as unknown as PlayerProfile[]) {
       const o = own.get(p.id)!;
-      out.push({ ...p, approval_status: p.approval_status === "merged" ? "merged" : o.approval_status, notes: o.notes, skill_level: o.level });
+      const row: PlayerProfile = { ...p, auth_user_id: null, approval_status: p.approval_status === "merged" ? "merged" : o.approval_status, notes: o.notes, skill_level: o.level };
+      out.push(visible.has(p.id) ? row : maskPersonFields(row));
     }
   }
   return out.sort((a, b) => a.public_name.localeCompare(b.public_name));
 }
 
+/** One profile, by id (server use). Not organisation-scoped: callers check the organisation first. */
 export async function getPlayerProfile(id: string): Promise<PlayerProfile | null> {
-  const { data } = await db().from("player_profiles").select("*").eq("id", id).maybeSingle();
-  return data as PlayerProfile | null;
+  const { data } = await db().from("player_profiles").select(ADMIN_PROFILE_COLUMNS).eq("id", id).maybeSingle();
+  return data as unknown as PlayerProfile | null;
 }
 
-/** Find an existing profile by canonical mobile. Admin/server use only. */
+/** Find an existing profile by canonical mobile. Server use only; never shown to an organisation as is. */
 export async function findProfileByMobile(
   mobileNormalized: string
 ): Promise<PlayerProfile | null> {
   const { data } = await db()
     .from("player_profiles")
-    .select("*")
+    .select(ADMIN_PROFILE_COLUMNS)
     .eq("mobile_normalized", mobileNormalized)
     .maybeSingle();
-  return data as PlayerProfile | null;
+  return data as unknown as PlayerProfile | null;
 }
 
 /** Strip a profile down to what public pages are allowed to see. */

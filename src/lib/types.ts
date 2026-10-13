@@ -712,6 +712,11 @@ export interface PlayerProfile extends PhotoFields {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Set by the admin lists when this organisation may not see the person's own
+   * fields (src/lib/orgs/personFields.ts): they are blanked, not missing.
+   */
+  person_hidden?: boolean;
 }
 
 /** Public projection of a profile — safe to send to unauthenticated pages. */

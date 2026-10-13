@@ -17,7 +17,8 @@
  * format (`role.expiry.signature`, signed with AUTH_SECRET; src/lib/auth.ts)
  * until they are retired at the end of Phase 0.5.
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { safeEqual } from "./safeEqual";
 import { isCodeRole, isOrgRole, isUuid, type OrgRole } from "../orgs/roles";
 
 export const STAFF_TOKEN_PREFIX = "mbs1.";
@@ -61,7 +62,7 @@ export function verifyStaffToken(token: string | null | undefined, secret: strin
   const body = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   const expected = mac(body, secret);
-  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  if (!safeEqual(sig, expected)) return null;
   let p: Record<string, unknown>;
   try {
     p = JSON.parse(Buffer.from(body.slice(STAFF_TOKEN_PREFIX.length), "base64url").toString("utf8"));

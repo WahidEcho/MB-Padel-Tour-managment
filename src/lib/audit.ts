@@ -2,6 +2,9 @@ import { db } from "./supabase";
 import { currentStaffIfAny, type StaffPrincipal } from "./auth/staff";
 import { orgOfTournament } from "./orgs/scope";
 
+/** Roles of flows no staff member performs (public forms, app users' own account routes). */
+export const PUBLIC_ACTORS = new Set(["public", "user"]);
+
 /** Who did it, for the audit row: a member's user id, or "code:<id>" for an event code. */
 function actorUserId(staff: StaffPrincipal | null): string | null {
   if (!staff) return null;
@@ -33,15 +36,20 @@ export async function audit(entry: {
   const newValue = isUuid
     ? (entry.new_value ?? null)
     : { entity_key: id, ...(entry.new_value && typeof entry.new_value === "object" ? entry.new_value : { value: entry.new_value ?? null }) };
-  const staff = await currentStaffIfAny();
+  // A public or app-user flow (a registration form, the app's own account
+  // routes) is never a staff action, even when the browser also carries a staff
+  // cookie: no staff role, user or organisation is stamped on it.
+  const publicFlow = PUBLIC_ACTORS.has(entry.actor_role ?? "");
+  const staff = publicFlow ? null : await currentStaffIfAny();
   const organizationId =
     entry.organization_id ?? (entry.tournament_id ? await orgOfTournament(entry.tournament_id).catch(() => null) : null) ?? staff?.orgId ?? null;
   const { error } = await db().from("audit_logs").insert({
     tournament_id: entry.tournament_id ?? null,
     organization_id: organizationId,
     actor_user_id: actorUserId(staff),
-    // The organisation role (owner, not the admin it acts as) when a staff member did it.
-    actor_role: staff?.orgRole ?? entry.actor_role ?? null,
+    // The organisation role (owner, not the admin it acts as) when a staff member did
+    // it; an explicit "system" (automatic follow-up work) keeps its own label.
+    actor_role: entry.actor_role === "system" ? "system" : (staff?.orgRole ?? entry.actor_role ?? null),
     action: entry.action,
     entity_type: entry.entity_type ?? null,
     entity_id: isUuid ? id : null,

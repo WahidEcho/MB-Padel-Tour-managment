@@ -3,8 +3,10 @@
  * announcement's organisation: an organisation messages only its own players.
  *
  * - all_players: every one of the organisation's players (organization_players)
- *   it has approved or not yet decided on (not rejected, not merged away).
- *   Contact details live on the profile (email, mobile_normalized).
+ *   it has approved or not yet decided on (not rejected, not merged away), whose
+ *   person fields it may see (src/lib/orgs/personFields.ts): another
+ *   organisation's player it only matched by a number typed on its public form is
+ *   left out. Contact details live on the profile (email, mobile_normalized).
  * - tournament / nation: the players entered in one of the organisation's
  *   tournaments, or in its teams carrying a nation code. Contact: the player's own phone/email (players.phone,
  *   players.email), else their linked profile's, else the team's contact phone.
@@ -19,6 +21,7 @@ import { formatAccessCode } from "../players/accessCode";
 import { appLink, tournamentLink } from "./links";
 import { parsePastedList, type Recipient } from "./recipients";
 import { orgTournamentIds, resolveEntity } from "../orgs/scope";
+import { visiblePersonFields } from "../orgs/personFields";
 import type { Channel } from "./status";
 import type { Audience } from "./audienceSpec";
 
@@ -160,9 +163,10 @@ export async function resolveAudience(a: Audience, orgId: string): Promise<Resol
           .order("created_at")
           .range(from, to),
       );
+      const reachable = await visiblePersonFields(orgId, mine.map((m) => m.player_profile_id));
       const profiles = (
         await inChunks<ProfileRow & { approval_status: string; created_at: string }>(
-          mine.map((m) => m.player_profile_id),
+          mine.map((m) => m.player_profile_id).filter((id) => reachable.has(id)),
           (c) => db().from("player_profiles").select("id, public_name, mobile_normalized, email, approval_status, created_at").in("id", c),
         )
       )

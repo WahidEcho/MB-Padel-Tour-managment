@@ -182,8 +182,73 @@ describe("shared role passwords: Move Beyond only", () => {
   it("sign-in with the shared password", async () => {
     expect(await signInWithAccessCode("shared-ref-pass", 24)).toMatchObject({ ok: true, kind: "shared", role: "referee", orgId: MB });
   });
+  it("the shared admin password is never a platform admin", async () => {
+    expect(await resolveStaffToken(createSessionToken("admin"))).toMatchObject({ ok: true, staff: { kind: "shared", role: "admin", platformAdmin: false } });
+  });
   it("anything else is not a staff token", async () => {
     expect(await resolveStaffToken("eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ4In0.sig")).toBeNull();
     expect(await resolveStaffToken("mbs1.garbage.sig")).toEqual({ ok: false, reason: "signed_out" });
+  });
+});
+
+describe("malformed signatures never throw (multi-byte characters of the right string length)", () => {
+  /** The same string length, more bytes: "é" is one UTF-16 unit and two UTF-8 bytes. */
+  const multiByte = (token: string) => `${token.slice(0, -1)}é`;
+  it("safeEqual compares bytes, not string length", async () => {
+    const { safeEqual } = await import("./safeEqual");
+    expect(safeEqual("abc", "abc")).toBe(true);
+    expect(safeEqual("abé", "abc")).toBe(false);
+    expect(safeEqual("abc", "abé")).toBe(false);
+    expect(safeEqual("", "")).toBe(true);
+    expect(safeEqual("a", "")).toBe(false);
+  });
+  it("an mbs1 staff token", async () => {
+    const bad = multiByte(memberToken(USER, ORG, "manager"));
+    expect(await resolveStaffToken(bad)).toEqual({ ok: false, reason: "signed_out" });
+  });
+  it("a shared-password token", async () => {
+    const bad = multiByte(createSessionToken("admin"));
+    expect(await resolveStaffToken(bad)).toBeNull();
+    const { verifySessionToken } = await import("../auth");
+    expect(verifySessionToken(bad)).toBeNull();
+  });
+  it("the Google sign-in state cookie", async () => {
+    const { sealOAuthState, openOAuthState } = await import("./staffOAuth");
+    const sealed = sealOAuthState("v".repeat(43), "/admin");
+    expect(openOAuthState(sealed)).not.toBeNull();
+    expect(openOAuthState(multiByte(sealed))).toBeNull();
+  });
+  it("the app's install token", async () => {
+    const { verifyInstallToken } = await import("../mobile/identity");
+    expect(verifyInstallToken(`id.${"n".repeat(16)}.${"s".repeat(42)}é`)).toBeNull();
+  });
+});
+
+describe("the staff cookie", () => {
+  it("is __Host- and Secure off localhost; plain only on a local development server", async () => {
+    const { staffCookieFor, staffCookieNames } = await import("../auth");
+    expect(staffCookieFor("tour.mbeg.org")).toEqual({ name: "__Host-mb_session", secure: true });
+    expect(staffCookieFor(null)).toEqual({ name: "__Host-mb_session", secure: true });
+    expect(staffCookieFor("localhost:3077")).toEqual({ name: "mb_session", secure: false });
+    expect(staffCookieFor("127.0.0.1:3000")).toEqual({ name: "mb_session", secure: false });
+    expect(staffCookieFor("localhost.evil.example")).toEqual({ name: "__Host-mb_session", secure: true });
+    expect(staffCookieNames("tour.mbeg.org")).toEqual(["__Host-mb_session"]);
+    expect(staffCookieNames("localhost:3077")).toEqual(["__Host-mb_session", "mb_session"]);
+  });
+});
+
+describe("staff login brakes", () => {
+  it("bucket codes by a hashed prefix, never storing the characters", async () => {
+    const { codePrefixKey } = await import("../staffLogin");
+    const k = codePrefixKey("k7qm-w3xt-9hrp")!;
+    expect(k).toBe(codePrefixKey("K7QMW3XT9HRP"));
+    expect(k).not.toMatch(/K7QM/i);
+    expect(codePrefixKey("ABCD-W3XT-9HRP")).not.toBe(k);
+    expect(codePrefixKey("")).toBeNull();
+  });
+  it("have no platform-wide ceiling one attacker could fill", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../staffLogin.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/staff-login:all/);
   });
 });

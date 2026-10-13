@@ -198,20 +198,26 @@ export interface Lineup {
 
 export type LineupResult = { ok: true } | { ok: false; message: string };
 
+/** One answer for an unknown tie and another tournament's (the same words as rowGuards' ownershipRefusal). */
+export const TIE_NOT_HERE = "That tie is not part of this tournament. Reload the page.";
+
 /**
  * A captain's nominations for one side of a tie. Free until the line-ups are
  * locked; after that only with a stated reason, which is audited as a late
  * change. A rubber already under way never changes its players.
  */
 export async function setLineup(
+  tournamentId: string,
   tieId: string,
   side: "A" | "B",
   lineup: Lineup,
   actorRole: string,
   opts: { lateChangeReason?: string } = {},
 ): Promise<LineupResult> {
-  const { data: tie } = await db().from("ties").select("*").eq("id", tieId).single();
-  if (!tie) return { ok: false, message: "Tie not found." };
+  // By the tie's id and the tournament it must belong to: a tie of another
+  // tournament (or organisation) and an unknown id get the same answer.
+  const { data: tie } = await db().from("ties").select("*").eq("id", tieId).eq("tournament_id", tournamentId).maybeSingle();
+  if (!tie) return { ok: false, message: TIE_NOT_HERE };
   const t = tie as Tie;
   const teamId = side === "A" ? t.team_a_id : t.team_b_id;
   if (!teamId) return { ok: false, message: "That side of the tie is not known yet." };
@@ -250,7 +256,9 @@ export async function setLineup(
 }
 
 /** Locks both line-ups. Refused until every rubber has its players on both sides. */
-export async function lockLineups(tieId: string, actorRole: string): Promise<LineupResult> {
+export async function lockLineups(tournamentId: string, tieId: string, actorRole: string): Promise<LineupResult> {
+  const { data: own } = await db().from("ties").select("id").eq("id", tieId).eq("tournament_id", tournamentId).maybeSingle();
+  if (!own) return { ok: false, message: TIE_NOT_HERE };
   const rubbers = await tieRubbers(tieId);
   const missing = rubbers.filter((r) => !(r.team_a_player_ids?.length && r.team_b_player_ids?.length));
   if (missing.length) {
@@ -260,6 +268,7 @@ export async function lockLineups(tieId: string, actorRole: string): Promise<Lin
     .from("ties")
     .update({ lineup_locked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", tieId)
+    .eq("tournament_id", tournamentId)
     .select("tournament_id")
     .single();
   await audit({ tournament_id: tie?.tournament_id ?? null, actor_role: actorRole, action: "LINEUPS_LOCKED", entity_type: "tie", entity_id: tieId });
@@ -594,19 +603,25 @@ export async function delayOrderOfPlay(
  * A rubber already on court stays where it is.
  */
 export async function scheduleTie(
+  tournamentId: string,
   tieId: string,
   courtId: string | null,
   at: string | null,
   actorRole: string,
 ): Promise<LineupResult> {
-  const { data: tie } = await db().from("ties").select("id, tournament_id, status, court_id, scheduled_time").eq("id", tieId).single();
-  if (!tie) return { ok: false, message: "That tie no longer exists." };
+  const { data: tie } = await db()
+    .from("ties")
+    .select("id, tournament_id, status, court_id, scheduled_time")
+    .eq("id", tieId)
+    .eq("tournament_id", tournamentId)
+    .maybeSingle();
+  if (!tie) return { ok: false, message: TIE_NOT_HERE };
   if (tie.status === "completed") return { ok: false, message: "That tie is finished." };
   if (courtId) {
     const { data: court } = await db().from("courts").select("id").eq("id", courtId).eq("tournament_id", tie.tournament_id).single();
     if (!court) return { ok: false, message: "That court is not in this event." };
   }
-  await db().from("ties").update({ court_id: courtId, scheduled_time: at }).eq("id", tieId);
+  await db().from("ties").update({ court_id: courtId, scheduled_time: at }).eq("id", tieId).eq("tournament_id", tournamentId);
   const { data: rubbers } = await db().from("matches").select("id, rubber_no").eq("tie_id", tieId).in("status", ["scheduled", "ready"]);
   const now = new Date().toISOString();
   for (const r of rubbers ?? []) {

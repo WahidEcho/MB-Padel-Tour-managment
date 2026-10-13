@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { can, createSessionToken, verifySessionToken } from "../auth";
-import { CODE_ALPHABET, CODE_LENGTH, formatEventCode, generateEventCode, hashEventCode, normalizeEventCode } from "./codes";
+import { CODE_ALPHABET, CODE_LENGTH, eventCodePepper, formatEventCode, generateEventCode, hashEventCode, normalizeEventCode } from "./codes";
+import { personFieldsVisibleFor } from "./personFields";
 import { ORG_ROLES, isCodeRole, isOrgSlug, isUuid, permissionRole } from "./roles";
 import { principalReaches } from "./scope";
 import { isStaffTokenShaped, signStaffToken, staffSecret, verifyStaffToken, type StaffTokenPayload } from "../auth/staffToken";
@@ -87,13 +88,23 @@ describe("event codes", () => {
     expect(normalizeEventCode("hunter2")).toBeNull();
     expect(normalizeEventCode(42)).toBeNull();
   });
-  it("are stored as a SHA-256 hex digest, never in clear", () => {
+  it("are stored as a peppered HMAC-SHA256 hex digest, never in clear", () => {
     const c = generateEventCode();
     const h = hashEventCode(c);
     expect(h).toMatch(/^[0-9a-f]{64}$/);
     expect(h).not.toContain(c);
     expect(hashEventCode(c)).toBe(h);
     expect(hashEventCode(generateEventCode())).not.toBe(h);
+    // Keyed: without the pepper the stored value cannot be recomputed from a code.
+    expect(hashEventCode(c, "p".repeat(32))).not.toBe(h);
+    expect(hashEventCode(c, "p".repeat(32))).not.toBe(hashEventCode(c, "q".repeat(32)));
+  });
+  it("the pepper is required in production and derived in development", () => {
+    expect(() => eventCodePepper({ NODE_ENV: "production" })).toThrow(/EVENT_CODE_PEPPER/);
+    expect(() => eventCodePepper({ NODE_ENV: "production", EVENT_CODE_PEPPER: "short" })).toThrow(/EVENT_CODE_PEPPER/);
+    expect(eventCodePepper({ NODE_ENV: "production", EVENT_CODE_PEPPER: "x".repeat(40) })).toBe("x".repeat(40));
+    expect(eventCodePepper({ NODE_ENV: "development", AUTH_SECRET: "a" })).toBe(eventCodePepper({ NODE_ENV: "test", AUTH_SECRET: "a" }));
+    expect(eventCodePepper({ NODE_ENV: "development", AUTH_SECRET: "a" })).not.toBe(eventCodePepper({ NODE_ENV: "development", AUTH_SECRET: "b" }));
   });
 });
 
@@ -214,5 +225,21 @@ describe("staff sign-in redirects", () => {
     expect(openOAuthState(`${body}.${sig}x`, NOW, SECRET)).toBeNull();
     // A next that is not a site path is dropped even when signed.
     expect(openOAuthState(sealOAuthState(verifier, "//evil.example", NOW, SECRET), NOW, SECRET)?.next).toBeNull();
+  });
+});
+
+describe("person fields (who sees a player's mobile, email, birth year, photo, consents)", () => {
+  it("an organisation that created or added the player sees them", () => {
+    for (const source of ["backfill", "admin", "registration", "tournament", "league", "link"]) {
+      expect(personFieldsVisibleFor(source, 0), source).toBe(true);
+      expect(personFieldsVisibleFor(source, 3), source).toBe(true);
+    }
+  });
+  it("a profile only matched by a typed mobile is hidden while another organisation has it", () => {
+    expect(personFieldsVisibleFor("matched", 1)).toBe(false);
+    expect(personFieldsVisibleFor("matched", 0)).toBe(true);
+  });
+  it("not the organisation's player: nothing", () => {
+    expect(personFieldsVisibleFor(null, 0)).toBe(false);
   });
 });

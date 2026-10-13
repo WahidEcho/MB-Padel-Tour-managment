@@ -17,6 +17,10 @@ import { DEFAULT_FOCAL } from "@/lib/portrait";
  * otherwise one organisation could rewrite another's player.
  */
 
+/** The same words for a number this organisation's player has and one another organisation's has. */
+const MOBILE_TAKEN =
+  "That mobile number is already on Move Score. If they are your player, edit their profile; otherwise ask them to register through your session's link.";
+
 /** The staff member, once the profile is one of their organisation's players ("not found" otherwise). */
 async function requireOwnProfile(profileId: string): Promise<{ staff: StaffPrincipal; onlyOrg: boolean }> {
   const staff = await requireStaffPermission("manage_players");
@@ -116,13 +120,10 @@ export async function createPlayerProfile(formData: FormData) {
       .select("id, public_name")
       .eq("mobile_normalized", mobile)
       .maybeSingle();
-    if (existing) {
-      // Only name the existing player when they are already this organisation's.
-      if (await profileInOrg(staff.orgId, existing.id)) {
-        throw new Error(`That mobile already belongs to "${existing.public_name}". Edit that profile instead.`);
-      }
-      throw new Error("That mobile already belongs to a player on Move Score. Ask Move Beyond to add them to your organisation.");
-    }
+    // One answer whoever has the number (this organisation, another one, or a
+    // player with no organisation), so the form never tells whether a number
+    // belongs to another organisation's player, or whose.
+    if (existing) throw new Error(MOBILE_TAKEN);
   }
 
   const details = detailFields(formData);
@@ -189,13 +190,11 @@ export async function updatePlayerProfile(formData: FormData) {
     if (mobile) {
       const { data: clash } = await db()
         .from("player_profiles")
-        .select("id, public_name")
+        .select("id")
         .eq("mobile_normalized", mobile)
         .neq("id", id)
         .maybeSingle();
-      if (clash) {
-        throw new Error((await profileInOrg(staff.orgId, clash.id)) ? `That mobile already belongs to "${clash.public_name}".` : "That mobile already belongs to another player.");
-      }
+      if (clash) throw new Error(MOBILE_TAKEN);
     }
     const { error } = await db()
       .from("player_profiles")

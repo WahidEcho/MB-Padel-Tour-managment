@@ -22,7 +22,7 @@ export function staffHome(role: string): string {
 /** The sign-in page's messages, by the `error` it is sent back with. */
 export const LOGIN_ERRORS: Record<string, string> = {
   "1": "Wrong access code. Try again.",
-  "2": "Too many attempts from this network. Wait 15 minutes and try again.",
+  "2": "Too many attempts. Wait 15 minutes and try again.",
   wrong_code: "Wrong access code. Try again.",
   bad_login: "Email or password is incorrect.",
   email_not_confirmed: "Confirm your email first: open the link we sent you when you signed up in Move Score.",

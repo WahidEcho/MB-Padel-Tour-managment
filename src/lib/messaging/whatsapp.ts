@@ -10,7 +10,8 @@
  * later on the webhook, and that is where a number without WhatsApp shows up
  * (error 131026). The pure parts here are tested; `graphRequest` is the network.
  */
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac } from "crypto";
+import { safeEqual } from "../auth/safeEqual";
 import type { DeliveryStatus } from "./status";
 import type { StatusUpdate } from "./email";
 
@@ -220,8 +221,7 @@ export function verifyMetaSignature(appSecret: string | undefined, rawBody: stri
   if (!appSecret || !header || !header.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", appSecret).update(rawBody).digest("hex");
   const got = header.slice(7);
-  if (got.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+  return safeEqual(got, expected);
 }
 
 export function signMeta(appSecret: string, rawBody: string): string {
