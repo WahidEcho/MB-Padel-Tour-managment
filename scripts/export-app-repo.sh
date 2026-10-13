@@ -48,6 +48,8 @@ SHARED=(
   sports/registry.ts
   tennis/nations.ts
   tennis/ties.ts
+  tennis/tvScene.ts
+  tv/showcase.ts
   types.ts
 )
 

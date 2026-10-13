@@ -44,3 +44,5 @@ export { JOIN_MODES, joinDecision, normalizeJoinModes, normalizeInviteCode } fro
 export type { JoinMode, JoinDecision, JoinRefusal, JoinLeague, JoinApplicant, MembershipStatus } from "../../../src/lib/leagues/join";
 export { orderOfPlay, estimateTimes, aboutTime } from "../../../src/lib/friendly/scheduler";
 export type { ScheduledRound, ScheduledMatch, CourtOrder, CourtOrderEntry, MatchEstimate } from "../../../src/lib/friendly/scheduler";
+export { courtScene, nextAfter, heroCards, isLiveScene, sceneMatchIds, showcaseOn, rulesForMatch, sideIdentity, sidePlayers, sideName, WALKON, RUBBER_WON_MS, TIE_FINAL_MS, RESULT_REST_MS } from "../../../src/lib/tv/showcase";
+export type { ShowcaseScene, ShowcaseSceneKind, ShowcaseNext, HeroCard, SideIdentity } from "../../../src/lib/tv/showcase";

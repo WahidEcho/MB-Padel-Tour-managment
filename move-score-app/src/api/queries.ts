@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MBundle, MConfig, MDiscover, MLive, MMatchDetail, MStandings, MTimeline } from "@core";
+import type { MBundle, MConfig, MCourtsLive, MDiscover, MLive, MMatchDetail, MStandings, MTimeline } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -85,6 +85,24 @@ export function useDiscover() {
     initialData: () => initial<MDiscover>("discover"),
     ...SAVED_IS_OLD,
     refetchInterval: focused ? 30_000 : false,
+  });
+}
+
+/**
+ * The live courts hero on Discover: every court of the featured event and the live
+ * tournaments, in one shared (CDN-cached) read. Polled like a live feed while
+ * Discover is on screen; `enabled` is the platform flag. The last answer is kept
+ * so the hero is there at once when the app opens on a live day.
+ */
+export function useCourtsLive(enabled: boolean, intervalMs = 5_000) {
+  const focused = useScreenFocused();
+  return useQuery<MCourtsLive>({
+    queryKey: ["courts-live"],
+    queryFn: cached("courts-live", () => api<MCourtsLive>("/api/mobile/v1/courts/live")),
+    initialData: () => initial<MCourtsLive>("courts-live"),
+    ...SAVED_IS_OLD,
+    enabled,
+    refetchInterval: focused && enabled ? intervalMs : false,
   });
 }
 

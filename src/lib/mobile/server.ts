@@ -40,7 +40,7 @@ import { authProviders } from "../auth/users";
 import { APP_PAGE_URL } from "../site";
 import { DISCOVER_ORDER_KEY, inDiscoverOrder, parseDiscoverOrder } from "../platform/discoverOrder";
 
-const CARD_COLUMNS =
+export const CARD_COLUMNS =
   "id, slug, name, sport, kind, status, is_demo, public_access_enabled, branding_config, format_config, lower_third_text, updated_at, event_group_id, venue_name, city, timezone, starts_on, ends_on, app_skin";
 
 interface GroupRow {
@@ -142,8 +142,9 @@ async function tournamentBySlug(slug: string, withMatchDay = false): Promise<Tou
   // match_day_rules arrives with migration 0022. Until it is applied, the bundle
   // still loads and reads as "match day off" rather than the app losing the event.
   if (!withMatchDay) return ((await query(CARD_COLUMNS)).data as unknown as TournamentRow | null) ?? null;
-  let { data, error } = await query(`${CARD_COLUMNS}, match_day_rules`);
-  if (error && /match_day_rules/.test(error.message)) ({ data, error } = await query(CARD_COLUMNS));
+  // The bundle also carries the per-stage scoring rules.
+  let { data, error } = await query(`${CARD_COLUMNS}, scoring_config, match_day_rules`);
+  if (error && /match_day_rules/.test(error.message)) ({ data, error } = await query(`${CARD_COLUMNS}, scoring_config`));
   return (data as unknown as TournamentRow | null) ?? null;
 }
 
@@ -151,12 +152,13 @@ export function getBundle(slug: string): Promise<MBundle | null> {
   return memo(`bundle:${slug}`, 10_000, async () => {
     const t = await tournamentBySlug(slug, true);
     if (!t) return null;
-    const [teams, courts, groups, groupTeams, live] = await Promise.all([
+    const [teams, courts, groups, groupTeams, live, plate] = await Promise.all([
       getTeams(t.id),
       db().from("courts").select("id, court_name, court_order, is_active").eq("tournament_id", t.id).order("court_order"),
       db().from("groups").select("id, group_name, group_order").eq("tournament_id", t.id).order("group_order"),
       db().from("group_teams").select("team_id, group_id").eq("tournament_id", t.id),
       liveCounts([t.id]),
+      plateBrackets([t.id]),
     ]);
     const groupOf = new Map(((groupTeams.data ?? []) as { team_id: string; group_id: string }[]).map((g) => [g.team_id, g.group_id]));
     return toBundle(
@@ -166,13 +168,23 @@ export function getBundle(slug: string): Promise<MBundle | null> {
       (courts.data ?? []) as { id: string; court_name: string; court_order: number; is_active: boolean }[],
       (groups.data ?? []) as { id: string; group_name: string; group_order: number }[],
       live.get(t.id) ?? 0,
+      plate.get(t.id) ?? [],
     );
   });
 }
 
-const MATCH_COLUMNS =
+/** The Plate brackets of each tournament (the stage rules tell a Plate match by its bracket). */
+export async function plateBrackets(ids: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!ids.length) return out;
+  const { data } = await db().from("brackets").select("id, tournament_id").in("tournament_id", ids).eq("tier", "plate");
+  for (const r of (data ?? []) as { id: string; tournament_id: string }[]) out.set(r.tournament_id, [...(out.get(r.tournament_id) ?? []), r.id]);
+  return out;
+}
+
+export const MATCH_COLUMNS =
   "id, tournament_id, stage, bracket_id, group_id, round_name, match_order, court_id, scheduled_time, team_a_id, team_b_id, status, serving_team_id, winner_team_id, started_at, ended_at, tie_id, rubber_no, rubber_type, team_a_player_ids, team_b_player_ids";
-const SNAPSHOT_COLUMNS =
+export const SNAPSHOT_COLUMNS =
   "match_id, current_set_number, team_a_point_label, team_b_point_label, team_a_games, team_b_games, team_a_sets, team_b_sets, is_tiebreak, tiebreak_team_a_points, tiebreak_team_b_points, serving_team_id, last_event_number, last_undo_event_number, completed_sets, snapshot_json, updated_at";
 
 export function getLive(slug: string): Promise<MLive | null> {
@@ -335,14 +347,30 @@ export const DEFAULT_FLAGS: Record<string, boolean> = {
   recap: false,
   share_stories: true,
   accounts: true,
+  // The live courts hero on Discover (each tournament's Match day tab can still switch it off).
+  live_courts: true,
 };
+
+/** The stored flags over the defaults. */
+export function flagsFrom(stored: Record<string, unknown> | null | undefined): Record<string, boolean> {
+  const flags = { ...DEFAULT_FLAGS };
+  for (const [k, v] of Object.entries(stored ?? {})) if (typeof v === "boolean") flags[k] = v;
+  return flags;
+}
+
+/** Just the flags, for server code that acts on one (the courts hero). */
+export function getFlags(): Promise<Record<string, boolean>> {
+  return memo("flags", 15_000, async () => {
+    const { data } = await db().from("platform_settings").select("value_json").eq("key", "flags").maybeSingle();
+    return flagsFrom((data as { value_json: Record<string, unknown> } | null)?.value_json);
+  });
+}
 
 export function getConfig(): Promise<MConfig> {
   return memo("config", 15_000, async () => {
     const { data } = await db().from("platform_settings").select("key, value_json").in("key", ["flags", "app"]);
     const byKey = new Map(((data ?? []) as { key: string; value_json: Record<string, unknown> }[]).map((r) => [r.key, r.value_json]));
-    const flags = { ...DEFAULT_FLAGS };
-    for (const [k, v] of Object.entries(byKey.get("flags") ?? {})) if (typeof v === "boolean") flags[k] = v;
+    const flags = flagsFrom(byKey.get("flags"));
     const app = byKey.get("app") ?? {};
     const signIn = await authProviders();
     return {

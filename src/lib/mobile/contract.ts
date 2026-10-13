@@ -6,6 +6,8 @@
  * Public shapes carry no private fields: no phone, notes, email or mobile number.
  */
 
+import type { MatchRules, StageRuleKey } from "../types";
+
 export const API_VERSION = 1;
 
 export type SideKey = "A" | "B";
@@ -122,6 +124,37 @@ export interface MMatchDay {
   warmUpMinutes: number | null;
 }
 
+/** The rules matches are played under, as every phone resolves them (see rulesForMatch in src/lib/tv/showcase.ts). */
+export type MMatchRules = MatchRules;
+
+/** A tournament's scoring rules per stage, resolved on the server so the app never reads the stored config. */
+export interface MStageRules {
+  /** The tournament's own rules: group stage, friendly matches and anything without an override. */
+  base: MMatchRules;
+  /** Every stage bucket with its overrides laid over the base (a blank Plate bucket inherits the Cup's). */
+  stages: Record<StageRuleKey, MMatchRules>;
+  /** Tennis doubles: laid over the stage's rules for a doubles match. Null for other sports. */
+  doubles: Partial<MMatchRules> | null;
+  /** Bracket ids that are the Plate, so a knockout match finds its bucket from `MMatch.bracketId`. */
+  plateBrackets: string[];
+}
+
+/** One side's colour identity (src/lib/sides.ts): always a word with the colour, never colour alone. */
+export interface MSide {
+  /** "Red team" */
+  label: string;
+  /** "RED" */
+  short: string;
+  hex: string;
+}
+
+/** Red and blue teams: when `redBlue` is on, side A of every match is Red and side B Blue on screens and in calls. */
+export interface MSides {
+  redBlue: boolean;
+  A: MSide;
+  B: MSide;
+}
+
 export interface MBundle {
   version: string;
   tournament: MTournamentCard & {
@@ -137,6 +170,10 @@ export interface MBundle {
   courts: { id: string; name: string; order: number }[];
   groups: { id: string; name: string; order: number }[];
   sponsors: { main: MSponsor | null; footer: MSponsor[] };
+  /** Scoring rules per stage. Absent from older servers. */
+  rules?: MStageRules;
+  /** Red and blue team identity. Absent from older servers. */
+  sides?: MSides;
 }
 
 /** A score as screens draw it. Sets are finished sets; `games` is the set in play. */
@@ -174,6 +211,8 @@ export interface MMatch {
   startedAt: string | null;
   endedAt: string | null;
   score: MScore | null;
+  /** The knockout bracket, so the stage rules can tell the Plate from the Cup. Absent from older servers. */
+  bracketId?: string | null;
 }
 
 /** What the next point could decide, from the engine and the match's own rules. */
@@ -283,6 +322,71 @@ export interface MConfig {
    */
   /** email and playerCode are absent from servers older than email sign-in. */
   signIn: { google: boolean; apple: boolean; email?: boolean; playerCode?: boolean };
+}
+
+/* ---------- the live courts hero (GET /api/mobile/v1/courts/live) ---------- */
+
+/** A player on a court card: the public fields only, with the photo's focal point for big crops. */
+export interface MCourtPlayer extends MPlayer {
+  /** 0–1, where the face is: keeps it in frame at any crop. */
+  focalX: number;
+  focalY: number;
+}
+
+export interface MCourtTeam {
+  id: string;
+  name: string;
+  code: string;
+  iso2: string | null;
+  players: MCourtPlayer[];
+}
+
+/** A match called to its court and not started yet (match_calls). Times are ISO strings. */
+export interface MCourtCall {
+  matchId: string;
+  courtId: string | null;
+  calledAt: string;
+  /** The current deadline, extensions included. */
+  deadlineAt: string;
+  extensions: number;
+  presentA: boolean;
+  presentB: boolean;
+}
+
+/** One tournament on the hero: everything its court cards are drawn from. */
+export interface MCourtsEvent {
+  tournament: {
+    id: string;
+    slug: string;
+    name: string;
+    sport: string;
+    timezone: string;
+    eventGroupId: string | null;
+    isTies: boolean;
+    /** False at events that show no photos (the Junior Finals): every photoUrl is null then. */
+    showPhotos: boolean;
+    /** Part of a featured event group on Discover. */
+    featured: boolean;
+    skin: AppSkin;
+  };
+  rules: MStageRules;
+  sides: MSides;
+  /** Active courts, in court order. */
+  courts: { id: string; name: string; order: number }[];
+  /** Only the teams the matches and ties below name. */
+  teams: MCourtTeam[];
+  /** Ties on these courts (team competitions). */
+  ties: MTie[];
+  /** On court now, just finished, waiting next, and the rubbers of the ties above. */
+  matches: MMatch[];
+  /** Open court calls. Empty until the match-day engine calls a match. */
+  calls: MCourtCall[];
+}
+
+export interface MCourtsLive {
+  generatedAt: string;
+  /** Featured events first, then every live tournament, in the Discover order set by Move Beyond. Empty when nothing is on. */
+  events: MCourtsEvent[];
 }
 
 /* ---------- personal (never cached) ---------- */

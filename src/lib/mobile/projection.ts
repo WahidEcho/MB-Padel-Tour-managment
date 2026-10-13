@@ -4,15 +4,25 @@
  * This is the only place a row becomes something a phone receives, so it is also
  * where private columns stop: every shape is built field by field, never spread.
  */
-import type { Match, MatchSnapshot, Standing, Team, Tie, Tournament, BrandingConfig } from "../types";
+import type { Match, MatchRules, MatchSnapshot, Player, Stage, StageRuleKey, Standing, Team, Tie, Tournament, BrandingConfig } from "../types";
 import { resolveSponsors } from "../sponsors";
-import { resolvePortrait, portraitSrc, sizedImageSrc } from "../portrait";
+import { resolvePortrait, portraitSrc, sizedImageSrc, PORTRAIT_WIDTHS } from "../portrait";
 import { rubberPlan } from "../tennis/ties";
 import { matchDayRules, publicMatchDay } from "../matchday/rules";
+import { scoringConfigForMatch, type BracketTier } from "../scoring/rules";
+import { sportOf } from "../sports/registry";
+import { SIDES, redBlueTeams } from "../sides";
+import { toPublicPlayer } from "../public";
 import type {
   AppSkin,
   MBundle,
+  MCourtCall,
+  MCourtPlayer,
+  MCourtTeam,
   MMatch,
+  MMatchRules,
+  MSides,
+  MStageRules,
   MScore,
   MSponsor,
   MStandingRow,
@@ -100,6 +110,81 @@ export function shortCode(name: string): string {
   return name.slice(0, 3).toUpperCase();
 }
 
+/** Only the rule fields: never `stageOverrides`, `doubles` or the confirmation switch. */
+function ruleFields(c: MatchRules): MMatchRules {
+  const out: MMatchRules = {
+    setsToWinMatch: c.setsToWinMatch,
+    gamesToWinSet: c.gamesToWinSet,
+    tiebreakEnabled: c.tiebreakEnabled,
+    tiebreakAtGames: c.tiebreakAtGames,
+    tiebreakTargetPoints: c.tiebreakTargetPoints,
+    tiebreakWinByTwo: c.tiebreakWinByTwo,
+    walkoverScore: c.walkoverScore,
+  };
+  if (c.decidingPoint !== undefined) out.decidingPoint = c.decidingPoint;
+  if (c.matchTiebreak !== undefined) out.matchTiebreak = c.matchTiebreak;
+  if (c.matchTiebreakPoints !== undefined) out.matchTiebreakPoints = c.matchTiebreakPoints;
+  return out;
+}
+
+/** A stage and tier that falls in each rule bucket, to resolve it through scoringConfigForMatch. */
+const BUCKETS: Record<StageRuleKey, { stage: Stage; tier: BracketTier | null }> = {
+  group: { stage: "group", tier: null },
+  quarter_semi: { stage: "semi_final", tier: "cup" },
+  final: { stage: "final", tier: "cup" },
+  bracket: { stage: "knockout", tier: "cup" },
+  plate_quarter_semi: { stage: "semi_final", tier: "plate" },
+  plate_final: { stage: "final", tier: "plate" },
+  plate_bracket: { stage: "knockout", tier: "plate" },
+};
+
+/**
+ * The rules per stage as the server resolves them (src/lib/scoring/rules.ts), so a
+ * phone never layers the stored config itself. `plateBrackets` lets it find a
+ * knockout match's bucket.
+ */
+export function toStageRules(t: Pick<Tournament, "scoring_config" | "sport">, plateBrackets: string[]): MStageRules {
+  const tournament = { scoring_config: t.scoring_config ?? null, sport: t.sport };
+  const stages = {} as Record<StageRuleKey, MMatchRules>;
+  for (const [key, b] of Object.entries(BUCKETS) as [StageRuleKey, (typeof BUCKETS)[StageRuleKey]][]) {
+    stages[key] = ruleFields(scoringConfigForMatch(tournament, { stage: b.stage }, b.tier));
+  }
+  const doubles = sportOf(t.sport).id === "tennis" ? (t.scoring_config?.doubles ?? null) : null;
+  return {
+    base: ruleFields(scoringConfigForMatch(tournament, { stage: "friendly" })),
+    stages,
+    doubles: doubles ? pickPartialRules(doubles) : null,
+    plateBrackets: [...plateBrackets].sort(),
+  };
+}
+
+function pickPartialRules(r: Partial<MatchRules>): Partial<MMatchRules> {
+  const keys: (keyof MatchRules)[] = [
+    "setsToWinMatch",
+    "gamesToWinSet",
+    "tiebreakEnabled",
+    "tiebreakAtGames",
+    "tiebreakTargetPoints",
+    "tiebreakWinByTwo",
+    "walkoverScore",
+    "decidingPoint",
+    "matchTiebreak",
+    "matchTiebreakPoints",
+  ];
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (r[k] !== undefined) out[k] = r[k];
+  return out as Partial<MMatchRules>;
+}
+
+/** Red and blue teams as the screens and the umpire use them (src/lib/sides.ts). */
+export function toSides(branding: BrandingConfig | null | undefined): MSides {
+  return {
+    redBlue: redBlueTeams(branding),
+    A: { label: SIDES.A.label, short: SIDES.A.short, hex: SIDES.A.hex },
+    B: { label: SIDES.B.label, short: SIDES.B.short, hex: SIDES.B.hex },
+  };
+}
+
 export function toBundle(
   t: TournamentRow,
   teams: Team[],
@@ -107,6 +192,7 @@ export function toBundle(
   courts: { id: string; court_name: string; court_order: number; is_active: boolean }[],
   groups: { id: string; group_name: string; group_order: number }[],
   liveCount: number,
+  plateBrackets: string[] = [],
 ): MBundle {
   const showPhotos = t.app_skin?.showPhotos === true;
   const { main, footer } = resolveSponsors(t.branding_config);
@@ -125,6 +211,59 @@ export function toBundle(
     courts: courts.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.court_name, order: c.court_order })),
     groups: groups.map((g) => ({ id: g.id, name: g.group_name, order: g.group_order })),
     sponsors: { main: main ? sponsor(main) : null, footer: footer.map(sponsor) },
+    rules: toStageRules(t, plateBrackets),
+    sides: toSides(t.branding_config),
+  };
+}
+
+/**
+ * A team on a court card. Players go through toPublicPlayer (the public player
+ * shape, portrait resolved) and are then built field by field: no phone, email,
+ * access code or profile link can ride along, whatever the row carried.
+ */
+export function toCourtTeam(t: Pick<Team, "id" | "team_name" | "nation_code" | "iso2" | "players">, showPhotos: boolean): MCourtTeam {
+  return {
+    id: t.id,
+    name: t.team_name,
+    code: t.nation_code || shortCode(t.team_name),
+    iso2: t.iso2 ?? null,
+    players: [...(t.players ?? [])]
+      .sort((a, b) => a.player_order - b.player_order)
+      .map((p): MCourtPlayer => {
+        const pub = toPublicPlayer(p as Player);
+        const src = portraitSrc({ photoUrl: pub.photo_url, portraitUrl: pub.portrait_url, focalX: pub.focal_x, focalY: pub.focal_y });
+        return {
+          id: pub.id,
+          name: pub.full_name,
+          teamId: t.id,
+          photoUrl: showPhotos ? sizedImageSrc(src, PORTRAIT_WIDTHS.hero) : null,
+          focalX: pub.focal_x,
+          focalY: pub.focal_y,
+        };
+      }),
+  };
+}
+
+/** One open call as the hero needs it: who is here and the deadline; never the device or the referee. */
+export interface CallRow {
+  match_id: string;
+  court_id: string | null;
+  called_at: string;
+  deadline_at: string;
+  extensions: number | null;
+  a_present_at: string | null;
+  b_present_at: string | null;
+}
+
+export function toCourtCall(r: CallRow): MCourtCall {
+  return {
+    matchId: r.match_id,
+    courtId: r.court_id,
+    calledAt: r.called_at,
+    deadlineAt: r.deadline_at,
+    extensions: Math.max(0, Number(r.extensions) || 0),
+    presentA: Boolean(r.a_present_at),
+    presentB: Boolean(r.b_present_at),
   };
 }
 
@@ -201,6 +340,7 @@ export function toMatch(m: Match, snap: MatchSnapshot | null): MMatch {
     startedAt: m.started_at,
     endedAt: m.ended_at,
     score: toScore(m, snap),
+    bracketId: m.bracket_id ?? null,
   };
 }
 
