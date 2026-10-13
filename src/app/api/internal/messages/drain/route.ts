@@ -3,7 +3,7 @@ import { safeEqual } from "@/lib/auth/safeEqual";
 import { drainMessages } from "@/lib/messaging/queue";
 import { securePlayerCodes } from "@/lib/players/codeVault";
 import { pruneVerifications } from "@/lib/players/phoneLink";
-import { archiveFinishedEvents, expireStalePayments } from "@/lib/registration/server";
+import { archiveFinishedEvents, expireStalePayments, expireUnconfirmed } from "@/lib/registration/server";
 
 /** Long announcements are sent in time-boxed chunks; one call sends for up to ~40 s. */
 export const maxDuration = 60;
@@ -17,8 +17,9 @@ export const maxDuration = 60;
  * take the column default) are hashed and sealed (src/lib/players/codeVault.ts),
  * and phone verifications older than a day are deleted. Registration (Phase 9):
  * the player links of events that ended more than 24 hours ago are archived
- * (player_claims.archived_at), and Move Tick checkouts that expired unanswered
- * are marked expired.
+ * (player_claims.archived_at), Move Tick checkouts that expired unanswered
+ * are marked expired, and web guests who never opened their emailed link within
+ * 24 hours are cancelled.
  */
 async function run(request: Request) {
   const want = process.env.CRON_SECRET;
@@ -38,6 +39,7 @@ async function run(request: Request) {
   try {
     claimsArchived = await archiveFinishedEvents();
     await expireStalePayments();
+    await expireUnconfirmed();
   } catch (err) {
     console.error("[housekeeping] registrations", err);
   }

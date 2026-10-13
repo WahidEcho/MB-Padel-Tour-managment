@@ -53,6 +53,15 @@ Idempotency-Key: <Move Score's registration_payments.id>
 - **Idempotent** on `(partner, Idempotency-Key)`: a retry returns the same session; the same key with
   another reference or amount is `409 IDEMPOTENCY_KEY_REUSED`.
 - A reference already paid is never charged again: `409 ORDER_ALREADY_PAID`.
+- **One open checkout per reference** (both sides, atomic): Move Tick refuses a create under a new key while
+  another session of the reference is `creating`/`open` with `409 PAYMENT_SESSION_OPEN` (one whose
+  `expiresAt` passed is first closed as `expired`, and `payment.expired` sent); a partial unique index
+  (`partner_payment_sessions_one_open_uq`) decides between two simultaneous creates. Move Score keeps one
+  open checkout per registration (`registration_payments_one_open_uq`, migration 0029), **reuses it** when
+  the payer presses Pay again, and before making a new one asks Move Tick how the last one ended (a
+  checkout whose time ran out is never replaced until Move Tick has closed it).
+- `customer` carries the registrant's name and only the entry's **verified** email (an app account's
+  confirmed email, or a web guest's address once its emailed link was opened); never a typed phone.
 - `returnUrl` must be an https page on one of the partner's own origins (`MOVE_SCORE_RETURN_ORIGINS`,
   default `https://tour.mbeg.org`; http only on localhost).
 - Below XPay's card minimum (50 EGP): `422 PRICE_BELOW_CARD_MINIMUM`. Payments not configured on Move
@@ -68,7 +77,9 @@ GET /api/partner/v1/payment-sessions/{sessionId}   → the same shape, or 404 PA
 
 Move Score uses it when a webhook may have been lost (the payer's return page, My registrations, Pay
 again): the answer goes through the same idempotent path as a webhook (event id
-`reconcile:<session>:<status>`), amount check included.
+`reconcile:<session>:<status>`), amount check included. It asks about open checkouts **and ones it marked
+`expired`** (a late payment is not lost), each payment **at most once per 30 seconds** (`reconciled_at`,
+a compare-and-set), except right before a new checkout would be made.
 
 ### Refund
 
@@ -79,8 +90,13 @@ POST /api/partner/v1/payment-sessions/{sessionId}/refund
 ```
 
 - Only the **organiser's refund action** in Move Score calls it (Admin → event → Registrations, admins
-  signed in with their own account, typed confirmation, audited), and only until **24 hours before the
-  event's start time** (`tournaments.starts_at`). Players can only *ask* for a refund.
+  signed in with their own account, typed confirmation, audited). The action names **one payment** (its
+  id), so a registration holding two payments can have the extra one refunded. The payment that
+  confirmed the entry: only until **24 hours before the event's start time** (`tournaments.starts_at`),
+  and refunding it refunds the entry (it leaves the event). A payment **held for review after it was
+  taken** — paid after the entry was cancelled or refused, or a second payment for an entry already paid
+  (flagged automatically, admins emailed) — can be refunded **at any time** (it bought nothing; decided in
+  the security review of Phase 9) and leaves the entry as it is. Players can only *ask* for a refund.
 - **Full refunds only** for now (XPay refunds a payment intent whole): an amount other than the
   session's is `422 PARTIAL_REFUND_UNSUPPORTED`. Move Score's "card fee kept on refunds" setting stays at
   0 % (the default) until partial refunds exist.
@@ -118,8 +134,9 @@ Move Score's checks, in order (`src/lib/registration/signature.ts`, `server.ts a
 1. **Signature**: header present and well formed, timestamp within **5 minutes** either way (replay
    window), HMAC compared in **constant time** (several `v1=` values allowed for rotation). Else `401`.
 2. **Shape**: exactly the fields above (reference a uuid, whole-number amount). Else `400`.
-3. **Idempotency**: the event id is recorded in `move_tick_events` first; a replay answers
-   `200 {"duplicate": true}` and changes nothing. Every status change is also conditional on the status
+3. **Idempotency**: the event id is recorded in `move_tick_events` first; a replay (a unique-key refusal,
+   `23505`, and nothing else) answers `200 {"duplicate": true}` and changes nothing; any other database
+   error is a `500` (Move Tick retries). Every status change is also conditional on the status
    it moves from, keyed by the **reference** (a fresh event id for an already-applied change does
    nothing either).
 4. **Ownership**: the session id must be one Move Score created, for exactly that reference.
@@ -132,8 +149,17 @@ Effects: `payment.succeeded` → payment `paid`, registration `awaiting_payment 
 made in the event and the registrant's own player row is linked to their account (paid after the entry
 was cancelled or refused: kept as `needs_review` for the organiser to refund); `payment.failed` /
 `payment.expired` → the checkout is closed (the player can pay again); `payment.refunded` → payment
-`refunded`, registration `refunded`, the entry leaves the event (a team that already has matches stays,
-for the organiser).
+`refunded`; when it was the payment that confirmed the entry, registration `refunded` and the entry leaves
+the event (a team that already has matches stays, for the organiser); a payment held for review leaves the
+entry as it is. A second `payment.succeeded` for an entry already paid is recorded `paid` then
+`needs_review` ("A second payment … refund it"), audited `REGISTRATION_PAYMENT_DUPLICATE`, and the
+organisation's owners and admins are emailed.
+
+**Refunds Move Score did not ask for** (decided in the security review of Phase 9): `payment.refunded`
+for a payment that was not `refund_pending` (Move Tick or XPay refunded on their side: a dispute, a
+refund from Move Tick's dashboard) is **accepted** — the money is back with the payer either way — but
+audited apart (`REGISTRATION_REFUND_EXTERNAL`) and the organisation's owners and admins are emailed to
+check the entry.
 
 Answers: `200` when applied, already applied, or about nothing of Move Score's (Move Tick stops
 retrying and learns nothing about which references exist); `400`/`401` for malformed or unsigned
@@ -148,8 +174,9 @@ and the daily housekeeping cron.
 
 | Registration (Move Score) | Meaning |
 |---|---|
+| `unconfirmed` | a web guest's entry until the link emailed to the typed address is opened (24 h, then cancelled); holds no place, reaches no organiser, never paid |
 | `pending_approval` | waiting for the organiser (default approval mode: the organiser approves) |
-| `awaiting_payment` | approved, online payment due (approval comes before payment) |
+| `awaiting_payment` | approved, online payment due (approval comes before payment); holds a place for 24 h (`hold_until`, renewed when a checkout is made) |
 | `confirmed` | in the event (paid online, due at the venue, or free) |
 | `refused` / `cancelled` | turned down by the organiser / withdrawn by the player before paying |
 | `refunded` | paid online and refunded by the organiser |
@@ -159,6 +186,15 @@ and the daily housekeeping cron.
 | `created`/`creating` → `open` → `paid` → `refund_pending` → `refunded` | the happy path |
 | `failed`, `expired` | closed unpaid; a new checkout can be made |
 | `needs_review` | an amount that did not match, or a payment after the entry was cancelled: a person decides |
+
+Capacity counts `confirmed` entries and unexpired payment holds only (never requests waiting for the
+organiser or unconfirmed guests), enforced atomically by the trigger `registration_capacity_guard`
+(0029). One live entry per verified email per event (`registrations_contact_event_uq`).
+
+Messages about an entry go **by email only, to its verified address only** (`registrations.notify_email`),
+in the server's own words with no typed name; the link is the signed status page, where an approved entry
+is paid (`/register/status` → `POST /api/register/pay`). App registration needs an account with a
+confirmed email (anonymous / player-code accounts get `403 email_required`).
 
 ## 4. Environment
 

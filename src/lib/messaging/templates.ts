@@ -68,7 +68,7 @@ export function defaultParams(n: number, kind: "announcement" | "access_codes" |
 
 /* ---------------- transactional catalogue ---------------- */
 
-export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite" | "login_code";
+export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite" | "login_code" | "registration";
 
 interface CatalogueEntry {
   email: (vars: Vars) => EmailInput;
@@ -137,6 +137,16 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
     }),
     whatsapp: { name: "mb_login_code", language: "en", params: ["code"], buttons: [{ index: 0, field: "code" }] },
     text: () => "Your Move Score code is {code}. It works for 10 minutes.",
+  },
+  // Registration notices (src/lib/registration/server.ts). Email only, and only to a
+  // verified address: an app account's confirmed email, or a web guest's address once
+  // its emailed link was opened. The one exception is that link itself, sent once to
+  // the typed address and never stored (redacted). No name the registrant typed is
+  // ever put in it: the words are the server's own and the event's name.
+  registration: {
+    email: () => ({ title: "{title}", body: "Hello,\n\n{message}", cta: { label: "{cta_label}", url: "{link}" } }),
+    whatsapp: { name: "mb_registration", language: "en", params: ["title", "link"] },
+    text: () => "{title}: {link}",
   },
   announcement: {
     email: () => ({ title: "{title}", body: "{message}", cta: null }),

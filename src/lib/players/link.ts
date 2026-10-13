@@ -163,16 +163,18 @@ export function profileMobile(raw: string | null | undefined): string | null {
  * A profile made from a row the account proved. Never takes another profile's mobile
  * number. Its mobile: the number a phone code proved; for a code, the number the
  * code's organisation recorded on the row; for an email proof, none (the row's phone
- * is exactly what an email does not prove).
+ * is exactly what an email does not prove). For a registration, neither the row's
+ * phone nor its email: both were typed on the form, and nothing proves them.
  */
-async function createProfileFrom(row: PlayerRow, mobileHint: string | null, rowPhone: boolean): Promise<string> {
+async function createProfileFrom(row: PlayerRow, mobileHint: string | null, rowPhone: boolean, rowEmail = true): Promise<string> {
   const mobile = mobileHint ?? (rowPhone ? profileMobile(row.phone) : null);
   let mobileFree = Boolean(mobile);
   if (mobile) {
     const { data } = await db().from("player_profiles").select("id").eq("mobile_normalized", mobile).maybeSingle();
     mobileFree = !data;
   }
-  const email = row.email?.trim().toLowerCase() || null;
+  // A registration's row holds what was typed on the form: proved by nothing, so never copied onto a profile.
+  const email = rowEmail ? row.email?.trim().toLowerCase() || null : null;
   const base = { public_name: row.full_name.trim().slice(0, 120) || "Player", email, approval_status: "approved" };
   const first = await db()
     .from("player_profiles")
@@ -254,7 +256,7 @@ async function profileFor(userId: string, rows: PlayerRow[], proof: LinkProof, o
   // without it, and no new profile is made beside it.
   if (candidates.length) return { ok: true, profileId: null, created: false };
   const primary = proof.kind === "code" ? proof.row : rows[0]!;
-  return { ok: true, profileId: await createProfileFrom(primary, proof.kind === "phone" ? proof.phone : null, proof.kind === "code"), created: true };
+  return { ok: true, profileId: await createProfileFrom(primary, proof.kind === "phone" ? proof.phone : null, proof.kind === "code", proof.kind !== "registration"), created: true };
 }
 
 /* ---------------- linking ---------------- */

@@ -10,8 +10,9 @@ import { decideRegistrationAction, markVenuePaidAction, pairRegistrationsAction,
 
 export const dynamic = "force-dynamic";
 
-const ORDER: RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed", "refunded", "cancelled", "refused"];
+const ORDER: RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed", "refunded", "cancelled", "refused", "unconfirmed"];
 const TONE: Record<RegistrationStatus, string> = {
+  unconfirmed: "bg-border text-muted",
   pending_approval: "bg-warning/15 text-warning",
   awaiting_payment: "bg-warning/15 text-warning",
   confirmed: "bg-success/15 text-success",
@@ -157,7 +158,9 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
               </h3>
               <ul className="divide-y divide-border">
                 {list.map((r) => {
-                  const paidOnline = r.payments.find((p) => p.method === "online" && (p.status === "paid" || p.status === "needs_review") && p.paid_at);
+                  // Each payment that was taken can be refunded on its own (a duplicate, or one paid after a cancellation).
+                  const refundable = r.payments.filter((p) => p.method === "online" && (p.status === "paid" || p.status === "needs_review") && p.paid_at);
+                  const paidOnline = refundable.find((p) => p.status === "paid") ?? refundable[0];
                   const pending = r.payments.find((p) => p.method === "online" && p.status === "refund_pending");
                   return (
                     <li key={r.id} className="space-y-1 py-2 text-sm">
@@ -171,6 +174,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                         {r.payments.some((p) => p.status === "needs_review") && (
                           <span className="rounded bg-danger/10 px-2 py-0.5 text-xs text-danger">payment needs review</span>
                         )}
+                        {r.status === "unconfirmed" && <span className="text-xs text-muted">waiting for the guest to open the link emailed to them (24 h)</span>}
                       </div>
                       <ul className="text-xs text-muted">
                         {r.people.map((p, i) => (
@@ -219,17 +223,21 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                             <button className="btn-secondary text-xs">Paid at the venue ({moneyLabel(r.amount_venue)})</button>
                           </form>
                         )}
-                        {paidOnline && !pending && r.status !== "refunded" && mayRefund && (
-                          <form action={refundRegistrationAction} className="flex flex-wrap gap-1">
-                            <input type="hidden" name="registration_id" value={r.id} />
-                            <input name="reason" placeholder="reason" maxLength={200} className="input py-1 text-xs" />
-                            <input name="confirm" placeholder="type REFUND" maxLength={10} className="input w-28 py-1 text-xs" />
-                            <button className="btn-secondary text-xs" disabled={!refundWindow.ok && paidOnline.status !== "needs_review"}>
-                              Refund {moneyLabel(refundAmount(paidOnline.amount, settings.refundFeePercent))}
-                            </button>
-                            {!refundWindow.ok && paidOnline.status !== "needs_review" && <span className="text-xs text-muted">{REFUND_MESSAGES[refundWindow.reason]}</span>}
-                          </form>
-                        )}
+                        {mayRefund &&
+                          refundable.map((p) => (
+                            <form key={p.id} action={refundRegistrationAction} className="flex flex-wrap gap-1">
+                              <input type="hidden" name="registration_id" value={r.id} />
+                              <input type="hidden" name="payment_id" value={p.id} />
+                              <input name="reason" placeholder="reason" maxLength={200} className="input py-1 text-xs" />
+                              <input name="confirm" placeholder="type REFUND" maxLength={10} className="input w-28 py-1 text-xs" />
+                              <button className="btn-secondary text-xs" disabled={!refundWindow.ok && p.status !== "needs_review"}>
+                                Refund {moneyLabel(refundAmount(p.amount, settings.refundFeePercent))}
+                                {p.status === "needs_review" ? " (held for review)" : ""}
+                              </button>
+                              {p.review_reason && <span className="text-xs text-danger">{p.review_reason}</span>}
+                              {!refundWindow.ok && p.status !== "needs_review" && <span className="text-xs text-muted">{REFUND_MESSAGES[refundWindow.reason]}</span>}
+                            </form>
+                          ))}
                         {pending && <span className="text-xs text-muted">Refund on its way from Move Tick.</span>}
                       </div>
                     </li>

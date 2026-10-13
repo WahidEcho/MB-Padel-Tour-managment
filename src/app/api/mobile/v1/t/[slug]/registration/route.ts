@@ -4,6 +4,7 @@ import { ownerOf } from "@/lib/mobile/identity";
 import { notFoundJson, privateJson, publicJson } from "@/lib/mobile/http";
 import { strictBody } from "@/lib/players/http";
 import { register, registrationInfo, toPublicRegistration } from "@/lib/registration/server";
+import { bearerOf, getAuthUser } from "@/lib/auth/accounts";
 import type { MRegistrationResult } from "@/lib/mobile/contract";
 
 /**
@@ -19,9 +20,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
 /**
  * POST { people: [{ name, phone?, email? }], teamName?, payment? } → MRegistrationResult.
  * A signed-in account registers for the event (its own entry: the registrant is
- * always the account's player). Amounts are the server's own; the answer carries
- * Move Tick's checkout URL when payment is due online now. Rate-limited per account
- * and per network address, counted before the work.
+ * always the account's player). Only an account with a confirmed email may: an
+ * anonymous (player-code) or unconfirmed account is refused (403 email_required),
+ * so nobody can register — or be sent messages — under throwaway accounts. That
+ * confirmed email, read from Supabase Auth (never the typed one), is the only
+ * address the entry's messages go to. Amounts are the server's own; the answer
+ * carries Move Tick's checkout URL when payment is due online now. Rate-limited per
+ * account and per network address, counted before the work.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -37,7 +42,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   }
   const body = await strictBody(request, ["people", "teamName", "payment"], 4000);
   if (!body) return privateJson({ error: "That request isn't one this server understands." }, 400);
-  const r = await register({ slug, source: "app", userId: owner.id, people: body.people, teamName: body.teamName, payment: body.payment });
+  const token = bearerOf(request);
+  const who = token ? await getAuthUser(token) : null;
+  if (!who?.ok) return privateJson({ error: "Could not check your account right now. Try again.", code: "account_unreachable" }, 503);
+  if (who.data.id !== owner.id || who.data.is_anonymous || !who.data.email || !who.data.email_confirmed_at) {
+    return privateJson({ error: "Add and confirm your email address in Account to register.", code: "email_required" }, 403);
+  }
+  const verifiedEmail = who.data.email.trim().toLowerCase();
+  const r = await register({ slug, source: "app", userId: owner.id, verifiedEmail, people: body.people, teamName: body.teamName, payment: body.payment });
   if (!r.ok) return privateJson({ error: r.error, code: r.code }, r.status);
   const { registration, event, org, session, checkoutUrl, message } = r.value;
   const out: MRegistrationResult = { registration: await toPublicRegistration(registration, event, org, session, owner.id), checkoutUrl, message };

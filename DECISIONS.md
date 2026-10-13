@@ -359,3 +359,22 @@ default**, to change here first when the owner decides:
 | Who pays for a team | The registering player pays for the whole team (alternative: each player their share; partners pay at the venue) |
 | Card fee kept on refunds | None: a refund gives everything back (the setting allows up to 20 %, but Move Tick refunds in full only for now) |
 
+Security review of Phase 9 (migration `0029_registration_hardening.sql`):
+
+- **Web guests confirm their email first**: the entry is `unconfirmed` (no place, no organiser, no
+  payment) until the link emailed to the typed address is opened and its button pressed (24 h, then
+  cancelled). App registration needs an account with a **confirmed email**; anonymous / player-code
+  accounts cannot register.
+- **Messages go by email to the verified address only** (`notify_email`), in the server's words with no
+  typed name; never WhatsApp, never a typed phone. One live entry per verified email per event.
+- **Capacity** counts confirmed entries and approved entries inside a **24-hour payment hold** only
+  (atomic database trigger). Requests waiting for the organiser never fill an event.
+- **One open checkout** per registration (Move Score) and per reference (Move Tick), reused, never
+  replaced while Move Tick may still take it.
+- **Refunds name a payment**. A payment held for review after it was taken (a duplicate, or paid after the
+  entry was cancelled or refused) may be refunded **at any time** (it bought nothing). **Refunds Move Tick
+  makes on its own are accepted** (the money is back with the payer) but audited apart and the
+  organisation's owners and admins are emailed.
+- A session registration only ever **adds** entries; a partner found by a typed mobile enters as
+  **pending** (the organiser decides); a cancellation or refund withdraws only the entries it made.
+

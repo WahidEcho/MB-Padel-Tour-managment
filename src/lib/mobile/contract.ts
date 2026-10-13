@@ -864,7 +864,8 @@ export interface MWidget {
 
 /* ---------- registration and payment (Phase 9) ---------- */
 
-export type MRegistrationStatus = "pending_approval" | "awaiting_payment" | "confirmed" | "refused" | "cancelled" | "refunded";
+// "unconfirmed" is a web guest's entry before its emailed link is opened: an app account's own entries never have it.
+export type MRegistrationStatus = "unconfirmed" | "pending_approval" | "awaiting_payment" | "confirmed" | "refused" | "cancelled" | "refunded";
 export type MPaymentChoice = "free" | "online" | "venue";
 
 /** The event a registration is for. Public fields only. */

@@ -98,7 +98,7 @@ export default function RegisterForm({
             <div>
               <label className="label" htmlFor="p0-email">Email</label>
               <input id="p0-email" name="p0_email" type="email" className="input" autoComplete="email" required />
-              <p className="mt-1 text-xs text-muted">Your confirmation goes here. Never shown publicly.</p>
+              <p className="mt-1 text-xs text-muted">We email you a link to confirm your registration. Never shown publicly.</p>
             </div>
           )}
         </fieldset>

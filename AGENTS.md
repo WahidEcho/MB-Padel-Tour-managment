@@ -183,3 +183,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Move Tick: `docs/move-tick-partner-api.md` (Move Tick side: branch `move-score-partner-api` of the Move Tick repo). Gate:
   `npm run e2e:registration` (runs a fake Move Tick on `MOVE_TICK_API_URL`'s port; `.env.localdb` needs the four `MOVE_TICK_*`).
   The messaging cron also archives finished events' player links (`player_claims.archived_at`).
+  Hardening (security review): migration `0029_registration_hardening.sql` (not yet on the live project; apply after 0028):
+  web guests confirm by an emailed link (`unconfirmed`, `/register/confirm`), app registration needs a confirmed email, messages
+  only to `registrations.notify_email` (verified), capacity = confirmed + 24 h payment holds (trigger), one open checkout per
+  registration, refunds by payment id, status page Pay button (`/api/register/pay`). Move Tick partner branch: one open
+  session per reference (`409 PAYMENT_SESSION_OPEN`).

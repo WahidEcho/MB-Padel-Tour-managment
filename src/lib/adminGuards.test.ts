@@ -330,6 +330,8 @@ const SECONDARY_GUARDS = [
 
 /** `file › action › key` → why that posted id needs no row guard of its own. */
 const SECONDARY_ID_ALLOWED: Record<string, string> = {
+  "admin/tournaments/[id]/registrations/actions.ts › refundRegistrationAction › payment_id":
+    "looked up together with .eq(\"registration_id\", reg.id) on the guarded registration (refund in src/lib/registration/server.ts)",
   "admin/friendly-sessions/actions.ts › approveEntryAction › session_id": "only used to revalidate the page; the entry decides the organisation",
   "admin/friendly-sessions/actions.ts › releaseEntryAction › session_id": "only used to revalidate the page; the entry decides the organisation",
   "admin/tournaments/[id]/players/actions.ts › sendCode › player_id": "looked up together with .eq(\"tournament_id\", id) on the guarded tournament",

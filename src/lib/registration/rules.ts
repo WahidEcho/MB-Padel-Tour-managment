@@ -23,11 +23,33 @@ export type ApprovalMode = "organiser" | "automatic";
 export type PaymentSetting = "free" | "online" | "venue" | "online_or_venue";
 export type TeamPayer = "registrant" | "each_player";
 export type PaymentChoice = "free" | "online" | "venue";
-export type RegistrationStatus = "pending_approval" | "awaiting_payment" | "confirmed" | "refused" | "cancelled" | "refunded";
+export type RegistrationStatus = "unconfirmed" | "pending_approval" | "awaiting_payment" | "confirmed" | "refused" | "cancelled" | "refunded";
 
-export const REGISTRATION_STATUSES: readonly RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed", "refused", "cancelled", "refunded"];
-/** Statuses that hold a place (count toward capacity, block a second entry by the same account). */
+export const REGISTRATION_STATUSES: readonly RegistrationStatus[] = ["unconfirmed", "pending_approval", "awaiting_payment", "confirmed", "refused", "cancelled", "refunded"];
+/**
+ * Live entries: they block a second entry by the same account (or the same
+ * verified email) for the event. Not all of them hold a place: see holdsPlace.
+ * "unconfirmed" (a web guest who has not opened the emailed link yet) is not live.
+ */
 export const LIVE_STATUSES: readonly RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed"];
+
+/** How long an approved entry waiting for its online payment keeps its place. */
+export const PAYMENT_HOLD_MS = 24 * 3600_000;
+/** A hold with less than this left is renewed when a checkout is made, so the checkout never outlives it. */
+export const HOLD_RENEW_BEFORE_MS = 2 * 3600_000;
+/** How long a web guest's emailed confirmation link works. */
+export const GUEST_CONFIRM_MS = 24 * 3600_000;
+
+/**
+ * Whether an entry counts toward the event's capacity: confirmed, or approved and
+ * still inside its payment hold. Requests waiting for the organiser never do, so
+ * nobody can fill an event with requests (the database trigger
+ * registration_capacity_guard, 0029, applies the same rule atomically).
+ */
+export function holdsPlace(r: { status: RegistrationStatus; hold_until?: string | null }, now = Date.now()): boolean {
+  if (r.status === "confirmed") return true;
+  return r.status === "awaiting_payment" && typeof r.hold_until === "string" && Date.parse(r.hold_until) > now;
+}
 
 export const CURRENCY = "EGP";
 /** Refunds stop this long before the event starts. */
@@ -174,6 +196,7 @@ export function statusAfterApproval(amountOnline: number, alreadyPaid: boolean):
 
 /** Who may move a registration where. The server checks these before every conditional update. */
 const TRANSITIONS: Record<RegistrationStatus, readonly RegistrationStatus[]> = {
+  unconfirmed: ["pending_approval", "awaiting_payment", "confirmed", "cancelled"],
   pending_approval: ["awaiting_payment", "confirmed", "refused", "cancelled"],
   awaiting_payment: ["confirmed", "refused", "cancelled"],
   confirmed: ["refunded", "cancelled"],
@@ -186,7 +209,7 @@ export function canMove(from: RegistrationStatus, to: RegistrationStatus): boole
   return TRANSITIONS[from]?.includes(to) ?? false;
 }
 
-/** Why registration is not taking entries now, or null. `taken` counts live entries. */
+/** Why registration is not taking entries now, or null. `taken` counts the places held (holdsPlace). */
 export function registrationClosedReason(
   s: Pick<RegistrationSettings, "open" | "closesAt" | "capacity">,
   event: { status: string | null | undefined; startsAt?: string | null },
@@ -274,6 +297,7 @@ export function minorFromMajor(text: string): number | null {
 }
 
 export const STATUS_LABELS: Record<RegistrationStatus, string> = {
+  unconfirmed: "Waiting for the email to be confirmed",
   pending_approval: "Waiting for the organiser",
   awaiting_payment: "Approved — waiting for payment",
   confirmed: "Confirmed",

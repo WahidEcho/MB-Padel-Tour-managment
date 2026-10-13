@@ -1888,6 +1888,38 @@ async function main() {
       await db().from("message_deliveries").delete().eq("purpose", "one_time_code");
     }
 
+    section("registration (Phase 9 review, H1): B's player named as a partner in a registration for B's session");
+    {
+      // B's own player has an entry in B's session, waiting for B's organiser. Someone registers for that
+      // session through Move Score naming B's player's mobile as their partner, then cancels.
+      const { data: pbRow } = await db().from("player_profiles").select("mobile_normalized").eq("id", PB).single();
+      const bPhone = (pbRow as { mobile_normalized: string }).mobile_normalized;
+      await db().from("friendly_entries").update({ approval: "pending", hidden: true }).eq("id", EB);
+      const { data: before } = await db().from("friendly_entries").select("approval, source, hidden, preferred_partner_profile_id, updated_at").eq("id", EB).single();
+      const { error: setErr } = await db()
+        .from("registration_settings")
+        .upsert({ tournament_id: SB.tournament_id, organization_id: B, open: true, entry_type: "team", team_size: 2, approval_mode: "automatic", fee_amount: 0, payment: "free" }, { onConflict: "tournament_id" });
+      const att = await standinUser(`e2e.reg.h1.${tag}@example.com`);
+      const asAtt = { ...bearer(att.accessToken), "X-Forwarded-For": freshAddr() };
+      const ownPhone = `+2011${String(Date.now()).slice(-8)}`;
+      const { data: sbt } = await db().from("tournaments").select("slug").eq("id", SB.tournament_id).single();
+      const r = await http("POST", `/api/mobile/v1/t/${(sbt as { slug: string }).slug}/registration`, asAtt, { people: [{ name: "Ada Attacker", phone: ownPhone }, { name: "Anyone At All", phone: bPhone }] });
+      const rid = String((r.json?.registration as { id?: string } | undefined)?.id ?? "");
+      const { data: mid } = await db().from("friendly_entries").select("approval, source, hidden, preferred_partner_profile_id, updated_at").eq("id", EB).single();
+      check(!setErr && r.status === 201 && JSON.stringify(mid) === JSON.stringify(before), "a registration naming B's player leaves B's player's existing entry exactly as it was (not approved, unhidden or re-pointed)", { status: r.status, before, mid });
+      const cancel = await http("POST", `/api/mobile/v1/me/registrations/${rid}/cancel`, asAtt, {});
+      const { data: after } = await db().from("friendly_entries").select("approval, source, hidden, preferred_partner_profile_id, updated_at").eq("id", EB).single();
+      check(cancel.status === 200 && JSON.stringify(after) === JSON.stringify(before), "cancelling that registration does not withdraw B's player's entry", { status: cancel.status, after });
+      const { data: attProf } = await db().from("player_profiles").select("id").eq("auth_user_id", att.id).maybeSingle();
+      if (attProf) {
+        created.profiles.push((attProf as { id: string }).id);
+        await db().from("organization_players").delete().eq("player_profile_id", (attProf as { id: string }).id);
+        await db().from("friendly_entries").delete().eq("player_profile_id", (attProf as { id: string }).id);
+      }
+      await db().from("registration_settings").delete().eq("tournament_id", SB.tournament_id);
+      await db().from("friendly_entries").update({ approval: "pending", hidden: false }).eq("id", EB);
+    }
+
     section("staff login brakes count failures only");
     {
       const codeMany = generateEventCode();

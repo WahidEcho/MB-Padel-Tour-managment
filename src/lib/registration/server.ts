@@ -33,12 +33,15 @@ import { accountProfile, ensureAccountProfile, linkAccount } from "../players/li
 import type { MPaymentChoice, MRegistration, MRegistrationEvent, MRegistrationInfo } from "../mobile/contract";
 import {
   CLOSED_MESSAGES,
-  LIVE_STATUSES,
+  GUEST_CONFIRM_MS,
+  HOLD_RENEW_BEFORE_MS,
+  PAYMENT_HOLD_MS,
   REFUND_MESSAGES,
   STATUS_LABELS,
   archiveAt,
   canMove,
   charges,
+  holdsPlace,
   initialStatus,
   moneyLabel,
   paymentOptions,
@@ -117,12 +120,16 @@ export interface RegistrationRow {
   player_id: string | null;
   entry_ids: string[];
   materialized_at: string | null;
+  /** The only address ever written to about this entry, and only a verified one (null: no messages). */
+  notify_email: string | null;
+  /** How long an approved entry waiting for its online payment keeps its place. */
+  hold_until: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const REG_COLUMNS =
-  "id, tournament_id, organization_id, auth_user_id, source, entry_type, team_name, people, status, payment_choice, amount_online, amount_venue, currency, paid_at, venue_paid_at, venue_paid_by, refund_requested_at, refunded_at, decided_at, decided_by, decision_note, team_id, player_id, entry_ids, materialized_at, created_at, updated_at";
+  "id, tournament_id, organization_id, auth_user_id, source, entry_type, team_name, people, status, payment_choice, amount_online, amount_venue, currency, paid_at, venue_paid_at, venue_paid_by, refund_requested_at, refunded_at, decided_at, decided_by, decision_note, team_id, player_id, entry_ids, materialized_at, notify_email, hold_until, created_at, updated_at";
 
 export interface PaymentRow {
   id: string;
@@ -146,6 +153,12 @@ export interface PaymentRow {
 const PAY_COLUMNS = "id, registration_id, organization_id, method, amount, currency, status, session_id, checkout_url, expires_at, test_mode, paid_at, refund_amount, refunded_at, review_reason, created_at";
 
 const now = () => new Date().toISOString();
+const holdFromNow = () => new Date(Date.now() + PAYMENT_HOLD_MS).toISOString();
+type DbError = { code?: string; message?: string } | null | undefined;
+/** A unique index refused the write (Postgres 23505). */
+const isUnique = (e: DbError) => e?.code === "23505" || /duplicate key|unique constraint/i.test(e?.message ?? "");
+/** The capacity trigger (0029 registration_capacity_guard) refused the write. */
+const isFull = (e: DbError) => /registration_full/.test(e?.message ?? "");
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: number; code: string; error: string };
@@ -220,8 +233,18 @@ export async function saveSettings(event: EventRow, settings: RegistrationSettin
   return settings;
 }
 
-async function liveCount(tournamentId: string): Promise<number> {
-  const { count } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", tournamentId).in("status", [...LIVE_STATUSES]);
+/**
+ * The places taken: confirmed entries and approved ones inside their payment hold
+ * (rules.ts holdsPlace). Requests waiting for the organiser, unconfirmed guests and
+ * lapsed holds take none. Shown and checked up front; the database trigger is what
+ * makes the limit atomic.
+ */
+async function placesTaken(tournamentId: string): Promise<number> {
+  const { count } = await db()
+    .from("registrations")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", tournamentId)
+    .or(`status.eq.confirmed,and(status.eq.awaiting_payment,hold_until.gt.${now().replace(/\.\d{3}Z$/, "Z")})`);
   return count ?? 0;
 }
 
@@ -248,7 +271,7 @@ export async function registrationInfo(slug: string): Promise<MRegistrationInfo 
   const { event, org, session } = found;
   const s = await getSettings(event.id);
   const startsAt = startsAtOf(event, session);
-  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, s.capacity === null ? 0 : await liveCount(event.id));
+  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, s.capacity === null ? 0 : await placesTaken(event.id));
   const cutoff = refundCutoff(startsAt);
   return {
     event: publicEvent(event, org, session),
@@ -275,6 +298,13 @@ export interface RegisterInput {
   slug: string;
   source: "app" | "web";
   userId: string | null;
+  /**
+   * An app account's confirmed email, from Supabase Auth (never what was typed): the
+   * only address its messages go to. Required for the app (anonymous, player-code and
+   * unconfirmed accounts cannot register); always null for a web guest, whose typed
+   * address is proved by the link emailed to it (confirmGuest).
+   */
+  verifiedEmail: string | null;
   people: unknown;
   teamName: unknown;
   payment: unknown;
@@ -336,7 +366,7 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
   const { event, org, session } = found;
   const s = await getSettings(event.id);
   const startsAt = startsAtOf(event, session);
-  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, s.capacity === null ? 0 : await liveCount(event.id));
+  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, s.capacity === null ? 0 : await placesTaken(event.id));
   if (reason) return fail(409, reason, CLOSED_MESSAGES[reason]);
 
   const read = readPeople(input.people, peoplePerEntry(s), {
@@ -345,6 +375,8 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
     partnerPhone: event.kind === "friendly_session",
   });
   if (!read.ok) return fail(400, "invalid", read.error);
+  const guest = input.source === "web";
+  if (!guest && (!input.userId || !input.verifiedEmail)) return fail(403, "email_required", "Add and confirm your email address in Account to register.");
   const people = read.people;
   if (input.userId) people[0] = { ...people[0]!, name: await accountName(input.userId, people[0]!.name) };
 
@@ -353,7 +385,9 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
   const choice = (typeof input.payment === "string" ? input.payment : options[0]) as PaymentChoice;
   if (!options.includes(choice)) return fail(400, "payment", options.includes("venue") ? "Online payment is not available for this event: pay at the venue." : "Pick how to pay.");
   const money = charges(s, choice, people.length);
-  const status = initialStatus(s, money.online);
+  // A web guest's entry waits for the link emailed to the address they typed: until
+  // it is opened the entry holds no place, reaches no organiser and is sent nothing else.
+  const status: RegistrationStatus = guest ? "unconfirmed" : initialStatus(s, money.online);
 
   const { data, error } = await db()
     .from("registrations")
@@ -370,12 +404,15 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
       amount_online: money.online,
       amount_venue: money.venue,
       currency: "EGP",
+      notify_email: guest ? null : input.verifiedEmail,
+      hold_until: status === "awaiting_payment" ? holdFromNow() : null,
     })
     .select(REG_COLUMNS)
     .single();
   if (error) {
-    // The unique index: this account already holds a live entry for the event.
-    if (input.userId && /duplicate|unique/i.test(error.message)) return fail(409, "already_registered", "You're already registered for this event. See My registrations.");
+    if (isFull(error)) return fail(409, "full", CLOSED_MESSAGES.full);
+    // The unique indexes: this account (or its verified email) already holds a live entry for the event.
+    if (input.userId && isUnique(error)) return fail(409, "already_registered", "You're already registered for this event. See My registrations.");
     return fail(409, "conflict", "Could not register right now. Try again.");
   }
   let reg = data as RegistrationRow;
@@ -392,7 +429,10 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
 
   let checkoutUrl: string | null = null;
   let message: string;
-  if (status === "confirmed") {
+  if (status === "unconfirmed") {
+    await sendGuestConfirmation(reg, event);
+    message = "Almost done: we emailed you a link. Open it within 24 hours to confirm your registration.";
+  } else if (status === "confirmed") {
     reg = (await confirmEntry(reg, event, "registered")) ?? reg;
     message = money.venue > 0 ? `You're in. Pay ${moneyLabel(money.venue)} at the venue.` : "You're in.";
   } else if (status === "awaiting_payment") {
@@ -405,6 +445,107 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
     await notify(reg, event, "received");
   }
   return { ok: true, value: { registration: reg, event, org, session, checkoutUrl, message } };
+}
+
+/* ---------------- a web guest's emailed link ---------------- */
+
+/** The token in the link emailed to a guest. Never shown to whoever filled the form (the status link is another token). */
+export function confirmToken(registrationId: string): string {
+  return createHmac("sha256", statusSecret()).update(`mb-registration-confirm:v1:${registrationId}`).digest("base64url").slice(0, 32);
+}
+
+export function confirmUrlFor(registrationId: string): string {
+  return `${siteUrl()}/register/confirm?r=${registrationId}&c=${confirmToken(registrationId)}`;
+}
+
+/** The one message an unverified address ever gets: the link, in the server's own words (no typed name). Never stored. */
+async function sendGuestConfirmation(reg: RegistrationRow, event: EventRow): Promise<void> {
+  const to = reg.people?.[0]?.email;
+  if (!to) return;
+  try {
+    const { sendTransactional } = await import("../messaging/queue");
+    await sendTransactional({
+      to,
+      channel: "email",
+      template: "registration",
+      vars: {
+        title: `${event.name}: confirm your registration`,
+        message: `Someone registered this email address for ${event.name} on Move Score. If it was you, confirm with the button below within 24 hours: until then the entry is not sent to the organiser. If it wasn't you, ignore this email; nothing happens unless the link is opened and confirmed.`,
+        cta_label: "Confirm my registration",
+        link: confirmUrlFor(reg.id),
+        tournament: event.name,
+      },
+      idempotencyKey: `registration:${reg.id}:confirm`,
+      recipient: { kind: "adhoc", name: null },
+      redact: [confirmToken(reg.id)],
+    });
+  } catch (err) {
+    console.error("[registration] confirmation link not sent", err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * A guest opened the emailed link and confirmed: the typed address is now the
+ * entry's verified one, and the entry goes on as if just registered (to the
+ * organiser, to payment, or in). One live entry per verified address per event
+ * (unique index); capacity is checked by the database trigger.
+ */
+export async function confirmGuest(registrationId: string, token: unknown): Promise<Outcome<{ registration: RegistrationRow; message: string }>> {
+  if (!UUID.test(registrationId) || typeof token !== "string" || !safeEqual(token, confirmToken(registrationId))) return NOT_FOUND;
+  const found = await loadReg(registrationId);
+  if (!found || found.reg.source !== "web") return NOT_FOUND;
+  const { reg, event } = found;
+  if (reg.status !== "unconfirmed") {
+    return reg.notify_email ? { ok: true, value: { registration: reg, message: "Already confirmed." } } : fail(409, "closed", "This registration was cancelled: register again.");
+  }
+  if (Date.parse(reg.created_at) + GUEST_CONFIRM_MS < Date.now()) return fail(410, "expired", "This link has expired: register again.");
+  const email = reg.people?.[0]?.email;
+  if (!email) return NOT_FOUND;
+  const session = await sessionOf(event);
+  const s = await getSettings(event.id);
+  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt: startsAtOf(event, session) }, s.capacity === null ? 0 : await placesTaken(event.id));
+  if (reason) return fail(409, reason, CLOSED_MESSAGES[reason]);
+  const to = initialStatus(s, reg.amount_online);
+  const { data, error } = await db()
+    .from("registrations")
+    .update({ status: to, notify_email: email, hold_until: to === "awaiting_payment" ? holdFromNow() : null, updated_at: now() })
+    .eq("id", reg.id)
+    .eq("status", "unconfirmed")
+    .select(REG_COLUMNS);
+  if (error) {
+    if (isFull(error)) return fail(409, "full", CLOSED_MESSAGES.full);
+    if (isUnique(error)) return fail(409, "already_registered", "This email address is already registered for this event.");
+    return fail(409, "conflict", "Could not confirm right now. Try again.");
+  }
+  let moved = ((data ?? []) as RegistrationRow[])[0];
+  if (!moved) {
+    const again = await loadReg(reg.id);
+    return again?.reg.notify_email ? { ok: true, value: { registration: again.reg, message: "Already confirmed." } } : fail(409, "conflict", "Could not confirm right now. Try again.");
+  }
+  await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "public", action: "REGISTRATION_EMAIL_CONFIRMED", entity_type: "registration", entity_id: reg.id, new_value: { status: to } });
+  let message: string;
+  if (to === "confirmed") {
+    moved = (await confirmEntry(moved, event, "registered")) ?? moved;
+    message = moved.amount_venue > 0 ? `You're in. Pay ${moneyLabel(moved.amount_venue)} at the venue.` : "You're in.";
+  } else if (to === "awaiting_payment") {
+    await notify(moved, event, "awaiting_payment");
+    message = `Confirmed. Pay ${moneyLabel(moved.amount_online)} to finish registering.`;
+  } else {
+    await notify(moved, event, "received");
+    message = "Confirmed. The organiser confirms each entry; we'll email you when they do.";
+  }
+  return { ok: true, value: { registration: moved, message } };
+}
+
+/** Guests who never opened their link: cancelled after 24 hours (the messaging cron). */
+export async function expireUnconfirmed(nowMs = Date.now()): Promise<number> {
+  const { data } = await db()
+    .from("registrations")
+    .update({ status: "cancelled", updated_at: new Date(nowMs).toISOString() })
+    .eq("status", "unconfirmed")
+    .lt("created_at", new Date(nowMs - GUEST_CONFIRM_MS).toISOString())
+    .select("id");
+  return (data ?? []).length;
 }
 
 /* ---------------- payment ---------------- */
@@ -429,60 +570,99 @@ export function statusTokenValid(registrationId: string, token: string | null | 
   return safeEqual(token, statusToken(registrationId));
 }
 
+/** The registration's one open online checkout (created or open, whatever its expiry), if any. Unique per registration (0029). */
 async function openPayment(registrationId: string): Promise<PaymentRow | null> {
-  const { data } = await db().from("registration_payments").select(PAY_COLUMNS).eq("registration_id", registrationId).eq("method", "online").order("created_at", { ascending: false }).limit(5);
-  const rows = (data ?? []) as PaymentRow[];
-  return rows.find((p) => (p.status === "open" || p.status === "created") && (!p.expires_at || Date.parse(p.expires_at) > Date.now() + 60_000)) ?? null;
-}
-
-async function paidPayment(registrationId: string): Promise<PaymentRow | null> {
-  const { data } = await db().from("registration_payments").select(PAY_COLUMNS).eq("registration_id", registrationId).eq("method", "online").in("status", ["paid", "refund_pending", "refunded"]).order("created_at", { ascending: false }).limit(1);
+  const { data } = await db().from("registration_payments").select(PAY_COLUMNS).eq("registration_id", registrationId).eq("method", "online").in("status", ["created", "open"]).order("created_at", { ascending: false }).limit(1);
   return ((data ?? []) as PaymentRow[])[0] ?? null;
 }
 
 /**
- * A Move Tick checkout for what this registration owes online, reusing an open
- * one. The amount is the registration row's, written by the server.
+ * Keeps the approved entry's place while it is paid for: a hold with less than two
+ * hours left is renewed for another 24 (a compare-and-set on the hold it was read
+ * with). Renewing a hold that ran out takes a place again, so the capacity trigger
+ * may refuse it: the event filled up meanwhile.
+ */
+async function ensureHold(reg: RegistrationRow): Promise<Outcome<null>> {
+  if (reg.hold_until && Date.parse(reg.hold_until) - Date.now() > HOLD_RENEW_BEFORE_MS) return { ok: true, value: null };
+  let q = db().from("registrations").update({ hold_until: holdFromNow(), updated_at: now() }).eq("id", reg.id).eq("status", "awaiting_payment");
+  q = reg.hold_until ? q.eq("hold_until", reg.hold_until) : q.is("hold_until", null);
+  const { data, error } = await q.select("id");
+  if (error) return isFull(error) ? fail(409, "full", "This event is full: the place kept for this entry ran out before it was paid.") : fail(409, "conflict", "Could not start the payment. Try again.");
+  if (data?.length) return { ok: true, value: null };
+  // Changed meanwhile (another tab renewed it): fine while it is held now.
+  const again = await loadReg(reg.id);
+  return again && again.reg.status === "awaiting_payment" && holdsPlace(again.reg) ? { ok: true, value: null } : fail(409, "conflict", "This entry changed meanwhile. Try again.");
+}
+
+/**
+ * A Move Tick checkout for what this registration owes online. Never two at once:
+ * the open one is reused (the database allows one open checkout per registration),
+ * and one whose time ran out is first settled with Move Tick (paid, or closed)
+ * before another is made. The amount is the registration row's, written by the server.
  */
 export async function startPayment(reg: RegistrationRow, event: EventRow, source: "app" | "web" | "admin"): Promise<Outcome<{ checkoutUrl: string; paymentId: string }>> {
   if (reg.status !== "awaiting_payment" || reg.amount_online <= 0) return fail(409, "not_due", "Nothing is due online for this entry.");
   const org = await orgOf(event.organization_id);
   const cfg = moveTickConfig();
   if (!cfg || org?.slug !== MOVE_BEYOND_SLUG) return fail(409, "unavailable", "Online payment is not available for this event.");
-  const existing = await openPayment(reg.id);
-  if (existing?.checkout_url) return { ok: true, value: { checkoutUrl: existing.checkout_url, paymentId: existing.id } };
-  let payment = existing;
+  // A checkout that may have been paid (or closed) without a word reaching us: ask first.
+  await reconcileOnline(reg.id, { force: true });
+  const fresh = await loadReg(reg.id);
+  if (!fresh || fresh.reg.status !== "awaiting_payment") return fail(409, "not_due", "Nothing is due online for this entry.");
+  const held = await ensureHold(fresh.reg);
+  if (!held.ok) return held;
+
+  let payment = await openPayment(reg.id);
+  if (payment?.status === "open") {
+    if (payment.expires_at && Date.parse(payment.expires_at) <= Date.now()) {
+      // Move Tick has not closed it yet (or could not be asked): never open a second one beside it.
+      return fail(409, "checkout_open", "The last checkout is still being closed by Move Tick. Try again in a minute.");
+    }
+    if (payment.checkout_url) return { ok: true, value: { checkoutUrl: payment.checkout_url, paymentId: payment.id } };
+  }
   if (!payment) {
     const { data, error } = await db()
       .from("registration_payments")
       .insert({ registration_id: reg.id, organization_id: reg.organization_id, method: "online", provider: "move_tick", amount: reg.amount_online, currency: "EGP", status: "created", test_mode: cfg.mode === "test" })
       .select(PAY_COLUMNS)
       .single();
-    if (error) return fail(409, "conflict", "Could not start the payment. Try again.");
-    payment = data as PaymentRow;
+    if (error) {
+      // Another request made it a moment ago (one open checkout per registration): use that one.
+      payment = isUnique(error) ? await openPayment(reg.id) : null;
+      if (!payment) return fail(409, "conflict", "Could not start the payment. Try again.");
+      if (payment.status === "open" && payment.checkout_url) return { ok: true, value: { checkoutUrl: payment.checkout_url, paymentId: payment.id } };
+    } else payment = data as PaymentRow;
   }
   const registrant = reg.people[0];
   try {
+    // The payment row's id is the Idempotency-Key: a retry, or a request racing this one, gets the same session.
     const session = await createPaymentSession(cfg, {
       reference: reg.id,
       amount: payment.amount,
       currency: "EGP",
       description: `${event.name} — entry`,
       returnUrl: returnUrlFor(reg.id),
-      customer: { name: registrant?.name ?? "Player", email: registrant?.email ?? null, phone: registrant?.phone ?? null },
+      customer: { name: registrant?.name ?? "Player", email: reg.notify_email, phone: null },
       idempotencyKey: payment.id,
     });
-    const { error } = await db()
+    const { data: opened, error } = await db()
       .from("registration_payments")
       .update({ status: "open", session_id: session.sessionId, checkout_url: session.checkoutUrl, expires_at: session.expiresAt, test_mode: session.testMode, updated_at: now() })
       .eq("id", payment.id)
-      .eq("status", "created");
-    if (error) return fail(409, "conflict", "Could not start the payment. Try again.");
+      .eq("status", "created")
+      .select("id");
+    if (error || !opened?.length) {
+      const again = await openPayment(reg.id);
+      if (again?.id === payment.id && again.status === "open" && again.session_id === session.sessionId) return { ok: true, value: { checkoutUrl: session.checkoutUrl, paymentId: payment.id } };
+      return fail(409, "conflict", "Could not start the payment. Try again.");
+    }
     await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: source === "app" ? "user" : source === "web" ? "public" : null, action: "REGISTRATION_PAYMENT_STARTED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, amount: payment.amount, session_id: session.sessionId, test_mode: session.testMode } });
     return { ok: true, value: { checkoutUrl: session.checkoutUrl, paymentId: payment.id } };
   } catch (e) {
     const code = e instanceof MoveTickError ? e.code : "error";
     console.error("[registration] Move Tick checkout failed", code);
+    if (code === "PAYMENT_SESSION_OPEN") return fail(409, "checkout_open", "A checkout for this entry is still open at Move Tick. Try again in a few minutes.");
+    if (code === "ORDER_ALREADY_PAID") return fail(409, "checkout_open", "Move Tick already has a payment for this entry. It will show here shortly.");
     return fail(502, "move_tick", "Online payment is not reachable right now. Try again in a moment.");
   }
 }
@@ -494,11 +674,15 @@ export type WebhookOutcome = "applied" | "duplicate" | "ignored" | "unknown_refe
 /**
  * Applies one Move Tick event (signature already verified by the route).
  * Idempotent: the event id is recorded first (a replay stops there), and every
- * change is conditional on the status it moves from.
+ * change is conditional on the status it moves from. Only a unique-key refusal
+ * means "seen before"; any other database error is an error (Move Tick retries).
  */
 export async function applyWebhook(e: WebhookEvent): Promise<WebhookOutcome> {
   const { error: dup } = await db().from("move_tick_events").insert({ event_id: e.id, type: e.type, reference: e.data.reference });
-  if (dup) return "duplicate";
+  if (dup) {
+    if (isUnique(dup)) return "duplicate";
+    throw new Error(`move_tick_events: ${dup.message ?? "insert failed"}`);
+  }
   const outcome = await applyWebhookOnce(e).catch(async (err) => {
     // Let Move Tick retry: forget the event id so the retry is not taken for a replay.
     await db().from("move_tick_events").delete().eq("event_id", e.id);
@@ -539,20 +723,26 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
     if (!moved?.length) return "duplicate";
     await audit({ ...base, action: "REGISTRATION_PAID", new_value: { payment_id: payment.id, amount: payment.amount, session_id: payment.session_id, test_mode: payment.test_mode } });
     // Paid while it was still waiting for the payment: confirmed. Paid after it was
-    // cancelled or refused: kept for the organiser to refund.
+    // cancelled or refused, or a second payment for an entry already paid: kept for
+    // the organiser to refund (by this payment's id).
     const { data: conf } = await db()
       .from("registrations")
       .update({ status: "confirmed", paid_at: now(), updated_at: now() })
       .eq("id", reg.id)
       .eq("status", "awaiting_payment")
+      .is("paid_at", null)
       .select(REG_COLUMNS);
     const confirmed = (conf as RegistrationRow[] | null)?.[0];
     if (confirmed) {
       await confirmEntry(confirmed, event, "paid");
       return "applied";
     }
-    await db().from("registration_payments").update({ status: "needs_review", review_reason: "Paid after the entry was no longer waiting for payment: refund it.", updated_at: now() }).eq("id", payment.id).eq("status", "paid");
+    const second = Boolean(reg.paid_at) || (await otherPaidPayment(reg.id, payment.id));
+    const reason = second ? "A second payment for an entry that was already paid: refund it." : "Paid after the entry was no longer waiting for payment: refund it.";
+    await db().from("registration_payments").update({ status: "needs_review", review_reason: reason, updated_at: now() }).eq("id", payment.id).eq("status", "paid");
     await db().from("registrations").update({ paid_at: now(), updated_at: now() }).eq("id", reg.id).is("paid_at", null);
+    await audit({ ...base, action: second ? "REGISTRATION_PAYMENT_DUPLICATE" : "REGISTRATION_PAYMENT_LATE", new_value: { payment_id: payment.id, amount: payment.amount, status: reg.status } });
+    await alertOrgAdmins(event, `${event.name}: a payment to refund`, `Move Tick took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} that ${second ? "was already paid" : "was no longer waiting for payment"}. Open Registrations and refund it.`, `registration:${reg.id}:review:${payment.id}`);
     return "needs_review";
   }
 
@@ -565,9 +755,13 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
     return "applied";
   }
 
-  // payment.refunded: only a refund this server asked for, of a paid payment.
+  // payment.refunded. Normally the answer to this server's own refund (refund_pending).
+  // Move Tick may also refund on its own (a dispute, a payment it refunded from its
+  // side): the money is back with the payer either way, so it is recorded, audited
+  // apart and the organisation's admins are told.
   const refunded = e.data.refundedAmount ?? payment.refund_amount ?? payment.amount;
   if (refunded > payment.amount) return "needs_review";
+  const requested = payment.status === "refund_pending";
   const { data: moved } = await db()
     .from("registration_payments")
     .update({ status: "refunded", refund_amount: refunded, refunded_at: now(), last_event_id: e.id, updated_at: now() })
@@ -575,32 +769,65 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
     .in("status", ["refund_pending", "paid", "needs_review"])
     .select("id");
   if (!moved?.length) return "duplicate";
-  await finishRefund(reg, event, refunded);
+  if (!requested) {
+    await audit({ ...base, action: "REGISTRATION_REFUND_EXTERNAL", new_value: { payment_id: payment.id, amount: refunded, was: payment.status } });
+    await alertOrgAdmins(event, `${event.name}: Move Tick refunded a payment`, `Move Tick refunded ${moneyLabel(refunded)} for an entry in ${event.name} without a refund asked for in Move Score. Open Registrations to check the entry.`, `registration:${reg.id}:external-refund:${payment.id}`);
+  }
+  await finishRefund(reg, event, refunded, payment);
   return "applied";
 }
 
+/** Whether another online payment of this registration was taken (paid, refunded or held after being paid). */
+async function otherPaidPayment(registrationId: string, paymentId: string): Promise<boolean> {
+  const { data } = await db().from("registration_payments").select("id, paid_at").eq("registration_id", registrationId).eq("method", "online").neq("id", paymentId).not("paid_at", "is", null).limit(1);
+  return Boolean(data?.length);
+}
+
+/** How often one payment may be looked up at Move Tick (status page views, My registrations). */
+const RECONCILE_EVERY_MS = 30_000;
+
 /**
  * A webhook that never arrived: asks Move Tick (authenticated, server to server)
- * how an open checkout ended, and applies the answer through the same idempotent
- * path as a webhook (event id "reconcile:<session>:<status>"). The amount check
- * still applies. Errors are ignored: the webhook or the next look will do.
+ * how a checkout ended, and applies the answer through the same idempotent path as
+ * a webhook (event id "reconcile:<session>:<status>"). The amount check still
+ * applies. Looks at open checkouts and at ones marked expired here (a late payment
+ * is not lost), each at most once per 30 seconds unless `force` (paying again).
+ * Errors are ignored: the webhook or the next look will do.
  */
-export async function reconcileOnline(registrationId: string): Promise<void> {
+export async function reconcileOnline(registrationId: string, opts: { force?: boolean } = {}): Promise<void> {
   const cfg = moveTickConfig();
   if (!cfg) return;
-  const { data } = await db().from("registration_payments").select(PAY_COLUMNS).eq("registration_id", registrationId).eq("method", "online").in("status", ["open"]).order("created_at", { ascending: false }).limit(1);
-  const pay = ((data ?? []) as PaymentRow[])[0];
-  if (!pay?.session_id) return;
-  try {
-    const s = await getPaymentSession(cfg, pay.session_id);
-    if (s.reference !== registrationId || s.sessionId !== pay.session_id) return;
-    const type = s.status === "paid" ? "payment.succeeded" : s.status === "failed" ? "payment.failed" : s.status === "expired" ? "payment.expired" : null;
-    if (!type) return;
-    await applyWebhook({ id: `reconcile:${pay.session_id}:${s.status}`, type, createdAt: now(), data: { sessionId: s.sessionId, reference: s.reference, amount: s.amount, currency: s.currency, refundedAmount: null, testMode: s.testMode } });
-  } catch {
-    /* Move Tick unreachable or the session unknown: nothing to do now */
+  const since = new Date(Date.now() - 14 * 86400_000).toISOString();
+  const { data } = await db()
+    .from("registration_payments")
+    .select(PAY_COLUMNS)
+    .eq("registration_id", registrationId)
+    .eq("method", "online")
+    .in("status", ["open", "expired"])
+    .not("session_id", "is", null)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(3);
+  for (const pay of (data ?? []) as PaymentRow[]) {
+    if (!pay.session_id) continue;
+    const stamp = now();
+    const cutoff = new Date(Date.now() - RECONCILE_EVERY_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
+    let claim = db().from("registration_payments").update({ reconciled_at: stamp }).eq("id", pay.id);
+    if (!opts.force) claim = claim.or(`reconciled_at.is.null,reconciled_at.lt.${cutoff}`);
+    const { data: claimed } = await claim.select("id");
+    if (!claimed?.length) continue;
+    try {
+      const s = await getPaymentSession(cfg, pay.session_id);
+      if (s.reference !== registrationId || s.sessionId !== pay.session_id) continue;
+      const type = s.status === "paid" ? "payment.succeeded" : s.status === "failed" ? "payment.failed" : s.status === "expired" ? "payment.expired" : null;
+      if (!type) continue;
+      await applyWebhook({ id: `reconcile:${pay.session_id}:${s.status}`, type, createdAt: now(), data: { sessionId: s.sessionId, reference: s.reference, amount: s.amount, currency: s.currency, refundedAmount: null, testMode: s.testMode } });
+    } catch {
+      /* Move Tick unreachable or the session unknown: nothing to do now */
+    }
   }
 }
+
 
 /* ---------------- the entry in the event ---------------- */
 
@@ -643,7 +870,11 @@ async function materialize(reg: RegistrationRow, event: EventRow): Promise<void>
   }
 }
 
-/** A team (and its players) in a tournament from one team entry, or from individual entries paired by the organiser. */
+/**
+ * A team (and its players) in a tournament from one team entry, or from individual
+ * entries paired by the organiser. All or nothing: if any step fails the team and
+ * its players are removed again and the registrations point at nothing.
+ */
 async function tournamentTeam(regs: RegistrationRow[], event: EventRow): Promise<void> {
   const people = regs.flatMap((r) => r.people.map((p, i) => ({ ...p, reg: r, own: i === 0 })));
   const chess = sportOf(event).engine === "chess";
@@ -655,33 +886,51 @@ async function tournamentTeam(regs: RegistrationRow[], event: EventRow): Promise
     .single();
   if (error) throw new Error(error.message);
   const teamId = (t as { id: string }).id;
-  const ownProfiles = new Map<string, string | null>();
-  for (const r of regs) if (r.auth_user_id) ownProfiles.set(r.id, (await accountProfile(r.auth_user_id))?.id ?? null);
-  const { data: rows, error: pe } = await db()
-    .from("players")
-    .insert(
-      people.map((p, i) => ({
-        tournament_id: event.id,
-        team_id: teamId,
-        player_order: i + 1,
-        full_name: p.name,
-        phone: p.phone,
-        email: p.email,
-        // The registrant's row joins their account's own profile; nobody else's row is put on a profile here.
-        player_profile_id: p.own && p.reg.auth_user_id ? (ownProfiles.get(p.reg.id) ?? null) : null,
-      })),
-    )
-    .select(PLAYER_COLUMNS);
-  if (pe) {
-    await db().from("teams").delete().eq("id", teamId);
-    throw new Error(pe.message);
+  const owned: { reg: RegistrationRow; row: PlayerRow }[] = [];
+  let made: PlayerRow[] = [];
+  try {
+    const ownProfiles = new Map<string, string | null>();
+    for (const r of regs) if (r.auth_user_id) ownProfiles.set(r.id, (await accountProfile(r.auth_user_id))?.id ?? null);
+    const { data: rows, error: pe } = await db()
+      .from("players")
+      .insert(
+        people.map((p, i) => ({
+          tournament_id: event.id,
+          team_id: teamId,
+          player_order: i + 1,
+          full_name: p.name,
+          phone: p.phone,
+          email: p.email,
+          // The registrant's row joins their account's own profile; nobody else's row is put on a profile here.
+          player_profile_id: p.own && p.reg.auth_user_id ? (ownProfiles.get(p.reg.id) ?? null) : null,
+        })),
+      )
+      .select(`${PLAYER_COLUMNS}, player_order`);
+    if (pe) throw new Error(pe.message);
+    made = (rows ?? []) as (PlayerRow & { player_order: number })[];
+    if (made.length !== people.length) throw new Error("not every player was made");
+    for (const r of regs) {
+      // The registrant's own row by its place in the team (never by name: two players may share one).
+      const order = people.findIndex((p) => p.reg.id === r.id && p.own) + 1;
+      const ownRow = (made as (PlayerRow & { player_order: number })[]).find((m) => m.player_order === order && m.team_id === teamId) ?? null;
+      if (!ownRow) throw new Error("the registrant's row is missing");
+      const { error: re } = await db().from("registrations").update({ team_id: teamId, player_id: ownRow.id, updated_at: now() }).eq("id", r.id);
+      if (re) throw new Error(re.message);
+      if (r.auth_user_id) owned.push({ reg: r, row: ownRow });
+    }
+  } catch (err) {
+    await db().from("registrations").update({ team_id: null, player_id: null, updated_at: now() }).in("id", regs.map((r) => r.id)).eq("team_id", teamId);
+    await db().from("players").delete().eq("team_id", teamId).eq("tournament_id", event.id);
+    await db().from("teams").delete().eq("id", teamId).eq("tournament_id", event.id);
+    throw err;
   }
-  const made = (rows ?? []) as PlayerRow[];
-  for (const r of regs) {
-    const ownIndex = people.findIndex((p) => p.reg.id === r.id && p.own);
-    const ownRow = made.find((m) => m.full_name === people[ownIndex]!.name && m.team_id === teamId) ?? null;
-    await db().from("registrations").update({ team_id: teamId, player_id: ownRow?.id ?? null, updated_at: now() }).eq("id", r.id);
-    if (r.auth_user_id && ownRow) await linkOwnRow(r, event, ownRow);
+  // The entry stands; linking the registrant's own row is a step after it (audited either way).
+  for (const o of owned) {
+    try {
+      await linkOwnRow(o.reg, event, o.row);
+    } catch (err) {
+      console.error("[registration] own row not linked", err instanceof Error ? err.message : err);
+    }
   }
   await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", action: "REGISTRATION_ENTRY_MADE", entity_type: "team", entity_id: teamId, new_value: { registrations: regs.map((r) => r.id), players: made.length } });
 }
@@ -700,19 +949,27 @@ async function linkOwnRow(reg: RegistrationRow, event: EventRow, row: PlayerRow)
   });
 }
 
-/** A session's entries: the registrant's profile (the account's own, for an app account) and their partners'. */
+/**
+ * A session's entries: the registrant's profile (the account's own, for an app
+ * account) and their partners'. Insert only: a player who already has an entry in
+ * the session keeps it exactly as it is (never approved, unhidden or re-pointed by
+ * someone else's registration), and only the entries made here are recorded on the
+ * registration, so a cancellation or refund withdraws those and nothing else. A
+ * profile found by a typed mobile number proves nothing about who typed it: that
+ * player's new entry waits for the organiser ("pending"). All or nothing.
+ */
 async function sessionEntries(reg: RegistrationRow, event: EventRow): Promise<void> {
   const session = await sessionOf(event);
   if (!session) throw new Error("session not found");
   const { findOrCreateProfile } = await import("../friendly/ops");
-  const profiles: string[] = [];
+  const profiles: { id: string; approval: "approved" | "pending" }[] = [];
   for (let i = 0; i < reg.people.length; i++) {
     const p = reg.people[i]!;
     if (i === 0 && reg.auth_user_id) {
       const id = await ensureAccountProfile(reg.auth_user_id, p.name);
       // The player registered with this organisation themselves: theirs to see.
       await ensureOrgPlayer(event.organization_id, id, "registration", "approved");
-      profiles.push(id);
+      profiles.push({ id, approval: "approved" });
       continue;
     }
     const mobile = normalizeMobile(p.phone ?? "");
@@ -720,23 +977,32 @@ async function sessionEntries(reg: RegistrationRow, event: EventRow): Promise<vo
     const found = await findOrCreateProfile(p.name, mobile);
     // A profile found by a typed number proves nothing about who typed it ('matched').
     await ensureOrgPlayer(event.organization_id, found.id, found.created ? "registration" : "matched", "approved", found.created ? null : p.name);
-    profiles.push(found.id);
+    profiles.push({ id: found.id, approval: found.created ? "approved" : "pending" });
   }
-  const ids: string[] = [];
-  for (const pid of profiles) {
-    const { data } = await db()
-      .from("friendly_entries")
-      .upsert({ session_id: session.id, player_profile_id: pid, source: "self", approval: "approved", hidden: false, updated_at: now() }, { onConflict: "session_id,player_profile_id" })
-      .select("id")
-      .single();
-    if (data) ids.push((data as { id: string }).id);
+  const made: { id: string; profile: string }[] = [];
+  try {
+    for (const p of profiles) {
+      const { data, error } = await db()
+        .from("friendly_entries")
+        .upsert({ session_id: session.id, player_profile_id: p.id, source: "self", approval: p.approval, hidden: false, updated_at: now() }, { onConflict: "session_id,player_profile_id", ignoreDuplicates: true })
+        .select("id");
+      if (error) throw new Error(error.message);
+      const row = ((data ?? []) as { id: string }[])[0];
+      if (row) made.push({ id: row.id, profile: p.id });
+    }
+    if (profiles.length === 2) {
+      for (const m of made) {
+        const other = profiles.find((p) => p.id !== m.profile);
+        if (other) await db().from("friendly_entries").update({ preferred_partner_profile_id: other.id }).eq("id", m.id);
+      }
+    }
+    const { error: re } = await db().from("registrations").update({ entry_ids: made.map((m) => m.id), updated_at: now() }).eq("id", reg.id);
+    if (re) throw new Error(re.message);
+  } catch (err) {
+    if (made.length) await db().from("friendly_entries").delete().in("id", made.map((m) => m.id));
+    throw err;
   }
-  if (profiles.length === 2) {
-    await db().from("friendly_entries").update({ preferred_partner_profile_id: profiles[1] }).eq("session_id", session.id).eq("player_profile_id", profiles[0]!);
-    await db().from("friendly_entries").update({ preferred_partner_profile_id: profiles[0] }).eq("session_id", session.id).eq("player_profile_id", profiles[1]!);
-  }
-  await db().from("registrations").update({ entry_ids: ids, updated_at: now() }).eq("id", reg.id);
-  await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", action: "REGISTRATION_ENTRY_MADE", entity_type: "friendly_session", entity_id: session.id, new_value: { registration: reg.id, entries: ids.length } });
+  await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", action: "REGISTRATION_ENTRY_MADE", entity_type: "friendly_session", entity_id: session.id, new_value: { registration: reg.id, entries: made.length, kept: profiles.length - made.length } });
 }
 
 /** Takes the entry back out of the event (refund, cancellation). A team that already has matches stays, for the organiser. */
@@ -768,14 +1034,23 @@ async function loadReg(id: string): Promise<{ reg: RegistrationRow; event: Event
   return event ? { reg, event } : null;
 }
 
+class EventFullError extends Error {
+  constructor() {
+    super("The event is full: refuse or cancel an entry, or raise the capacity, first.");
+  }
+}
+
+/** A conditional status change from the status the row was read in. Throws EventFullError when the capacity trigger refuses it. */
 async function move(reg: RegistrationRow, to: RegistrationStatus, patch: Record<string, unknown> = {}): Promise<RegistrationRow | null> {
   if (!canMove(reg.status, to)) return null;
-  const { data } = await db()
+  const hold = to === "awaiting_payment" ? { hold_until: holdFromNow() } : {};
+  const { data, error } = await db()
     .from("registrations")
-    .update({ status: to, ...patch, updated_at: now() })
+    .update({ status: to, ...hold, ...patch, updated_at: now() })
     .eq("id", reg.id)
     .eq("status", reg.status)
     .select(REG_COLUMNS);
+  if (error && isFull(error)) throw new EventFullError();
   return ((data ?? []) as RegistrationRow[])[0] ?? null;
 }
 
@@ -842,24 +1117,25 @@ export async function pairRegistrations(ids: [string, string], tournamentId: str
 }
 
 /**
- * Refunds an online payment through Move Tick: the organiser's action only, until
- * 24 h before the event's start time, audited. The amount is the payment's own,
- * less the card fee the settings keep (none by default).
+ * Refunds one online payment (named by its id) through Move Tick: the organiser's
+ * action only, audited. A payment that confirmed the entry: until 24 h before the
+ * event's start time. A payment held for review after it was taken (paid after the
+ * entry was cancelled or refused, or a second payment for an entry already paid):
+ * at any time, since it bought nothing. The amount is the payment's own, less the
+ * card fee the settings keep (none by default).
  */
-export async function refund(registrationId: string, actor: Actor, reasonText: string | null): Promise<string> {
+export async function refund(registrationId: string, paymentId: string, actor: Actor, reasonText: string | null): Promise<string> {
   const found = await loadReg(registrationId);
-  if (!found) throw new Error("Not found");
+  if (!found || !UUID.test(paymentId)) throw new Error("Not found");
   const { reg, event } = found;
-  const session = await sessionOf(event);
-  if (reg.status === "refunded") throw new Error(REFUND_MESSAGES.already_refunded);
-  const payment = await paidPayment(reg.id);
-  if (!payment || payment.status !== "paid" || !payment.session_id) {
-    const review = await db().from("registration_payments").select(PAY_COLUMNS).eq("registration_id", reg.id).eq("status", "needs_review").not("paid_at", "is", null).limit(1);
-    const flagged = ((review.data ?? []) as PaymentRow[])[0];
-    if (!flagged) throw new Error(payment?.status === "refund_pending" ? "A refund is already on its way." : REFUND_MESSAGES.not_paid);
-    return refundPayment(reg, event, flagged, actor, reasonText, { skipCutoff: true });
-  }
-  const allowed = refundAllowed(startsAtOf(event, session));
+  const { data } = await db().from("registration_payments").select(PAY_COLUMNS).eq("id", paymentId).eq("registration_id", reg.id).eq("method", "online").maybeSingle();
+  const payment = data as PaymentRow | null;
+  if (!payment || !payment.session_id) throw new Error(REFUND_MESSAGES.not_paid);
+  if (payment.status === "refunded") throw new Error(REFUND_MESSAGES.already_refunded);
+  if (payment.status === "refund_pending") throw new Error("A refund is already on its way.");
+  if (payment.status === "needs_review" && payment.paid_at) return refundPayment(reg, event, payment, actor, reasonText, { skipCutoff: true });
+  if (payment.status !== "paid") throw new Error(REFUND_MESSAGES.not_paid);
+  const allowed = refundAllowed(startsAtOf(event, await sessionOf(event)));
   if (!allowed.ok) throw new Error(REFUND_MESSAGES[allowed.reason]);
   return refundPayment(reg, event, payment, actor, reasonText, { skipCutoff: false });
 }
@@ -893,7 +1169,7 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
         .eq("id", payment.id)
         .eq("status", "refund_pending")
         .select("id");
-      if (done?.length) await finishRefund(reg, event, amount);
+      if (done?.length) await finishRefund(reg, event, amount, payment);
       return `Refunded ${moneyLabel(amount)}.`;
     }
     await db().from("registration_payments").update({ refund_id: r.refundId, updated_at: now() }).eq("id", payment.id);
@@ -906,11 +1182,21 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
   }
 }
 
-/** After Move Tick refunded: the registration is refunded and the entry leaves the event. */
-async function finishRefund(reg: RegistrationRow, event: EventRow, amount: number): Promise<void> {
+/**
+ * After Move Tick refunded a payment. The payment that confirmed the entry: the
+ * registration is refunded and the entry leaves the event. A payment held for
+ * review (it bought nothing: a duplicate, or paid after the entry was cancelled):
+ * the registration stays as it is.
+ */
+async function finishRefund(reg: RegistrationRow, event: EventRow, amount: number, payment: Pick<PaymentRow, "id" | "review_reason">): Promise<void> {
   const { data } = await db().from("registrations").select(REG_COLUMNS).eq("id", reg.id).maybeSingle();
   const fresh = data as RegistrationRow | null;
   if (!fresh) return;
+  if (payment.review_reason) {
+    await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", action: "REGISTRATION_PAYMENT_REFUNDED", entity_type: "registration", entity_id: fresh.id, new_value: { amount, payment_id: payment.id, status: fresh.status } });
+    await notify(fresh, event, "refunded", payment.id, amount);
+    return;
+  }
   const { data: moved } = await db()
     .from("registrations")
     .update({ status: "refunded", refunded_at: now(), updated_at: now() })
@@ -920,7 +1206,7 @@ async function finishRefund(reg: RegistrationRow, event: EventRow, amount: numbe
   const done = ((moved ?? []) as RegistrationRow[])[0];
   if (!done) return;
   const entry = await withdrawEntry(done, event);
-  await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", action: "REGISTRATION_REFUNDED", entity_type: "registration", entity_id: done.id, new_value: { amount, entry } });
+  await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", action: "REGISTRATION_REFUNDED", entity_type: "registration", entity_id: done.id, new_value: { amount, entry, payment_id: payment.id } });
   await notify(done, event, "refunded", undefined, amount);
 }
 
@@ -935,9 +1221,7 @@ export async function ownRegistration(userId: string, id: string): Promise<{ reg
 export async function payOwn(userId: string, id: string): Promise<Outcome<{ checkoutUrl: string }>> {
   const first = await ownRegistration(userId, id);
   if (!first) return NOT_FOUND;
-  await reconcileOnline(id);
-  const found = (await ownRegistration(userId, id)) ?? first;
-  const r = await startPayment(found.reg, found.event, "app");
+  const r = await startPayment(first.reg, first.event, "app");
   return r.ok ? { ok: true, value: { checkoutUrl: r.value.checkoutUrl } } : r;
 }
 
@@ -1042,14 +1326,45 @@ export async function toPublicRegistration(r: RegistrationRow, e: EventRow, org:
   };
 }
 
-/** The web status page (Move Tick's return URL): the event and the status, nothing personal. */
-export async function statusView(registrationId: string, token: string | null): Promise<{ event: MRegistrationEvent; status: RegistrationStatus; label: string; paid: boolean } | null> {
+export interface StatusView {
+  event: MRegistrationEvent;
+  status: RegistrationStatus;
+  label: string;
+  paid: boolean;
+  /** What can be paid online now from the status page (a guest's way to pay once approved). */
+  canPay: boolean;
+  amountOnline: number;
+}
+
+/**
+ * The web status page (Move Tick's return URL, and the link in every email): the
+ * event and the status, nothing personal, and a Pay button once an approved entry
+ * is due online. Asks Move Tick at most once per 30 seconds per payment.
+ */
+export async function statusView(registrationId: string, token: string | null): Promise<StatusView | null> {
   if (!statusTokenValid(registrationId, token)) return null;
   await reconcileOnline(registrationId);
   const found = await loadReg(registrationId);
   if (!found) return null;
   const org = await orgOf(found.event.organization_id);
-  return { event: publicEvent(found.event, org, await sessionOf(found.event)), status: found.reg.status, label: STATUS_LABELS[found.reg.status], paid: Boolean(found.reg.paid_at) };
+  const r = found.reg;
+  return {
+    event: publicEvent(found.event, org, await sessionOf(found.event)),
+    status: r.status,
+    label: STATUS_LABELS[r.status],
+    paid: Boolean(r.paid_at),
+    canPay: r.status === "awaiting_payment" && r.amount_online > 0 && onlinePaymentAvailable(org?.slug),
+    amountOnline: r.amount_online,
+  };
+}
+
+/** The status page's Pay button: a checkout for an approved entry, for whoever holds the signed status link. */
+export async function payFromStatus(registrationId: string, token: unknown): Promise<Outcome<{ checkoutUrl: string }>> {
+  if (typeof token !== "string" || !statusTokenValid(registrationId, token)) return NOT_FOUND;
+  const found = await loadReg(registrationId);
+  if (!found) return NOT_FOUND;
+  const r = await startPayment(found.reg, found.event, found.reg.source === "app" ? "app" : "web");
+  return r.ok ? { ok: true, value: { checkoutUrl: r.value.checkoutUrl } } : r;
 }
 
 /* ---------------- organiser list ---------------- */
@@ -1076,33 +1391,65 @@ export async function eventRegistrations(tournamentId: string): Promise<AdminReg
 
 type Notice = "received" | "awaiting_payment" | "confirmed" | "refused" | "refunded";
 
-/** Tells the registrant (email when they gave one, else WhatsApp). Never blocks the flow. */
+/**
+ * Tells the registrant, by email, and only at the entry's verified address
+ * (notify_email: an app account's confirmed email, or a guest's address once its
+ * link was opened). Never WhatsApp, never a typed phone or address, never a typed
+ * name: the words are the server's own and the event's name. The link is the
+ * signed status page (where an approved entry is paid). Never blocks the flow.
+ */
 async function notify(reg: RegistrationRow, event: EventRow, kind: Notice, why?: string, amount?: number): Promise<void> {
-  const who = reg.people?.[0];
-  if (!who) return;
-  const to = who.email ?? who.phone;
+  const to = reg.notify_email;
   if (!to) return;
   const venue = reg.amount_venue > 0 && !reg.venue_paid_at ? ` Pay ${moneyLabel(reg.amount_venue)} at the venue.` : "";
-  const text: Record<Notice, [string, string]> = {
-    received: [`${event.name}: registration received`, `we received your registration for ${event.name}. The organiser confirms each entry; you'll hear from us when they do.`],
-    awaiting_payment: [`${event.name}: pay to finish registering`, `your entry for ${event.name} is approved. Pay ${moneyLabel(reg.amount_online)} in the Move Score app (My profile → Registrations) to confirm your place.`],
-    confirmed: [`${event.name}: you're in`, `your place in ${event.name} is confirmed.${venue}${reg.auth_user_id ? " Your entry is in your Move Score app." : ""}`],
-    refused: [`${event.name}: registration not accepted`, `the organiser could not accept your registration for ${event.name}.`],
-    refunded: [`${event.name}: refunded`, `your entry for ${event.name} was refunded (${moneyLabel(amount ?? 0)}). It can take a few days to reach your card.`],
+  const app = reg.auth_user_id ? " It is also in your Move Score app (My profile → Registrations)." : "";
+  const text: Record<Notice, [string, string, string]> = {
+    received: [`${event.name}: registration received`, `We received your registration for ${event.name}. The organiser confirms each entry; you'll hear from us when they do.`, "See your registration"],
+    awaiting_payment: [`${event.name}: pay to finish registering`, `Your entry for ${event.name} is approved. Pay ${moneyLabel(reg.amount_online)} with the button below to confirm your place: it is kept for you for 24 hours.${app}`, `Pay ${moneyLabel(reg.amount_online)}`],
+    confirmed: [`${event.name}: you're in`, `Your place in ${event.name} is confirmed.${venue}${app}`, "See your registration"],
+    refused: [`${event.name}: registration not accepted`, `The organiser could not accept your registration for ${event.name}.`, "See your registration"],
+    refunded: [`${event.name}: refunded`, `A payment for your entry in ${event.name} was refunded (${moneyLabel(amount ?? 0)}). It can take a few days to reach your card.`, "See your registration"],
   };
-  const [title, message] = text[kind];
+  const [title, message, cta] = text[kind];
   try {
     const { sendTransactional } = await import("../messaging/queue");
     await sendTransactional({
       to,
-      channel: who.email ? "email" : "whatsapp",
-      template: "confirmation",
-      vars: { name: who.name, first_name: who.name.split(" ")[0], title, message, tournament: event.name },
+      channel: "email",
+      template: "registration",
+      vars: { title, message, cta_label: cta, link: returnUrlFor(reg.id), tournament: event.name },
       idempotencyKey: `registration:${reg.id}:${kind}${why ? `:${why}` : ""}`,
-      recipient: { kind: "adhoc", name: who.name },
+      recipient: { kind: "adhoc", name: null },
     });
   } catch (err) {
     console.error("[registration] message not sent", err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Tells the event organisation's active owners and admins (at the address they
+ * accepted their invitation with) about a payment that needs a person. Never blocks.
+ */
+async function alertOrgAdmins(event: EventRow, title: string, message: string, key: string): Promise<void> {
+  try {
+    const { data } = await db().from("organization_members").select("id, invited_email").eq("organization_id", event.organization_id).eq("status", "active").in("role", ["owner", "admin"]).limit(20);
+    const { sendTransactional } = await import("../messaging/queue");
+    const seen = new Set<string>();
+    for (const m of (data ?? []) as { id: string; invited_email: string | null }[]) {
+      const to = m.invited_email?.trim().toLowerCase();
+      if (!to || seen.has(to)) continue;
+      seen.add(to);
+      await sendTransactional({
+        to,
+        channel: "email",
+        template: "registration",
+        vars: { title, message, cta_label: "Open Registrations", link: `${siteUrl()}/admin/tournaments/${event.id}/registrations`, tournament: event.name },
+        idempotencyKey: `${key}:${m.id}`,
+        recipient: { kind: "adhoc", name: null },
+      });
+    }
+  } catch (err) {
+    console.error("[registration] admins not told", err instanceof Error ? err.message : err);
   }
 }
 

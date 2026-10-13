@@ -122,13 +122,14 @@ export default function PrivacyPolicy() {
           registration: the event, the names you enter, the mobile numbers and email you give, whether you register as a team
           or alone, its status, and what is due and paid. The organisation running the event sees these details to manage its
           entries. When you register in the app, your own entry is linked to your account so its matches show up for you; the
-          other players you name are not linked to your account. We send you confirmations about your registration by email or
-          WhatsApp.
+          other players you name are not linked to your account. We send you messages about your registration by email only,
+          and only to a confirmed address: your account&apos;s confirmed email in the app, or, on the web page, the email you
+          entered once you have opened the confirmation link we send to it.
         </p>
         <p>
           <strong>Online payments</strong> (Move Beyond&apos;s own events only) are made on a checkout page run by Move Tick,
           Move Beyond&apos;s ticketing service, and its payment provider XPay. Move Score sends Move Tick the amount, a
-          reference number for your registration and the name, email and mobile you entered; it never receives your card
+          reference number for your registration, the name you entered and your confirmed email; it never receives your card
           details. Move Tick tells Move Score whether the payment succeeded or was refunded. We keep the amount, the date and
           Move Tick&apos;s reference for the event&apos;s accounts and for refunds.
         </p>

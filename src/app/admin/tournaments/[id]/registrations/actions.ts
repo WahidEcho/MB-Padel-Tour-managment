@@ -69,13 +69,18 @@ export async function markVenuePaidAction(formData: FormData) {
   revalidatePath(path(scope.tournamentId!));
 }
 
-/** Refunds the online payment through Move Tick (until 24 h before the start). Needs a typed confirmation. */
+/**
+ * Refunds one online payment through Move Tick, named by its id (a registration can
+ * hold a second payment to refund). Until 24 h before the start for the payment
+ * that confirmed the entry; any time for one held for review. Needs a typed confirmation.
+ */
 export async function refundRegistrationAction(formData: FormData) {
   const regId = String(formData.get("registration_id") ?? "");
+  const paymentId = String(formData.get("payment_id") ?? "");
   const { staff, scope } = await requireScopedPermission("refund_registrations", { registration: regId });
   refuse(await tournamentOrSessionRefusal(scope.tournamentId ?? ""));
   if (text(formData.get("confirm"), 10).toUpperCase() !== "REFUND") throw new Error('Type REFUND to confirm.');
-  await refund(regId, actorOf(staff), text(formData.get("reason"), 200) || null);
+  await refund(regId, paymentId, actorOf(staff), text(formData.get("reason"), 200) || null);
   revalidatePath(path(scope.tournamentId!));
 }
 

@@ -7,6 +7,7 @@ import {
   canMove,
   charges,
   endOfDay,
+  holdsPlace,
   initialStatus,
   minorFromMajor,
   moneyLabel,
@@ -189,5 +190,59 @@ describe("registration code never trusts a client amount", () => {
     const fn = server.slice(server.indexOf("export async function toPublicRegistration"), server.indexOf("export async function statusView"));
     expect(fn).toMatch(/people: \(r\.people \?\? \[\]\)\.map\(\(p\) => \(\{ name: p\.name \}\)\)/);
     expect(fn).not.toMatch(/\.phone|\.email/);
+  });
+});
+
+describe("security review of Phase 9 (0029)", () => {
+  const server = readFileSync(join(__dirname, "server.ts"), "utf8");
+  const sql = readFileSync(join(__dirname, "../../../supabase/migrations/0029_registration_hardening.sql"), "utf8");
+  const notify = server.slice(server.indexOf("async function notify("), server.indexOf("async function alertOrgAdmins("));
+
+  it("only confirmed entries and unexpired payment holds take a place (M4)", () => {
+    const now = Date.parse("2026-11-01T10:00:00Z");
+    expect(holdsPlace({ status: "confirmed" }, now)).toBe(true);
+    expect(holdsPlace({ status: "pending_approval" }, now)).toBe(false);
+    expect(holdsPlace({ status: "unconfirmed" }, now)).toBe(false);
+    expect(holdsPlace({ status: "awaiting_payment", hold_until: "2026-11-01T11:00:00Z" }, now)).toBe(true);
+    expect(holdsPlace({ status: "awaiting_payment", hold_until: "2026-11-01T09:00:00Z" }, now)).toBe(false);
+    expect(holdsPlace({ status: "awaiting_payment", hold_until: null }, now)).toBe(false);
+  });
+
+  it("a guest's unconfirmed entry can only go on, or be cancelled", () => {
+    expect(canMove("unconfirmed", "pending_approval")).toBe(true);
+    expect(canMove("unconfirmed", "cancelled")).toBe(true);
+    expect(canMove("unconfirmed", "refused")).toBe(false);
+    expect(canMove("unconfirmed", "refunded")).toBe(false);
+    expect(canMove("pending_approval", "unconfirmed")).toBe(false);
+  });
+
+  it("the database keeps one open checkout per registration and one live entry per verified email (M1, M4)", () => {
+    expect(sql).toMatch(/create unique index if not exists registration_payments_one_open_uq on registration_payments \(registration_id\)\s+where method = 'online' and status in \('created', 'open'\)/);
+    expect(sql).toMatch(/create unique index if not exists registrations_contact_event_uq on registrations \(tournament_id, notify_email\)/);
+    expect(sql).toMatch(/for update/);
+    expect(sql).toMatch(/raise exception 'registration_full'/);
+  });
+
+  it("messages go to the verified address only, by email, with no typed name (M3)", () => {
+    expect(notify).toMatch(/const to = reg\.notify_email;/);
+    expect(notify).toMatch(/channel: "email"/);
+    expect(notify).not.toMatch(/people|\.phone|whatsapp|first_name|who\.name/);
+  });
+
+  it("a webhook insert error is a duplicate only for a unique violation (L1)", () => {
+    expect(server).toMatch(/if \(isUnique\(dup\)\) return "duplicate";\s*\n\s*throw new Error/);
+  });
+
+  it("a registration's own row is found by its place in the team, never by name (M2)", () => {
+    const fn = server.slice(server.indexOf("async function tournamentTeam("), server.indexOf("async function linkOwnRow("));
+    expect(fn).toMatch(/m\.player_order === order/);
+    expect(fn).not.toMatch(/full_name === /);
+  });
+
+  it("session entries are inserted, never updated over someone else's (H1)", () => {
+    const fn = server.slice(server.indexOf("async function sessionEntries("), server.indexOf("async function withdrawEntry("));
+    expect(fn).toMatch(/ignoreDuplicates: true/);
+    expect(fn).toMatch(/found\.created \? "approved" : "pending"/);
+    expect(fn).not.toMatch(/\.eq\("player_profile_id"/);
   });
 });
