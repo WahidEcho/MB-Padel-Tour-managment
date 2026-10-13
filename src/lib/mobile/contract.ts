@@ -49,6 +49,13 @@ export interface MTournamentCard {
   /** Nations or teams entered. */
   teamCount: number;
   skin: AppSkin;
+  /** The organisation running it (its page: /api/mobile/v1/orgs/{slug}). Absent from older servers. */
+  organization?: MOrgRef | null;
+}
+
+export interface MOrgRef {
+  slug: string;
+  name: string;
 }
 
 export interface MEventGroup {
@@ -391,7 +398,34 @@ export interface MCourtsLive {
 
 /* ---------- personal (never cached) ---------- */
 
-export type FollowKind = "player" | "nation" | "tie" | "match" | "tournament" | "event_group";
+export type FollowKind = "player" | "nation" | "tie" | "match" | "tournament" | "event_group" | "organization";
+
+/** Every kind the server accepts (src/app/api/mobile/v1/me/follows). */
+export const FOLLOW_KINDS: readonly FollowKind[] = ["player", "nation", "tie", "match", "tournament", "event_group", "organization"];
+
+/* ---------- organisations (public) ---------- */
+
+/**
+ * An organisation's public page: its own profile, branding and tournaments.
+ * Public fields only: never member emails, event codes, the application it sent,
+ * its plan or billing.
+ */
+export interface MOrgProfile {
+  generatedAt: string;
+  organization: {
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+    colors: { primary: string | null; accent: string | null };
+    about: string | null;
+    city: string | null;
+    country: string | null;
+    venues: { name: string; address: string | null; courts: number | null }[];
+  };
+  tournaments: { live: MTournamentCard[]; upcoming: MTournamentCard[]; past: MTournamentCard[] };
+  /** Sections the app shows as "coming" (leagues and top boards arrive in Phase 7). Never filled with sample data. */
+  comingSoon: ("leagues" | "boards")[];
+}
 
 export interface MFollow {
   kind: FollowKind;

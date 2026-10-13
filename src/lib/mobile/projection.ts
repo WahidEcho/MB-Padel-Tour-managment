@@ -13,6 +13,7 @@ import { scoringConfigForMatch, type BracketTier } from "../scoring/rules";
 import { sportOf } from "../sports/registry";
 import { SIDES, redBlueTeams } from "../sides";
 import { toPublicPlayer } from "../public";
+import { orgSkinDefaults } from "../orgs/profile";
 import type {
   AppSkin,
   MBundle,
@@ -44,23 +45,39 @@ export type TournamentRow = Tournament & {
   starts_on?: string | null;
   ends_on?: string | null;
   app_skin?: (AppSkin & { showPhotos?: boolean }) | null;
+  organization_id?: string | null;
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
-export function toSkin(t: Pick<TournamentRow, "app_skin" | "branding_config">): AppSkin {
+/** What a tournament card needs of its organisation: the link, and its branding defaults. */
+export interface OrgBranding {
+  id: string;
+  slug: string;
+  name: string;
+  colors?: unknown;
+  logo_url?: string | null;
+}
+
+/**
+ * The tournament's own skin; where it sets no colours (or no logo), its
+ * organisation's branding is the default (Admin → Profile).
+ */
+export function toSkin(t: Pick<TournamentRow, "app_skin" | "branding_config">, org?: OrgBranding | null): AppSkin {
   const s = t.app_skin ?? {};
   const b = (t.branding_config ?? {}) as BrandingConfig;
+  const own = { seedA: s.seedA && HEX.test(s.seedA) ? s.seedA : null, seedB: s.seedB && HEX.test(s.seedB) ? s.seedB : null };
+  const d = orgSkinDefaults(org);
+  const colours = own.seedA || own.seedB ? own : { seedA: d.seedA, seedB: d.seedB };
   return {
-    seedA: s.seedA && HEX.test(s.seedA) ? s.seedA : null,
-    seedB: s.seedB && HEX.test(s.seedB) ? s.seedB : null,
+    ...colours,
     mode: s.mode === "light" || s.mode === "dark" ? s.mode : null,
     artworkUrl: sizedImageSrc(s.artworkUrl ?? null, 1080),
-    logoUrl: sizedImageSrc(s.logoUrl ?? b.eventLogoUrl ?? null, 320),
+    logoUrl: sizedImageSrc(s.logoUrl ?? b.eventLogoUrl ?? d.logoUrl ?? null, 320),
   };
 }
 
-export function toCard(t: TournamentRow, liveCount: number, teamCount: number): MTournamentCard {
+export function toCard(t: TournamentRow, liveCount: number, teamCount: number, org?: OrgBranding | null): MTournamentCard {
   return {
     id: t.id,
     slug: t.slug,
@@ -75,7 +92,8 @@ export function toCard(t: TournamentRow, liveCount: number, teamCount: number): 
     timezone: t.timezone || "Africa/Cairo",
     liveCount,
     teamCount,
-    skin: toSkin(t),
+    skin: toSkin(t, org),
+    organization: org ? { slug: org.slug, name: org.name } : null,
   };
 }
 
@@ -193,6 +211,7 @@ export function toBundle(
   groups: { id: string; group_name: string; group_order: number }[],
   liveCount: number,
   plateBrackets: string[] = [],
+  org: OrgBranding | null = null,
 ): MBundle {
   const showPhotos = t.app_skin?.showPhotos === true;
   const { main, footer } = resolveSponsors(t.branding_config);
@@ -200,7 +219,7 @@ export function toBundle(
   return {
     version: bundleVersion(t, teams, courts.length, groups.length),
     tournament: {
-      ...toCard(t, liveCount, teams.length),
+      ...toCard(t, liveCount, teams.length, org),
       isTies,
       showPhotos,
       rubberPlan: isTies ? rubberPlan(t.format_config?.ties) : [],

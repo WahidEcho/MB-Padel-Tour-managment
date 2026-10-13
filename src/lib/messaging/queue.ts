@@ -411,7 +411,7 @@ export interface SendResult {
   error?: string;
 }
 
-async function sendRowNow(insert: Record<string, unknown>, msg: { email?: EmailMessage; wa?: { template: TemplateSend } | { text: string } }): Promise<SendResult> {
+async function sendRowNow(insert: Record<string, unknown>, msg: { email?: EmailMessage; wa?: { template: TemplateSend } | { text: string } }, opts: { noRetry?: boolean } = {}): Promise<SendResult> {
   const { data, error } = await db()
     .from("message_deliveries")
     .insert({ ...insert, status: "sending", claimed_at: nowIso() })
@@ -419,7 +419,9 @@ async function sendRowNow(insert: Record<string, unknown>, msg: { email?: EmailM
     .single();
   if (error) throw new Error(error.message);
   const row = data as DeliveryRow;
-  const out = msg.email ? (await sendEmailChunk([{ ...msg.email, deliveryId: row.id }]))[0]! : await sendWhatsApp(row.address!, msg.wa!);
+  const sent = msg.email ? (await sendEmailChunk([{ ...msg.email, deliveryId: row.id }]))[0]! : await sendWhatsApp(row.address!, msg.wa!);
+  // A message whose stored copy was redacted cannot be sent again from the queue.
+  const out = opts.noRetry && !sent.ok ? { ...sent, transient: false } : sent;
   await recordOutcome(row, out);
   if (out.ok) return { ok: true, deliveryId: row.id, status: "sent" };
   const retry = out.transient && row.attempts + 1 < MAX_ATTEMPTS;
@@ -458,6 +460,13 @@ export async function sendTransactional(input: {
   vars: Vars;
   idempotencyKey?: string;
   recipient?: { kind: "player_profile" | "player" | "adhoc"; id?: string | null; name?: string | null };
+  /**
+   * Secrets in the message (an invite link, its token) that must never be stored:
+   * message_deliveries keeps a copy with each one replaced by "[removed]", the
+   * message itself goes out whole, and a failed send is not retried from the queue
+   * (its stored copy is no longer the message). The sender shows the person the link instead.
+   */
+  redact?: string[];
 }): Promise<SendResult> {
   if (input.idempotencyKey) {
     const { data } = await db().from("message_deliveries").select("id, status, error_reason").eq("idempotency_key", input.idempotencyKey).maybeSingle();
@@ -465,6 +474,8 @@ export async function sendTransactional(input: {
     if (prior) return { ok: !["failed", "bounced", "skipped", "complained"].includes(prior.status), deliveryId: prior.id, status: prior.status, error: prior.error_reason ?? undefined };
   }
   const address = input.channel === "email" ? normalizeEmail(input.to) : toE164(input.to);
+  const secrets = (input.redact ?? []).filter((x) => typeof x === "string" && x.length >= 8);
+  const scrub = <T,>(v: T): T => (secrets.length ? (JSON.parse(secrets.reduce((t, x) => t.split(x).join("[removed]"), JSON.stringify(v))) as T) : v);
   const base = {
     announcement_id: null,
     channel: input.channel,
@@ -473,16 +484,18 @@ export async function sendTransactional(input: {
     recipient_id: input.recipient?.id ?? null,
     recipient_name: input.recipient?.name ?? input.vars.name ?? null,
     address: address ?? input.to.slice(0, 120),
-    vars: input.vars,
+    vars: scrub(input.vars),
     idempotency_key: input.idempotencyKey ?? null,
   };
   if (!address) return skippedRow(base, input.channel === "email" ? "bad_email" : "bad_phone", input.channel === "email" ? "Email address is not valid" : "Phone number is not a valid mobile number");
 
   if (input.channel === "email") {
     const e = transactionalEmail(input.template, input.vars);
-    const payload: Payload = { kind: "email", ...e };
-    return sendRowNow({ ...base, payload }, { email: { deliveryId: "", to: address, ...e } });
+    const payload: Payload = scrub({ kind: "email", ...e });
+    return sendRowNow({ ...base, payload }, { email: { deliveryId: "", to: address, ...e } }, { noRetry: secrets.length > 0 });
   }
+  // A secret is never sent over WhatsApp (its template would have to carry it).
+  if (secrets.length) return skippedRow(base, "email_only", "This message is sent by email only");
   const w = await waWindow(address);
   if (w.optedOut) return skippedRow(base, "wa_stop", "Asked us to stop WhatsApp messages");
   const payload: Payload = w.open

@@ -36,7 +36,7 @@ export default async function AdminRankingsPage({
       : seasonId
         ? await getRankingSnapshot("season", seasonId)
         : [];
-  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id));
+  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id), staff.orgId);
 
   return (
     <div className="space-y-4">

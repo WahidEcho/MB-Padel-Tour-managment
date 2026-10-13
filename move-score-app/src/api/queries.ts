@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MBundle, MConfig, MCourtsLive, MDiscover, MLive, MMatchDetail, MStandings, MTimeline } from "@core";
+import type { MBundle, MConfig, MCourtsLive, MDiscover, MLive, MMatchDetail, MOrgProfile, MStandings, MTimeline } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -115,6 +115,18 @@ export function useBundle(slug: string | undefined, opts: Opts<MBundle> = {}) {
     enabled: Boolean(slug),
     staleTime: 60_000,
     ...opts,
+  });
+}
+
+/** An organisation's public page (profile, branding, tournaments). Kept on the phone like a bundle. */
+export function useOrg(slug: string | undefined) {
+  return useQuery<MOrgProfile>({
+    queryKey: ["org", slug],
+    queryFn: cached(`org:${slug}`, () => api<MOrgProfile>(`/api/mobile/v1/orgs/${encodeURIComponent(slug ?? "")}`)),
+    initialData: () => (slug ? initial<MOrgProfile>(`org:${slug}`) : undefined),
+    ...SAVED_IS_OLD,
+    enabled: Boolean(slug),
+    staleTime: 60_000,
   });
 }
 

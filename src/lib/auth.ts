@@ -130,6 +130,11 @@ const PERMISSIONS = {
   send_messages: ["admin", "manager"],
   // Event codes for referees and TV operators (Admin → Event codes).
   manage_codes: ["admin", "manager"],
+  // Members and invites (Admin → Members): owners and admins; who may give which
+  // role is decided by the organisation role (src/lib/orgs/roles.ts mayAssignRole).
+  manage_members: ["admin"],
+  // The organisation's public profile and branding (Admin → Profile).
+  manage_org_profile: ["admin"],
   // Platform-wide app settings (Admin → Discover): Discover order and feature flags.
   // The role alone is not enough: guard.ts also requires a platform admin.
   manage_platform: ["admin"],

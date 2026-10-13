@@ -150,7 +150,8 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
           isTies: Boolean(p.t.format_config?.ties),
           showPhotos,
           featured: p.featured,
-          skin: card.skin,
+          // Discover's card already carries the organisation's branding defaults.
+          skin: p.card.skin ?? card.skin,
         },
         rules: toStageRules(p.t, plate.get(p.card.id) ?? []),
         sides: toSides(p.t.branding_config),

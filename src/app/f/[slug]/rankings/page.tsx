@@ -4,6 +4,7 @@ import AutoRefresh from "@/components/AutoRefresh";
 import RankingTable from "@/components/RankingTable";
 import ShareButton from "@/components/ShareButton";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
+import { orgOfTournament } from "@/lib/orgs/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function SessionRankingsPage({ params }: { params: Promise<
   if (!session || session.visibility !== "public") notFound();
 
   const rows = await getRankingSnapshot("session", session.id);
-  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id));
+  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id), await orgOfTournament(session.tournament_id));
   const official = session.status === "finalized";
 
   return (

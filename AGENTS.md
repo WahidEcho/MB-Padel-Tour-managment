@@ -83,6 +83,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   account (owner SQL in `docs/organizations.md`). Production needs `STAFF_SESSION_SECRET` and
   `EVENT_CODE_PEPPER`; the web staff cookie is `__Host-mb_session` (plain `mb_session` on localhost only).
   `supabase/gate/reopen_open_access.sql` must never reopen the private tables (`src/lib/gateSql.test.ts`).
+- Organisations part B (onboarding): apply `/organizations/apply` → platform admins decide in
+  `admin/platform/organizations`; invites `src/lib/orgs/invites.ts` (HMAC-only tokens, email-bound,
+  single use, 7 days; accepted inside the staff sign-in); members/profile pages `admin/org/{members,profile}`;
+  public org API `api/mobile/v1/orgs/[slug]` + app `org/[slug]`. Details and deploy notes: `docs/organizations.md`.
+  Gate: `npm run e2e:organizations` (stand-in).
 - Public site: `https://tour.mbeg.org` (one constant, `src/lib/site.ts`, shared with the app through `@core`; server links read
   `PUBLIC_SITE_URL` first via `siteUrl()` in `src/lib/messaging/links.ts`). Never write the old `mb-tournament.vercel.app` host
   into links, emails or docs; it survives only as the legacy universal-link host in `move-score-app/app.config.ts`.

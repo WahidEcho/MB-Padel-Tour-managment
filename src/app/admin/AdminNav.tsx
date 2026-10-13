@@ -17,15 +17,27 @@ const SECTIONS = [
   { href: "/admin/announcements", label: "Announcements" },
 ];
 
-/** The organisation's own staff access. */
+/** The organisation itself: its people (owners and admins), profile, and event codes (also managers). */
+const ORG_ADMIN_SECTIONS = [
+  { href: "/admin/org/members", label: "Members" },
+  { href: "/admin/org/profile", label: "Profile" },
+];
 const ORG_SECTIONS = [{ href: "/admin/org/codes", label: "Event codes" }];
 
 /** Move Beyond's own settings for the whole app: platform admins only. */
-const PLATFORM_SECTIONS = [{ href: "/admin/platform/discover", label: "Discover" }];
+const PLATFORM_SECTIONS = [
+  { href: "/admin/platform/organizations", label: "Organisations" },
+  { href: "/admin/platform/discover", label: "Discover" },
+];
 
-export default function AdminNav({ canManageCodes, platformAdmin }: { canManageCodes?: boolean; platformAdmin?: boolean }) {
+export default function AdminNav({ canManageCodes, canManageOrg, platformAdmin }: { canManageCodes?: boolean; canManageOrg?: boolean; platformAdmin?: boolean }) {
   const pathname = usePathname();
-  const sections = [...SECTIONS, ...(canManageCodes ? ORG_SECTIONS : []), ...(platformAdmin ? PLATFORM_SECTIONS : [])];
+  const sections = [
+    ...SECTIONS,
+    ...(canManageOrg ? ORG_ADMIN_SECTIONS : []),
+    ...(canManageCodes ? ORG_SECTIONS : []),
+    ...(platformAdmin ? PLATFORM_SECTIONS : []),
+  ];
   return (
     <nav className="flex gap-1 overflow-x-auto border-b border-border px-4">
       {sections.map((s) => {

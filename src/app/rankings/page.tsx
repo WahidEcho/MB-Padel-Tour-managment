@@ -35,7 +35,7 @@ export default async function PublicRankingsPage({
         ? await getRankingSnapshot("season", seasonId)
         : [];
 
-  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id));
+  const names = await listPublicPlayers(rows.map((r) => r.player_profile_id), org?.id ?? null);
   const filtered = q
     ? rows.filter((r) =>
         (names.get(r.player_profile_id)?.public_name ?? "").toLowerCase().includes(q.toLowerCase())

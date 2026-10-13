@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { clientIpFrom } from "@/lib/ratelimit";
 import { emailAllowed } from "@/lib/auth/limits";
-import { staffLoginAllowed } from "@/lib/staffLogin";
+import { staffLoginAllowed, staffLoginFailed } from "@/lib/staffLogin";
+import { acceptPendingInvite } from "@/lib/orgs/invites";
 import { audit } from "@/lib/audit";
 import { authClient, authProviders } from "@/lib/auth/users";
 import { getAuthUser, signOutAuth } from "@/lib/auth/accounts";
@@ -30,10 +31,15 @@ export default async function LoginPage({
     "use server";
     const password = String(formData.get("password") ?? "");
     const nextUrl = safeNextPath(formData.get("next"));
-    const gate = await staffLoginAllowed(clientIpFrom(await headers()), password);
+    const ip = clientIpFrom(await headers());
+    const gate = await staffLoginAllowed(ip, password);
     if (!gate.allowed) redirect(withNext("/login?error=2", nextUrl));
     const r = await signInWithAccessCode(password, STAFF_WEB_HOURS);
-    if (!r.ok) redirect(withNext(`/login?error=${r.reason}`, nextUrl));
+    if (!r.ok) {
+      // Only failures count against the brakes (src/lib/staffLogin.ts).
+      if (r.reason !== "unavailable") await staffLoginFailed(ip, password);
+      redirect(withNext(`/login?error=${r.reason}`, nextUrl));
+    }
     await setStaffCookie(r.token, STAFF_WEB_HOURS);
     await audit({
       organization_id: r.orgId,
@@ -59,12 +65,19 @@ export default async function LoginPage({
     if (!isValidEmail(email) || !password) redirect(withNext("/login?error=bad_login", nextUrl));
     const { data, error: signInError } = await authClient().auth.signInWithPassword({ email, password });
     if (signInError || !data.session) {
+      await staffLoginFailed(ip);
       redirect(withNext(`/login?error=${signInError?.code === "email_not_confirmed" ? "email_not_confirmed" : "bad_login"}`, nextUrl));
     }
     // Authoritative: ask Supabase Auth who the session belongs to.
     const me = await getAuthUser(data.session.access_token);
     if (!me.ok || me.data.id !== data.user?.id || me.data.is_anonymous) redirect(withNext("/login?error=signin_failed", nextUrl));
-    const done = await finishStaffSignIn(me.data.id);
+    // An invite opened in this browser is accepted now, for this (confirmed) email only.
+    const invite = await acceptPendingInvite(me.data);
+    if (invite && !invite.ok) {
+      await signOutAuth(data.session.access_token).catch(() => false);
+      redirect(`/invite?error=${invite.reason}`);
+    }
+    const done = await finishStaffSignIn(me.data.id, invite?.ok ? invite.orgId : null);
     // Our own signed cookie is the staff session; the Supabase one is not kept.
     await signOutAuth(data.session.access_token).catch(() => false);
     if (!done.ok) redirect(withNext(`/login?error=${done.reason}`, nextUrl));

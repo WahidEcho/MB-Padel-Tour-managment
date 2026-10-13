@@ -15,6 +15,8 @@ export const openMatch = (id: string) => router.push({ pathname: "/match/[id]", 
 export const openTie = (id: string) => router.push({ pathname: "/tie/[id]", params: { id } });
 export const openTournament = (slug: string, tab?: "ties" | "matches" | "groups" | "nations") =>
   router.push({ pathname: "/t/[slug]", params: tab ? { slug, tab } : { slug } });
+/** An organisation's page (profile, its tournaments, follow). */
+export const openOrg = (slug: string) => router.push({ pathname: "/org/[slug]", params: { slug } });
 export const openPlayer = (id: string, slug: string) => router.push({ pathname: "/player/[id]", params: { id, slug } });
 /** `slug` is the tournament the nation was tapped in, shown even when it is not the featured event. */
 export const openNation = (code: string, slug?: string) => router.push({ pathname: "/nation/[code]", params: slug ? { code, slug } : { code } });

@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { ownerOf } from "@/lib/mobile/identity";
 import { privateJson, readJson } from "@/lib/mobile/http";
-import type { FollowKind, MFollow } from "@/lib/mobile/contract";
+import { FOLLOW_KINDS, type FollowKind, type MFollow } from "@/lib/mobile/contract";
 import { mergeCallersGuestPasses } from "@/lib/pass/server";
 
-const KINDS: FollowKind[] = ["player", "nation", "tie", "match", "tournament", "event_group"];
+// "organization": the key is the organisation's slug (the DB check on follows.target_kind lists the same kinds).
+const KINDS = FOLLOW_KINDS;
 const MAX_FOLLOWS = 300;
 
 async function list(ownerKind: string, ownerId: string): Promise<MFollow[]> {

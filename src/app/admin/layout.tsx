@@ -23,7 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <a href="/logout" className="text-muted hover:text-foreground">Log out</a>
         </div>
       </header>
-      <AdminNav canManageCodes={staff.role === "admin" || staff.role === "manager"} platformAdmin={staff.platformAdmin} />
+      <AdminNav canManageCodes={staff.role === "admin" || staff.role === "manager"} canManageOrg={staff.role === "admin"} platformAdmin={staff.platformAdmin} />
       <main className="mx-auto w-full max-w-6xl flex-1 p-4">{children}</main>
     </div>
   );

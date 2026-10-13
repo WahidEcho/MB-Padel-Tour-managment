@@ -9,7 +9,10 @@ import { isCodeRole } from "@/lib/orgs/roles";
 
 const PATH = "/admin/org/codes";
 
-export type CodeFormState = { ok: true; code: string; role: string; label: string | null } | { ok: false; message: string } | null;
+export type CodeFormState =
+  | { ok: true; code: string; role: string; label: string | null; scope: string | null; expiresAt: string | null }
+  | { ok: false; message: string }
+  | null;
 
 /**
  * A new event code for a referee or a TV operator. The code is shown once, here;
@@ -21,7 +24,12 @@ export async function createEventCode(_prev: CodeFormState, formData: FormData):
   if (!isCodeRole(role)) return { ok: false, message: "Pick referee or screen operator." };
   const tournamentId = String(formData.get("tournament_id") ?? "").trim() || null;
   // An optional scope: one of this organisation's own tournaments or sessions.
-  if (tournamentId) await requireScopedPermission("manage_codes", { tournament: tournamentId });
+  let scopeName: string | null = null;
+  if (tournamentId) {
+    await requireScopedPermission("manage_codes", { tournament: tournamentId });
+    const { data: t } = await db().from("tournaments").select("name").eq("id", tournamentId).eq("organization_id", staff.orgId).maybeSingle();
+    scopeName = (t as { name: string } | null)?.name ?? null;
+  }
   const label = String(formData.get("label") ?? "").trim().slice(0, 80) || null;
   const days = parseInt(String(formData.get("expires_days") ?? ""), 10);
   const expiresAt = Number.isFinite(days) && days > 0 ? new Date(Date.now() + Math.min(days, 365) * 86_400_000).toISOString() : null;
@@ -58,7 +66,8 @@ export async function createEventCode(_prev: CodeFormState, formData: FormData):
     new_value: { role, label, scoped: Boolean(tournamentId), expires_at: expiresAt },
   });
   revalidatePath(PATH);
-  return { ok: true, code: formatEventCode(code), role, label };
+  const expiresLabel = expiresAt ? new Date(expiresAt).toLocaleString("en-GB", { timeZone: "Africa/Cairo", dateStyle: "medium", timeStyle: "short" }) : null;
+  return { ok: true, code: formatEventCode(code), role, label, scope: scopeName, expiresAt: expiresLabel };
 }
 
 /** Revokes a code: the next request made with it fails, on the web and in the app. */

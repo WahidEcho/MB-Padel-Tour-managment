@@ -47,7 +47,10 @@ export default async function EventCodesPage() {
       .order("created_at", { ascending: false })
       .limit(200),
   ]);
-  const codes = (codeRows ?? []) as CodeRow[];
+  // Working codes first, then the ones that ended (revoked or expired), newest first in each.
+  const all = (codeRows ?? []) as CodeRow[];
+  const codes = [...all.filter((c) => !deadness(c)), ...all.filter((c) => deadness(c))];
+  const working = all.filter((c) => !deadness(c)).length;
   const tournaments = (tRows ?? []) as { id: string; name: string; kind: string }[];
   const nameOf = new Map(tournaments.map((t) => [t.id, t.name]));
 
@@ -59,7 +62,11 @@ export default async function EventCodesPage() {
         can expire; revoking it signs out every phone and browser using it on their next request (points already scored
         on a phone stay queued until a new code is entered).
       </p>
-      <CodeForm tournaments={tournaments.map((t) => ({ id: t.id, name: t.name }))} />
+      <CodeForm tournaments={tournaments.map((t) => ({ id: t.id, name: `${t.name}${t.kind === "friendly_session" ? " (session)" : ""}` }))} />
+      <p className="text-sm font-semibold" data-testid="codes-summary">
+        {working} working {working === 1 ? "code" : "codes"}
+        {all.length > working ? ` · ${all.length - working} ended` : ""}
+      </p>
       <div className="overflow-x-auto rounded-[20px] border border-border">
         <table className="w-full text-sm" data-testid="codes">
           <thead className="bg-card text-left text-xs uppercase tracking-wide text-muted">
@@ -76,9 +83,9 @@ export default async function EventCodesPage() {
             {codes.map((c) => {
               const dead = deadness(c);
               return (
-                <tr key={c.id} className="border-t border-border">
+                <tr key={c.id} className={`border-t border-border ${dead ? "opacity-60" : ""}`}>
                   <td className="px-3 py-2">
-                    <span className="font-semibold capitalize">{c.role}</span>
+                    <span className="font-semibold">{c.role === "operator" ? "Screen operator" : "Referee"}</span>
                     {c.label && <span className="text-muted"> · {c.label}</span>}
                   </td>
                   <td className="px-3 py-2 text-xs">{c.tournament_id ? (nameOf.get(c.tournament_id) ?? "an earlier event") : "every event"}</td>
