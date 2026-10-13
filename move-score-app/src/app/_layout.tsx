@@ -16,6 +16,8 @@ import { openLink, registerDevice } from "../push/register";
 import { getJson, setJson } from "../state/kv";
 import { startMonitoring } from "../monitoring";
 import { startSessionKeeper } from "../auth/keepAlive";
+import { watchLiveActivities } from "../live/lockScreen";
+import { watchWidget } from "../live/widgetSync";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 startMonitoring();
@@ -74,6 +76,9 @@ export default function RootLayout() {
       // Refreshes the session at launch, on every return to the foreground and before it expires.
       startSessionKeeper();
       void registerDevice(false);
+      // iPhone: lock-screen cards (tokens, cards started by push) and the My matches widget.
+      void watchLiveActivities();
+      watchWidget();
     });
   }, []);
   useEffect(() => {

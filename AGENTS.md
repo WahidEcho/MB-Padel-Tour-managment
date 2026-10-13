@@ -90,3 +90,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   showcase is on and `supports.showcase`; flag `live_courts`), app `move-score-app/src/ui/LiveCourtsHero.tsx` on Discover.
   Explicit columns only — `courts.test.ts` fails on a private column or field. The bundle also carries `rules` (per stage,
   `rulesForMatch`) and `sides` (red/blue); `MMatch.bracketId` tells a Plate match.
+- iPhone Live Activities + widgets (Phase 6): card phases soon|called|live|final and payloads in
+  `src/lib/notify/liveActivity.ts` (pure, `@core`), transport + `pushToStart` in `src/lib/notify/apns.ts`,
+  `notifyLiveActivityPhase` in `hooks.ts`, start tokens `api/mobile/v1/me/live-activity/start-token`, widget rows
+  `api/mobile/v1/me/widget`. App: `move-score-app/src/live/*`, expo-widgets patched (`move-score-app/patches/`),
+  switches `MS_LIVE_ACTIVITIES` / `MS_WIDGETS` / `MS_APP_GROUP` in `app.config.ts`. Profiles, install, checklist:
+  `move-score-app/docs/device-install.md`; spike `scripts/live-activity/start-spike.ts`.

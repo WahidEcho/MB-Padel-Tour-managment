@@ -46,3 +46,5 @@ export { orderOfPlay, estimateTimes, aboutTime } from "../../../src/lib/friendly
 export type { ScheduledRound, ScheduledMatch, CourtOrder, CourtOrderEntry, MatchEstimate } from "../../../src/lib/friendly/scheduler";
 export { courtScene, nextAfter, heroCards, isLiveScene, sceneMatchIds, showcaseOn, rulesForMatch, sideIdentity, sidePlayers, sideName, WALKON, RUBBER_WON_MS, TIE_FINAL_MS, RESULT_REST_MS } from "../../../src/lib/tv/showcase";
 export type { ShowcaseScene, ShowcaseSceneKind, ShowcaseNext, HeroCard, SideIdentity } from "../../../src/lib/tv/showcase";
+export { LIVE_ACTIVITY_NAME, LIVE_ACTIVITY_PHASES, APNS_TOKEN, matchUrl, matchIdFromUrl, liveState, upcomingState, phaseForMatch } from "../../../src/lib/notify/liveActivity";
+export type { LiveActivityPhase, LiveScoreState } from "../../../src/lib/notify/liveActivity";

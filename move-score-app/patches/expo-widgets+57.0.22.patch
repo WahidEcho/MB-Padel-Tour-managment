@@ -1,0 +1,101 @@
+diff --git a/node_modules/expo-widgets/ios/WidgetsModule.swift b/node_modules/expo-widgets/ios/WidgetsModule.swift
+--- a/node_modules/expo-widgets/ios/WidgetsModule.swift
++++ b/node_modules/expo-widgets/ios/WidgetsModule.swift
+@@ -7,15 +7,21 @@ let pushNotificationsEnabledKey: String = "ExpoWidgets_EnablePushNotifications"
+ let onUserInteraction = "onExpoWidgetsUserInteraction"
+ let onPushToStartTokenReceived = "onExpoWidgetsPushToStartTokenReceived"
+ let onTokenReceived = "onExpoWidgetsTokenReceived"
++// Move Score patch: update tokens of every Live Activity, including ones started by
++// push-to-start while the app was not running (no JS LiveActivity object exists for
++// those). Carries the activity's deep link so the app knows which match it shows.
++let onActivityPushTokenReceived = "onExpoWidgetsActivityPushTokenReceived"
+ let onUserInteractionNotification = Notification.Name(onUserInteraction)
+ 
+ public final class WidgetsModule: Module {
+   var pushToStartTokenObserverTask: Task<Void, Never>?
++  var activityUpdatesObserverTask: Task<Void, Never>?
++  var activityTokenTasks: [String: Task<Void, Never>] = [:]
+ 
+   public func definition() -> ModuleDefinition {
+     Name("ExpoWidgets")
+ 
+-    Events(onPushToStartTokenReceived, onTokenReceived, onUserInteraction)
++    Events(onPushToStartTokenReceived, onTokenReceived, onUserInteraction, onActivityPushTokenReceived)
+ 
+     OnStartObserving(onUserInteraction) {
+       NotificationCenter.default.addObserver(
+@@ -45,6 +51,16 @@ public final class WidgetsModule: Module {
+       pushToStartTokenObserverTask = nil
+     }
+ 
++    OnStartObserving(onActivityPushTokenReceived) {
++      if pushNotificationsEnabled {
++        observeActivityUpdates()
++      }
++    }
++
++    OnStopObserving(onActivityPushTokenReceived) {
++      stopObservingActivityUpdates()
++    }
++
+     Constant("widgetsDirectory") { () -> String? in
+       guard let appGroupIdentifier = WidgetsStorage.appGroupIdentifier,
+             let containerUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) else {
+@@ -147,6 +163,57 @@ public final class WidgetsModule: Module {
+     }
+   }
+ 
++  private func observeActivityUpdates() {
++    guard #available(iOS 16.2, *) else { return }
++    guard activityUpdatesObserverTask == nil else { return }
++    activityUpdatesObserverTask = Task { @MainActor [weak self] in
++      // Activities already running (for example started by push before the app launched)...
++      for activity in Activity<LiveActivityAttributes>.activities {
++        self?.observeActivityPushToken(activity)
++      }
++      // ...and every one that starts from now on, by the app or by push-to-start.
++      for await activity in Activity<LiveActivityAttributes>.activityUpdates {
++        self?.observeActivityPushToken(activity)
++      }
++    }
++  }
++
++  @available(iOS 16.2, *)
++  @MainActor
++  private func observeActivityPushToken(_ activity: Activity<LiveActivityAttributes>) {
++    let id = activity.id
++    guard activityTokenTasks[id] == nil else { return }
++    let url = activity.attributes.url
++    activityTokenTasks[id] = Task { @MainActor [weak self] in
++      if let data = activity.pushToken {
++        self?.sendActivityPushToken(id: id, token: data, url: url)
++      }
++      for await data in activity.pushTokenUpdates {
++        self?.sendActivityPushToken(id: id, token: data, url: url)
++      }
++      self?.activityTokenTasks[id] = nil
++    }
++  }
++
++  private func sendActivityPushToken(id: String, token: Data, url: String?) {
++    var payload: [String: Any] = [
++      "activityId": id,
++      "pushToken": token.reduce("") { $0 + String(format: "%02x", $1) }
++    ]
++    if let url {
++      payload["url"] = url
++    }
++    sendEvent(onActivityPushTokenReceived, payload)
++  }
++
++  private func stopObservingActivityUpdates() {
++    activityUpdatesObserverTask?.cancel()
++    activityUpdatesObserverTask = nil
++    let tasks = activityTokenTasks.values
++    activityTokenTasks.removeAll()
++    tasks.forEach { $0.cancel() }
++  }
++
+   private var pushNotificationsEnabled: Bool {
+     Bundle.main.object(forInfoDictionaryKey: pushNotificationsEnabledKey) as? Bool ?? false
+   }

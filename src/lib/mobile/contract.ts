@@ -528,6 +528,31 @@ export const DEFAULT_ALERT_PREFS: MAlertPrefs = {
   court: true,
 };
 
+/** One row of the My matches home/lock-screen widget (GET /api/mobile/v1/me/widget). */
+export interface MWidgetMatch {
+  id: string;
+  /** Short side labels (nation code or team name). */
+  a: string;
+  b: string;
+  /** Scheduled start, epoch ms, or null. */
+  at: number | null;
+  court: string;
+  phase: "upcoming" | "live" | "final";
+  /** "6-4 3-2" (finished sets, then the current games). */
+  sets: string;
+  /** "30-15", live only. */
+  points: string;
+  /** The person plays in it (rather than starred it). */
+  mine: boolean;
+}
+
+export interface MWidget {
+  items: MWidgetMatch[];
+  signedIn: boolean;
+  /** Epoch ms the server built this. */
+  updatedAt: number;
+}
+
 /* ---------- pure helpers shared by server and app ---------- */
 
 /** Sets won from finished sets. */

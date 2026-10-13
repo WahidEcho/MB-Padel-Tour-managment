@@ -263,7 +263,110 @@ export function notifyMatchLive(match: Match) {
         nations: [side(ctx, match.team_a_id), side(ctx, match.team_b_id)],
       }),
     });
+    await later("live activity start", () => liveActivityPhase(match, ctx, { phase: "live" }));
   });
+}
+
+/* ---------------- lock screen (Live Activities) ---------------- */
+
+type UpcomingPhase = { phase: "soon" | "called"; until: number | null; from?: number | null };
+
+/**
+ * A match entered a lock-screen phase: "soon" (next on its court), "called" (to
+ * court, with the deadline) or "live" (first point). Cards already on lock
+ * screens are updated; phones of the match's own players (`autoStartMine`) and of
+ * people who starred it (`autoStartStarred`) get a new card by push-to-start when
+ * the tournament allows it. The call-to-court flow (Phase 3) calls this with
+ * `{ phase: "called", until: deadlineAt, from: calledAt }`; the match-soon check
+ * with `{ phase: "soon", until: scheduled time }`.
+ */
+export function notifyLiveActivityPhase(matchId: string, p: UpcomingPhase | { phase: "live" }) {
+  return later("live activity phase", async () => {
+    const { data } = await db().from("matches").select("*").eq("id", matchId).maybeSingle();
+    const match = data as Match | null;
+    if (!match) return;
+    await liveActivityPhase(match, await context(match.tournament_id), p);
+  });
+}
+
+async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { phase: "live" }) {
+  const { getConfig } = await import("../mobile/server");
+  if (!(await getConfig()).flags.live_activity) return;
+  const { data: t, error } = await db().from("tournaments").select("sport, match_day_rules").eq("id", match.tournament_id).maybeSingle();
+  if (error || !t) return; // before migration 0022: no rules, nothing starts by push
+  const [{ matchDayRules }, la, apns] = await Promise.all([import("../matchday/rules"), import("./liveActivity"), import("./apns")]);
+  const rules = matchDayRules((t as { match_day_rules?: unknown }).match_day_rules, t as { sport?: string | null });
+  if (!rules.lockScreen.liveActivities) return;
+
+  const label = (teamId: string | null) => {
+    const team = teamId ? ctx.teams.get(teamId) : undefined;
+    return team?.nation_code ?? team?.team_name ?? "";
+  };
+  const court = match.court_id ? ctx.courts.get(match.court_id) ?? "" : "";
+  let state: import("./liveActivity").LiveScoreState;
+  if (p.phase === "live") {
+    const [{ toScore }, { getSnapshot }] = await Promise.all([import("../mobile/projection"), import("../data")]);
+    state = la.liveState(toScore(match, await getSnapshot(match.id)), { a: label(match.team_a_id), b: label(match.team_b_id), court, status: "Live" }, { matchId: match.id });
+  } else {
+    state = la.upcomingState({
+      matchId: match.id,
+      phase: p.phase,
+      a: label(match.team_a_id),
+      b: label(match.team_b_id),
+      court,
+      until: p.until,
+      from: p.from ?? null,
+      countdown: rules.lockScreen.countdown,
+    });
+  }
+
+  // Cards already showing this match move to the new phase.
+  await apns.pushLiveActivities(match.id, state, { important: true });
+
+  if (!la.startByPushAllowed(rules.lockScreen, p.phase)) return;
+  const installs = await liveActivityAudience(match, ctx, {
+    mine: rules.lockScreen.autoStartMine,
+    starred: rules.lockScreen.autoStartStarred,
+    // "Soon" and "called" are match-day calls: a phone that turned those alerts off gets no card either.
+    respectCourtPref: p.phase !== "live",
+  });
+  if (installs.length) await apns.pushToStart(match.id, state, installs);
+}
+
+/**
+ * The iPhones that should get a card for this match: the players' own (through
+ * their claimed player codes) and the phones that starred the match.
+ */
+async function liveActivityAudience(match: Match, ctx: Ctx, opts: { mine: boolean; starred: boolean; respectCourtPref: boolean }): Promise<string[]> {
+  const users = new Set<string>();
+  const installs = new Set<string>();
+  if (opts.mine) {
+    const playerIds = [
+      ...sidePlayers(ctx, match.team_a_id, match.team_a_player_ids),
+      ...sidePlayers(ctx, match.team_b_id, match.team_b_player_ids),
+    ].map((pl) => pl.id);
+    if (playerIds.length) {
+      const { data } = await db().from("player_claims").select("user_id").in("player_id", playerIds);
+      for (const c of (data ?? []) as { user_id: string | null }[]) if (c.user_id) users.add(c.user_id);
+    }
+  }
+  if (opts.starred) {
+    const { data } = await db().from("follows").select("owner_kind, owner_id").eq("target_kind", "match").eq("target_key", match.id);
+    for (const f of (data ?? []) as { owner_kind: "install" | "user"; owner_id: string }[]) (f.owner_kind === "user" ? users : installs).add(f.owner_id);
+  }
+  const rows: { installation_id: string; prefs: { court?: boolean } | null }[] = [];
+  const cols = "installation_id, prefs";
+  const userList = [...users];
+  for (let i = 0; i < userList.length; i += 200) {
+    const { data } = await db().from("push_devices").select(cols).eq("platform", "ios").is("disabled_at", null).in("user_id", userList.slice(i, i + 200));
+    rows.push(...((data ?? []) as typeof rows));
+  }
+  const installList = [...installs];
+  for (let i = 0; i < installList.length; i += 200) {
+    const { data } = await db().from("push_devices").select(cols).eq("platform", "ios").is("disabled_at", null).in("installation_id", installList.slice(i, i + 200));
+    rows.push(...((data ?? []) as typeof rows));
+  }
+  return [...new Set(rows.filter((r) => !opts.respectCourtPref || r.prefs?.court !== false).map((r) => r.installation_id))];
 }
 
 export function notifyMatchFinished(matchId: string) {

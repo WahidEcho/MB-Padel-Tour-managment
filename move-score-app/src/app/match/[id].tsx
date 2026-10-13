@@ -146,6 +146,9 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const l = useLive(slug, 10_000);
   const m = q.data?.match;
   const live = m ? isLiveStatus(m.status) : false;
+  // An organiser who saved the Match day tab with Live Activities off.
+  const md = b.data?.tournament.matchDay;
+  const lockScreenOff = Boolean(md?.on && !md.liveActivities);
   // Fetched again whenever the match moves, so the last point lands after the match leaves "live".
   const tl = useTimeline(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
   const starred = useFollowing("match", id);
@@ -292,7 +295,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
         <MatchLinks m={m} v={v} slug={slug} />
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
           <Button kind="ghost" label="Share card" onPress={share} style={{ flex: 1 }} />
-          {live && flags.live_activity && lockScreenSupported() ? (
+          {live && flags.live_activity && lockScreenSupported() && !lockScreenOff ? (
             <Button
               label="Lock screen"
               onPress={() => void startLockScreen(m, { a: aCode, b: bCode, court: v.court(m.courtId) ?? "" })}
