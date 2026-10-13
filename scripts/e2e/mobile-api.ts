@@ -110,6 +110,13 @@ async function main() {
     check(bundle.status === 200 && bundle.json.teams.length === 2, "Bundle has both nations");
     check(!JSON.stringify(bundle.json).includes("+2010") && !JSON.stringify(bundle.json).includes("private note"), "Bundle carries no phone or notes");
     check(bundle.json.tournament.isTies === true && bundle.json.teams[0].iso2 !== undefined, "Bundle knows it is a nations event, with flags");
+    const stageRules = bundle.json.rules;
+    check(
+      typeof stageRules?.base?.setsToWinMatch === "number" && typeof stageRules?.stages?.final?.gamesToWinSet === "number" && Array.isArray(stageRules?.plateBrackets) && stageRules?.stages?.final?.stageOverrides === undefined,
+      "Bundle carries the rules per stage, resolved (no stored overrides)",
+      stageRules?.stages?.final,
+    );
+    check(bundle.json.sides?.redBlue === false && bundle.json.sides?.A?.short === "RED" && bundle.json.sides?.B?.short === "BLUE", "Bundle carries the red/blue sides, off by default", bundle.json.sides);
     // Match day (migration 0022): a tournament never saved reads as off; saved rules reach the bundle, sanitised.
     const md = bundle.json.tournament.matchDay;
     check(md?.on === false && md?.showcase === false && md?.courtCall === false, "Bundle carries matchDay, off until the tab is saved", md);
@@ -274,6 +281,9 @@ async function main() {
     const tl = await call("GET", `/api/mobile/v1/matches/${mid}/timeline`);
     check(tl.status === 200 && tl.json.points.length === 6, "The timeline has the six points that stand", tl.json?.points?.length);
 
+    // ---- live courts hero (one shared read: the featured event's courts on its live day, nothing private)
+    await liveCourtsHero({ tid, tag, courtId: court!.id, tieId: tie!.id, mid, egyId: egy.id, jpnId: jpn.id, pA: pA.id, pB: pB.id });
+
     // ---- pass
     const pass = await call("POST", "/api/mobile/v1/me/pass", { headers: inst, body: { group: group!.id, holderName: "E2E Fan", nationCode: "EGY" } });
     check(pass.status === 200 && pass.json.pass.serial >= 1 && pass.json.pass.edition === "spectator", "A spectator pass opens with a serial", pass.json?.pass?.serial);
@@ -407,6 +417,97 @@ async function userToken(email: string): Promise<string | null> {
  * updates; one account per player; brute force is stopped; an admin reset
  * unlinks; nothing private reaches public feeds or pages.
  */
+/**
+ * The live courts hero (GET /api/mobile/v1/courts/live). Runs while the S1 rubber is live on
+ * Court 1 of the featured event: a second match is called to Court 2, a player is given a phone,
+ * an email and a linked profile (with its mobile number and a photo), and the answer must carry
+ * the courts, scores, sides, faces and the call, and not one private value.
+ */
+async function liveCourtsHero(o: { tid: string; tag: string; courtId: string; tieId: string; mid: string; egyId: string; jpnId: string; pA: string; pB: string }) {
+  const { data: court2 } = await db().from("courts").insert({ tournament_id: o.tid, court_name: "Court 2", court_order: 2 }).select("id").single();
+  const { data: called } = await db()
+    .from("matches")
+    .insert({ tournament_id: o.tid, stage: "group", round_name: "Group A · Exhibition", match_order: 5, court_id: court2!.id, team_a_id: o.egyId, team_b_id: o.jpnId, status: "ready", team_a_player_ids: [o.pA], team_b_player_ids: [o.pB] })
+    .select("id")
+    .single();
+  const now = Date.now();
+  const mobile = `+2015${String(parseInt(o.tag, 16)).padStart(8, "0").slice(0, 8)}`;
+  const { data: profile } = await db()
+    .from("player_profiles")
+    .insert({ public_name: `E2E Hero ${o.tag}`, mobile_normalized: mobile, email: `hero-${o.tag}@example.com`, notes: "profile private note", photo_url: "https://e2e.example/hero.jpg" })
+    .select("id")
+    .single();
+  try {
+    const { error: callErr } = await db().from("match_calls").insert({
+      match_id: called!.id,
+      tournament_id: o.tid,
+      court_id: court2!.id,
+      called_at: new Date(now - 60_000).toISOString(),
+      deadline_at: new Date(now + 4 * 60_000).toISOString(),
+      a_present_at: new Date(now - 30_000).toISOString(),
+      status: "called",
+      called_by_role: "referee",
+      device_id: `e2e-device-${o.tag}`,
+    });
+    check(!callErr, "A match is called to Court 2 (match_calls)", callErr?.message);
+    await db().from("players").update({ phone: "+201234567890", email: `jun-${o.tag}@example.com`, player_profile_id: profile!.id }).eq("id", o.pB);
+    await db().from("tournaments").update({ app_skin: { showPhotos: true } }).eq("id", o.tid);
+    const { data: codes } = await db().from("players").select("access_code").in("id", [o.pA, o.pB]);
+
+    const hero = await call("GET", "/api/mobile/v1/courts/live");
+    type HeroEvent = { tournament: { id: string; slug: string; featured: boolean; isTies: boolean; showPhotos: boolean }; courts: { name: string }[]; matches: { id: string; status: string; score: { points: unknown } | null }[]; ties: { id: string }[]; teams: { players: { id: string; photoUrl: string | null; focalX: number }[] }[]; calls: { matchId: string; presentA: boolean; presentB: boolean; deadlineAt: string }[] };
+    const events = (hero.json?.events ?? []) as HeroEvent[];
+    const ev = events.find((e) => e.tournament.id === o.tid);
+    check(hero.status === 200 && Boolean(ev), "The live courts hero carries the featured event on its live day", events.map((e) => e.tournament.slug));
+    check(/s-maxage=2/.test(hero.cache), "The hero is shared at the CDN like the live feed", hero.cache);
+    check(ev?.tournament.featured === true && ev.tournament.isTies === true && ev.tournament.showPhotos === true, "It knows the event is featured, a nations event, and shows photos", ev?.tournament);
+    check(JSON.stringify(ev?.courts.map((c) => c.name)) === JSON.stringify(["Court 1", "Court 2"]), "Both courts, in court order", ev?.courts);
+    const rubber = ev?.matches.find((m) => m.id === o.mid);
+    check(rubber?.status === "live" && rubber.score?.points != null, "The live rubber is there with its score", rubber?.score);
+    check(Boolean(ev?.ties.some((x) => x.id === o.tieId)), "The tie on Court 1 is there for the tie score");
+    const heroCall = ev?.calls.find((c) => c.matchId === called!.id);
+    check(heroCall?.presentA === true && heroCall.presentB === false && typeof heroCall.deadlineAt === "string", "The open call reaches the hero, with who is at court", heroCall);
+    const { heroCards } = await import("../../src/lib/tv/showcase");
+    const scenes = ev ? Object.fromEntries(heroCards([ev as never], Date.now()).map((c) => [c.court.name, c.scene.kind])) : {};
+    check(scenes["Court 1"] === "live" && scenes["Court 2"] === "called", "On the phone: Court 1 live, Court 2 called to court", scenes);
+    const jun = ev?.teams.flatMap((tm) => tm.players).find((p) => p.id === o.pB);
+    check(jun?.photoUrl === "https://e2e.example/hero.jpg" && typeof jun.focalX === "number", "A linked profile's photo shows on the hero, with its focal point", jun);
+
+    const text = JSON.stringify(hero.json);
+    const secrets = ["+201000000000", "private note", "+201234567890", `jun-${o.tag}@example.com`, `hero-${o.tag}@example.com`, mobile, `e2e-device-${o.tag}`, ...((codes ?? []) as { access_code: string | null }[]).map((c) => c.access_code ?? "").filter(Boolean)];
+    const leaked = secrets.filter((v) => text.includes(v));
+    check(leaked.length === 0, "The hero carries no phone, email, access code, mobile number, note or device", leaked);
+    const keys = new Set<string>();
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") {
+        for (const [k, x] of Object.entries(v)) {
+          keys.add(k);
+          walk(x);
+        }
+      }
+    };
+    walk(hero.json);
+    const privateKeys = ["phone", "email", "access_code", "accessCode", "mobile_normalized", "notes", "device_id", "player_profile_id", "player_profiles", "called_by_role", "answer"].filter((k) => keys.has(k));
+    check(privateKeys.length === 0, "No private field name anywhere in the hero", privateKeys);
+    check((await call("GET", "/api/mobile/v1/courts/live?demo=yes")).status === 400, "A malformed demo switch is refused");
+
+    // The organiser switches the showcase off on the Match day tab: the event leaves the hero.
+    const { data: before } = await db().from("tournaments").select("match_day_rules").eq("id", o.tid).single();
+    await db().from("tournaments").update({ match_day_rules: { configured: true, showcase: { on: false } } }).eq("id", o.tid);
+    await sleep(1_700); // the hero is memoised for 1.5 s
+    const off = await call("GET", "/api/mobile/v1/courts/live");
+    check(off.status === 200 && !((off.json?.events ?? []) as HeroEvent[]).some((e) => e.tournament.id === o.tid), "Switching the showcase off takes the event off the hero");
+    await db().from("tournaments").update({ match_day_rules: before?.match_day_rules ?? {} }).eq("id", o.tid);
+  } finally {
+    await db().from("matches").delete().eq("id", called!.id);
+    await db().from("courts").delete().eq("id", court2!.id);
+    await db().from("players").update({ phone: null, email: null, player_profile_id: null }).eq("id", o.pB);
+    await db().from("tournaments").update({ app_skin: {} }).eq("id", o.tid);
+    await db().from("player_profiles").delete().eq("id", profile!.id);
+  }
+}
+
 async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: { id: string }; mid: string; inst: Record<string, string> }) {
   const userA = `e2e.adam.${randomUUID().slice(0, 6)}@example.com`;
   const userB = `e2e.other.${randomUUID().slice(0, 6)}@example.com`;

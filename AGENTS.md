@@ -90,3 +90,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (`src/lib/orgs/scope.ts`), never a posted id. New admin actions/pages/staff routes must use them —
   `src/lib/adminGuards.test.ts` fails otherwise. `STAFF_SESSION_SECRET` is required in production. Attack gate:
   `npm run e2e:organizations` (stand-in; reads action ids from the build's `.next` manifest).
+- Live courts hero (plan Phase 4): scenes per court in `src/lib/tv/showcase.ts` (shared via `@core`; ties and one-match
+  fixtures, `called` from `match_calls`, TV timings from `tennis/tvScene.ts`), server `src/lib/mobile/courts.ts` behind
+  `GET /api/mobile/v1/courts/live` (CDN 2 s; featured + live tournaments in the Discover order, only where the Match day
+  showcase is on and `supports.showcase`; flag `live_courts`), app `move-score-app/src/ui/LiveCourtsHero.tsx` on Discover.
+  Explicit columns only — `courts.test.ts` fails on a private column or field. The bundle also carries `rules` (per stage,
+  `rulesForMatch`) and `sides` (red/blue); `MMatch.bracketId` tells a Plate match.

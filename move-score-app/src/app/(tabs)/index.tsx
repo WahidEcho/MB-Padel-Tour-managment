@@ -2,7 +2,7 @@ import { ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import type { MEventGroup, MTournamentCard } from "@core";
-import { useBundle, useDiscover, useLive } from "../../api/queries";
+import { queryClient, useBundle, useDiscover, useLive } from "../../api/queries";
 import { dateRange, liveMatches, makeView, needsDay, upcomingMatches } from "../../api/model";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -14,6 +14,7 @@ import { LoadState } from "../../ui/LoadState";
 import { ProfileButton } from "../../ui/Header";
 import { openTournament } from "../../nav/links";
 import { RegistrationBanner } from "../../auth/RegistrationBanner";
+import { LiveCourtsHero } from "../../ui/LiveCourtsHero";
 import { Pressable } from "react-native";
 
 /**
@@ -115,13 +116,15 @@ export default function Discover() {
   const featured = data?.featured ?? [];
   const featuredSlugs = featured.flatMap((g) => g.tournaments.map((t) => t.slug)).slice(0, 4);
   return (
-    <Screen onRefresh={() => d.refetch()}>
+    <Screen onRefresh={() => Promise.all([d.refetch(), queryClient.refetchQueries({ queryKey: ["courts-live"], type: "active" })])}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 40, marginBottom: 14 }}>
         <Wordmark />
         <ProfileButton />
       </View>
       <StaleBanner queries={[d]} />
       <RegistrationBanner style={{ marginBottom: 14 }} />
+      {/* Live days: every court of the featured event and the live tournaments (hidden otherwise). */}
+      <LiveCourtsHero />
       <Display size={34} style={{ marginBottom: 6 }}>
         {"Every court.\nEvery point."}
       </Display>
