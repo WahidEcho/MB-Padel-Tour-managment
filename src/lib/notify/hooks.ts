@@ -10,6 +10,7 @@ import { after } from "next/server";
 import { db } from "../supabase";
 import type { Match, Team, Tie } from "../types";
 import { RUBBER_LABELS } from "../tennis/ties";
+import { aboutTime } from "../friendly/scheduler";
 import type { RubberType } from "../types";
 import {
   STARTING_LEAD_MINUTES,
@@ -17,6 +18,7 @@ import {
   composeLineups,
   composeMatchFinished,
   composeMatchLive,
+  composeNightMatch,
   composeTieDecided,
   composeTieSchedule,
   composeTieStarting,
@@ -471,7 +473,12 @@ async function endLiveActivities(match: Match, ctx: Ctx) {
   );
 }
 
-export function notifyMatchScheduled(matchId: string) {
+/**
+ * A match's court and time are set. `night` (a league night's published table,
+ * src/lib/friendly/nights.ts): the time is an estimate ("about 19:40") and the
+ * alert goes to the match's players only, through their own accounts.
+ */
+export function notifyMatchScheduled(matchId: string, opts: { night?: { position: number | null } } = {}) {
   return safely("match scheduled", async () => {
     const { data } = await db().from("matches").select("*").eq("id", matchId).single();
     const m = data as Match | null;
@@ -479,6 +486,27 @@ export function notifyMatchScheduled(matchId: string) {
     const ctx = await context(m.tournament_id);
     const court = m.court_id ? ctx.courts.get(m.court_id) ?? null : null;
     const players = [...sidePlayers(ctx, m.team_a_id, null), ...sidePlayers(ctx, m.team_b_id, null)];
+    if (opts.night) {
+      const { data: s } = await db().from("friendly_sessions").select("name").eq("tournament_id", m.tournament_id).maybeSingle();
+      await enqueue({
+        kind: "match_scheduled",
+        tournamentId: m.tournament_id,
+        matchId: m.id,
+        // A new court or time is news again; publishing the same table twice is not.
+        dedupeKey: `match:${m.id}:night:${m.court_id ?? "-"}:${m.scheduled_time ?? "-"}`,
+        payload: composeNightMatch({
+          matchId: m.id,
+          a: side(ctx, m.team_a_id),
+          b: side(ctx, m.team_b_id),
+          court,
+          position: opts.night.position,
+          about: m.scheduled_time ? aboutTime(Date.parse(m.scheduled_time), ctx.tournament.timezone) : null,
+          eventName: (s as { name: string } | null)?.name ?? ctx.tournament.name,
+          playerIds: players.map((p) => p.id),
+        }),
+      });
+      return;
+    }
     const payload = composeTieSchedule({
       kind: "tie_rescheduled",
       tieId: m.id,

@@ -7,6 +7,7 @@ import type { ChessCompetition } from "@/lib/chess/result";
 import type { ResultPayload, ResultProblem } from "@/lib/scoring/resultEntry";
 import type { MatchRules } from "@/lib/types";
 import { enterMatchResult } from "./actions";
+import type { EnterResultOutcome } from "@/lib/scoring/append";
 
 /** The organiser's "Result" button on a match row: the shared entry form in a dialog. */
 export default function ResultEntryButton(props: {
@@ -20,6 +21,8 @@ export default function ResultEntryButton(props: {
   sideB: string;
   initial: ResultPayload | null;
   correcting: boolean;
+  /** Records the result somewhere else (a session's page passes its own bound action). */
+  enter?: (payload: ResultPayload) => Promise<EnterResultOutcome>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,7 +35,7 @@ export default function ResultEntryButton(props: {
   function submit(payload: ResultPayload) {
     startTransition(async () => {
       try {
-        const out = await enterMatchResult(props.tournamentId, props.matchId, payload);
+        const out = props.enter ? await props.enter(payload) : await enterMatchResult(props.tournamentId, props.matchId, payload);
         if (out.ok) {
           setOpen(false);
           router.refresh();

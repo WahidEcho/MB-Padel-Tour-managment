@@ -32,6 +32,7 @@ import CeremonyStage from "@/components/broadcast/CeremonyStage";
 import RankingScene, { type RankingRow } from "@/components/broadcast/RankingScene";
 import { buildCeremony } from "@/lib/tv/ceremonyServer";
 import { getRankingSnapshot, getSessionByTournament, listPublicPlayers } from "@/lib/friendly/data";
+import NightTableScene from "@/components/friendly/NightTableScene";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
@@ -393,6 +394,13 @@ export default async function TvScreen({
                     );
                   })}
                 </div>
+              ) : isSession ? (
+                // A night has no bracket: its scene is the order of play, live from the feed.
+                <NightTableScene
+                  courts={courts.map((c) => ({ id: c.id, name: c.court_name, order: c.court_order }))}
+                  teamNames={Object.fromEntries(teams.map((t) => [t.id, t.team_name]))}
+                  timeZone={tournament.timezone || "Africa/Cairo"}
+                />
               ) : (
                 <p className="flex h-full items-center justify-center text-[40px] text-muted">Bracket coming soon</p>
               ))}

@@ -145,3 +145,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   results by the hooks in `src/lib/results/hooks.ts` (finalise, undo, correction, reset), unique per match + player. "Which profile is
   this user" is `profileForUser` only (switches to `auth_user_id` with Phase 1). League sessions (nights, season fixtures) are the only
   friendly sessions the app shows. Gate: `npm run e2e:leagues` (stand-in).
+- Americano / Mexicano nights (Phase 8, no migration): pure `src/lib/friendly/nightTable.ts` (`buildNightTable` view model every surface
+  draws, `reestimateNight`; `NIGHT_TABLE_LAYOUT` is the one switch for the owner's pending reference layout), server
+  `src/lib/friendly/nights.ts` (`publishNightTable` = "Confirm players and publish table", `reestimateSessionTable` from the
+  `results/hooks.ts` finish/undo hooks and match start, `linkNightPlayers` adds `player_claims` for a night's new rows by profile). Order
+  of play per court = `match_order`; estimates in `matches.scheduled_time`; published flag `format_config.nightTable`. Alerts only to the
+  players' own accounts, only for public league nights. The Americano points format is unchanged (still 3 / 0 + fire on the night's
+  own table; league points from the league rules). Gate: `npm run e2e:nights` (stand-in, `PUSH_DRY_RUN=1`).

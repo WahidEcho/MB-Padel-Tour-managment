@@ -26,6 +26,7 @@ import type {
   MLeagueCard,
   MLeagueFixture,
   MLeagueNight,
+  MNightTable,
   MMyLeague,
   MMyLeagues,
   MOrgRef,
@@ -38,7 +39,7 @@ import { leaguePoints, leaguePointsKey, leaguePointsRules, type LeaguePointsRow,
 import { boardMonths, rankBoard, topOfAllLeagues, type BoardEntry, type BoardLength, type BoardLine, BOARD_LENGTHS } from "./boards";
 import { joinDecision, normalizeJoinModes, type JoinMode, type MembershipStatus } from "./join";
 import { leagueResultsOfMatch, type LeagueSnapshotInput } from "./results";
-import { BOARD_LABELS, isMonth, leagueFee, leaguePeriods, leagueTakesMembers, moneyLabel, PUBLIC_LEAGUE_STATUSES } from "./settings";
+import { addDays, BOARD_LABELS, isMonth, leagueFee, leaguePeriods, leagueTakesMembers, moneyLabel, PUBLIC_LEAGUE_STATUSES } from "./settings";
 import { leagueInviteCodeMatches } from "./inviteCode";
 import { eventDay } from "../matchday/eventDay";
 
@@ -724,10 +725,32 @@ export async function getPublicLeague(slug: string, lengthRaw?: unknown, monthRa
     const sessionOf = new Map(sessions.map((s) => [s.id, s]));
     const tIds = sessions.map((s) => s.tournament_id);
     const [tRows, nightMatches] = await Promise.all([
-      chunked<{ id: string; slug: string }>(tIds, (part) => db().from("tournaments").select("id, slug").in("id", part)),
+      chunked<{ id: string; slug: string; format_config: { nightTable?: { publishedAt?: string } } | null }>(tIds, (part) => db().from("tournaments").select("id, slug, format_config").in("id", part)),
       chunked<{ tournament_id: string; status: string }>(tIds, (part) => db().from("matches").select("tournament_id, status").in("tournament_id", part)),
     ]);
     const slugOf = new Map(tRows.map((t) => [t.id, t.slug]));
+    const publishedOf = new Map(tRows.map((t) => [t.id, t.format_config?.nightTable?.publishedAt ?? null]));
+    // The table (Phase 8) for the nights that are on or coming up: from yesterday on, still to finish, a few at most.
+    const since = addDays(todayIn(league.timezone), -1);
+    const current = new Set(
+      nightFixtures
+        .filter((f) => {
+          const s = sessionOf.get(f.session_id!);
+          const ms = nightMatches.filter((m) => m.tournament_id === s?.tournament_id);
+          return s && f.date >= since && ms.length > 0 && ms.some((m) => !FINISHED.includes(m.status) && m.status !== "cancelled");
+        })
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+        .slice(0, 4)
+        .map((f) => f.session_id!),
+    );
+    const tables = new Map<string, MNightTable>();
+    if (current.size) {
+      const { nightTableFor } = await import("../friendly/nights");
+      for (const sid of current) {
+        const view = await nightTableFor(sessionOf.get(sid)!.tournament_id);
+        if (view && (view.publishedAt || view.estimated)) tables.set(sid, view.table);
+      }
+    }
     const nights: MLeagueNight[] = nightFixtures.map((f) => {
       const s = sessionOf.get(f.session_id!);
       const ms = nightMatches.filter((m) => m.tournament_id === s?.tournament_id);
@@ -739,6 +762,8 @@ export async function getPublicLeague(slug: string, lengthRaw?: unknown, monthRa
         matches: ms.length,
         finished: ms.filter((m) => FINISHED.includes(m.status)).length,
         division: divName.get(f.division_id) ?? "",
+        publishedAt: s ? (publishedOf.get(s.tournament_id) ?? null) : null,
+        table: tables.get(f.session_id!) ?? null,
       };
     });
 

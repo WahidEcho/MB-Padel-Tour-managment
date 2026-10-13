@@ -150,6 +150,11 @@ export interface FormatConfig {
       podiumDepth?: 1 | 2 | 3 | 4;
     };
   };
+  /**
+   * A friendly session's night table (Phase 8): set when the organiser confirms
+   * the players and publishes it (src/lib/friendly/nights.ts).
+   */
+  nightTable?: { publishedAt: string; publishedBy: string };
 }
 
 /** The three rubbers of a tie, in the default order of play. See src/lib/tennis/ties.ts. */

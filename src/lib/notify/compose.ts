@@ -210,6 +210,39 @@ function cityOf(timeZone: string): string {
   return timeZone.split("/").pop()!.replace(/_/g, " ");
 }
 
+/* ---------------- league nights (Phase 8) ---------------- */
+
+/**
+ * A night's table is out: this match's court, its place in the court's order of
+ * play and its estimated start ("about 19:40"; matches start when the court is
+ * free). For the players only (`self`): nobody else is targeted.
+ */
+export function composeNightMatch(o: {
+  matchId: string;
+  a: Side;
+  b: Side;
+  court: string | null;
+  position: number | null;
+  /** "about 19:40", or null when the night has no start time. */
+  about: string | null;
+  eventName: string;
+  playerIds: string[];
+}): AlertPayload {
+  const court = o.court ?? "Court to be announced";
+  const when = o.about ?? "time to be announced";
+  const place = o.position ? ` · match ${o.position} on ${court}` : "";
+  const title = `Your table: ${court}, ${when}`;
+  const body = `${o.a.name} v ${o.b.name}${place} · ${o.eventName}`;
+  return {
+    title,
+    body,
+    url: `movescore://match/${o.matchId}`,
+    targets: [],
+    category: CATEGORY.match_scheduled,
+    self: { playerIds: o.playerIds, title, body },
+  };
+}
+
 /* ---------------- match day (Phase 3) ---------------- */
 
 export interface CourtMatch {

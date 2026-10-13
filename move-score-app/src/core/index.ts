@@ -52,6 +52,8 @@ export type { LeaguePeriods, LeagueKind } from "../../../src/lib/leagues/setting
 export type { JoinMode, JoinDecision, JoinRefusal, JoinLeague, JoinApplicant, MembershipStatus } from "../../../src/lib/leagues/join";
 export { orderOfPlay, estimateTimes, aboutTime } from "../../../src/lib/friendly/scheduler";
 export type { ScheduledRound, ScheduledMatch, CourtOrder, CourtOrderEntry, MatchEstimate } from "../../../src/lib/friendly/scheduler";
+export { buildNightTable, reestimateNight, isNightMatchDone, NIGHT_TABLE_LAYOUT } from "../../../src/lib/friendly/nightTable";
+export type { NightTable, NightTableCourt, NightTableEntry, NightTableRound, NightTableMatch, NightEntryState, NightTableLayout } from "../../../src/lib/friendly/nightTable";
 export { courtScene, nextAfter, heroCards, isLiveScene, sceneMatchIds, showcaseOn, rulesForMatch, sideIdentity, sidePlayers, sideName, WALKON, RUBBER_WON_MS, TIE_FINAL_MS, RESULT_REST_MS } from "../../../src/lib/tv/showcase";
 export type { ShowcaseScene, ShowcaseSceneKind, ShowcaseNext, HeroCard, SideIdentity } from "../../../src/lib/tv/showcase";
 export { LIVE_ACTIVITY_NAME, LIVE_ACTIVITY_PHASES, APNS_TOKEN, matchUrl, matchIdFromUrl, liveState, upcomingState, phaseForMatch } from "../../../src/lib/notify/liveActivity";

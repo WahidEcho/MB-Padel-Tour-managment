@@ -14,6 +14,7 @@ import { LoadState } from "../../ui/LoadState";
 import { Segments } from "../../ui/Segments";
 import { BoardTable } from "../../ui/Board";
 import { openMatch, openOrg, openTournament } from "../../nav/links";
+import { NightTable } from "../../ui/NightTable";
 
 const STATUS_TEXT: Record<MMyLeague["status"], string> = {
   active: "You're in this league",
@@ -221,7 +222,11 @@ function LeaguePage({ slug }: { slug: string }) {
               {d.divisions.length > 1 ? <Eyebrow size={10}>{n.division}</Eyebrow> : null}
             </View>
             <Body weight="bold" size={15}>{n.name}</Body>
-            <Body tone="ink2" size={12.5}>{n.matches ? `${n.finished}/${n.matches} matches played` : "Table not published yet"}</Body>
+            <Body tone="ink2" size={12.5}>
+              {n.matches ? `${n.finished}/${n.matches} matches played${n.publishedAt === null ? " · table not published yet" : ""}` : "Table not published yet"}
+            </Body>
+            {/* The night on now or next: its order of play per court, what is on and next. */}
+            {n.table ? <NightTable table={n.table} compact /> : null}
           </Card>
         ))}
       </View>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeTieSchedule, composeMatchFinished, localTime } from "./compose";
+import { composeTieSchedule, composeMatchFinished, composeNightMatch, localTime } from "./compose";
 
 describe("alert wording", () => {
   it("gives times in the event's zone and targets the tie and both nations", () => {
@@ -54,5 +54,35 @@ describe("match-day wording", () => {
     expect(reminder.self?.playerIds).toEqual(["p2"]);
     expect(reminder.self?.title).toBe("2 min left to reach Court 2");
     expect(JSON.stringify([called, reminder])).not.toMatch(/phone|email|access_code/);
+  });
+});
+
+describe("composeNightMatch (a league night's table is out)", () => {
+  const base = {
+    matchId: "m1",
+    a: { name: "Ali & Omar", code: null },
+    b: { name: "Sara & Mona", code: null },
+    court: "Court 2",
+    position: 3,
+    about: "about 19:40",
+    eventName: "Padel Nights · Tue 3 Nov",
+    playerIds: ["p1", "p2", "p3", "p4"],
+  };
+  it("tells the players their court, place in its order and the estimated time", () => {
+    const p = composeNightMatch(base);
+    expect(p.title).toBe("Your table: Court 2, about 19:40");
+    expect(p.body).toBe("Ali & Omar v Sara & Mona · match 3 on Court 2 · Padel Nights · Tue 3 Nov");
+    expect(p.category).toBe("scheduled");
+    expect(p.url).toBe("movescore://match/m1");
+  });
+  it("goes to the players only: no followers targeted, their own wording", () => {
+    const p = composeNightMatch(base);
+    expect(p.targets).toEqual([]);
+    expect(p.self).toEqual({ playerIds: ["p1", "p2", "p3", "p4"], title: p.title, body: p.body });
+  });
+  it("says so when there is no time or court yet", () => {
+    const p = composeNightMatch({ ...base, court: null, position: null, about: null });
+    expect(p.title).toBe("Your table: Court to be announced, time to be announced");
+    expect(p.body).toBe("Ali & Omar v Sara & Mona · Padel Nights · Tue 3 Nov");
   });
 });

@@ -10,7 +10,8 @@
  *                      the new result finalises), and a tournament's live-data
  *                      reset or a deleted match (onTournamentReset)
  *
- * Today the only listener is league points (src/lib/leagues/server.ts): the
+ * Listeners: league points (src/lib/leagues/server.ts), and a night's table
+ * (src/lib/friendly/nights.ts), whose waiting matches are re-estimated. For points, the
  * leagues a match counts in are recomputed from their results as they stand, so
  * a result counts exactly once and an undo leaves nothing behind. A failure is
  * logged, never thrown into the scoring path (Admin → League → Recalculate
@@ -26,11 +27,27 @@ interface MatchRef {
 export async function onMatchFinalized(match: MatchRef): Promise<void> {
   const { recomputeLeaguesForMatch } = await import("../leagues/server");
   await recomputeLeaguesForMatch(match);
+  await onNightProgress(match.tournament_id);
 }
 
 export async function onMatchReopened(match: MatchRef): Promise<void> {
   const { recomputeLeaguesForMatch } = await import("../leagues/server");
   await recomputeLeaguesForMatch(match);
+  await onNightProgress(match.tournament_id);
+}
+
+/**
+ * A session's match started, finished or was reopened (Phase 8): the "about"
+ * times of its waiting matches are replanned from what actually happened. A
+ * no-op for tournaments and sessions without a start time; never throws.
+ */
+export async function onNightProgress(tournamentId: string): Promise<void> {
+  try {
+    const { reestimateSessionTable } = await import("../friendly/nights");
+    await reestimateSessionTable(tournamentId);
+  } catch (err) {
+    console.error("night re-estimate failed", err);
+  }
 }
 
 /** A tournament's results were wiped or a match deleted: the league it counts toward is recomputed. */

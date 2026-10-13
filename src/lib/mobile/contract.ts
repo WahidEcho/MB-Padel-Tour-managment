@@ -7,6 +7,7 @@
  */
 
 import type { MatchRules, StageRuleKey } from "../types";
+import type { NightTable, NightTableLayout } from "../friendly/nightTable";
 
 export const API_VERSION = 1;
 
@@ -172,6 +173,12 @@ export interface MBundle {
     lowerThird: string | null;
     /** Match-day switches the app acts on (src/lib/matchday/rules.ts publicMatchDay). Absent from older servers. */
     matchDay?: MMatchDay;
+    /**
+     * A league night (Phase 8): its order of play per court with "about" times.
+     * The app builds the table from the live matches with buildNightTable (@core).
+     * Absent for tournaments and from older servers.
+     */
+    night?: MNightInfo;
   };
   teams: MTeam[];
   courts: { id: string; name: string; order: number }[];
@@ -494,6 +501,23 @@ export interface MLeagueNight {
   matches: number;
   finished: number;
   division: string;
+  /** When the organiser published the night's table; null before. Absent from older servers. */
+  publishedAt?: string | null;
+  /**
+   * The night's table (order of play per court, "about" times) for a night that
+   * is on or coming up; null for the others. Side names only. Absent from older servers.
+   */
+  table?: MNightTable | null;
+}
+
+/** A night's table as every surface draws it (src/lib/friendly/nightTable.ts buildNightTable). */
+export type MNightTable = NightTable;
+
+export interface MNightInfo {
+  /** When the organiser published the table; null while it is a draft. */
+  publishedAt: string | null;
+  /** How the table is laid out (the owner's reference layout is still to come). */
+  layout: NightTableLayout;
 }
 
 export interface MLeagueFixture {

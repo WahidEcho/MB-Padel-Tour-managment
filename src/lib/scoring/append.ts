@@ -560,6 +560,13 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
   }
   if (startedNow && !finalize) {
     defer(() => notifyMatchLive(match));
+    // A night's table: a match that went on late (or early) moves its court's next ones.
+    if (match.stage === "friendly") {
+      defer(async () => {
+        const { onNightProgress } = await import("../results/hooks");
+        await onNightProgress(match.tournament_id);
+      });
+    }
   }
 
   // Match day: one game from the end tells the next match on the court (once per match).

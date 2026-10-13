@@ -12,10 +12,21 @@ import PairsClient, { type PlayerLite } from "./PairsClient";
 import AddPlayersDialog from "./AddPlayersDialog";
 import ActionButton from "@/components/ActionButton";
 import BrandingForm from "@/app/admin/tournaments/[id]/settings/BrandingForm";
-import { getTournament } from "@/lib/data";
+import { getSnapshots, getTournament } from "@/lib/data";
+import NightTableView from "@/components/friendly/NightTableView";
+import { nightTableFor } from "@/lib/friendly/nights";
+import ResultEntryButton from "@/app/admin/tournaments/[id]/matches/ResultEntryButton";
+import { scoringConfigForMatch } from "@/lib/scoring/rules";
+import { matchDayRules, resolveScoringMode } from "@/lib/matchday/rules";
+import { sportOf } from "@/lib/sports/registry";
+import { enteredSetsFromState } from "@/lib/scoring/finalScore";
+import { chessCompetitionFor, finalResultAllowed } from "@/lib/scoring/resultEntry";
+import type { MatchSnapshot } from "@/lib/types";
 import {
   approveEntryAction,
   autoPairAction,
+  enterSessionResult,
+  publishNightTableAction,
   finalizeSessionAction,
   generateScheduleAction,
   nextRoundAction,
@@ -107,7 +118,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
       .is("retired_after_round", null),
     db()
       .from("matches")
-      .select("id, round_name, match_order, court_id, status, team_a_id, team_b_id")
+      .select("id, round_name, match_order, court_id, status, team_a_id, team_b_id, scoring_mode_override, stage, bracket_id")
       .eq("tournament_id", session.tournament_id)
       .eq("stage", "friendly")
       .order("match_order"),
@@ -152,6 +163,9 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
     status: string;
     team_a_id: string | null;
     team_b_id: string | null;
+    scoring_mode_override: "point_by_point" | "final_score" | "either" | null;
+    stage: string;
+    bracket_id: string | null;
   }[];
   const anyStarted = matches.some((m) => m.status !== "scheduled");
   const allFinished =
@@ -159,10 +173,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
     matches.every((m) =>
       ["completed", "walkover", "disqualified", "retired", "cancelled"].includes(m.status)
     );
-
-  const courtName = new Map(
-    ((courtsRes.data ?? []) as { id: string; court_name: string }[]).map((c) => [c.id, c.court_name])
-  );
 
   // Team names for the schedule table.
   const teamIds = [...new Set(matches.flatMap((m) => [m.team_a_id, m.team_b_id]).filter(Boolean))] as string[];
@@ -173,11 +183,60 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
     ((teamRows ?? []) as { id: string; team_name: string }[]).map((t) => [t.id, t.team_name])
   );
 
-  const rounds = [...new Set(matches.map((m) => m.round_name ?? "—"))];
-  const [finalizeCheck, backing] = await Promise.all([
+  const [finalizeCheck, backing, night, snapshots] = await Promise.all([
     checkFinalizeReady(session.id),
     getTournament(session.tournament_id),
+    nightTableFor(session.tournament_id),
+    getSnapshots(session.tournament_id),
   ]);
+  const publishedAt = backing?.format_config?.nightTable?.publishedAt ?? null;
+  const timeZone = backing?.timezone || "Africa/Cairo";
+
+  // Final-result entry on the night (Phase 2): where the session (or the match) allows it.
+  const snapByMatch = new Map(snapshots.map((x) => [x.match_id, x] as const));
+  const engine = sportOf(backing ?? undefined).engine;
+  const rulesOfDay = backing ? matchDayRules(backing.match_day_rules, backing) : null;
+  const resultActions = new Map<string, React.ReactNode>();
+  for (const m of matches) {
+    const scoreLink = (
+      <Link key="score" href={`/referee/matches/${m.id}/score`} className="btn-secondary px-2 py-0.5 text-[11px]">
+        Score
+      </Link>
+    );
+    const allowed =
+      backing &&
+      rulesOfDay &&
+      m.team_a_id &&
+      m.team_b_id &&
+      m.status !== "cancelled" &&
+      finalResultAllowed(resolveScoringMode({ matchOverride: m.scoring_mode_override, sessionMode: session.scoring_mode, rules: rulesOfDay }));
+    if (!allowed) {
+      resultActions.set(m.id, <div className="flex gap-1">{scoreLink}</div>);
+      continue;
+    }
+    const snap = snapByMatch.get(m.id) as MatchSnapshot | undefined;
+    const state = (snap?.snapshot_json ?? null) as Record<string, unknown> | null;
+    resultActions.set(
+      m.id,
+      <div className="flex gap-1">
+        {scoreLink}
+        <ResultEntryButton
+          tournamentId={session.tournament_id}
+          matchId={m.id}
+          engine={engine}
+          rules={scoringConfigForMatch(backing!, m as never, null, { doubles: true })}
+          legs={1}
+          competition={chessCompetitionFor(m.stage)}
+          sideA={teamName.get(m.team_a_id ?? "") ?? "Side A"}
+          sideB={teamName.get(m.team_b_id ?? "") ?? "Side B"}
+          initial={Array.isArray(state?.completedSets) && (state!.completedSets as unknown[]).length > 0 ? { sets: enteredSetsFromState(state as never) } : null}
+          correcting={(snap?.last_event_number ?? 0) > 0}
+          enter={enterSessionResult.bind(null, session.id, m.id)}
+        />
+      </div>,
+    );
+  }
+  const canPublish = !anyStarted && approved.length >= 4 && session.status !== "finalized";
 
   return (
     <div className="space-y-4">
@@ -319,6 +378,52 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
         </div>
       )}
 
+      {canPublish && (
+        <form action={publishNightTableAction} className="card space-y-3 border-accent/40" data-testid="publish-night-table">
+          <input type="hidden" name="session_id" value={session.id} />
+          <input type="hidden" name="confirm_players" value="1" />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-bold">
+                Confirm players and publish table{" "}
+                {publishedAt && <span className="badge bg-success/15 text-success">published</span>}
+              </h2>
+              <p className="text-xs text-muted">
+                Untick anyone not playing tonight. Publishing builds the order of play per court with estimated
+                times (each match starts when its court is free) and tells the players linked to the app.
+                {publishedAt ? " Publishing again rebuilds the table until the first match starts." : ""}
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-1 sm:grid-cols-3">
+            {approved.map((e) => (
+              <label key={e.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="playing" value={e.player_profile_id} defaultChecked />
+                {profileById.get(e.player_profile_id)?.public_name ?? "Unknown player"}
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="label" htmlFor="pub-minutes">Minutes per match</label>
+              <input id="pub-minutes" name="match_minutes" type="number" min={5} max={240} defaultValue={session.expected_match_minutes} className="input w-24 text-sm" />
+            </div>
+            <div>
+              <label className="label" htmlFor="pub-changeover">Changeover</label>
+              <input id="pub-changeover" name="changeover_minutes" type="number" min={0} max={60} defaultValue={session.turnover_minutes} className="input w-24 text-sm" />
+            </div>
+            <p className="pb-2 text-xs text-muted">
+              {session.starts_at
+                ? `Starts ${new Intl.DateTimeFormat("en-GB", { timeZone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(session.starts_at))}`
+                : "No start time: the table has no estimated times."}
+            </p>
+            <ConfirmSubmit className="btn-primary ml-auto text-xs" message="Publish tonight's table? The players linked to the app are told their court and time.">
+              {publishedAt ? "Publish again" : "Confirm players and publish table"}
+            </ConfirmSubmit>
+          </div>
+        </form>
+      )}
+
       <div className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -387,35 +492,14 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               : "No matches yet — pick a format above and generate."}
           </p>
         ) : (
-          <div className="space-y-3">
-            {rounds.map((r) => (
-              <div key={r}>
-                <p className="mb-1 text-xs font-bold uppercase text-muted">{r}</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {matches
-                    .filter((m) => (m.round_name ?? "—") === r)
-                    .map((m) => (
-                      <div
-                        key={m.id}
-                        className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-2 py-1.5 text-sm"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold">
-                            {teamName.get(m.team_a_id ?? "") ?? "TBD"}
-                          </p>
-                          <p className="truncate text-xs text-muted">
-                            v {teamName.get(m.team_b_id ?? "") ?? "TBD"}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-xs text-muted">{courtName.get(m.court_id ?? "") ?? "—"}</p>
-                          <span className="badge bg-border text-muted">{m.status}</span>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ))}
+          <div className="space-y-2">
+            {night && (
+              <p className="text-xs text-muted">
+                Order of play per court{session.starts_at ? ", with estimated times (re-estimated as matches finish)" : ""}.
+                {publishedAt ? " Published to the players." : " Not published yet."}
+              </p>
+            )}
+            {night && <NightTableView table={night.table} actions={resultActions} />}
           </div>
         )}
       </div>
