@@ -29,9 +29,11 @@ export interface PlayerRow extends PersonKey {
   access_code_hash?: string | null;
   photo_url: string | null;
   portrait_url: string | null;
+  /** The number the linked player typed in the app (0026): shown to the player and the organisers, never used to find or link anyone. */
+  self_reported_phone?: string | null;
 }
 
-export const PLAYER_COLUMNS = "id, tournament_id, team_id, full_name, player_profile_id, phone, email, access_code, access_code_hash, photo_url, portrait_url";
+export const PLAYER_COLUMNS = "id, tournament_id, team_id, full_name, player_profile_id, phone, email, self_reported_phone, access_code, access_code_hash, photo_url, portrait_url";
 
 /* ---------------- brute-force brake ---------------- */
 
@@ -140,7 +142,7 @@ export async function releaseClaims(userId: string): Promise<void> {
 
 /** The account no longer speaks for its player profile. */
 export async function releaseProfile(userId: string): Promise<void> {
-  await db().from("player_profiles").update({ auth_user_id: null, phone_verified_at: null, updated_at: new Date().toISOString() }).eq("auth_user_id", userId);
+  await db().from("player_profiles").update({ auth_user_id: null, phone_verified_at: null, owner_scope_org: null, updated_at: new Date().toISOString() }).eq("auth_user_id", userId);
 }
 
 export async function claimedRows(userId: string): Promise<(PlayerRow & { via_player_id: string | null; claimed_at: string })[]> {
@@ -216,7 +218,8 @@ export async function loadMyPlayer(userId: string): Promise<MMyPlayer | null> {
     nationCode: primaryTeam?.nation_code ?? null,
     iso2: primaryTeam?.iso2 ?? null,
     teamName: primaryTeam?.team_name ?? "",
-    phone: primary.phone ?? rows.find((r) => r.phone)?.phone ?? null,
+    // The player's own number when they gave one, else the one the organiser recorded.
+    phone: primary.self_reported_phone ?? rows.find((r) => r.self_reported_phone)?.self_reported_phone ?? primary.phone ?? rows.find((r) => r.phone)?.phone ?? null,
     photoUrl: withPhoto ? photoOf(withPhoto) : null,
     entries,
     matches: await myMatches(rows, teamOf, tourOf),
@@ -273,11 +276,16 @@ async function myPlayerIds(userId: string): Promise<string[]> {
   return ((data ?? []) as { player_id: string }[]).map((r) => r.player_id);
 }
 
-/** Sets the phone on every linked row. `e164` is already validated, or null to clear it. */
+/**
+ * The player's own number on every linked row (players.self_reported_phone), for the
+ * organisers to see. `e164` is already validated, or null to clear it. Never
+ * players.phone: that is the organiser's record, which phone codes and their email
+ * fallback look entries up by, so a number nobody proved must never land there.
+ */
 export async function setMyPhone(userId: string, e164: string | null): Promise<boolean> {
   const ids = await myPlayerIds(userId);
   if (!ids.length) return false;
-  const { error } = await db().from("players").update({ phone: e164, updated_at: new Date().toISOString() }).in("id", ids);
+  const { error } = await db().from("players").update({ self_reported_phone: e164, updated_at: new Date().toISOString() }).in("id", ids);
   if (error) throw new Error(error.message);
   return true;
 }

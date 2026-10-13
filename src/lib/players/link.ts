@@ -21,11 +21,20 @@
  *           up again whenever the profile is read (syncProfileClaims).
  *
  * The profile: the account's own if it has one; else the row's profile when the
- * proof reaches it (a code from an organisation that vouches for the profile, a
- * phone or email that is the profile's own, an organiser's offer); else a new
- * profile made from the row (name, phone in E.164, email). A new profile never
- * takes over an existing profile's mobile number: only a phone code proves that.
- * Rows without a profile join the account's profile.
+ * proof reaches it (a code from an organisation that vouches for the profile; a
+ * phone or email that is the profile's own, or, when the profile has none, a row of
+ * an organisation that vouches for it; an organiser's offer from an organisation
+ * that added the player); else, when the rows have no profile at all, a new profile
+ * made from the row (name, phone in E.164, email). Rows on a profile the proof does
+ * not reach are linked without it. A new profile never takes over an existing
+ * profile's mobile number: only a phone code proves that. Rows without a profile
+ * join the account's profile.
+ *
+ * Offers: an account that came to speak for a profile through one organisation's
+ * offer has only that organisation's word (player_profiles.owner_scope_org): the
+ * profile's rows in other organisations are not picked up for it, and its sessions
+ * elsewhere are not shown, until a phone code to the profile's own mobile, or the
+ * profile's own email, lands on it.
  *
  * Organisations: an organisation whose row joined an existing profile gets the
  * player as 'matched' (it sees the name it typed, not the person's contact fields)
@@ -80,8 +89,11 @@ interface ProfileRow {
   email: string | null;
   auth_user_id: string | null;
   approval_status: string;
+  owner_scope_org: string | null;
 }
-const PROFILE_COLUMNS = "id, public_name, mobile_normalized, email, auth_user_id, approval_status";
+const PROFILE_COLUMNS = "id, public_name, mobile_normalized, email, auth_user_id, approval_status, owner_scope_org";
+
+const sameEmail = (a: string | null | undefined, email: string) => (a ?? "").trim().toLowerCase() === email;
 
 /** The profile this account speaks for, if any. */
 export async function accountProfile(userId: string): Promise<ProfileRow | null> {
@@ -124,9 +136,14 @@ export function profileMobile(raw: string | null | undefined): string | null {
   return toE164(raw) ?? normalizeMobile(raw) ?? null;
 }
 
-/** A profile made from a row the account proved. Never takes another profile's mobile number. */
-async function createProfileFrom(row: PlayerRow, mobileHint: string | null): Promise<string> {
-  const mobile = mobileHint ?? profileMobile(row.phone);
+/**
+ * A profile made from a row the account proved. Never takes another profile's mobile
+ * number. Its mobile: the number a phone code proved; for a code, the number the
+ * code's organisation recorded on the row; for an email proof, none (the row's phone
+ * is exactly what an email does not prove).
+ */
+async function createProfileFrom(row: PlayerRow, mobileHint: string | null, rowPhone: boolean): Promise<string> {
+  const mobile = mobileHint ?? (rowPhone ? profileMobile(row.phone) : null);
   let mobileFree = Boolean(mobile);
   if (mobile) {
     const { data } = await db().from("player_profiles").select("id").eq("mobile_normalized", mobile).maybeSingle();
@@ -148,6 +165,27 @@ async function createProfileFrom(row: PlayerRow, mobileHint: string | null): Pro
 
 /* ---------------- the profile a link lands on ---------------- */
 
+/**
+ * The one candidate profile when it has no conflicting contact (`free`) and an
+ * organisation whose row is among `rows` vouches for it (it created or added the
+ * player): that organisation's word stands for the profile, as a code from it would.
+ */
+async function soleVouched(candidates: ProfileRow[], rows: PlayerRow[], orgOf: Map<string, string>, free: (c: ProfileRow) => boolean): Promise<ProfileRow | null> {
+  if (candidates.length !== 1 || !free(candidates[0]!)) return null;
+  const c = candidates[0]!;
+  for (const org of new Set(rows.filter((r) => r.player_profile_id === c.id).map((r) => orgOf.get(r.tournament_id)))) {
+    if (org && (await orgVouchesFor(org, c.id))) return c;
+  }
+  return null;
+}
+
+/** An offer stands only while its organisation added the player itself (not a profile it merely matched). */
+export async function offerOrgVouches(orgId: string, profileId: string): Promise<boolean> {
+  const { data } = await db().from("organization_players").select("source").eq("organization_id", orgId).eq("player_profile_id", profileId).maybeSingle();
+  const source = (data as { source: string } | null)?.source;
+  return Boolean(source) && source !== "matched";
+}
+
 type ProfileDecision = { ok: true; profileId: string | null; created: boolean } | { ok: false; status: number; error: string };
 
 async function profileFor(userId: string, rows: PlayerRow[], proof: LinkProof, orgOf: Map<string, string>): Promise<ProfileDecision> {
@@ -167,14 +205,16 @@ async function profileFor(userId: string, rows: PlayerRow[], proof: LinkProof, o
       break;
     }
     case "phone":
-      target = candidates.find((c) => c.mobile_normalized === proof.phone) ?? (candidates.length === 1 ? candidates[0]! : null);
+      // The profile whose mobile it is; else (a profile with no mobile) one an organisation of these rows vouches for.
+      target = candidates.find((c) => c.mobile_normalized === proof.phone) ?? (await soleVouched(candidates, rows, orgOf, (c) => !c.mobile_normalized));
       break;
     case "email":
-      target = candidates.find((c) => c.email?.toLowerCase() === proof.email) ?? (candidates.length === 1 ? candidates[0]! : null);
+      target = candidates.find((c) => sameEmail(c.email, proof.email)) ?? (await soleVouched(candidates, rows, orgOf, (c) => !c.email));
       break;
     case "offer": {
       const [p] = await profilesById([proof.profileId]);
       if (!p) return { ok: false, status: 404, error: NOTHING_TO_LINK };
+      if (!(await offerOrgVouches(proof.orgId, p.id))) return { ok: false, status: 404, error: NOTHING_TO_LINK };
       target = p;
       break;
     }
@@ -183,9 +223,12 @@ async function profileFor(userId: string, rows: PlayerRow[], proof: LinkProof, o
     if (target.auth_user_id && target.auth_user_id !== userId) return { ok: false, status: 409, error: PROFILE_TAKEN };
     return { ok: true, profileId: target.id, created: false };
   }
-  if (candidates.length > 1) return { ok: true, profileId: null, created: false }; // two profiles: a platform admin merges them
+  // A profile the proof does not reach (another person's contact on it, an organisation
+  // that only matched it, or two of them for a platform admin to merge): the rows link
+  // without it, and no new profile is made beside it.
+  if (candidates.length) return { ok: true, profileId: null, created: false };
   const primary = proof.kind === "code" ? proof.row : rows[0]!;
-  return { ok: true, profileId: await createProfileFrom(primary, proof.kind === "phone" ? proof.phone : null), created: true };
+  return { ok: true, profileId: await createProfileFrom(primary, proof.kind === "phone" ? proof.phone : null, proof.kind === "code"), created: true };
 }
 
 /* ---------------- linking ---------------- */
@@ -250,8 +293,18 @@ async function settleProfile(userId: string, profileId: string, rows: PlayerRow[
   if (!profile) return;
   if (!profile.auth_user_id) {
     // Conditional: two links racing for one profile, the first wins; the unique index stops a second profile per account.
-    await db().from("player_profiles").update({ auth_user_id: userId, updated_at: now }).eq("id", profileId).is("auth_user_id", null);
+    // Through an offer, the account has only that organisation's word for the profile (owner_scope_org).
+    await db()
+      .from("player_profiles")
+      .update({ auth_user_id: userId, owner_scope_org: proof.kind === "offer" ? proof.orgId : null, updated_at: now })
+      .eq("id", profileId)
+      .is("auth_user_id", null);
+  } else if (profile.owner_scope_org && profile.auth_user_id === userId) {
+    // A stronger proof lands on it: the profile's own mobile (a phone code) or its own email.
+    const strong = (proof.kind === "phone" && profile.mobile_normalized === proof.phone) || (proof.kind === "email" && sameEmail(profile.email, proof.email));
+    if (strong) await db().from("player_profiles").update({ owner_scope_org: null, updated_at: now }).eq("id", profileId).eq("auth_user_id", userId);
   }
+  // Only a phone code (WhatsApp) confirms a number; an emailed code proves the address alone.
   if (proof.kind === "phone") {
     if (profile.mobile_normalized === proof.phone) {
       await db().from("player_profiles").update({ phone_verified_at: now, updated_at: now }).eq("id", profileId).eq("auth_user_id", userId);
@@ -283,6 +336,19 @@ async function settleProfile(userId: string, profileId: string, rows: PlayerRow[
  * the player shared their details with), linked if nobody holds them yet: a new
  * tournament entry of a linked player shows up on its own. Returns how many were added.
  */
+/**
+ * The organisations whose data an account may see through its profile, or null for
+ * every one. Null unless the account came to the profile through an organisation's
+ * offer (owner_scope_org): then that organisation, and those where the account holds
+ * an entry by its own proof.
+ */
+export async function profileReach(userId: string, profile: Pick<ProfileRow, "owner_scope_org"> | null): Promise<Set<string> | null> {
+  if (!profile?.owner_scope_org) return null;
+  const held = await claimedRows(userId);
+  const orgOf = await orgsOfTournaments(held.map((r) => r.tournament_id));
+  return new Set([profile.owner_scope_org, ...orgOf.values()]);
+}
+
 export async function syncProfileClaims(userId: string): Promise<number> {
   const profile = await accountProfile(userId);
   if (!profile) return 0;
@@ -298,6 +364,9 @@ export async function syncProfileClaims(userId: string): Promise<number> {
   const { data: rel } = await db().from("organization_players").select("organization_id, source").eq("player_profile_id", profile.id);
   const relations = (rel ?? []) as { organization_id: string; source: string }[];
   const trusted = new Set(relations.filter((r) => personFieldsVisibleFor(r.source, relations.filter((o) => o.organization_id !== r.organization_id).length)).map((r) => r.organization_id));
+  // Ownership through one organisation's offer reaches only that organisation (and those the account proved itself at).
+  const reach = await profileReach(userId, profile);
+  if (reach) for (const org of [...trusted]) if (!reach.has(org)) trusted.delete(org);
   const add = loose.filter((r) => trusted.has(orgOf.get(r.tournament_id) ?? "") && normalizePersonName(r.full_name) === normalizePersonName(name));
   let n = 0;
   for (const r of add) {

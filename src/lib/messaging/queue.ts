@@ -243,16 +243,17 @@ export async function drainMessages(opts: { budgetMs?: number; announcementId?: 
         await db().from("message_deliveries").update({ status: "skipped", error_code: "cancelled", error_reason: "Announcement cancelled before it was sent" }).eq("id", row.id);
         continue;
       }
-      // The code is read now, in memory only; the stored row keeps its reference.
+      // The code is read now, in memory only, from the player row the stored row refers to.
+      // A code stored in the row itself (rows queued before code references existed) is never
+      // used: scripts/ops/scrub-delivery-codes.ts removes those.
       const ref = typeof row.vars?.code_ref === "string" ? row.vars.code_ref : null;
-      // (A row queued before code references existed still carries its code.)
-      const code = ref ? codes.get(ref) : typeof row.vars?.code === "string" ? row.vars.code : undefined;
+      const code = ref ? codes.get(ref) : undefined;
       if (a?.kind === "access_codes" && !code) {
         await recordOutcome(row, { ok: false, code: "no_code", reason: "No access code any more", transient: false });
         result.failed++;
         continue;
       }
-      const m = messageFor(code ? { ...row, vars: { ...row.vars, code } } : row, a);
+      const m = messageFor({ ...row, vars: { ...withoutCode(row.vars ?? {}), ...(code ? { code } : {}) } }, a);
       if (m.error || !row.address) {
         await recordOutcome(row, { ok: false, code: "nothing_to_send", reason: m.error ?? "No address", transient: false });
         result.failed++;

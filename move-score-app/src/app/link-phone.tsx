@@ -21,9 +21,10 @@ type Step =
 
 /**
  * Link your history with your phone number: a six-digit code on WhatsApp. If
- * WhatsApp does not deliver it, the app asks before the code goes by email (to
- * the address the tournament has for that number). When several players share
- * the phone (a parent's number for two children), the player picks who they are.
+ * WhatsApp does not deliver it, the app asks before the code goes by email: to the
+ * account's own email, and only if the tournament recorded that email with the
+ * number (an emailed code then links the entries with both). When several players
+ * share the phone (a parent's number for two children), the player picks who they are.
  */
 export default function LinkPhone() {
   const { t } = useTheme();
@@ -128,7 +129,11 @@ export default function LinkPhone() {
           {step.askEmail && !step.emailed ? (
             <View style={{ gap: 10, borderWidth: 1, borderColor: t.ball, borderRadius: 14, padding: 12 }} accessibilityLiveRegion="polite">
               <Body weight="semi">{step.start.sent ? "Didn't get it on WhatsApp?" : "WhatsApp couldn't deliver the code."}</Body>
-              <Body tone="ink2" size={13}>Send it by email instead? It goes to the email address the tournament has for this number, if it has one.</Body>
+              <Body tone="ink2" size={13}>
+                {user.email
+                  ? `Send it to ${user.email} instead? It arrives only if the tournament has that email with this number.`
+                  : "Send it by email instead? It goes to your account's email, if the tournament has it with this number."}
+              </Body>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Button kind="ghost" label="Not now" onPress={() => setStep({ ...step, askEmail: false })} style={{ flex: 1 }} />
                 <Button
@@ -217,7 +222,7 @@ export default function LinkPhone() {
           </View>
         ) : (
           <Card style={{ marginTop: 16, gap: 10 }}>
-            <Body weight="semi">Number confirmed</Body>
+            <Body weight="semi">{step.result.confirmed === "email" ? "Email confirmed" : "Number confirmed"}</Body>
             <Body tone="ink2" size={13}>{step.result.message ?? "Nothing to link yet."}</Body>
             <Button kind="ghost" label="Enter a player code" onPress={() => router.replace("/player-code")} />
           </Card>

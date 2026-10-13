@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { audit } from "@/lib/audit";
 import { clientIpFrom } from "@/lib/ratelimit";
 import { ownerOf } from "@/lib/mobile/identity";
-import { privateJson, readJson } from "@/lib/mobile/http";
+import { privateJson } from "@/lib/mobile/http";
+import { badRequest, strictBody } from "@/lib/players/http";
 import { getConfig } from "@/lib/mobile/server";
 import { claimBlocked } from "@/lib/players/claims";
 import { claimPlayerCode } from "@/lib/players/link";
@@ -15,7 +16,7 @@ const settle = async (started: number) => {
 };
 
 /**
- * POST { code } → { player: MMyPlayer, linked }. Links the signed-in account to
+ * POST { code } (no other field) → { player: MMyPlayer, linked }. Links the signed-in account to
  * the player whose code it is (and the same person's rows in other tournaments).
  *
  * Signing in is required: the link then survives a new phone, ends with the
@@ -34,8 +35,10 @@ export async function POST(request: Request) {
     await settle(started);
     return privateJson({ error: "Too many tries. Wait an hour, or ask the tournament desk." }, 429);
   }
-  const body = await readJson<{ code?: unknown }>(request);
-  const result = await claimPlayerCode(caller, typeof body?.code === "string" ? body.code.slice(0, 200) : "");
+  // Only { code }: an unknown field is refused, not ignored.
+  const body = await strictBody(request, ["code"]);
+  if (!body) return badRequest();
+  const result = await claimPlayerCode(caller, typeof body.code === "string" ? body.code.slice(0, 200) : "");
   await settle(started);
   if (!result.ok) return privateJson({ error: result.error }, result.status);
   await audit({

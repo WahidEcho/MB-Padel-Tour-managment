@@ -383,6 +383,8 @@ async function main() {
 
     // ---- Phase 1: phone codes, email match, organiser offers, merging, organisations
     await playerIdentity({ tid, tag, egyId: egy.id, jpnId: jpn.id, inst });
+    // ---- Phase 1 security review (0026): each finding's exploit, refused
+    await identityHardening({ tid, tag, egyId: egy.id, jpnId: jpn.id, inst });
   } finally {
     // Profiles linking made from the test's entries (and the identity fixtures) go too.
     const { data: linkedProfiles } = await db().from("players").select("player_profile_id").in("tournament_id", [tid, ...((await db().from("tournaments").select("id").like("slug", "e2e-codes-%")).data ?? []).map((x) => x.id as string)]);
@@ -622,8 +624,8 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
   check(noUser.status === 401, "GET /me/player needs a signed-in account");
   const phone = await call("PATCH", "/api/mobile/v1/me/player", { headers: asA, body: { phone: "0100 765 4321" } });
   check(phone.status === 200 && phone.json.player.phone === "+201007654321", "His phone is saved in E.164", phone.json?.player?.phone);
-  const { data: both } = await db().from("players").select("phone").in("id", [ctx.pA.id, adam2.id]);
-  check((both ?? []).every((r) => r.phone === "+201007654321"), "…on every linked row");
+  const { data: both } = await db().from("players").select("phone, self_reported_phone").in("id", [ctx.pA.id, adam2.id]);
+  check((both ?? []).length === 2 && (both ?? []).every((r) => r.self_reported_phone === "+201007654321" && r.phone === "+201001234567"), "…as his own number on every linked row; the organiser's record (which phone codes look up) is untouched", both);
   const badPhone = await call("PATCH", "/api/mobile/v1/me/player", { headers: asA, body: { phone: "call me" } });
   check(badPhone.status === 400, "A phone that is not a number is refused", badPhone.json?.error);
   const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(600, 7), Buffer.from([0xff, 0xd9])]).toString("base64");
@@ -649,7 +651,8 @@ async function playerCodes(ctx: { tid: string; slug: string; egyId: string; pA: 
   const { sessionToken, COOKIE_NAME } = await import("./lib/session");
   const admin = await fetch(`${BASE_URL}/admin/tournaments/${ctx.tid}/players`, { headers: { cookie: `${COOKIE_NAME}=${sessionToken("admin")}` } });
   const html = await admin.text();
-  check(admin.status === 200 && html.includes(formatAccessCode(code)) && html.includes("wa.me/201007654321") && html.includes("Linked"), "The admin Player codes page lists the code, a WhatsApp link to his number and that he is linked", admin.status);
+  check(admin.status === 200 && html.includes(formatAccessCode(code)) && html.includes("wa.me/201001234567") && html.includes("Linked"), "The admin Player codes page lists the code, a WhatsApp link to his number and that he is linked", admin.status);
+  check(/data-testid="self-reported-phone"[^>]*>[^<]*\+20 100 765 4321/.test(html), "…and the number he gave in the app, marked as not checked");
 
   // Reset: the old code dies, the account lets go of everything that code linked.
   const fresh = await resetPlayerCode(ctx.pA.id);
@@ -920,8 +923,8 @@ async function playerIdentity(ctx: { tid: string; tag: string; egyId: string; jp
     for (let i = 0; i < 3; i++) lastStart = (await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: { authorization: otherUser!.authorization }, body: { phone: lailaPhone } })).status;
     check(lastStart === 429, "A fourth code to the same phone within 15 minutes is refused (per-phone limit)", lastStart);
 
-    // ---- WhatsApp fails → the app asks → email
-    const karim = await signIn(`karim.app.${tag}@example.com`);
+    // ---- WhatsApp fails → the app asks → email (to his account's own address, which the organiser recorded with that phone)
+    const karim = await signIn(`karim.${tag}@example.com`);
     const asK = { authorization: karim!.authorization };
     const ks = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asK, body: { phone: karimPhone } });
     check(ks.status === 200 && ks.json?.sent === false, "WhatsApp did not take the code: the answer says so, and nothing is emailed yet", ks.json);
@@ -930,16 +933,17 @@ async function playerIdentity(ctx: { tid: string; tag: string; egyId: string; jp
     const noConsent = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: ks.json?.verificationId } });
     check(noConsent.status === 400, "Email needs the player's yes (consent: true)", noConsent.status);
     const mailed = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: ks.json?.verificationId, consent: true } });
+    await sleep(800); // sent after the answer
     const { data: mailRows } = await db().from("message_deliveries").select("channel, status, vars, payload").eq("purpose", "one_time_code").eq("address", `karim.${tag}@example.com`);
     const kcode = await otpOf(ks.json?.verificationId);
-    check(mailed.status === 200 && (mailRows ?? []).length === 1 && mailRows![0]!.status === "sent" && !JSON.stringify(mailRows).includes(kcode), "After yes, a new code goes to the email the organiser recorded with that phone (row holds no code)", { status: mailed.status, rows: mailRows?.length });
+    check(mailed.status === 200 && (mailRows ?? []).length === 1 && mailRows![0]!.status === "sent" && !JSON.stringify(mailRows).includes(kcode), "After yes, a new code goes to his account's email, which the organiser recorded with that phone (row holds no code)", { status: mailed.status, rows: mailRows?.length });
     const twice = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: ks.json?.verificationId, consent: true } });
     check(twice.status === 409, "One email per code", twice.status);
     const stranger = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: asK, body: { phone: `+2012${n8.slice(0, 4)}0000` } });
     const strangerMail = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: asK, body: { verificationId: stranger.json?.verificationId, consent: true } });
     check(stranger.status === 200 && strangerMail.status === 200 && strangerMail.json?.message === mailed.json?.message, "A number nobody recorded gets the same answers (no hint whether an email is on file)", strangerMail.json?.message);
     const kv = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: asK, body: { verificationId: ks.json?.verificationId, code: kcode } });
-    check(kv.status === 200 && kv.json?.linked?.player?.name === `Karim E2E ${tag}`, "The emailed code links Karim's entry", kv.json?.linked?.player?.name ?? kv.json);
+    check(kv.status === 200 && kv.json?.linked?.player?.name === `Karim E2E ${tag}` && kv.json?.confirmed === "email", "The emailed code links Karim's entry (recorded with both the phone and his email); it confirmed the email, not the number", kv.json?.linked?.player?.name ?? kv.json);
 
     // ---- email match
     const emma = await signIn(emmaEmail);
@@ -1013,6 +1017,326 @@ async function playerIdentity(ctx: { tid: string; tag: string; egyId: string; jp
     await db().from("message_deliveries").delete().eq("purpose", "one_time_code");
     await db().from("tournaments").delete().eq("id", tB!.id);
     await db().from("organizations").delete().eq("id", B);
+  }
+}
+
+
+/**
+ * Phase 1 security review (50b69d1 → 0026): each finding as an exploit that must be
+ * refused. H1 the email fallback as a phone takeover (own row + PATCH phone + unlink
+ * + email fallback), and its staff variant (a rogue organisation types a victim's
+ * number and the attacker's email on its own row); M1 a rogue organisation's email
+ * on a row matched to another organisation's profile; M2 parallel start bursts and
+ * the per-phone wrong-guess budget across accounts; L2 an offer's reach, a
+ * matched-only organisation's offer; L3 "Send code" to a team contact; L6 merging
+ * profiles whose entries different accounts hold; unknown fields on PATCH /me/player
+ * and POST /me/player/claim; L4 the hashing script and a wrong pepper; M3 codes left
+ * in the message log. One-time codes are read from their hashes and handed to the
+ * attacker anyway: even with the code, nothing of the victim's may link.
+ */
+async function identityHardening(ctx: { tid: string; tag: string; egyId: string; jpnId: string; inst: Record<string, string> }) {
+  const { hashOneTimeCode, contactHash } = await import("../../src/lib/players/codeVault");
+  const { formatAccessCode } = await import("../../src/lib/players/accessCode");
+  const { staffToken, sessionToken, COOKIE_NAME } = await import("./lib/session");
+  const { callAction, form, actionOk } = await import("./lib/actions");
+  const { spawnSync } = await import("child_process");
+  const tag = ctx.tag;
+  const base = parseInt(tag, 16);
+  // Numbers of their own (+2015…), away from the other sections' and never ending 9999.
+  const phone = (i: number) => `+2015${String((base * 7 + i * 7919) % 1e8).padStart(8, "0").replace(/9999$/, "9998")}`;
+  const net = (i: number) => ({ "X-Forwarded-For": `198.18.${(base + i * 13) % 250}.${(i % 250) + 1}` });
+  const otpOf = async (vid: string): Promise<string> => {
+    const { data } = await db().from("phone_verifications").select("code_hash").eq("id", vid).maybeSingle();
+    if (!data) return "";
+    for (let i = 0; i < 1_000_000; i++) {
+      const c = String(i).padStart(6, "0");
+      if (hashOneTimeCode(vid, c) === data.code_hash) return c;
+    }
+    return "";
+  };
+  const made: string[] = [];
+  const signIn = async (email: string) => {
+    const tok = await userToken(email);
+    if (tok) made.push(subOf(tok)!);
+    return tok ? { authorization: `Bearer ${tok}`, id: subOf(tok)! } : null;
+  };
+  const holder = async (playerId: string) => ((await db().from("player_claims").select("user_id").eq("player_id", playerId).maybeSingle()).data as { user_id: string } | null)?.user_id ?? null;
+  const profileOf = async (id: string) =>
+    (await db().from("player_profiles").select("auth_user_id, phone_verified_at, approval_status").eq("id", id).maybeSingle()).data as { auth_user_id: string | null; phone_verified_at: string | null; approval_status: string } | null;
+  const codeOf = async (playerId: string) => ((await db().from("players").select("access_code").eq("id", playerId).single()).data as { access_code: string | null } | null)?.access_code ?? "";
+  /** start → email (consent) → verify with the code (read from its hash) → pick the named person if asked. */
+  const emailChain = async (who: Record<string, string>, number: string, pick: string) => {
+    const st = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: who, body: { phone: number } });
+    const vid = st.json?.verificationId as string;
+    const em = await call("POST", "/api/mobile/v1/me/player/phone/email", { headers: who, body: { verificationId: vid, consent: true } });
+    await sleep(800);
+    const code = await otpOf(vid);
+    const ver = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: who, body: { verificationId: vid, code } });
+    let chose: Awaited<ReturnType<typeof call>> | null = null;
+    const choice = ((ver.json?.choose ?? []) as { choiceId: string; name: string }[]).find((c) => c.name === pick);
+    if (choice) chose = await call("POST", "/api/mobile/v1/me/player/phone/choose", { headers: who, body: { verificationId: vid, choiceId: choice.choiceId } });
+    return { st, em, ver, chose, vid };
+  };
+  const mailsTo = async (address: string) => ((await db().from("message_deliveries").select("id").eq("purpose", "one_time_code").eq("address", address)).data ?? []).length;
+
+  const { data: mbOrg } = await db().from("organizations").select("id").eq("slug", "move-beyond").single();
+  const MB = mbOrg!.id as string;
+  const { data: orgR } = await db().from("organizations").insert({ slug: `e2e-ident-r-${tag}`, name: `E2E Rogue ${tag}`, status: "approved" }).select("id").single();
+  const R = orgR!.id as string;
+  const { data: tR } = await db().from("tournaments").insert({ name: `E2E Ident R ${tag}`, slug: `e2e-ident-r-${tag}`, kind: "tournament", status: "active", organization_id: R }).select("id").single();
+  const TR = tR!.id as string;
+  const { data: teamR } = await db().from("teams").insert({ tournament_id: TR, team_name: `R Team ${tag}` }).select("id").single();
+  const tfile = "src/app/admin/tournaments/[id]/players/actions.ts";
+  const pfile = "src/app/admin/players/actions.ts";
+  const profile = async (name: string, extra: Record<string, unknown>, orgs: [string, string][]) => {
+    const { data } = await db().from("player_profiles").insert({ public_name: `${name} E2E ${tag}`, approval_status: "approved", ...extra }).select("id").single();
+    const id = data!.id as string;
+    for (const [org, source] of orgs) await db().from("organization_players").insert({ organization_id: org, player_profile_id: id, source, approval_status: "approved", typed_name: source === "matched" ? `${name} (typed)` : null });
+    return id;
+  };
+  const row = async (r: Record<string, unknown>) => (await db().from("players").insert(r).select("id").single()).data!.id as string;
+  let order = 20;
+  const mbRow = (name: string, extra: Record<string, unknown> = {}) => row({ tournament_id: ctx.tid, team_id: ctx.egyId, full_name: `${name} E2E ${tag}`, player_order: order++, ...extra });
+  const rRow = (name: string, extra: Record<string, unknown> = {}) => row({ tournament_id: TR, team_id: teamR!.id, full_name: `${name} E2E ${tag}`, player_order: order++, ...extra });
+
+  try {
+    const rAdminUser = await signIn(`r.admin.${tag}@example.com`);
+    if (!rAdminUser) return console.log("⚠️  Skipping the identity hardening checks: no test sign-ins here (run against npm run localdb).");
+    await db().from("organization_members").insert({ organization_id: R, auth_user_id: rAdminUser.id, invited_email: `r.admin.${tag}@example.com`, role: "admin", status: "active" });
+    const asRAdmin = { Cookie: `${COOKIE_NAME}=${staffToken({ kind: "member", userId: rAdminUser.id, orgId: R, role: "admin" })}` };
+    const asMbAdmin = { Cookie: `${COOKIE_NAME}=${sessionToken("admin")}` };
+
+    // ---- H1: own row + PATCH the victim's number + unlink + email fallback = the victim's history
+    {
+      const vPhone = phone(1);
+      const PV = await profile("Victor", { mobile_normalized: vPhone, email: `victor.${tag}@example.com` }, [[MB, "admin"]]);
+      const victimRow = await mbRow("Victor", { player_profile_id: PV, phone: vPhone, email: `victor.${tag}@example.com` });
+      const malloryEmail = `mallory.${tag}@example.com`;
+      const malloryRow = await mbRow("Mallory", { email: malloryEmail });
+      const mallory = (await signIn(malloryEmail))!;
+      const asM = { authorization: mallory.authorization, ...net(1) };
+      const claimed = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asM, body: { code: await codeOf(malloryRow) } });
+      const patched = await call("PATCH", "/api/mobile/v1/me/player", { headers: asM, body: { phone: vPhone } });
+      const { data: mRow } = await db().from("players").select("phone, self_reported_phone").eq("id", malloryRow).maybeSingle();
+      check(claimed.status === 200 && patched.status === 200 && mRow?.phone == null && mRow?.self_reported_phone === vPhone, "H1: a number typed in the app is kept as the player's own, never as the organiser's record", mRow);
+      await call("DELETE", "/api/mobile/v1/me/player", { headers: asM });
+      const chain = await emailChain(asM, vPhone, `Victor E2E ${tag}`);
+      check(chain.em.status === 200 && (await mailsTo(malloryEmail)) === 0, "H1: the emailed code does not go to the attacker's address (it is not on file with that phone)", { email: chain.em.status, mails: await mailsTo(malloryEmail) });
+      const pv = await profileOf(PV);
+      check(
+        (await holder(victimRow)) !== mallory.id && pv?.auth_user_id !== mallory.id && !pv?.phone_verified_at,
+        "H1: even holding the code, the attacker gets none of the victim's entries, not their profile, and the number is not marked confirmed",
+        { verify: chain.ver.json?.confirmed ?? chain.ver.status, linked: chain.chose?.json?.linked?.linked ?? chain.ver.json?.linked?.linked ?? 0 },
+      );
+    }
+
+    // ---- H1, staff variant: a rogue organisation types a victim's number and the attacker's email on its own row
+    {
+      const sPhone = phone(2);
+      const PS = await profile("Sara", { mobile_normalized: sPhone, email: `sara.${tag}@example.com` }, [[MB, "admin"]]);
+      const saraRow = await mbRow("Sara", { player_profile_id: PS, phone: sPhone });
+      const planted = await rRow("Sara");
+      const trudyEmail = `trudy.${tag}@example.com`;
+      const typed = await callAction(tfile, "savePlayerContact", [form({ tournament_id: TR, player_id: planted, phone: sPhone, email: trudyEmail })], asRAdmin, { id: TR });
+      check(actionOk(typed), "Staff variant: the rogue organisation writes the victim's number and the attacker's email on its own row", typed.status);
+      const trudy = (await signIn(trudyEmail))!;
+      const asT = { authorization: trudy.authorization, ...net(2) };
+      const chain = await emailChain(asT, sPhone, `Sara E2E ${tag}`);
+      const linked = chain.chose?.json?.linked ?? chain.ver.json?.linked;
+      const ps = await profileOf(PS);
+      check(
+        (await holder(saraRow)) !== trudy.id && ps?.auth_user_id !== trudy.id && !ps?.phone_verified_at,
+        "Staff variant: the emailed code links nothing of the victim's other organisation, nor her profile, and confirms no number",
+        { saraHeld: (await holder(saraRow)) === trudy.id, profile: ps?.auth_user_id === trudy.id, verified: Boolean(ps?.phone_verified_at) },
+      );
+      check(linked?.linked === 1 && (await holder(planted)) === trudy.id && chain.ver.json?.confirmed === "email", "Staff variant: only the rogue organisation's own row (recorded with both) links, as an email proof", { linked: linked?.linked, confirmed: chain.ver.json?.confirmed });
+      check((await mailsTo(`sara.${tag}@example.com`)) === 0, "Staff variant: the victim's own address is never sent a code she did not ask for");
+    }
+
+    // ---- M1: a rogue organisation's email on a row matched to another organisation's profile
+    {
+      const mPhone = phone(3);
+      const PM = await profile("Mona", { mobile_normalized: mPhone, email: `mona.${tag}@example.com` }, [[MB, "admin"], [R, "matched"]]);
+      const monaRow = await mbRow("Mona", { player_profile_id: PM, phone: mPhone });
+      const matchedRow = await rRow("Mona", { player_profile_id: PM });
+      const eveEmail = `eve.${tag}@example.com`;
+      await callAction(tfile, "savePlayerContact", [form({ tournament_id: TR, player_id: matchedRow, phone: "", email: eveEmail })], asRAdmin, { id: TR });
+      const eve = (await signIn(eveEmail))!;
+      const asE = { authorization: eve.authorization, ...net(3) };
+      const sugg = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asE });
+      const sm = ((sugg.json?.suggestions ?? []) as { id: string; kind: string; name: string }[]).find((x) => x.name === `Mona E2E ${tag}`);
+      const yes = sm ? await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: asE, body: { id: sm.id, accept: true } }) : null;
+      const prof = (await call("GET", "/api/mobile/v1/me/profile", { headers: asE })).json?.profile;
+      const pm = await profileOf(PM);
+      check(
+        pm?.auth_user_id !== eve.id && (await holder(monaRow)) !== eve.id && prof?.phone !== mPhone,
+        "M1: the attacker's email on a matched row gets that row only: not the profile, not the other organisation's entry, not the profile's mobile",
+        { accepted: yes?.status ?? "no suggestion", profile: pm?.auth_user_id === eve.id, monaHeld: (await holder(monaRow)) === eve.id, phoneShown: prof?.phone === mPhone },
+      );
+    }
+
+    // ---- L2: an offer reaches only its organisation; a matched-only organisation cannot offer at all
+    {
+      const PO = await profile("Olga", { email: `olga.${tag}@example.com` }, [[MB, "admin"], [R, "admin"]]);
+      const olgaMb = await mbRow("Olga", { player_profile_id: PO });
+      const olgaR = await rRow("Olga", { player_profile_id: PO });
+      const fake = `olga.fake.${tag}@example.com`;
+      const offered = await callAction(pfile, "offerAppLinkAction", [form({ profile_id: PO, account_email: fake })], asRAdmin);
+      const thief = (await signIn(fake))!;
+      const asX = { authorization: thief.authorization, ...net(4) };
+      const os = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: asX });
+      const o0 = ((os.json?.suggestions ?? []) as { id: string; kind: string }[]).find((x) => x.kind === "offer");
+      const yes = o0 ? await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: asX, body: { id: o0.id, accept: true } }) : null;
+      await call("GET", "/api/mobile/v1/me/player", { headers: asX }); // the profile sync runs here
+      const prof = (await call("GET", "/api/mobile/v1/me/profile", { headers: asX })).json?.profile;
+      check(actionOk(offered) && yes?.status === 200 && (await holder(olgaR)) === thief.id, "L2: the rogue organisation's offer, once accepted, links its own entry", { offered: offered.status, accepted: yes?.status });
+      check(
+        (await holder(olgaMb)) !== thief.id && !(prof?.tournaments ?? []).some((t: { organization: { slug: string } | null }) => t.organization?.slug === "move-beyond"),
+        "L2: …and nothing of another organisation's (Move Beyond's entry stays unlinked, its tournaments unseen)",
+        { mbHeld: (await holder(olgaMb)) === thief.id },
+      );
+      const { data: scope } = await db().from("player_profiles").select("owner_scope_org").eq("id", PO).maybeSingle();
+      check((scope as { owner_scope_org?: string } | null)?.owner_scope_org === R, "L2: the profile records that the account has only that organisation's word for it");
+      // Matched only, and no other organisation has the player yet: still no offer.
+      const PX = await profile("Xena", { email: `xena.${tag}@example.com` }, [[R, "matched"]]);
+      const matchedOffer = await callAction(pfile, "offerAppLinkAction", [form({ profile_id: PX, account_email: `xena.fake.${tag}@example.com` })], asRAdmin);
+      const { count: xOffers } = await db().from("player_link_offers").select("id", { count: "exact", head: true }).eq("player_profile_id", PX);
+      check(!actionOk(matchedOffer) && xOffers === 0, "L2: an organisation that only matched a player (even one nobody else has) cannot offer a link", { status: matchedOffer.status, offers: xOffers });
+      // An offer row such an organisation has anyway (made before this rule) is neither shown nor accepted.
+      const PY = await profile("Yara", {}, [[MB, "admin"], [R, "matched"]]);
+      await mbRow("Yara", { player_profile_id: PY });
+      const yaraFake = `yara.fake.${tag}@example.com`;
+      await db().from("player_link_offers").insert({ organization_id: R, player_profile_id: PY, email_hash: contactHash("email", yaraFake), created_by: "e2e" });
+      const yThief = (await signIn(yaraFake))!;
+      const ys = await call("GET", "/api/mobile/v1/me/player/suggestions", { headers: { authorization: yThief.authorization, ...net(5) } });
+      const y0 = ((ys.json?.suggestions ?? []) as { id: string; kind: string }[]).find((x) => x.kind === "offer");
+      if (y0) await call("POST", "/api/mobile/v1/me/player/suggestions", { headers: { authorization: yThief.authorization, ...net(5) }, body: { id: y0.id, accept: true } });
+      check(!y0 && (await profileOf(PY))?.auth_user_id !== yThief.id, "L2: an old offer from an organisation that only matched the player is not shown, and links nothing");
+    }
+
+    // ---- M2: parallel starts, and the wrong-guess budget of one phone across accounts
+    {
+      const burstPhone = phone(5);
+      const crowd = (await Promise.all(Array.from({ length: 6 }, (_, i) => signIn(`burst${i}.${tag}@example.com`)))).filter((x): x is NonNullable<typeof x> => Boolean(x));
+      const statuses = await Promise.all(
+        crowd.flatMap((u, i) => [0, 1].map((k) => call("POST", "/api/mobile/v1/me/player/phone/start", { headers: { authorization: u.authorization, ...net(40 + i * 2 + k) }, body: { phone: burstPhone } }).then((r) => r.status))),
+      );
+      const { count: open } = await db().from("phone_verifications").select("id", { count: "exact", head: true }).eq("phone", burstPhone).is("consumed_at", null).gt("expires_at", new Date().toISOString());
+      const sent = statuses.filter((x) => x === 200).length;
+      check(sent <= 3 && (open ?? 0) <= 2, "M2: twelve simultaneous starts for one phone from six accounts: at most three codes, at most two open at once", { sent, open, statuses });
+
+      const gPhone = phone(6);
+      const guessers = (await Promise.all([0, 1, 2].map((i) => signIn(`guess${i}.${tag}@example.com`)))).filter((x): x is NonNullable<typeof x> => Boolean(x));
+      const wrongAnswers: number[] = [];
+      let lockedOut = false;
+      for (const [i, g] of guessers.entries()) {
+        const who = { authorization: g.authorization, ...net(60 + i) };
+        const st = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: who, body: { phone: gPhone } });
+        const vid = st.json?.verificationId as string | undefined;
+        if (!vid) continue;
+        const right = await otpOf(vid);
+        for (let k = 0; k < 5; k++) {
+          const guess = String((Number(right) + 1 + k * 97) % 1_000_000).padStart(6, "0");
+          const r = await call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: who, body: { verificationId: vid, code: guess } });
+          if (r.status === 400) wrongAnswers.push(r.status);
+          if (r.status === 429 && r.json?.code === "phone_locked") lockedOut = true;
+        }
+      }
+      check(wrongAnswers.length <= 10 && lockedOut, "M2: three accounts get no more than ten wrong guesses at one phone a day between them", { tried: wrongAnswers.length, lockedOut });
+
+      // Parallel guesses at one verification each cost one attempt: never more than five are compared.
+      const pPhone = phone(7);
+      const solo = (await signIn(`solo.${tag}@example.com`))!;
+      const who = { authorization: solo.authorization, ...net(70) };
+      const st = await call("POST", "/api/mobile/v1/me/player/phone/start", { headers: who, body: { phone: pPhone } });
+      const vid = st.json?.verificationId as string;
+      const right = await otpOf(vid);
+      const burst = await Promise.all(Array.from({ length: 12 }, (_, k) => call("POST", "/api/mobile/v1/me/player/phone/verify", { headers: who, body: { verificationId: vid, code: String((Number(right) + 1 + k) % 1_000_000).padStart(6, "0") } }).then((r) => r.status)));
+      check(burst.filter((x) => x === 400).length <= 5, "M2: twelve simultaneous wrong codes at one verification: at most five are compared", burst);
+    }
+
+    // ---- L3: "Send code" never to the team's contact number
+    {
+      const teamPhone = phone(8);
+      const { data: team } = await db().from("teams").insert({ tournament_id: ctx.tid, team_name: `Contact Team ${tag}`, phone: teamPhone }).select("id").single();
+      const partnerless = await row({ tournament_id: ctx.tid, team_id: team!.id, full_name: `Tariq E2E ${tag}`, player_order: 1 });
+      const sent = await callAction(tfile, "sendCode", [null, form({ tournament_id: ctx.tid, player_id: partnerless, channel: "whatsapp" })], asMbAdmin, { id: ctx.tid });
+      const { data: rows } = await db().from("message_deliveries").select("id").eq("purpose", "access_code").eq("address", teamPhone);
+      check((rows ?? []).length === 0 && /team/.test(sent.text), "L3: a player's code is not sent to the team's contact number", { status: sent.status, rows: rows?.length });
+    }
+
+    // ---- L6: two profiles whose entries different accounts hold are not merged
+    {
+      const pa = (await signIn(`platform2.${tag}@example.com`))!;
+      await db().from("platform_admins").insert({ auth_user_id: pa.id, email: `platform2.${tag}@example.com`, note: "e2e" });
+      await db().from("organization_members").insert({ organization_id: MB, auth_user_id: pa.id, invited_email: `platform2.${tag}@example.com`, role: "owner", status: "active" });
+      const asPlatform = { Cookie: `${COOKIE_NAME}=${staffToken({ kind: "member", userId: pa.id, orgId: MB, role: "owner" })}` };
+      const P1 = await profile("Hana One", {}, [[MB, "admin"]]);
+      const P2 = await profile("Hana Two", {}, [[MB, "admin"]]);
+      const r1 = await mbRow("Hana One", { player_profile_id: P1 });
+      const r2 = await mbRow("Hana Two", { player_profile_id: P2 });
+      const u1 = (await signIn(`hana1.${tag}@example.com`))!;
+      const u2 = (await signIn(`hana2.${tag}@example.com`))!;
+      await db().from("player_claims").insert([
+        { user_id: u1.id, player_id: r1, via_player_id: r1, proof: "code" },
+        { user_id: u2.id, player_id: r2, via_player_id: r2, proof: "code" },
+      ]);
+      const merged = await callAction(pfile, "mergePlayersAction", [form({ survivor_id: P1, absorbed_id: P2 })], asPlatform);
+      check(!actionOk(merged) && (await profileOf(P2))?.approval_status !== "merged", "L6: profiles whose entries are held by two different accounts are not merged", merged.status);
+      await db().from("platform_admins").delete().eq("auth_user_id", pa.id);
+    }
+
+    // ---- strictBody: PATCH /me/player and POST /me/player/claim take known fields only
+    {
+      const zRow = await mbRow("Zaid");
+      const zaid = (await signIn(`zaid.${tag}@example.com`))!;
+      const asZ = { authorization: zaid.authorization, ...net(80) };
+      const extraClaim = await call("POST", "/api/mobile/v1/me/player/claim", { headers: asZ, body: { code: await codeOf(zRow), proof: "phone" } });
+      check(extraClaim.status === 400 && (await holder(zRow)) === null, "A claim with an unknown field is refused (and links nothing)", extraClaim.status);
+      await call("POST", "/api/mobile/v1/me/player/claim", { headers: asZ, body: { code: await codeOf(zRow) } });
+      const extraPatch = await call("PATCH", "/api/mobile/v1/me/player", { headers: asZ, body: { phone: "0100 765 4321", verified: true } });
+      check(extraPatch.status === 400, "PATCH /me/player with an unknown field is refused", extraPatch.status);
+    }
+
+    // ---- L4: the hashing script checks the pepper against a sealed row before writing
+    {
+      const run = (pepper: string) => spawnSync("npx", ["tsx", "scripts/ops/hash-player-codes.ts", "--dry-run"], { env: { ...process.env, PLAYER_CODE_PEPPER: pepper }, encoding: "utf8", timeout: 120_000 });
+      const wrong = run("w".repeat(40));
+      const right = run(process.env.PLAYER_CODE_PEPPER ?? "");
+      check(wrong.status !== 0 && /not the deployed server's pepper/.test(wrong.stderr), "L4: the hashing script refuses a pepper that does not open the codes already sealed", { status: wrong.status, err: wrong.stderr.trim().slice(0, 120) });
+      check(right.status === 0 && /Pepper checked/.test(right.stdout), "L4: …and runs with the right one", { status: right.status, out: right.stdout.trim().slice(0, 160) });
+    }
+
+    // ---- M3: codes older code left in the message log are scrubbed
+    {
+      const legacy = "QRST6789";
+      const shown = formatAccessCode(legacy);
+      const addr = `legacy.${tag}@example.com`;
+      await db().from("message_deliveries").insert([
+        { channel: "email", purpose: "access_code", recipient_kind: "player", recipient_name: "Legacy", address: addr, status: "sent", vars: { name: "Legacy", code: shown }, payload: { kind: "email", subject: "Your code", html: `<b>${shown}</b>`, text: `Code ${shown}` }, idempotency_key: `player-code:${randomUUID()}:email:${legacy}:2026-01-01T00:00` },
+        { channel: "email", purpose: "access_codes", recipient_kind: "player_profile", recipient_name: "Legacy", address: addr, status: "sent", vars: { name: "Legacy", code: shown } },
+      ]);
+      const dry = spawnSync("npx", ["tsx", "scripts/ops/scrub-delivery-codes.ts"], { env: process.env, encoding: "utf8", timeout: 120_000 });
+      const { data: still } = await db().from("message_deliveries").select("vars, payload, idempotency_key").eq("address", addr);
+      check(dry.status === 0 && JSON.stringify(still).includes(legacy), "M3: the scrub is a dry run by default (counts only, nothing written)", { status: dry.status, out: dry.stdout.trim().slice(0, 160) });
+      const apply = spawnSync("npx", ["tsx", "scripts/ops/scrub-delivery-codes.ts", "--apply"], { env: process.env, encoding: "utf8", timeout: 120_000 });
+      const { data: after } = await db().from("message_deliveries").select("vars, payload, idempotency_key").eq("address", addr);
+      const text = JSON.stringify(after);
+      check(apply.status === 0 && (after ?? []).length === 2 && !text.includes(legacy) && !text.includes(shown) && !text.includes(legacy.toLowerCase()), "M3: --apply removes the code from vars, the stored message and the idempotency key", { status: apply.status, err: apply.stderr.trim().slice(0, 120) });
+      await db().from("message_deliveries").delete().eq("address", addr);
+    }
+  } finally {
+    for (const id of made) {
+      await db().from("player_claims").delete().eq("user_id", id);
+      await db().from("phone_verifications").delete().eq("auth_user_id", id);
+      await db().from("organization_members").delete().eq("auth_user_id", id);
+      await db().from("platform_admins").delete().eq("auth_user_id", id);
+      await db().from("player_profiles").update({ auth_user_id: null }).eq("auth_user_id", id);
+    }
+    await db().from("message_deliveries").delete().eq("purpose", "one_time_code");
+    await db().from("message_deliveries").delete().like("address", "+2015%");
+    await db().from("tournaments").delete().eq("id", TR);
+    await db().from("organizations").delete().eq("id", R);
   }
 }
 

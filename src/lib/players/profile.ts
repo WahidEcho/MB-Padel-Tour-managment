@@ -14,7 +14,7 @@ import { db } from "../supabase";
 import { sizedImageSrc } from "../portrait";
 import { isDoneStatus, type MMyProfile, type MProfileSession, type MProfileTournament } from "../mobile/contract";
 import { claimedRows, loadMyPlayer } from "./claims";
-import { accountProfile, orgShares, orgsOfTournaments, syncProfileClaims } from "./link";
+import { accountProfile, orgShares, orgsOfTournaments, profileReach, syncProfileClaims } from "./link";
 
 export async function loadMyProfile(userId: string): Promise<MMyProfile> {
   await syncProfileClaims(userId);
@@ -23,6 +23,8 @@ export async function loadMyProfile(userId: string): Promise<MMyProfile> {
     ? await db().from("player_profiles").select("photo_url, portrait_url, phone_verified_at").eq("id", profile.id).maybeSingle()
     : { data: null };
   const ex = extra as { photo_url: string | null; portrait_url: string | null; phone_verified_at: string | null } | null;
+  // An account that came to the profile through one organisation's offer sees that organisation's sessions only.
+  const reach = await profileReach(userId, profile);
 
   // Tournaments: one per tournament the account holds a row in, newest first.
   const orgOf = await orgsOfTournaments(rows.map((r) => r.tournament_id));
@@ -68,6 +70,7 @@ export async function loadMyProfile(userId: string): Promise<MMyProfile> {
         for (const o of (data ?? []) as { id: string; slug: string; name: string }[]) orgById.set(o.id, o);
       }
       sessions = list
+        .filter((x) => !reach || reach.has(sOrg.get(x.tournament_id) ?? ""))
         .map((x) => {
           const org = orgById.get(sOrg.get(x.tournament_id) ?? "");
           return {

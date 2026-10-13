@@ -58,6 +58,7 @@ const SKIP_REASON = {
   opted_out: "The player has not agreed to this channel",
   wa_stop: "Asked us to stop WhatsApp messages",
   no_code: "No access code yet",
+  team_contact: "Only the team's contact number: a player's code goes to their own number",
 } as const;
 
 export function planDeliveries(recipients: Recipient[], channels: Channel[], opts: PlanOptions = {}): { rows: PlannedDelivery[]; preview: Record<Channel, ChannelPreview> } {
@@ -120,6 +121,13 @@ export function planDeliveries(recipients: Recipient[], channels: Channel[], opt
         skip("no_code");
         continue;
       }
+      // A player's code never goes to the team's contact number (a partner's, a captain's).
+      const teamNumber = channel === "whatsapp" && r.sources?.phone === "team";
+      if (teamNumber && opts.requireCode) {
+        p.missingCode++;
+        skip("team_contact");
+        continue;
+      }
       p.reachable++;
       rows.push({
         channel,
@@ -127,7 +135,7 @@ export function planDeliveries(recipients: Recipient[], channels: Channel[], opt
         recipient_id: r.id,
         recipient_name: r.name,
         address,
-        vars: r.vars,
+        vars: teamNumber ? { ...r.vars, code: null, code_ref: null } : r.vars,
         status: "queued",
         error_code: null,
         error_reason: null,

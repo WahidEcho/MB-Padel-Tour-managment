@@ -7,7 +7,10 @@
  * its ranking categories, its open organiser link offers, and its place in every
  * organisation (the stronger relation wins: anything but 'matched' beats 'matched').
  * Refused when the two profiles are linked to different accounts: two people, or one
- * person with two accounts, which only they can sort out by unlinking one.
+ * person with two accounts, which only they can sort out by unlinking one. "Linked"
+ * counts the profile's own account and every account holding one of its entries
+ * (player_claims): an entry can be held without its profile (a link the proof did
+ * not carry to the profile), and a merge must not hand one person's history to another.
  *
  * Server-only.
  */
@@ -19,8 +22,21 @@ interface IdRow {
   mobile_normalized: string | null;
   email: string | null;
   phone_verified_at: string | null;
+  owner_scope_org: string | null;
 }
-const COLS = "id, auth_user_id, mobile_normalized, email, phone_verified_at";
+const COLS = "id, auth_user_id, mobile_normalized, email, phone_verified_at, owner_scope_org";
+
+/** The accounts a profile is linked to: its own, and those holding its entries. */
+async function accountsOf(profile: IdRow): Promise<Set<string>> {
+  const out = new Set<string>(profile.auth_user_id ? [profile.auth_user_id] : []);
+  const { data: rows } = await db().from("players").select("id").eq("player_profile_id", profile.id).limit(2000);
+  const ids = ((rows ?? []) as { id: string }[]).map((r) => r.id);
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db().from("player_claims").select("user_id").in("player_id", ids.slice(i, i + 200));
+    for (const c of (data ?? []) as { user_id: string }[]) out.add(c.user_id);
+  }
+  return out;
+}
 
 export const MERGE_TWO_ACCOUNTS =
   "These two players are linked to different Move Score accounts. One of them must unlink in the app (Account → Not you?) or have their codes reset before they can be merged.";
@@ -42,6 +58,8 @@ export async function planMerge(survivorId: string, absorbedId: string): Promise
   if (!pair) return { ok: false, error: "Both players must exist" };
   const [s, a] = pair;
   if (s.auth_user_id && a.auth_user_id && s.auth_user_id !== a.auth_user_id) return { ok: false, error: MERGE_TWO_ACCOUNTS };
+  const [accS, accA] = await Promise.all([accountsOf(s), accountsOf(a)]);
+  if (accS.size && accA.size && new Set([...accS, ...accA]).size > 1) return { ok: false, error: MERGE_TWO_ACCOUNTS };
   return { ok: true, survivor: s, absorbed: a };
 }
 
@@ -55,8 +73,10 @@ export async function mergeIdentity(plan: Extract<MergePlan, { ok: true }>): Pro
   // The account: the absorbed profile lets go first (one profile per account).
   const patch: Record<string, unknown> = { updated_at: now };
   if (!s.auth_user_id && a.auth_user_id) {
-    await db().from("player_profiles").update({ auth_user_id: null, updated_at: now }).eq("id", absorbedId);
+    await db().from("player_profiles").update({ auth_user_id: null, owner_scope_org: null, updated_at: now }).eq("id", absorbedId);
     patch.auth_user_id = a.auth_user_id;
+    // An account that had only one organisation's word for the absorbed profile keeps only that.
+    patch.owner_scope_org = a.owner_scope_org;
   }
   if (!s.email && a.email) patch.email = a.email;
   // The absorbed mobile was freed by mergePlayerProfiles; the plan remembers what it was.

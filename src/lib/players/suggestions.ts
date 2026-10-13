@@ -20,7 +20,7 @@ import { normalizeEmail } from "../messaging/email";
 import { contactHash, playerCodePepper } from "./codeVault";
 import { loadMyPlayer, PLAYER_COLUMNS, type PlayerRow } from "./claims";
 import { samePerson } from "./identity";
-import { accountProfile, linkAccount, orgsOfTournaments } from "./link";
+import { accountProfile, linkAccount, offerOrgVouches, orgsOfTournaments, orgVouchesFor } from "./link";
 import type { MLinkSuggestion, MMyPlayer } from "../mobile/contract";
 
 export type AnswerResult = { ok: true; player: MMyPlayer | null; linked: number } | { ok: true; declined: true } | { ok: false; status: number; error: string };
@@ -78,7 +78,16 @@ async function rowsForEmail(userId: string, email: string): Promise<PlayerRow[]>
   ]);
   const rows = new Map<string, PlayerRow>();
   for (const r of ((byEmail ?? []) as PlayerRow[]).filter((r) => sameEmail(r.email, email))) rows.set(r.id, r);
-  for (const r of (byProfile ?? []) as PlayerRow[]) rows.set(r.id, r);
+  // Through the profile's email, only rows of organisations that vouch for the profile:
+  // an email one organisation typed on a profile never reaches another one's rows.
+  const viaProfile = (byProfile ?? []) as PlayerRow[];
+  const orgOf = await orgsOfTournaments(viaProfile.map((r) => r.tournament_id));
+  const vouched = new Map<string, boolean>();
+  for (const r of viaProfile) {
+    const key = `${orgOf.get(r.tournament_id) ?? ""}:${r.player_profile_id}`;
+    if (!vouched.has(key)) vouched.set(key, await orgVouchesFor(orgOf.get(r.tournament_id), r.player_profile_id!));
+    if (vouched.get(key)) rows.set(r.id, r);
+  }
   if (!rows.size) return [];
   const { data: held } = await db().from("player_claims").select("player_id").in("player_id", [...rows.keys()]);
   for (const h of (held ?? []) as { player_id: string }[]) rows.delete(h.player_id); // already linked (to this account or another)
@@ -132,6 +141,7 @@ export async function linkSuggestions(userId: string, accessToken: string, ip: s
     .limit(5);
   for (const o of (offers ?? []) as { id: string; organization_id: string; player_profile_id: string }[]) {
     if (mine && mine.id !== o.player_profile_id) continue; // already someone else: the desk sorts it out
+    if (!(await offerOrgVouches(o.organization_id, o.player_profile_id))) continue; // it no longer (or never) added the player itself
     const [{ data: prof }, { data: org }, offerRows] = await Promise.all([
       db().from("player_profiles").select("public_name, auth_user_id").eq("id", o.player_profile_id).maybeSingle(),
       db().from("organizations").select("name").eq("id", o.organization_id).maybeSingle(),
@@ -177,6 +187,7 @@ export async function answerSuggestion(userId: string, accessToken: string, id: 
     const { data } = await db().from("player_link_offers").select("id, organization_id, player_profile_id, email_hash, expires_at, consumed_at, revoked_at").eq("id", t.o ?? "").maybeSingle();
     const o = data as { id: string; organization_id: string; player_profile_id: string; email_hash: string; expires_at: string; consumed_at: string | null; revoked_at: string | null } | null;
     if (!o || o.consumed_at || o.revoked_at || Date.parse(o.expires_at) < Date.now() || !safeEqual(o.email_hash, contactHash("email", email))) return { ok: false, status: 410, error: GONE };
+    if (accept && !(await offerOrgVouches(o.organization_id, o.player_profile_id))) return { ok: false, status: 410, error: GONE };
     if (!accept) {
       await db().from("player_link_offers").update({ revoked_at: new Date().toISOString() }).eq("id", o.id).is("consumed_at", null);
       return { ok: true, declined: true };
@@ -194,11 +205,20 @@ export async function answerSuggestion(userId: string, accessToken: string, id: 
   return linkAccount(userId, rows, { kind: "email", email });
 }
 
-/** An offer for a profile with no tournament rows (sessions only): the account speaks for the profile. */
-async function linkProfileOnly(userId: string, o: { id: string; player_profile_id: string }): Promise<AnswerResult> {
+/**
+ * An offer for a profile with no tournament rows of the organisation (sessions only):
+ * the account speaks for the profile, with that organisation's word only
+ * (owner_scope_org: nothing of other organisations is picked up or shown).
+ */
+async function linkProfileOnly(userId: string, o: { id: string; organization_id: string; player_profile_id: string }): Promise<AnswerResult> {
   const mine = await accountProfile(userId);
   if (mine && mine.id !== o.player_profile_id) return { ok: false, status: 409, error: "Your account is already linked to another player profile. Ask the tournament desk for help." };
-  const { data } = await db().from("player_profiles").update({ auth_user_id: userId, updated_at: new Date().toISOString() }).eq("id", o.player_profile_id).is("auth_user_id", null).select("id");
+  const { data } = await db()
+    .from("player_profiles")
+    .update({ auth_user_id: userId, owner_scope_org: o.organization_id, updated_at: new Date().toISOString() })
+    .eq("id", o.player_profile_id)
+    .is("auth_user_id", null)
+    .select("id");
   if (!data?.length && !mine) return { ok: false, status: 409, error: "This player is linked to another Move Score account. Ask the tournament desk for help." };
   await db().from("player_link_offers").update({ consumed_at: new Date().toISOString(), consumed_by: userId }).eq("id", o.id).is("consumed_at", null);
   return { ok: true, player: await loadMyPlayer(userId), linked: 0 };

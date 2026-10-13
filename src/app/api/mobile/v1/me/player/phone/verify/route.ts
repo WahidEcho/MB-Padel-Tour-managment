@@ -13,9 +13,9 @@ export async function POST(request: Request) {
   if (caller instanceof Response) return caller;
   const body = await strictBody(request, ["verificationId", "code"]);
   if (!body) return badRequest();
-  const r = await verifyPhoneCode(caller.userId, body.verificationId, body.code, caller.ip);
+  const r = await verifyPhoneCode(caller.userId, caller.token, body.verificationId, body.code, caller.ip);
   await settleFrom(started);
   if (!r.ok) return privateJson({ error: r.error, code: r.code, attemptsLeft: "attemptsLeft" in r ? r.attemptsLeft : undefined }, r.status);
-  await audit({ action: "PLAYER_PHONE_VERIFIED", actor_role: "user", entity_type: "user", entity_id: caller.userId, new_value: { linked: r.linked?.linked ?? 0, choices: r.choose?.length ?? 0 } });
-  return privateJson({ phone: r.phone, linked: r.linked, choose: r.choose, message: r.message });
+  await audit({ action: "PLAYER_PHONE_VERIFIED", actor_role: "user", entity_type: "user", entity_id: caller.userId, new_value: { linked: r.linked?.linked ?? 0, choices: r.choose?.length ?? 0, via: r.confirmed } });
+  return privateJson({ phone: r.phone, confirmed: r.confirmed, linked: r.linked, choose: r.choose, message: r.message });
 }

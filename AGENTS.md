@@ -62,6 +62,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   sealed for organisers (`codeVault.ts`); never select `access_code*` into public payloads and never write a code to
   `message_deliveries` (queue stores `code_ref`). WhatsApp codes need the `mb_login_code` authentication template
   (`WA_OTP_TEMPLATE`). E2E reads one-time codes from their hashes (the scripts have the pepper).
+  Security review (migration `0026_identity_hardening`, apply with 0024): the email fallback mails only the account's
+  own confirmed email and links only rows with both that phone and that email (never `phone_verified_at`); the app's
+  own number goes to `players.self_reported_phone`, never `players.phone`; offers reach one organisation
+  (`owner_scope_org`); no code to a team contact; deploy runs `hash-player-codes.ts` (checks the pepper against a
+  sealed row) and `scrub-delivery-codes.ts`. Exploits are gated in `identityHardening` (mobile-api E2E).
 - Database gate (still open): production's `SUPABASE_KEY` is already the secret key (13 Oct 2026; `/api/health/db`
   reports `"key":"secret"` via the `rls_canary` table). Next: run `supabase/gate/close_open_access.sql` (rollback
   `reopen_open_access.sql`). It must be on the live project before migration 0023 (organisations) is applied there.

@@ -65,7 +65,9 @@ export interface SendCodeState {
 /**
  * Sends the player their code now, by email or WhatsApp, through the messaging
  * service (logged and tracked in message_deliveries like every other message).
- * Contact: the player's own, else their profile's, else (WhatsApp) the team's.
+ * Contact: the player's own, else their profile's. Never the team's contact
+ * number: that is often a partner's or a captain's, and the code signs in as this
+ * player.
  */
 export async function sendCode(_prev: SendCodeState | null, formData: FormData): Promise<SendCodeState> {
   const id = String(formData.get("tournament_id"));
@@ -93,6 +95,7 @@ export async function sendCode(_prev: SendCodeState | null, formData: FormData):
   const c = pickContact(p, (prof as { mobile_normalized: string | null; email: string | null } | null) ?? undefined, (team as { phone: string | null } | null)?.phone);
   const to = channel === "email" ? c.email : c.phone;
   if (!to) return { ok: false, message: channel === "email" ? "No email address: add one below." : "No phone number: add one below." };
+  if (to.source === "team") return { ok: false, message: "Only the team's contact number is on file. A code goes to the player's own number: add it below." };
   const code = formatAccessCode(plain);
   const r = await sendTransactional({
     to: to.value,
@@ -108,7 +111,7 @@ export async function sendCode(_prev: SendCodeState | null, formData: FormData):
   });
   await audit({ tournament_id: id, actor_role: role, action: "PLAYER_CODE_SENT", entity_type: "player", entity_id: p.id, new_value: { channel, ok: r.ok, source: to.source } });
   revalidatePath(path(id));
-  const via = `${channel === "email" ? "email" : "WhatsApp"}${to.source === "team" ? " (team contact)" : to.source === "profile" ? " (profile)" : ""}`;
+  const via = `${channel === "email" ? "email" : "WhatsApp"}${to.source === "profile" ? " (profile)" : ""}`;
   return r.ok ? { ok: true, message: `Sent by ${via}.` } : { ok: false, message: `Not sent by ${via}: ${r.error ?? r.status}` };
 }
 

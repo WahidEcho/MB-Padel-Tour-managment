@@ -9,6 +9,7 @@ import { mergePlayerProfiles } from "@/lib/friendly/ops";
 import { orgsOfProfile, profileInOrg } from "@/lib/orgs/scope";
 import { visiblePersonFields } from "@/lib/orgs/personFields";
 import { contactHash } from "@/lib/players/codeVault";
+import { offerOrgVouches } from "@/lib/players/link";
 import { mergeIdentity, planMerge } from "@/lib/players/merge";
 import { DEFAULT_FOCAL } from "@/lib/portrait";
 
@@ -304,16 +305,18 @@ export async function setPlayerConsent(formData: FormData) {
  * signed in with this email is this player. Nothing links yet: the player sees
  * "Is this you?" in the app (when signed in with that confirmed email) and
  * confirms; only then are the organisation's entries of the player linked
- * (src/lib/players/suggestions.ts). Only for a player whose person fields the
- * organisation sees: another organisation's player it merely matched gets the
- * same "not found" as a player it does not have. Only a keyed hash of the email
- * is stored, and the email is not written to the audit log.
+ * (src/lib/players/suggestions.ts). Only for a player the organisation added
+ * itself (organization_players.source is not 'matched'): a profile it merely
+ * matched, even one nobody else has yet, gets the same "not found" as a player it
+ * does not have. Only a keyed hash of the email is stored, and the email is not
+ * written to the audit log.
  */
 export async function offerAppLinkAction(formData: FormData) {
   const id = String(formData.get("profile_id") ?? "");
   if (!id) throw new Error("Player is required");
   const { staff } = await requireOwnProfile(id);
   if (!(await visiblePersonFields(staff.orgId, [id], { platformAdmin: staff.platformAdmin })).has(id)) throw new Error(NOT_FOUND);
+  if (!(await offerOrgVouches(staff.orgId, id))) throw new Error(NOT_FOUND);
   const email = String(formData.get("account_email") ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error("Enter the email address the player signs in to Move Score with.");
   const { data: prof } = await db().from("player_profiles").select("auth_user_id, approval_status").eq("id", id).maybeSingle();

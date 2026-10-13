@@ -22,14 +22,28 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomInt } 
 import { db } from "../supabase";
 import { isValidAccessCode, newAccessCode } from "./accessCode";
 
+/** Whether SUPABASE_URL points at this machine (the stand-in), or at no database at all (unit tests). */
+export function localDatabase(url: string | undefined): boolean {
+  if (!url) return true;
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * The pepper. Required in production (32+ characters, never in the database);
- * development and tests derive one from AUTH_SECRET so a checkout runs without it.
+ * The pepper. Required in production (32+ characters, never in the database).
+ * Without it, a checkout derives one from AUTH_SECRET, but only against a local
+ * database (the stand-in) or none: a development run pointed at a real project
+ * would otherwise hash that project's codes, irreversibly, under the wrong pepper.
  */
 export function playerCodePepper(env: Record<string, string | undefined> = process.env): string {
   const p = env.PLAYER_CODE_PEPPER;
   if (p && p.length >= 32) return p;
   if (env.NODE_ENV === "production") throw new CodesUnavailable("PLAYER_CODE_PEPPER must be set (32+ characters) in production");
+  if (!localDatabase(env.SUPABASE_URL)) throw new CodesUnavailable("PLAYER_CODE_PEPPER must be set (32+ characters) for a database that is not local");
   return createHmac("sha256", env.AUTH_SECRET ?? "mb-dev-only").update("mb-player-code-pepper:v1").digest("base64url");
 }
 
@@ -81,8 +95,11 @@ export function openPlayerCode(sealed: string | null | undefined, pepper?: strin
   try {
     const [v, iv, tag, body] = sealed.split(".");
     if (v !== "v1" || !iv || !tag || !body) return null;
-    const d = createDecipheriv("aes-256-gcm", sealKey(pepper ?? playerCodePepper()), Buffer.from(iv, "base64url"));
-    d.setAuthTag(Buffer.from(tag, "base64url"));
+    const authTag = Buffer.from(tag, "base64url");
+    // A full 16-byte tag only: a truncated one would be far easier to forge.
+    if (authTag.length !== 16) return null;
+    const d = createDecipheriv("aes-256-gcm", sealKey(pepper ?? playerCodePepper()), Buffer.from(iv, "base64url"), { authTagLength: 16 });
+    d.setAuthTag(authTag);
     const code = Buffer.concat([d.update(Buffer.from(body, "base64url")), d.final()]).toString("utf8");
     return isValidAccessCode(code) ? code : null;
   } catch {

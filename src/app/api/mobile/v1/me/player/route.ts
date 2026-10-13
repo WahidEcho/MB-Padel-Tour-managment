@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { audit } from "@/lib/audit";
 import { ownerOf } from "@/lib/mobile/identity";
-import { privateJson, readJson } from "@/lib/mobile/http";
+import { privateJson } from "@/lib/mobile/http";
+import { badRequest, strictBody } from "@/lib/players/http";
 import { loadMyPlayer, setMyPhone, unlinkMe } from "@/lib/players/claims";
 import { toE164 } from "@/lib/players/phone";
 import { syncProfileClaims } from "@/lib/players/link";
@@ -20,12 +21,18 @@ export async function GET(request: Request) {
   return privateJson({ player: await loadMyPlayer(userId) });
 }
 
-/** PATCH { phone } → { player }. Any common way of writing a number; stored as E.164 (Egypt by default). Empty clears it. */
+/**
+ * PATCH { phone } → { player }. The player's own number for the organisers, in any
+ * common way of writing it; stored as E.164 (Egypt by default) in
+ * players.self_reported_phone, never in players.phone (the organiser's record that
+ * phone codes look entries up by). Empty clears it. Only the `phone` field.
+ */
 export async function PATCH(request: Request) {
   const userId = await signedIn(request);
   if (!userId) return NextResponse.json({ error: "Sign in first" }, { status: 401 });
-  const body = await readJson<{ phone?: unknown }>(request);
-  if (typeof body?.phone !== "string" || body.phone.length > 40) return privateJson({ error: "Send a phone number." }, 400);
+  const body = await strictBody(request, ["phone"]);
+  if (!body) return badRequest();
+  if (typeof body.phone !== "string" || body.phone.length > 40) return privateJson({ error: "Send a phone number." }, 400);
   const raw = body.phone.trim();
   const e164 = raw ? toE164(raw) : null;
   if (raw && !e164) {

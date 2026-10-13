@@ -138,9 +138,9 @@ export async function startPhoneCode(phone: string): Promise<MPhoneStart> {
   return api<MPhoneStart>("/api/mobile/v1/me/player/phone/start", { who: "me", body: { phone } });
 }
 
-/** Only after the player said yes: the code goes to the email the organisers have for that phone. */
-export async function emailPhoneCode(verificationId: string): Promise<{ message: string }> {
-  return api<{ message: string }>("/api/mobile/v1/me/player/phone/email", { who: "me", body: { verificationId, consent: true } });
+/** Only after the player said yes: the code goes to the account's own email, if the organisers recorded it with that phone. */
+export async function emailPhoneCode(verificationId: string): Promise<{ message: string; to?: string }> {
+  return api<{ message: string; to?: string }>("/api/mobile/v1/me/player/phone/email", { who: "me", body: { verificationId, consent: true } });
 }
 
 export async function verifyPhoneCode(verificationId: string, code: string): Promise<MPhoneVerified> {

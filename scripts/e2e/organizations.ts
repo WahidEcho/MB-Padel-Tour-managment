@@ -1542,6 +1542,59 @@ async function main() {
       await db().from("platform_admins").delete().eq("auth_user_id", platformUser.id);
     }
 
+    section("player identity across organisations (Phase 1 review, 0026)");
+    {
+      const { hashOneTimeCode } = await import("../../src/lib/players/codeVault");
+      // B's player, entered in B's tournament with the number on B's profile.
+      const { data: pbRow } = await db().from("player_profiles").select("mobile_normalized").eq("id", PB).single();
+      const bPhone = (pbRow as { mobile_normalized: string }).mobile_normalized;
+      const { data: bEntry } = await db().from("players").insert({ tournament_id: TB.id, team_id: TB.team2, full_name: `${SECRET_B} Profile`, player_order: 2, player_profile_id: PB, phone: bPhone }).select("id").single();
+      const B_ENTRY = (bEntry as { id: string }).id;
+      // A's staff type B's player's number, and the attacker's email, on a row of A's own.
+      const { data: aEntry } = await db().from("players").insert({ tournament_id: TA.id, team_id: TA.team2, full_name: `Bravo Twin ${tag}`, player_order: 2 }).select("id").single();
+      const A_ENTRY = (aEntry as { id: string }).id;
+      const thiefEmail = `e2e.a.thief.${tag}@example.com`;
+      const typed = await action(`${T}/[id]/players/actions.ts`, "savePlayerContact", [form({ tournament_id: TA.id, player_id: A_ENTRY, phone: bPhone, email: thiefEmail })], aAdmin.headers);
+      check(actionOk(typed), "A's admin may write any contact on A's own row", typed.status);
+      const thief = await standinUser(thiefEmail);
+      const asThief = { ...bearer(thief.accessToken), "X-Forwarded-For": `198.19.${(randomBytes(1)[0] % 200) + 20}.7` };
+      const st = await http("POST", "/api/mobile/v1/me/player/phone/start", asThief, { phone: bPhone });
+      const vid = String(st.json?.verificationId ?? "");
+      await http("POST", "/api/mobile/v1/me/player/phone/email", asThief, { verificationId: vid, consent: true });
+      await new Promise((r) => setTimeout(r, 800));
+      const { data: v } = await db().from("phone_verifications").select("code_hash").eq("id", vid).maybeSingle();
+      let otp = "";
+      for (let i = 0; v && i < 1_000_000; i++) {
+        const c = String(i).padStart(6, "0");
+        if (hashOneTimeCode(vid, c) === (v as { code_hash: string }).code_hash) {
+          otp = c;
+          break;
+        }
+      }
+      const ver = await http("POST", "/api/mobile/v1/me/player/phone/verify", asThief, { verificationId: vid, code: otp });
+      const pick = ((ver.json?.choose ?? []) as { choiceId: string }[])[0];
+      if (pick) await http("POST", "/api/mobile/v1/me/player/phone/choose", asThief, { verificationId: vid, choiceId: pick.choiceId });
+      const { data: bHeld } = await db().from("player_claims").select("user_id").eq("player_id", B_ENTRY).maybeSingle();
+      const { data: pbAfter } = await db().from("player_profiles").select("auth_user_id, phone_verified_at").eq("id", PB).single();
+      check(
+        !bHeld && (pbAfter as { auth_user_id: string | null }).auth_user_id !== thief.id && !(pbAfter as { phone_verified_at: string | null }).phone_verified_at,
+        "a contact A's staff typed on A's own row never pulls B's entry or B's player's profile (the emailed code proves the address, not the phone)",
+        { bHeld: Boolean(bHeld), profile: (pbAfter as { auth_user_id: string | null }).auth_user_id === thief.id },
+      );
+      // A matched-only organisation cannot offer a link, even for a player nobody else has.
+      const { data: px } = await db().from("player_profiles").insert({ public_name: `Matched Only ${tag}`, approval_status: "approved" }).select("id").single();
+      const PX = (px as { id: string }).id;
+      created.profiles.push(PX);
+      await db().from("organization_players").insert({ organization_id: A, player_profile_id: PX, source: "matched", approval_status: "approved" });
+      const offer = await action("src/app/admin/players/actions.ts", "offerAppLinkAction", [form({ profile_id: PX, account_email: `pwned-x-${tag}@example.com` })], aAdmin.headers);
+      const { count: offers } = await db().from("player_link_offers").select("id", { count: "exact", head: true }).eq("player_profile_id", PX);
+      check(actionRefused(offer) && offers === 0, "an organisation that only matched a player cannot offer a link for them", { status: offer.status, offers });
+      await db().from("player_claims").delete().eq("user_id", thief.id);
+      await db().from("phone_verifications").delete().eq("auth_user_id", thief.id);
+      await db().from("player_profiles").update({ auth_user_id: null }).eq("auth_user_id", thief.id);
+      await db().from("message_deliveries").delete().eq("purpose", "one_time_code");
+    }
+
     section("staff login brakes count failures only");
     {
       const codeMany = generateEventCode();

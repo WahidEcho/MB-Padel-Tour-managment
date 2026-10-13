@@ -52,7 +52,11 @@ page), `{app_link}` (`/movescore`). Links use `PUBLIC_SITE_URL` (default `https:
 **Player codes never sit on a delivery row** (Phase 1, `docs/player-identity.md`). A queued row keeps
 `vars.code_ref` (the player row) instead of `vars.code`; the drain opens the player's sealed code in memory
 right before it sends, so a code reset between Send and the drain sends the new one, and "Retry failed"
-works. "Send test" always uses the placeholder `TEST-1234`, never a real player's code.
+works; it never reads a code stored in a row (rows from before Phase 1 are cleaned by
+`scripts/ops/scrub-delivery-codes.ts`). "Send test" always uses the placeholder `TEST-1234`, never a real
+player's code. A code never goes to a team's contact number (a partner's, a captain's): an access-codes
+announcement records that recipient as not sent (`team_contact`), any other announcement to a team number goes
+without `{code}`, and "Send code" refuses.
 
 ### Transactional messages
 
@@ -82,7 +86,8 @@ idempotency key of a code send carries a fingerprint of the code, never the code
 The phone code a player asks for in the app (Account → "No code? Use your phone number",
 `src/lib/players/phoneLink.ts`) goes through `sendOneTimeCode` in `queue.ts`: WhatsApp with the
 **authentication template** below, or email (template `login_code`) only after the player said yes in the
-app. The delivery row (`purpose = one_time_code`) has empty `vars` and its payload has the code replaced by
+app, and then only to the account's own confirmed email when an organiser recorded it with that phone (sent
+after the route answers). The delivery row (`purpose = one_time_code`) has empty `vars` and its payload has the code replaced by
 `[removed]`; it is never retried from the queue. A WhatsApp opt-out ("STOP" to our marketing) does not block
 a code the person asked for. Until `WA_OTP_TEMPLATE` is set (the template is not approved yet) a live server
 records the WhatsApp attempt as "not sent (not configured)" and the app offers the email; a dry run uses the

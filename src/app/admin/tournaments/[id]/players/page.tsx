@@ -33,6 +33,7 @@ interface PlayerRow {
   access_code_sealed: string | null;
   phone: string | null;
   email: string | null;
+  self_reported_phone: string | null;
   player_profile_id: string | null;
 }
 
@@ -52,7 +53,7 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
 
   const [{ data: teamData }, { data: playerData }] = await Promise.all([
     db().from("teams").select("id, team_name, nation_code, iso2, phone, seed_number").eq("tournament_id", id).order("team_name"),
-    db().from("players").select(`id, team_id, full_name, player_order, ${CODE_COLUMNS}, phone, email, player_profile_id`).eq("tournament_id", id).order("player_order"),
+    db().from("players").select(`id, team_id, full_name, player_order, ${CODE_COLUMNS}, phone, email, self_reported_phone, player_profile_id`).eq("tournament_id", id).order("player_order"),
   ]);
   const teams = (teamData ?? []) as TeamRow[];
   // The code shown is opened here, for this page only (never sent to the browser for another tournament).
@@ -198,7 +199,7 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
                           tournamentId={id}
                           playerId={p.id}
                           canEmail={Boolean(p.email || prof?.email)}
-                          canWhatsApp={Boolean(p.phone || prof?.mobile_normalized || teamPhone)}
+                          canWhatsApp={Boolean(p.phone || prof?.mobile_normalized)}
                           action={sendCode}
                         />
                         {sends.map(({ ch, d }) => (
@@ -224,6 +225,11 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
                         <input name="email" type="email" defaultValue={p.email ?? ""} className="input" placeholder="name@example.com" />
                       </label>
                       <button className="btn-secondary text-xs">Save contact</button>
+                      {p.self_reported_phone && p.self_reported_phone !== p.phone ? (
+                        <p className="w-full text-xs text-muted" data-testid="self-reported-phone">
+                          {`In the app the player gave ${displayPhone(p.self_reported_phone)}. Not checked: copy it into Player phone only if you know it is theirs.`}
+                        </p>
+                      ) : null}
                     </form>
                   </div>
                 );

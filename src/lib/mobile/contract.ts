@@ -630,6 +630,12 @@ export interface MPhoneStart {
 /** POST /me/player/phone/verify and /choose. */
 export interface MPhoneVerified {
   phone: string;
+  /**
+   * What the code proved: the phone itself (WhatsApp), or only the account's email
+   * (the email fallback: entries recorded with both that phone and that email are
+   * linked, and the number is not marked confirmed). Missing from older servers.
+   */
+  confirmed?: "phone" | "email";
   linked: { player: MMyPlayer; linked: number } | null;
   choose: MPhoneChoice[] | null;
   message: string | null;
