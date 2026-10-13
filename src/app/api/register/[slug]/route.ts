@@ -39,13 +39,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   if (!body) return reply({ ok: false, message: "Invalid request." }, 400);
   // Honeypot: hidden on the real form. Same answer as a real registration, nothing written.
   if (typeof body.website === "string" && body.website.trim() !== "") return reply({ ok: true, message: "Almost done: we emailed you a link. Open it within 24 hours to confirm your registration.", checkoutUrl: null, statusUrl: null });
-  // The typed address is the one this form can make Move Score write to: a few links a day at most.
+  // The typed address is the one this form can make Move Score write to: a few links a day at most,
+  // per event (so nobody can use up a person's registrations elsewhere) and overall.
   const first = Array.isArray(body.people) ? (body.people[0] as { email?: unknown } | null) : null;
   const typed = typeof first?.email === "string" ? first.email.trim().toLowerCase().slice(0, 200) : "";
   if (typed) {
-    const key = `reg-web-contact:${createHash("sha256").update(typed).digest("hex").slice(0, 40)}`;
-    const r = await takeRateLimit({ key, limit: 3, windowSeconds: 86400 });
-    if (!r.allowed) return reply({ ok: false, message: "Too many attempts. Please try again shortly." }, 429);
+    const h = createHash("sha256").update(typed).digest("hex").slice(0, 40);
+    for (const [key, limit] of [
+      [`reg-web-contact:${h}:${slug.slice(0, 120)}`, 3],
+      [`reg-web-contact:${h}`, 10],
+    ] as const) {
+      const r = await takeRateLimit({ key, limit, windowSeconds: 86400 });
+      if (!r.allowed) return reply({ ok: false, message: "Too many attempts. Please try again shortly." }, 429);
+    }
   }
   const r = await register({ slug, source: "web", userId: null, verifiedEmail: null, people: body.people, teamName: body.teamName, payment: body.payment });
   if (!r.ok) return reply({ ok: false, message: r.status === 404 ? "Registration for this event is not open." : r.error }, r.status === 404 ? 409 : r.status);

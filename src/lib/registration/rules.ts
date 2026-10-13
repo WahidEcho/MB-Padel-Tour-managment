@@ -35,8 +35,12 @@ export const LIVE_STATUSES: readonly RegistrationStatus[] = ["pending_approval",
 
 /** How long an approved entry waiting for its online payment keeps its place. */
 export const PAYMENT_HOLD_MS = 24 * 3600_000;
-/** A hold with less than this left is renewed when a checkout is made, so the checkout never outlives it. */
-export const HOLD_RENEW_BEFORE_MS = 2 * 3600_000;
+/**
+ * A checkout made with less than this left on the hold stretches the hold to the
+ * checkout's length, but never past the hold's start + PAYMENT_HOLD_MS + this: a
+ * place cannot be kept by pressing Pay again and again.
+ */
+export const CHECKOUT_HOLD_MS = 3600_000;
 /** How long a web guest's emailed confirmation link works. */
 export const GUEST_CONFIRM_MS = 24 * 3600_000;
 

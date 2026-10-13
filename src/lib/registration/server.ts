@@ -34,14 +34,13 @@ import type { MPaymentChoice, MRegistration, MRegistrationEvent, MRegistrationIn
 import {
   CLOSED_MESSAGES,
   GUEST_CONFIRM_MS,
-  HOLD_RENEW_BEFORE_MS,
+  CHECKOUT_HOLD_MS,
   PAYMENT_HOLD_MS,
   REFUND_MESSAGES,
   STATUS_LABELS,
   archiveAt,
   canMove,
   charges,
-  holdsPlace,
   initialStatus,
   moneyLabel,
   paymentOptions,
@@ -124,12 +123,13 @@ export interface RegistrationRow {
   notify_email: string | null;
   /** How long an approved entry waiting for its online payment keeps its place. */
   hold_until: string | null;
+  hold_started_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const REG_COLUMNS =
-  "id, tournament_id, organization_id, auth_user_id, source, entry_type, team_name, people, status, payment_choice, amount_online, amount_venue, currency, paid_at, venue_paid_at, venue_paid_by, refund_requested_at, refunded_at, decided_at, decided_by, decision_note, team_id, player_id, entry_ids, materialized_at, notify_email, hold_until, created_at, updated_at";
+  "id, tournament_id, organization_id, auth_user_id, source, entry_type, team_name, people, status, payment_choice, amount_online, amount_venue, currency, paid_at, venue_paid_at, venue_paid_by, refund_requested_at, refunded_at, decided_at, decided_by, decision_note, team_id, player_id, entry_ids, materialized_at, notify_email, hold_until, hold_started_at, created_at, updated_at";
 
 export interface PaymentRow {
   id: string;
@@ -153,7 +153,8 @@ export interface PaymentRow {
 const PAY_COLUMNS = "id, registration_id, organization_id, method, amount, currency, status, session_id, checkout_url, expires_at, test_mode, paid_at, refund_amount, refunded_at, review_reason, created_at";
 
 const now = () => new Date().toISOString();
-const holdFromNow = () => new Date(Date.now() + PAYMENT_HOLD_MS).toISOString();
+/** A new payment hold: 24 hours from now (approval), and when it started. */
+const newHold = () => ({ hold_until: new Date(Date.now() + PAYMENT_HOLD_MS).toISOString(), hold_started_at: now() });
 type DbError = { code?: string; message?: string } | null | undefined;
 /** A unique index refused the write (Postgres 23505). */
 const isUnique = (e: DbError) => e?.code === "23505" || /duplicate key|unique constraint/i.test(e?.message ?? "");
@@ -240,12 +241,11 @@ export async function saveSettings(event: EventRow, settings: RegistrationSettin
  * makes the limit atomic.
  */
 async function placesTaken(tournamentId: string): Promise<number> {
-  const { count } = await db()
-    .from("registrations")
-    .select("id", { count: "exact", head: true })
-    .eq("tournament_id", tournamentId)
-    .or(`status.eq.confirmed,and(status.eq.awaiting_payment,hold_until.gt.${now().replace(/\.\d{3}Z$/, "Z")})`);
-  return count ?? 0;
+  const [confirmed, held] = await Promise.all([
+    db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", tournamentId).eq("status", "confirmed"),
+    db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", tournamentId).eq("status", "awaiting_payment").gt("hold_until", now()),
+  ]);
+  return (confirmed.count ?? 0) + (held.count ?? 0);
 }
 
 function eventStatusFor(event: EventRow, session: SessionRow | null): string | null {
@@ -405,7 +405,7 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
       amount_venue: money.venue,
       currency: "EGP",
       notify_email: guest ? null : input.verifiedEmail,
-      hold_until: status === "awaiting_payment" ? holdFromNow() : null,
+      ...(status === "awaiting_payment" ? newHold() : {}),
     })
     .select(REG_COLUMNS)
     .single();
@@ -508,7 +508,7 @@ export async function confirmGuest(registrationId: string, token: unknown): Prom
   const to = initialStatus(s, reg.amount_online);
   const { data, error } = await db()
     .from("registrations")
-    .update({ status: to, notify_email: email, hold_until: to === "awaiting_payment" ? holdFromNow() : null, updated_at: now() })
+    .update({ status: to, notify_email: email, ...(to === "awaiting_payment" ? newHold() : {}), updated_at: now() })
     .eq("id", reg.id)
     .eq("status", "unconfirmed")
     .select(REG_COLUMNS);
@@ -577,21 +577,29 @@ async function openPayment(registrationId: string): Promise<PaymentRow | null> {
 }
 
 /**
- * Keeps the approved entry's place while it is paid for: a hold with less than two
- * hours left is renewed for another 24 (a compare-and-set on the hold it was read
- * with). Renewing a hold that ran out takes a place again, so the capacity trigger
- * may refuse it: the event filled up meanwhile.
+ * The approved entry's place while it is paid for. The hold runs 24 hours from
+ * approval; a checkout made in its last hour stretches it to the checkout's length,
+ * never past start + 25 hours (so pressing Pay again and again keeps no place). Once
+ * it ran out the entry may still pay while a place is free, but holds nothing: the
+ * payment confirms it only if a place is free when it lands (the capacity trigger),
+ * else it is held for a refund.
  */
-async function ensureHold(reg: RegistrationRow): Promise<Outcome<null>> {
-  if (reg.hold_until && Date.parse(reg.hold_until) - Date.now() > HOLD_RENEW_BEFORE_MS) return { ok: true, value: null };
-  let q = db().from("registrations").update({ hold_until: holdFromNow(), updated_at: now() }).eq("id", reg.id).eq("status", "awaiting_payment");
-  q = reg.hold_until ? q.eq("hold_until", reg.hold_until) : q.is("hold_until", null);
-  const { data, error } = await q.select("id");
-  if (error) return isFull(error) ? fail(409, "full", "This event is full: the place kept for this entry ran out before it was paid.") : fail(409, "conflict", "Could not start the payment. Try again.");
-  if (data?.length) return { ok: true, value: null };
-  // Changed meanwhile (another tab renewed it): fine while it is held now.
-  const again = await loadReg(reg.id);
-  return again && again.reg.status === "awaiting_payment" && holdsPlace(again.reg) ? { ok: true, value: null } : fail(409, "conflict", "This entry changed meanwhile. Try again.");
+async function ensureHold(reg: RegistrationRow, event: EventRow): Promise<Outcome<null>> {
+  const nowMs = Date.now();
+  const until = reg.hold_until ? Date.parse(reg.hold_until) : 0;
+  if (until - nowMs > CHECKOUT_HOLD_MS) return { ok: true, value: null };
+  if (until > nowMs) {
+    const started = reg.hold_started_at ? Date.parse(reg.hold_started_at) : until - PAYMENT_HOLD_MS;
+    const next = Math.min(nowMs + CHECKOUT_HOLD_MS, started + PAYMENT_HOLD_MS + CHECKOUT_HOLD_MS);
+    if (next > until) {
+      // Still held, so no capacity question; a compare-and-set on the hold it was read with.
+      await db().from("registrations").update({ hold_until: new Date(next).toISOString(), updated_at: now() }).eq("id", reg.id).eq("status", "awaiting_payment").eq("hold_until", reg.hold_until!);
+    }
+    return { ok: true, value: null };
+  }
+  const s = await getSettings(event.id);
+  if (s.capacity !== null && (await placesTaken(event.id)) >= s.capacity) return fail(409, "full", "This event is full: the place kept for this entry ran out before it was paid.");
+  return { ok: true, value: null };
 }
 
 /**
@@ -609,7 +617,7 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
   await reconcileOnline(reg.id, { force: true });
   const fresh = await loadReg(reg.id);
   if (!fresh || fresh.reg.status !== "awaiting_payment") return fail(409, "not_due", "Nothing is due online for this entry.");
-  const held = await ensureHold(fresh.reg);
+  const held = await ensureHold(fresh.reg, fresh.event);
   if (!held.ok) return held;
 
   let payment = await openPayment(reg.id);
@@ -725,13 +733,25 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
     // Paid while it was still waiting for the payment: confirmed. Paid after it was
     // cancelled or refused, or a second payment for an entry already paid: kept for
     // the organiser to refund (by this payment's id).
-    const { data: conf } = await db()
+    const { data: conf, error: confErr } = await db()
       .from("registrations")
       .update({ status: "confirmed", paid_at: now(), updated_at: now() })
       .eq("id", reg.id)
       .eq("status", "awaiting_payment")
       .is("paid_at", null)
       .select(REG_COLUMNS);
+    if (confErr && isFull(confErr)) {
+      // Its place ran out before the payment landed, and the event filled meanwhile: nothing was bought.
+      await db().from("registration_payments").update({ status: "needs_review", review_reason: "Paid after the place kept for this entry ran out, and the event is full: refund it.", updated_at: now() }).eq("id", payment.id).eq("status", "paid");
+      await audit({ ...base, action: "REGISTRATION_PAYMENT_FULL", new_value: { payment_id: payment.id, amount: payment.amount } });
+      await alertOrgAdmins(event, `${event.name}: a payment to refund`, `Move Tick took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} whose place ran out before it was paid, and the event is full. Open Registrations and refund it.`, `registration:${reg.id}:review:${payment.id}`);
+      return "needs_review";
+    }
+    // Any other error: let Move Tick retry (applyWebhook forgets the event id; the payment's own move is undone below).
+    if (confErr) {
+      await db().from("registration_payments").update({ status: payment.status, paid_at: null, updated_at: now() }).eq("id", payment.id).eq("status", "paid");
+      throw new Error(`registrations: ${confErr.message ?? "confirm failed"}`);
+    }
     const confirmed = (conf as RegistrationRow[] | null)?.[0];
     if (confirmed) {
       await confirmEntry(confirmed, event, "paid");
@@ -790,8 +810,8 @@ const RECONCILE_EVERY_MS = 30_000;
  * A webhook that never arrived: asks Move Tick (authenticated, server to server)
  * how a checkout ended, and applies the answer through the same idempotent path as
  * a webhook (event id "reconcile:<session>:<status>"). The amount check still
- * applies. Looks at open checkouts and at ones marked expired here (a late payment
- * is not lost), each at most once per 30 seconds unless `force` (paying again).
+ * applies. Looks at open checkouts and at ones marked expired or failed here (a
+ * late payment is not lost), each at most once per 30 seconds unless `force` (paying again).
  * Errors are ignored: the webhook or the next look will do.
  */
 export async function reconcileOnline(registrationId: string, opts: { force?: boolean } = {}): Promise<void> {
@@ -803,18 +823,21 @@ export async function reconcileOnline(registrationId: string, opts: { force?: bo
     .select(PAY_COLUMNS)
     .eq("registration_id", registrationId)
     .eq("method", "online")
-    .in("status", ["open", "expired"])
+    .in("status", ["open", "expired", "failed"])
     .not("session_id", "is", null)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(3);
   for (const pay of (data ?? []) as PaymentRow[]) {
     if (!pay.session_id) continue;
+    // Claimed with a compare-and-set, so two views at once ask Move Tick once.
     const stamp = now();
-    const cutoff = new Date(Date.now() - RECONCILE_EVERY_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
-    let claim = db().from("registration_payments").update({ reconciled_at: stamp }).eq("id", pay.id);
-    if (!opts.force) claim = claim.or(`reconciled_at.is.null,reconciled_at.lt.${cutoff}`);
-    const { data: claimed } = await claim.select("id");
+    const claim = () => db().from("registration_payments").update({ reconciled_at: stamp }).eq("id", pay.id);
+    let claimed = opts.force ? (await claim().select("id")).data : null;
+    if (!opts.force) {
+      claimed = (await claim().is("reconciled_at", null).select("id")).data;
+      if (!claimed?.length) claimed = (await claim().lt("reconciled_at", new Date(Date.now() - RECONCILE_EVERY_MS).toISOString()).select("id")).data;
+    }
     if (!claimed?.length) continue;
     try {
       const s = await getPaymentSession(cfg, pay.session_id);
@@ -1043,7 +1066,7 @@ class EventFullError extends Error {
 /** A conditional status change from the status the row was read in. Throws EventFullError when the capacity trigger refuses it. */
 async function move(reg: RegistrationRow, to: RegistrationStatus, patch: Record<string, unknown> = {}): Promise<RegistrationRow | null> {
   if (!canMove(reg.status, to)) return null;
-  const hold = to === "awaiting_payment" ? { hold_until: holdFromNow() } : {};
+  const hold = to === "awaiting_payment" ? newHold() : {};
   const { data, error } = await db()
     .from("registrations")
     .update({ status: to, ...hold, ...patch, updated_at: now() })
@@ -1384,7 +1407,8 @@ export async function eventRegistrations(tournamentId: string): Promise<AdminReg
     const { data: p } = await db().from("registration_payments").select(PAY_COLUMNS).in("registration_id", ids.slice(i, i + 200)).order("created_at", { ascending: true });
     pays.push(...((p ?? []) as PaymentRow[]));
   }
-  return regs.map((r) => ({ ...r, payments: pays.filter((p) => p.registration_id === r.id) }));
+  // An unconfirmed guest's typed details reach no organiser until the emailed link is opened.
+  return regs.map((r) => ({ ...r, people: r.status === "unconfirmed" ? [] : r.people, payments: pays.filter((p) => p.registration_id === r.id) }));
 }
 
 /* ---------------- messages ---------------- */

@@ -660,6 +660,31 @@ async function main() {
       check(live3 === 1 && /status\?r=/.test(c1?.location ?? "") && /e=already_registered/.test(c2?.location ?? ""), "M4: one verified email holds one entry per event (guests deduped)", { live3, c2: c2?.location });
     });
 
+    await attack("M4 holds", async () => {
+      const TH = await event("Hold Cup", MB);
+      await settings(TH.id, { entry_type: "individual", fee: "250", payment: "online", approval_mode: "automatic", capacity: "1" }, mbAdmin);
+      const U23 = await player("u23");
+      const r = await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U23.who, { people: [{ name: "Holly Hold", phone: phone() }], payment: "online" });
+      const RH = regId(r);
+      const sH = sessionsOf(RH)[0]!;
+      // 30 hours after approval, with ten minutes of hold left: paying again stretches nothing.
+      const ten = new Date(Date.now() + 10 * 60_000).toISOString();
+      await db().from("registrations").update({ hold_started_at: new Date(Date.now() - 30 * 3600_000).toISOString(), hold_until: ten }).eq("id", RH);
+      await call("POST", `/api/mobile/v1/me/registrations/${RH}/pay`, U23.who, {});
+      const h1 = await reg(RH);
+      check(Date.parse(String(h1.hold_until)) <= Date.parse(ten) + 1000, "M4: pressing Pay again after the 24 h hold window keeps no place (the hold is not renewed)", h1.hold_until);
+      // The hold runs out; someone else takes the place; the first entry can no longer pay, and a late payment is held for a refund.
+      await db().from("registrations").update({ hold_until: new Date(Date.now() - 60_000).toISOString() }).eq("id", RH);
+      const U24 = await player("u24");
+      const other = await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U24.who, { people: [{ name: "Otto Other", phone: phone() }], payment: "online" });
+      const lapsedPay = await call("POST", `/api/mobile/v1/me/registrations/${RH}/pay`, U23.who, {});
+      check(other.status === 201 && lapsedPay.status === 409 && lapsedPay.json?.code === "full", "M4: once its hold ran out and the place was taken, the entry cannot pay", { other: other.status, pay: lapsedPay.status });
+      await webhook(paidEvent(sH));
+      const ph = (await onlinePayments(RH)).find((p) => p.session_id === sH.sessionId);
+      const { count: inH } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", TH.id).eq("status", "confirmed");
+      check((await reg(RH)).status === "awaiting_payment" && ph?.status === "needs_review" && (inH ?? 0) === 0, "M4: a payment landing after the hold ran out never overfills the event: it is held for a refund", { status: ph?.status, review: ph?.review_reason });
+    });
+
     await attack("L1", async () => {
       const TL = await event("Fault Cup", MB);
       await settings(TL.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);

@@ -10,7 +10,8 @@ import { decideRegistrationAction, markVenuePaidAction, pairRegistrationsAction,
 
 export const dynamic = "force-dynamic";
 
-const ORDER: RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed", "refunded", "cancelled", "refused", "unconfirmed"];
+// "unconfirmed" web guests are only counted, never listed: until the emailed link is opened, what they typed reaches no organiser.
+const ORDER: RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed", "refunded", "cancelled", "refused"];
 const TONE: Record<RegistrationStatus, string> = {
   unconfirmed: "bg-border text-muted",
   pending_approval: "bg-warning/15 text-warning",
@@ -174,7 +175,6 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                         {r.payments.some((p) => p.status === "needs_review") && (
                           <span className="rounded bg-danger/10 px-2 py-0.5 text-xs text-danger">payment needs review</span>
                         )}
-                        {r.status === "unconfirmed" && <span className="text-xs text-muted">waiting for the guest to open the link emailed to them (24 h)</span>}
                       </div>
                       <ul className="text-xs text-muted">
                         {r.people.map((p, i) => (
@@ -247,6 +247,11 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
             </div>
           );
         })}
+        {regs.some((r) => r.status === "unconfirmed") && (
+          <p className="text-sm text-muted">
+            {regs.filter((r) => r.status === "unconfirmed").length} web registration(s) waiting for the guest to open the link emailed to them (24 h).
+          </p>
+        )}
         {regs.length === 0 && <p className="text-sm text-muted">No registrations yet.</p>}
       </section>
     </div>

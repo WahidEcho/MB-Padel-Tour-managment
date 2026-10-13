@@ -10,10 +10,13 @@
 --    an entry, and only a verified one (an app account's confirmed email, or a
 --    guest's address once its link was opened). Unique per event among live
 --    entries, so one verified address holds one entry per event (guests deduped).
--- 3. registrations.hold_until: how long an approved entry waiting for its online
---    payment keeps its place. Capacity counts confirmed entries and unexpired
---    holds only (never requests waiting for the organiser), checked atomically by
---    a trigger that locks the event's settings row (works on the local stand-in too).
+-- 3. registrations.hold_until / hold_started_at: an approved entry waiting for its
+--    online payment keeps its place for 24 hours from approval (a checkout made near
+--    the end may stretch it by at most one hour, never further). Capacity counts
+--    confirmed entries and unexpired holds only (never requests waiting for the
+--    organiser), checked atomically by a trigger that locks the event's settings row
+--    (works on the local stand-in too). A payment that arrives after the hold ran out
+--    confirms only if a place is free then; otherwise it is held for a refund.
 -- 4. registration_payments: at most one open online checkout per registration
 --    (a partial unique index), and reconciled_at, which throttles asking Move
 --    Tick about a payment to once per 30 seconds.
@@ -30,15 +33,16 @@ alter table registrations drop constraint if exists registrations_notify_email_c
 alter table registrations add constraint registrations_notify_email_check
   check (notify_email is null or (char_length(notify_email) <= 200 and notify_email = lower(notify_email)));
 alter table registrations add column if not exists hold_until timestamptz;
+alter table registrations add column if not exists hold_started_at timestamptz;
 
 create unique index if not exists registrations_contact_event_uq on registrations (tournament_id, notify_email)
   where notify_email is not null and status in ('pending_approval', 'awaiting_payment', 'confirmed');
 create index if not exists registrations_unconfirmed_idx on registrations (created_at) where status = 'unconfirmed';
 
 -- Capacity: confirmed entries plus approved ones whose payment hold has not run
--- out. Checked when an entry starts to hold a place (inserted or moved into
--- confirmed, or a hold taken or renewed), never when an awaiting entry's payment
--- confirms it (its place was held when the checkout was made).
+-- out. Checked whenever an entry starts to hold a place it did not hold a moment
+-- before: inserted or moved into confirmed (also an awaiting entry whose hold ran
+-- out before its payment arrived), or a hold taken.
 create or replace function registration_capacity_guard() returns trigger
 language plpgsql
 set search_path = public
@@ -55,7 +59,7 @@ begin
   end if;
   if tg_op = 'UPDATE' then
     held_before := old.status = 'confirmed' or (old.status = 'awaiting_payment' and old.hold_until is not null and old.hold_until > now());
-    if held_before or (old.status = 'awaiting_payment' and new.status = 'confirmed') then
+    if held_before then
       return new;
     end if;
   end if;
