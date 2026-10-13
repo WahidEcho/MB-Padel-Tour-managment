@@ -9,7 +9,11 @@
  *   left out. Contact details live on the profile (email, mobile_normalized).
  * - tournament / nation: the players entered in one of the organisation's
  *   tournaments, or in its teams carrying a nation code. Contact: the player's own phone/email (players.phone,
- *   players.email), else their linked profile's, else the team's contact phone.
+ *   players.email), else their linked profile's, else the team's contact phone. A linked
+ *   profile the organisation does not vouch for while another organisation has it
+ *   (hiddenPersonFields: it only matched it by a typed mobile, or a link joined its row
+ *   to someone else's profile) is never a contact source, and is named as typed on
+ *   the organisation's own form.
  * - app_users: Move Score app installs; reachable by push only.
  * - list: pasted names, emails and phone numbers.
  *
@@ -22,7 +26,7 @@ import { revealCode } from "../players/codeVault";
 import { appLink, tournamentLink } from "./links";
 import { parsePastedList, type Recipient } from "./recipients";
 import { orgTournamentIds, resolveEntity } from "../orgs/scope";
-import { visiblePersonFields } from "../orgs/personFields";
+import { hiddenPersonFields, matchedElsewhere, UNNAMED_MATCHED, visiblePersonFields } from "../orgs/personFields";
 import type { Channel } from "./status";
 import type { Audience } from "./audienceSpec";
 
@@ -125,14 +129,19 @@ export function pickContact(
   return { email, phone };
 }
 
-async function playersToRecipients(players: PlayerRow[]): Promise<Recipient[]> {
+async function playersToRecipients(players: PlayerRow[], orgId: string): Promise<Recipient[]> {
   const teamIds = [...new Set(players.map((p) => p.team_id))];
   const tournamentIds = [...new Set(players.map((p) => p.tournament_id))];
   const profileIds = [...new Set(players.map((p) => p.player_profile_id).filter((x): x is string => !!x))];
+  // Person fields this organisation may not use (src/lib/orgs/personFields.ts): no contact
+  // from those profiles, and the name typed on its own form instead of anything else.
+  const [hidden, typedNames] = await Promise.all([hiddenPersonFields(orgId, profileIds), matchedElsewhere(orgId, profileIds)]);
+  const usable = profileIds.filter((id) => !hidden.has(id));
   const [teams, tournaments, profiles, optOut] = await Promise.all([
     inChunks<{ id: string; phone: string | null; team_status: string | null }>(teamIds, (c) => db().from("teams").select("id, phone, team_status").in("id", c)),
     inChunks<{ id: string; name: string; slug: string }>(tournamentIds, (c) => db().from("tournaments").select("id, name, slug").in("id", c)),
-    inChunks<ProfileRow>(profileIds, (c) => db().from("player_profiles").select("id, public_name, mobile_normalized, email").in("id", c)),
+    inChunks<ProfileRow>(usable, (c) => db().from("player_profiles").select("id, public_name, mobile_normalized, email").in("id", c)),
+    // A player's own "no" is honoured whoever's profile it is.
     declined(profileIds),
   ]);
   const teamOf = new Map(teams.map((t) => [t.id, t]));
@@ -141,17 +150,19 @@ async function playersToRecipients(players: PlayerRow[]): Promise<Recipient[]> {
   return players
     .filter((p) => teamOf.get(p.team_id)?.team_status !== "withdrawn")
     .map((p) => {
-      const prof = p.player_profile_id ? profOf.get(p.player_profile_id) : undefined;
+      const isHidden = Boolean(p.player_profile_id && hidden.has(p.player_profile_id));
+      const prof = p.player_profile_id && !isHidden ? profOf.get(p.player_profile_id) : undefined;
       const t = tOf.get(p.tournament_id);
       const c = pickContact(p, prof, teamOf.get(p.team_id)?.phone);
+      const name = isHidden ? (typedNames.get(p.player_profile_id!) ?? (p.full_name?.trim() || UNNAMED_MATCHED)) : p.full_name;
       return {
         kind: "player" as const,
         id: p.id,
-        name: p.full_name,
+        name,
         email: c.email?.value ?? null,
         phone: c.phone?.value ?? null,
         sources: { email: c.email?.source ?? null, phone: c.phone?.source ?? null },
-        vars: { name: p.full_name, ...codeVars(p), tournament: t?.name ?? null, link: t ? tournamentLink(t.slug) : null, app_link: appLink() },
+        vars: { name, ...codeVars(p), tournament: t?.name ?? null, link: t ? tournamentLink(t.slug) : null, app_link: appLink() },
         optedOut: p.player_profile_id ? optOut.get(p.player_profile_id) : undefined,
       };
     });
@@ -223,7 +234,7 @@ export async function resolveAudience(a: Audience, orgId: string): Promise<Resol
       // Another organisation's tournament reaches nobody.
       if ((await resolveEntity({ tournament: a.tournamentId }))?.orgId !== orgId) return { recipients: [], rejected: [] };
       const players = await selectPlayers((cols) => db().from("players").select(cols).eq("tournament_id", a.tournamentId).order("created_at").limit(5000));
-      return { recipients: await playersToRecipients(players), rejected: [] };
+      return { recipients: await playersToRecipients(players, orgId), rejected: [] };
     }
     case "nation": {
       const { data: teams, error } = await db().from("teams").select("id, tournament_id").eq("nation_code", a.nationCode);
@@ -235,7 +246,7 @@ export async function resolveAudience(a: Audience, orgId: string): Promise<Resol
         const chunk = teamIds.slice(i, i + 200);
         players.push(...(await selectPlayers((cols) => db().from("players").select(cols).in("team_id", chunk))));
       }
-      return { recipients: await playersToRecipients(players), rejected: [] };
+      return { recipients: await playersToRecipients(players, orgId), rejected: [] };
     }
     case "app_users":
       return { recipients: [], rejected: [] };

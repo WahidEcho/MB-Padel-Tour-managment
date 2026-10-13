@@ -10,6 +10,7 @@ import { toE164 } from "@/lib/players/phone";
 import { formatAccessCode } from "@/lib/players/accessCode";
 import { CODE_COLUMNS, codeFingerprint, revealCode, type CodeColumns } from "@/lib/players/codeVault";
 import { pickContact } from "@/lib/messaging/audience";
+import { hiddenPersonFields } from "@/lib/orgs/personFields";
 import { appLink } from "@/lib/messaging/links";
 import { sendTransactional } from "@/lib/messaging/queue";
 
@@ -68,7 +69,8 @@ export interface SendCodeState {
  */
 export async function sendCode(_prev: SendCodeState | null, formData: FormData): Promise<SendCodeState> {
   const id = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("send_messages", id)).staff.role;
+  const { staff, scope } = await requireTournamentPermission("send_messages", id);
+  const role = staff.role;
   refuse(await tournamentRowRefusal(id));
   const channel = formData.get("channel") === "whatsapp" ? "whatsapp" : "email";
   const { data } = await db()
@@ -81,8 +83,10 @@ export async function sendCode(_prev: SendCodeState | null, formData: FormData):
   if (!p) return { ok: false, message: "That player is not in this tournament." };
   const plain = revealCode(p);
   if (!plain) return { ok: false, message: "No code yet: make one first." };
+  // A profile this organisation does not vouch for is never a contact (src/lib/orgs/personFields.ts).
+  const profileUsable = Boolean(p.player_profile_id) && !(await hiddenPersonFields(scope.orgId, [p.player_profile_id!], { platformAdmin: staff.platformAdmin })).has(p.player_profile_id!);
   const [{ data: prof }, { data: team }, { data: t }] = await Promise.all([
-    p.player_profile_id ? db().from("player_profiles").select("mobile_normalized, email").eq("id", p.player_profile_id).maybeSingle() : Promise.resolve({ data: null }),
+    profileUsable ? db().from("player_profiles").select("mobile_normalized, email").eq("id", p.player_profile_id).maybeSingle() : Promise.resolve({ data: null }),
     db().from("teams").select("phone").eq("id", p.team_id).maybeSingle(),
     db().from("tournaments").select("name").eq("id", id).maybeSingle(),
   ]);

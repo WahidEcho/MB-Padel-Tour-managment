@@ -3,7 +3,7 @@ import { requirePlatformPage } from "@/lib/guard";
 import StateForm from "@/components/StateForm";
 import { cleanPlan, PLAN_TIERS, SUBSCRIPTION_STATUSES } from "@/lib/orgs/profile";
 import { MOVE_BEYOND_SLUG, ORG_ROLES, ROLE_LABELS } from "@/lib/orgs/roles";
-import { createOrganization, decideApplication, inviteToOrganization, saveBilling, setOrganizationStatus } from "./actions";
+import { createOrganization, decideApplication, decideRename, inviteToOrganization, saveBilling, setOrganizationStatus } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,8 @@ interface OrgRow {
   application: Record<string, string | null> | null;
   plan: unknown;
   created_at: string;
+  pending_name: string | null;
+  pending_name_at: string | null;
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { timeZone: "Africa/Cairo", dateStyle: "medium", timeStyle: "short" });
@@ -50,7 +52,7 @@ function RoleSelect({ name, defaultValue, only }: { name: string; defaultValue: 
 export default async function PlatformOrganizationsPage() {
   await requirePlatformPage("/admin/platform/organizations");
   const [{ data: orgRows }, { data: memberRows }, { data: tRows }] = await Promise.all([
-    db().from("organizations").select("id, slug, name, status, city, country, application, plan, created_at").order("created_at", { ascending: false }).limit(500),
+    db().from("organizations").select("id, slug, name, status, city, country, application, plan, created_at, pending_name, pending_name_at").order("created_at", { ascending: false }).limit(500),
     db().from("organization_members").select("organization_id, role").eq("status", "active").limit(10000),
     db().from("tournaments").select("organization_id").limit(20000),
   ]);
@@ -67,6 +69,7 @@ export default async function PlatformOrganizationsPage() {
   const applied = orgs.filter((o) => o.status === "applied");
   const live = orgs.filter((o) => o.status === "approved" || o.status === "suspended");
   const rejected = orgs.filter((o) => o.status === "rejected");
+  const renames = live.filter((o) => o.pending_name);
 
   return (
     <div className="space-y-6">
@@ -86,7 +89,7 @@ export default async function PlatformOrganizationsPage() {
           <div key={o.id} className="card space-y-3" data-testid="application">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="font-bold">{o.name}</h3>
-              <span className="text-xs text-muted">{o.slug} · applied {when(o.created_at)}</span>
+              <span className="text-xs text-muted">applied {when(o.created_at)}</span>
             </div>
             <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[8rem_1fr]">
               {APPLICATION_FIELDS.filter(([k]) => o.application?.[k]).map(([k, label]) => (
@@ -103,12 +106,33 @@ export default async function PlatformOrganizationsPage() {
                 <input id={`inv-${o.id}`} name="invite_email" type="email" defaultValue={o.application?.contact_email ?? ""} className="input py-1 text-xs" />
               </div>
               <RoleSelect name="invite_role" defaultValue="owner" only={["owner", "admin"]} />
+              <div>
+                <label className="label" htmlFor={`slug-${o.id}`}>Short name (optional)</label>
+                <input id={`slug-${o.id}`} name="slug" maxLength={60} className="input py-1 font-mono text-xs" placeholder="from the name" />
+              </div>
               <button name="decision" value="approve" className="btn-primary text-xs">Approve and invite</button>
               <button name="decision" value="reject" className="btn-secondary text-xs text-danger">Turn down</button>
             </StateForm>
           </div>
         ))}
       </section>
+
+      {renames.length > 0 && (
+        <section className="space-y-3" data-testid="renames">
+          <h2 className="text-lg font-bold">Name changes waiting ({renames.length})</h2>
+          {renames.map((o) => (
+            <StateForm key={o.id} action={decideRename} className="card flex flex-wrap items-center gap-3" testId="rename">
+              <input type="hidden" name="org_id" value={o.id} />
+              <p className="flex-1 text-sm">
+                <strong>{o.name}</strong> asks to be called <strong>{o.pending_name}</strong>
+                {o.pending_name_at ? <span className="text-xs text-muted"> · {when(o.pending_name_at)}</span> : null}
+              </p>
+              <button name="decision" value="approve" className="btn-primary text-xs">Approve the new name</button>
+              <button name="decision" value="reject" className="btn-secondary text-xs">Keep the old name</button>
+            </StateForm>
+          ))}
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold">Create an organisation</h2>

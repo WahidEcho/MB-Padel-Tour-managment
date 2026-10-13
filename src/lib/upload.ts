@@ -96,6 +96,44 @@ export interface UploadOptions {
    * copy to bust. (Supabase storage takes max-age, not `immutable`.)
    */
   cacheSeconds?: number;
+  /**
+   * The most pixels a side may have. When set, an image whose size cannot be read
+   * from its header is refused too. Without it, rasters are still capped at
+   * MAX_PIXELS (a small file can declare an enormous canvas that every viewer
+   * then has to decode).
+   */
+  maxPixels?: number;
+}
+
+/** No raster upload may declare a side longer than this (a 48 MP phone photo is 8064). */
+export const MAX_PIXELS = 10_000;
+
+/** File extension per sniffed type: the stored name never comes from the browser. */
+const EXTENSION: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg" };
+
+/**
+ * What an upload really is, from its bytes: the type and extension it is stored
+ * under (never the browser's claimed type or file name), refusing one that is not
+ * an allowed image or declares more pixels than allowed. Pure; throws a message
+ * for the person.
+ */
+export function vetImageBytes(bytes: Uint8Array, declaredType: string, opts: UploadOptions & { allow: string[] }): { type: string; ext: string } {
+  const sniff = opts.sniff ?? declaredType !== "image/svg+xml";
+  let type = declaredType;
+  if (sniff) {
+    const actual = sniffImageType(bytes.slice(0, 16));
+    if (!actual || !opts.allow.includes(actual)) {
+      throw new Error("That file is not the kind of image it claims to be.");
+    }
+    type = actual;
+    const dims = imageDimensions(bytes, actual);
+    const cap = opts.maxPixels ?? MAX_PIXELS;
+    if (opts.maxPixels && !dims) throw new Error("Could not read that image's size. Save it again as PNG or JPEG.");
+    if (dims && (dims.width > cap || dims.height > cap)) {
+      throw new Error(`That image is ${dims.width} × ${dims.height} pixels. The limit is ${cap} pixels a side — export it smaller.`);
+    }
+  }
+  return { type, ext: EXTENSION[type] ?? "img" };
 }
 
 /** Uploads an image to the public media bucket; returns its public URL. */
@@ -109,20 +147,12 @@ export async function uploadImage(file: File, prefix: string, opts: UploadOption
   if (!allow.includes(file.type)) throw new Error("Unsupported image type");
 
   const bytes = await file.arrayBuffer();
-  const sniff = opts.sniff ?? file.type !== "image/svg+xml";
-  if (sniff) {
-    const actual = sniffImageType(new Uint8Array(bytes.slice(0, 16)));
-    if (!actual || !allow.includes(actual)) {
-      throw new Error("That file is not the kind of image it claims to be.");
-    }
-  }
-
-  const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const { type, ext } = vetImageBytes(new Uint8Array(bytes), file.type, { ...opts, allow });
   // The timestamp is deliberate cache-busting: replacing a photo produces a new
   // path rather than fighting a cached copy at the old one.
   const path = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await db().storage.from("media").upload(path, bytes, {
-    contentType: file.type,
+    contentType: type,
     upsert: false,
     cacheControl: String(opts.cacheSeconds ?? 31536000),
   });

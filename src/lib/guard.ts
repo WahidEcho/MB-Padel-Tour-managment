@@ -13,7 +13,7 @@
  */
 import { notFound, redirect } from "next/navigation";
 import { NextResponse } from "next/server";
-import { can, type Permission } from "./auth";
+import { staffCan, type Permission } from "./auth";
 import { currentStaffResolution, REFUSAL_MESSAGE, type StaffPrincipal, type StaffResolution } from "./auth/staff";
 import { entityInScope, type EntityRef, type EntityScope } from "./orgs/scope";
 import type { Role } from "./types";
@@ -71,7 +71,8 @@ export async function requirePlatformPage(nextUrl: string): Promise<StaffPrincip
 async function staffFor(action: Permission): Promise<StaffPrincipal> {
   const r = await currentStaffResolution();
   if (!r.ok) throw new Error(r.reason === "signed_out" ? NOT_ALLOWED : REFUSAL_MESSAGE[r.reason]);
-  if (!can(r.staff.role, action)) throw new Error(NOT_ALLOWED);
+  // Members and the organisation's profile: personal accounts only, never a shared password.
+  if (!staffCan(r.staff, action)) throw new Error(NOT_ALLOWED);
   return r.staff;
 }
 
@@ -132,7 +133,7 @@ export async function staffRoute(action: Permission, ref?: EntityRef): Promise<R
   if (!r.ok) {
     return { ok: false, response: NextResponse.json({ error: REFUSAL_MESSAGE[r.reason], code: r.reason }, { status: 401, headers: NO_STORE }) };
   }
-  if (!can(r.staff.role, action)) {
+  if (!staffCan(r.staff, action)) {
     return { ok: false, response: NextResponse.json({ error: NOT_ALLOWED }, { status: 403, headers: NO_STORE }) };
   }
   if (!ref) {
@@ -149,6 +150,6 @@ export async function staffRoute(action: Permission, ref?: EntityRef): Promise<R
 /** For read routes that serve everyone but show staff more: the principal only when it reaches the row. */
 export async function staffReaching(ref: EntityRef, action: Permission): Promise<StaffPrincipal | null> {
   const r = await currentStaffResolution().catch(() => null);
-  if (!r?.ok || !can(r.staff.role, action)) return null;
+  if (!r?.ok || !staffCan(r.staff, action)) return null;
   return (await entityInScope(r.staff, ref)) ? r.staff : null;
 }

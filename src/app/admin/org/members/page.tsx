@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { requireStaff } from "@/lib/guard";
-import { can } from "@/lib/auth";
+import { staffCan } from "@/lib/auth";
 import StateForm from "@/components/StateForm";
 import { inviteState, INVITE_COLUMNS, type InviteRow } from "@/lib/orgs/invites";
 import { mayAssignRole, mayRemoveMember, ORG_ROLES, ROLE_LABELS, type OrgRole } from "@/lib/orgs/roles";
@@ -26,7 +26,7 @@ const when = (iso: string | null) =>
 /** The organisation's staff: members, their roles, and open invites. Owners and admins. */
 export default async function MembersPage() {
   const staff = await requireStaff(["admin", "manager"], "/admin/org/members");
-  if (!can(staff.role, "manage_members") || staff.scopeTournamentId) notFound();
+  if (!staffCan(staff, "manage_members") || staff.scopeTournamentId) notFound();
   const [{ data: memberRows }, { data: inviteRows }] = await Promise.all([
     db()
       .from("organization_members")

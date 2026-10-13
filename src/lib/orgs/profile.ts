@@ -194,6 +194,45 @@ export function checkApplication(input: Record<string, unknown>, maxTotal = 6000
   return { ok: true, value };
 }
 
+/* ---------------- organisation names ---------------- */
+
+/** Names no organisation but Move Beyond's own may carry (compared with `nameKey`). */
+export const RESERVED_ORG_NAMES = ["Move Beyond", "Move Score", "MoveScore", "MoveBeyond", "Move Beyond Egypt", "MB Tournaments"];
+
+/**
+ * What two names are compared by: case, accents, spaces and punctuation ignored
+ * ("move  BEYOND!" = "Move Beyond" = "MoveBeyond"), so a look-alike cannot pass.
+ */
+export function nameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/**
+ * Why a name cannot be an organisation's (null when it can): a link or address in
+ * it (names are shown in emails and on public pages, never as links), one of
+ * Move Beyond's own names, or the name of another organisation. `others` are the
+ * other organisations' names (not the one being renamed).
+ */
+export function orgNameProblem(name: string, others: string[], opts: { allowReserved?: boolean } = {}): string | null {
+  if (/(:\/\/|\bwww\.|@|\b[a-z0-9-]+\.(com|net|org|io|app|co|eg|me|info|biz|xyz|link|site|online|club)\b)/i.test(name)) {
+    return "An organisation's name cannot contain a web or email address.";
+  }
+  const key = nameKey(name);
+  if (key.length < 2) return "Enter the organisation's name.";
+  if (!opts.allowReserved && RESERVED_ORG_NAMES.some((r) => nameKey(r) === key)) return "That name belongs to Move Beyond. Choose your organisation's own name.";
+  if (others.some((o) => nameKey(o) === key)) return "Another organisation on Move Score already has that name. Choose another, or contact Move Beyond if it is yours.";
+  return null;
+}
+
+/** A slug an application holds until it is approved: says nothing about the name, reserves nothing. */
+export function applicationSlug(random: string): string {
+  return `applied-${random.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16)}`;
+}
+
 /** "Cairo Padel Club!" → "cairo-padel-club". Always a valid organisation slug (2–60). */
 export function slugFromName(name: string): string {
   const s = name

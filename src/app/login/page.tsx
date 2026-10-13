@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { clientIpFrom } from "@/lib/ratelimit";
 import { emailAllowed } from "@/lib/auth/limits";
-import { staffLoginAllowed, staffLoginFailed } from "@/lib/staffLogin";
-import { acceptPendingInvite } from "@/lib/orgs/invites";
+import { staffLoginAttempt } from "@/lib/staffLogin";
+import { pendingInviteFor } from "@/lib/orgs/invites";
 import { audit } from "@/lib/audit";
 import { authClient, authProviders } from "@/lib/auth/users";
 import { getAuthUser, signOutAuth } from "@/lib/auth/accounts";
@@ -23,7 +23,8 @@ export default async function LoginPage({
   const { next: rawNext, error } = await searchParams;
   const next = safeNextPath(rawNext);
   const signedIn = await currentStaff();
-  if (signedIn) redirect(next || staffHome(signedIn.role));
+  // Coming from an invite (next=/invite), a signed-in person may sign in again as the invited address.
+  if (signedIn && next !== "/invite") redirect(next || staffHome(signedIn.role));
   const providers = await authProviders();
 
   /** An event code (referees, TV operators) or Move Beyond's shared role password. */
@@ -32,14 +33,15 @@ export default async function LoginPage({
     const password = String(formData.get("password") ?? "");
     const nextUrl = safeNextPath(formData.get("next"));
     const ip = clientIpFrom(await headers());
-    const gate = await staffLoginAllowed(ip, password);
+    // Counted before it is checked (atomically); a right code is refunded (src/lib/staffLogin.ts).
+    const gate = await staffLoginAttempt(ip, password);
     if (!gate.allowed) redirect(withNext("/login?error=2", nextUrl));
     const r = await signInWithAccessCode(password, STAFF_WEB_HOURS);
     if (!r.ok) {
-      // Only failures count against the brakes (src/lib/staffLogin.ts).
-      if (r.reason !== "unavailable") await staffLoginFailed(ip, password);
+      if (r.reason === "unavailable") await gate.refund();
       redirect(withNext(`/login?error=${r.reason}`, nextUrl));
     }
+    await gate.refund();
     await setStaffCookie(r.token, STAFF_WEB_HOURS);
     await audit({
       organization_id: r.orgId,
@@ -59,32 +61,41 @@ export default async function LoginPage({
     const email = normalizeEmail(String(formData.get("email") ?? ""));
     const password = String(formData.get("account_password") ?? "").slice(0, 400);
     const ip = clientIpFrom(await headers());
-    const gate = await staffLoginAllowed(ip);
+    // Counted before it is checked (atomically); a right password is refunded (src/lib/staffLogin.ts).
+    const gate = await staffLoginAttempt(ip);
     // Per address and per (hashed) email, as the app's email sign-in.
-    if (!gate.allowed || !(await emailAllowed("staff-email", email, 10, 900))) redirect(withNext("/login?error=2", nextUrl));
-    if (!isValidEmail(email) || !password) redirect(withNext("/login?error=bad_login", nextUrl));
+    if (!gate.allowed || !(await emailAllowed("staff-email", email, 10, 900))) {
+      await gate.refund();
+      redirect(withNext("/login?error=2", nextUrl));
+    }
+    if (!isValidEmail(email) || !password) {
+      await gate.refund();
+      redirect(withNext("/login?error=bad_login", nextUrl));
+    }
     const { data, error: signInError } = await authClient().auth.signInWithPassword({ email, password });
     if (signInError || !data.session) {
-      await staffLoginFailed(ip);
       redirect(withNext(`/login?error=${signInError?.code === "email_not_confirmed" ? "email_not_confirmed" : "bad_login"}`, nextUrl));
     }
+    await gate.refund();
     // Authoritative: ask Supabase Auth who the session belongs to.
     const me = await getAuthUser(data.session.access_token);
     if (!me.ok || me.data.id !== data.user?.id || me.data.is_anonymous) redirect(withNext("/login?error=signin_failed", nextUrl));
-    // An invite opened in this browser is accepted now, for this (confirmed) email only.
-    const invite = await acceptPendingInvite(me.data);
-    if (invite && !invite.ok) {
-      await signOutAuth(data.session.access_token).catch(() => false);
-      redirect(`/invite?error=${invite.reason}`);
-    }
-    const done = await finishStaffSignIn(me.data.id, invite?.ok ? invite.orgId : null);
+    // An invite opened in this browser is never accepted by the sign-in: when it is this
+    // person's, the next page asks "Join … ?"; otherwise the browser forgets it. The
+    // sign-in itself goes ahead as usual either way.
+    const invite = await pendingInviteFor(me.data);
+    const done = await finishStaffSignIn(me.data.id);
     // Our own signed cookie is the staff session; the Supabase one is not kept.
     await signOutAuth(data.session.access_token).catch(() => false);
-    if (!done.ok) redirect(withNext(`/login?error=${done.reason}`, nextUrl));
-    await setStaffCookie(done.token, STAFF_WEB_HOURS);
-    await audit({ organization_id: done.org.id, actor_role: done.org.role, action: "LOGIN", new_value: { via: "web", kind: "member", method: "email" } });
-    if (done.choices > 1) redirect(withNext("/staff/orgs", nextUrl));
-    redirect(nextUrl || staffHome(done.org.role === "owner" ? "admin" : done.org.role));
+    if (done.ok) {
+      await setStaffCookie(done.token, STAFF_WEB_HOURS);
+      await audit({ organization_id: done.org.id, actor_role: done.org.role, action: "LOGIN", new_value: { via: "web", kind: "member", method: "email" } });
+    }
+    if (invite?.ok) redirect("/invite");
+    if (!done.ok) redirect(invite ? `/invite?error=${invite.reason}` : withNext(`/login?error=${done.reason}`, nextUrl));
+    const next = nextUrl === "/invite" ? null : nextUrl;
+    if (done.choices > 1) redirect(withNext("/staff/orgs", next));
+    redirect(next || staffHome(done.org.role === "owner" ? "admin" : done.org.role));
   }
 
   const message = error ? (LOGIN_ERRORS[error] ?? LOGIN_ERRORS.signin_failed) : null;

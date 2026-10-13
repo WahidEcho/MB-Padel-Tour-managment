@@ -6,14 +6,20 @@
  * contact email (hashed), size-limited, only the whitelisted fields are kept
  * (src/lib/orgs/profile.ts checkApplication), nothing secret is asked for or
  * stored, and the answer is the same whatever happened (a duplicate, a bot
- * filling the hidden field, a slug that was taken).
+ * filling the hidden field).
+ *
+ * An application holds no public slug: it gets a random placeholder
+ * (`applied-…`), and its real slug is chosen when a platform admin approves it,
+ * so applications (turned down ones included) never claim a name's address. A
+ * name that is Move Beyond's or another organisation's is refused at once.
  */
 import { randomBytes } from "node:crypto";
 import { db } from "../supabase";
 import { audit } from "../audit";
 import { checkRateLimit } from "../ratelimit";
 import { emailAllowed } from "../auth/limits";
-import { checkApplication, slugFromName } from "./profile";
+import { applicationSlug, checkApplication } from "./profile";
+import { orgNameRefusal } from "./names";
 
 export const APPLY_PER_IP = { limit: 5, windowSeconds: 3600 };
 export const APPLY_PER_EMAIL = { limit: 3, windowSeconds: 86_400 };
@@ -33,9 +39,10 @@ export async function submitApplication(input: Record<string, unknown>, ip: stri
   if (!(await emailAllowed("org-apply", app.contact_email, APPLY_PER_EMAIL.limit, APPLY_PER_EMAIL.windowSeconds))) {
     return { ok: false, message: "We already have applications from this email today. Move Beyond will be in touch.", status: 429 };
   }
-  const base = slugFromName(app.name);
+  const nameRefused = await orgNameRefusal(app.name);
+  if (nameRefused) return { ok: false, message: nameRefused, field: "name" };
   for (let attempt = 0; attempt < 4; attempt++) {
-    const slug = attempt === 0 ? base : `${base.slice(0, 50)}-${randomBytes(3).toString("hex")}`;
+    const slug = applicationSlug(randomBytes(8).toString("hex"));
     const { data, error } = await db()
       .from("organizations")
       .insert({

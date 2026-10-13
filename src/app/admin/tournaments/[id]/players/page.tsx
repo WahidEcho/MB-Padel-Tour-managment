@@ -1,6 +1,7 @@
 import { requireTournamentPage } from "@/lib/guard";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
+import { hiddenPersonFields } from "@/lib/orgs/personFields";
 import { getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import SessionRowNotice from "../SessionRowNotice";
@@ -44,7 +45,7 @@ interface PlayerRow {
 export default async function PlayerCodesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   // Re-checked on every request: the staff member's organisation must own this tournament.
-  await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/players`);
+  const { staff, scope } = await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/players`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   if (tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Player codes" />;
@@ -60,7 +61,10 @@ export default async function PlayerCodesPage({ params }: { params: Promise<{ id
     ? await db().from("player_claims").select("player_id, created_at").in("player_id", players.map((p) => p.id))
     : { data: [] };
   // Profile contacts (fallback for Send code) and the last code message each player got per channel.
-  const profileIds = [...new Set(players.map((p) => p.player_profile_id).filter((x): x is string => !!x))];
+  const linkedProfiles = [...new Set(players.map((p) => p.player_profile_id).filter((x): x is string => !!x))];
+  // Never the contact of a profile this organisation does not vouch for (src/lib/orgs/personFields.ts).
+  const hidden = await hiddenPersonFields(scope.orgId, linkedProfiles, { platformAdmin: staff.platformAdmin });
+  const profileIds = linkedProfiles.filter((pid) => !hidden.has(pid));
   const [{ data: profData }, { data: sentData }] = await Promise.all([
     profileIds.length ? db().from("player_profiles").select("id, mobile_normalized, email").in("id", profileIds) : Promise.resolve({ data: [] }),
     players.length

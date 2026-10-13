@@ -16,6 +16,8 @@ import type {
   Tournament,
 } from "./types";
 import { resolvePortrait } from "./portrait";
+import { orgOfTournament } from "./orgs/scope";
+import { hiddenPersonFields } from "./orgs/personFields";
 
 export async function getTournament(id: string): Promise<Tournament | null> {
   const { data } = await db().from("tournaments").select("*").eq("id", id).maybeSingle();
@@ -50,11 +52,24 @@ export async function getTeams(tournamentId: string): Promise<Team[]> {
     .eq("tournament_id", tournamentId)
     .order("team_name");
   const teams = (data ?? []) as Team[];
+  // A profile the tournament's organisation does not vouch for (it only matched it by a
+  // typed mobile while another organisation has the player) lends it no photo.
+  const hidden = await profilesWithoutPhoto(tournamentId, teams.flatMap((t) => (t.players ?? []).map((p) => p.player_profile_id)));
   for (const t of teams) {
     t.players?.sort((a, b) => a.player_order - b.player_order);
-    for (const p of t.players ?? []) foldProfilePortrait(p);
+    for (const p of t.players ?? []) {
+      if (p.player_profile_id && hidden.has(p.player_profile_id)) delete (p as WithProfile).player_profiles;
+      foldProfilePortrait(p);
+    }
   }
   return teams;
+}
+
+/** The linked profiles whose photo the tournament's organisation may not show (src/lib/orgs/personFields.ts). */
+export async function profilesWithoutPhoto(tournamentId: string, profileIds: (string | null | undefined)[]): Promise<Set<string>> {
+  const ids = profileIds.filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return new Set();
+  return hiddenPersonFields(await orgOfTournament(tournamentId), ids);
 }
 
 type WithProfile = Player & { player_profiles?: Partial<PhotoFields> | null };

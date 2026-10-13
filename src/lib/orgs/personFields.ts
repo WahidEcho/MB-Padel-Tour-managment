@@ -68,6 +68,50 @@ export async function visiblePersonFields(orgId: string, ids: string[], opts: { 
   return out;
 }
 
+/**
+ * The rule for a profile reached through a row of this organisation's own (a
+ * player in its tournament or session linked to the profile): its person fields
+ * are hidden when this organisation does not vouch for the profile (it has no
+ * organization_players row for it, or only a 'matched' one) while another
+ * organisation does have it. A profile nobody else has stays visible.
+ */
+export function personFieldsHiddenFor(source: OrgPlayerSource | string | null | undefined, otherOrgs: number): boolean {
+  return (!source || source === "matched") && otherOrgs > 0;
+}
+
+/**
+ * The profiles among `ids` whose person fields (mobile, email, photo…) this
+ * organisation must neither show nor use, though its own rows link to them:
+ * team rosters and their photos (getTeams, the live courts hero), contact
+ * fallbacks in audiences and "Send code". Platform admins: none.
+ */
+export async function hiddenPersonFields(orgId: string | null | undefined, ids: string[], opts: { platformAdmin?: boolean } = {}): Promise<Set<string>> {
+  const out = new Set<string>();
+  const wanted = [...new Set(ids.filter(isUuid))];
+  if (opts.platformAdmin || wanted.length === 0) return out;
+  const source = new Map<string, string>();
+  if (isUuid(orgId)) {
+    for (let i = 0; i < wanted.length; i += 200) {
+      const { data } = await db()
+        .from("organization_players")
+        .select("player_profile_id, source")
+        .eq("organization_id", orgId)
+        .in("player_profile_id", wanted.slice(i, i + 200));
+      for (const r of (data ?? []) as { player_profile_id: string; source: string }[]) source.set(r.player_profile_id, r.source);
+    }
+  }
+  const candidates = wanted.filter((id) => !source.has(id) || source.get(id) === "matched");
+  for (let i = 0; i < candidates.length; i += 200) {
+    let q = db().from("organization_players").select("player_profile_id").in("player_profile_id", candidates.slice(i, i + 200));
+    if (isUuid(orgId)) q = q.neq("organization_id", orgId);
+    const { data } = await q;
+    for (const r of (data ?? []) as { player_profile_id: string }[]) {
+      if (personFieldsHiddenFor(source.get(r.player_profile_id), 1)) out.add(r.player_profile_id);
+    }
+  }
+  return out;
+}
+
 /** What an organisation calls a profile it only matched, when nothing was typed on its form. */
 export const UNNAMED_MATCHED = "Registered player";
 

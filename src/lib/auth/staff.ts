@@ -97,7 +97,7 @@ function orgRefusal(org: OrgRow | null): StaffRefusal | null {
   return null;
 }
 
-async function isPlatformAdmin(userId: string): Promise<boolean> {
+export async function isPlatformAdmin(userId: string): Promise<boolean> {
   const { data } = await db().from("platform_admins").select("auth_user_id").eq("auth_user_id", userId).maybeSingle();
   return Boolean(data);
 }

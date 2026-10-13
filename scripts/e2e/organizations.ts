@@ -34,7 +34,7 @@ import { readFileSync } from "fs";
 import { request as httpRequest } from "http";
 import { join } from "path";
 import { db } from "../../src/lib/supabase";
-import { createFriendlySession } from "../../src/lib/friendly/ops";
+import { addEntryForProfile, createFriendlySession, generateSchedule } from "../../src/lib/friendly/ops";
 import { formatEventCode, generateEventCode, hashEventCode } from "../../src/lib/orgs/codes";
 import { signStaffToken } from "../../src/lib/auth/staffToken";
 import { BASE_URL, sessionToken, staffToken } from "./lib/session";
@@ -189,7 +189,7 @@ async function webGoogleSignIn(email: string, next = "/admin/tournaments"): Prom
 
 async function main() {
   const tag = randomUUID().slice(0, 6);
-  const created = { orgs: [] as string[], tournaments: [] as string[], profiles: [] as string[], groups: [] as string[], seasons: [] as string[], announcements: [] as string[], sessions: [] as string[] };
+  const created = { orgs: [] as string[], tournaments: [] as string[], profiles: [] as string[], groups: [] as string[], seasons: [] as string[], announcements: [] as string[], sessions: [] as string[], mbMembers: [] as string[] };
 
   section("Move Beyond backfill");
   const { data: mbRow } = await db().from("organizations").select("id, status").eq("slug", "move-beyond").maybeSingle();
@@ -758,6 +758,97 @@ async function main() {
       const { data: regAudit } = await db().from("audit_logs").select("organization_id, actor_role, actor_user_id, new_value").eq("action", "FRIENDLY_REGISTRATION_SUBMITTED").eq("entity_id", SA.id);
       const regRows = (regAudit ?? []) as { organization_id: string | null; actor_role: string | null; actor_user_id: string | null }[];
       check(regRows.length >= 2 && regRows.every((r) => r.actor_role === "public" && r.actor_user_id === null && r.organization_id === A), "public registrations are audited as public, never as the staff cookie in the same browser", regRows);
+
+      section("a matched player's person fields reach nothing A can see (H1, M1)");
+      {
+        // A's own rows linked to B's player: a team player in A's tournament (how a link joins
+        // A's row to someone else's profile) and A's session draw, with B's photo on the profile.
+        const PHOTO2P = `https://example.com/pulled-portrait-${tag}.png`;
+        await db().from("player_profiles").update({ photo_url: PHOTO2, portrait_url: PHOTO2P }).eq("id", PB2);
+        const { data: linkedRow } = await db().from("players").insert({ tournament_id: TA.id, team_id: TA.team2, full_name: "Anyone At All", player_order: 2, player_profile_id: PB2 }).select("id").single();
+        const LINKED = (linkedRow as { id: string }).id;
+        await db().from("tournaments").update({ app_skin: { showPhotos: true }, match_day_rules: { configured: true, showcase: { on: true, eventDaysOnly: false } } }).eq("id", TA.id);
+        await db().from("matches").update({ status: "live", started_at: new Date().toISOString() }).eq("id", TA.match);
+        // The session draw: B's player (approved above), A's own new player and two more of A's.
+        const extra: string[] = [];
+        for (let i = 0; i < 2; i++) {
+          const { data: px } = await db().from("player_profiles").insert({ public_name: `Alpha Extra ${i} ${tag}`, approval_status: "approved" }).select("id").single();
+          const id = (px as { id: string }).id;
+          created.profiles.push(id);
+          extra.push(id);
+          await db().from("organization_players").insert({ organization_id: A, player_profile_id: id, approval_status: "approved", source: "admin" });
+        }
+        for (const id of [PB3, ...extra]) if (id) await addEntryForProfile(SA.id, id, "e2e");
+        let drawn = 0;
+        try {
+          drawn = (await generateSchedule(SA.id, "e2e", { fit: "all" })).matchesCreated;
+        } catch (err) {
+          console.log("   (schedule)", (err as Error).message);
+        }
+        check(drawn > 0, "A's session draws matches with B's player in them", drawn);
+        await db().from("friendly_ranking_snapshots").insert([
+          { scope: "session", scope_id: SA.id, player_profile_id: PB2, rank: 1, points: 9, matches_played: 1 },
+          { scope: "lifetime", scope_id: A, player_profile_id: PB2, rank: 1, points: 9, matches_played: 1 },
+        ]);
+        const { data: saT } = await db().from("tournaments").select("slug").eq("id", SA.tournament_id).single();
+        const SA_T_SLUG = (saT as { slug: string }).slug;
+        const real = [...secrets, PHOTO2P, `Pulled ${tag}`];
+        const exposes = (t: string) => real.filter((x) => t.includes(x));
+        const surfaces: [string, string, Record<string, string>][] = [
+          ["public tournament page", `/t/${TA.slug}`, {}],
+          ["public matches page", `/t/${TA.slug}/matches`, {}],
+          ["public live page", `/t/${TA.slug}/live`, {}],
+          ["TV screen", `/t/${TA.slug}/screen`, {}],
+          ["session's TV screen", `/t/${SA_T_SLUG}/screen`, {}],
+          ["public session page", `/f/${SA_SLUG}`, {}],
+          ["public session rankings", `/f/${SA_SLUG}/rankings`, {}],
+          ["public rankings", `/rankings?org=e2e-a-${tag}`, {}],
+          ["app tournament bundle", `/api/mobile/v1/t/${TA.slug}/bundle`, {}],
+          ["live courts hero", `/api/mobile/v1/courts/live?demo=1`, {}],
+          ["referee bootstrap", `/api/mobile/v1/referee/matches/${TA.match}/bootstrap`, aReferee.headers],
+          ["referee match picker", `/api/mobile/v1/referee/tournaments/${TA.id}/matches`, aReferee.headers],
+          ["admin tournament page", `/admin/tournaments/${TA.id}`, aAdmin.headers],
+          ["admin teams page", `/admin/tournaments/${TA.id}/teams`, aAdmin.headers],
+          ["admin player codes page", `/admin/tournaments/${TA.id}/players`, aAdmin.headers],
+          ["admin players page", `/admin/players`, aAdmin.headers],
+          ["admin session page", `/admin/friendly-sessions/${SA.id}`, aAdmin.headers],
+          ["admin rankings", `/admin/rankings`, aAdmin.headers],
+          ["tournament export", `/api/tournaments/${TA.id}/export`, aAdmin.headers],
+          ["session export", `/api/f/${SA_SLUG}/export`, aAdmin.headers],
+        ];
+        const heroSeen = { ok: false };
+        for (const [label, path, who] of surfaces) {
+          const r = await http("GET", path, who);
+          if (label === "live courts hero") heroSeen.ok = r.text.includes(TA.id) && r.text.includes("Anyone At All");
+          check(r.status < 500 && exposes(r.text).length === 0, `${label}: none of B's player's real name, photo, email or mobile`, `${r.status} ${JSON.stringify(exposes(r.text))}`);
+        }
+        check(heroSeen.ok, "…(the courts hero did carry A's live match with the linked player: the check above is real)");
+        const boot = await http("GET", `/api/mobile/v1/referee/matches/${TA.match}/bootstrap`, aReferee.headers);
+        check(boot.status === 200 && boot.text.includes("Anyone At All"), "…(the referee bootstrap did carry the linked player under A's typed name)", boot.status);
+
+        for (const audience of [{ type: "tournament", tournamentId: TA.id }, { type: "tournament", tournamentId: SA.tournament_id }]) {
+          const pv = await action("src/app/admin/announcements/actions.ts", "previewAction", [{ kind: "announcement", title: "x", body: "x", channels: ["email", "whatsapp"], audience, tournamentId: null }], aAdmin.headers);
+          check(actionOk(pv) && exposes(pv.text).length === 0 && !/"emailFrom":"profile"/.test(pv.text), `announcement preview (${audience.tournamentId === TA.id ? "A's tournament" : "A's session"}): no contact or name of B's player, nothing taken from their profile`, exposes(pv.text));
+        }
+        const sent = await action("src/app/admin/announcements/actions.ts", "createAndSendAction", [{ kind: "announcement", title: `Hello ${tag}`, body: "Hi {name}", channels: ["email"], audience: { type: "tournament", tournamentId: TA.id }, tournamentId: null }], aAdmin.headers);
+        const annId = /"id":"([0-9a-f-]{36})"/.exec(sent.text)?.[1] ?? "";
+        if (annId) created.announcements.push(annId);
+        check(Boolean(annId), "A sends an announcement to its tournament", sent.text.slice(0, 200));
+        if (annId) await action("src/app/admin/announcements/actions.ts", "pumpAction", [annId], aAdmin.headers);
+        const { data: dels } = await db().from("message_deliveries").select("recipient_id, recipient_name, address, vars").eq("announcement_id", annId);
+        check(exposes(JSON.stringify(dels ?? [])).length === 0 && !((dels ?? []) as { recipient_id: string; address: string | null }[]).some((d) => d.recipient_id === LINKED && d.address), "its deliveries hold no address or name of B's player (no profile fallback)", exposes(JSON.stringify(dels ?? [])));
+        const detail = await http("GET", `/admin/announcements/${annId}?full=1`, aAdmin.headers);
+        const csv = await http("GET", `/admin/announcements/${annId}/export`, aAdmin.headers);
+        check(detail.status === 200 && exposes(detail.text).length === 0, "the deliveries page with full numbers shows none of them", exposes(detail.text));
+        check(csv.status === 200 && exposes(csv.text).length === 0, "the deliveries CSV has none of them", exposes(csv.text));
+        const linkedCode = Array.from(randomBytes(8), (b) => "23456789ABCDEFGHJKMNPQRSTUVWXYZ"[b % 31]).join("");
+        await db().from("players").update({ access_code: linkedCode, access_code_hash: null, access_code_sealed: null }).eq("id", LINKED);
+        const sendCodeR = await action(`${T}/[id]/players/actions.ts`, "sendCode", [null, form({ tournament_id: TA.id, player_id: LINKED, channel: "email" })], aAdmin.headers);
+        const { count: toB } = await db().from("message_deliveries").select("id", { count: "exact", head: true }).eq("address", EMAIL2);
+        check(/No email address/.test(sendCodeR.text) && toB === 0, "\"Send code\" for the linked row never uses B's player's email", sendCodeR.text.slice(0, 160));
+        await db().from("matches").update({ status: "scheduled", started_at: null }).eq("id", TA.match);
+        await db().from("tournaments").update({ match_day_rules: {} }).eq("id", TA.id);
+      }
     }
 
     section("event codes scoped to one tournament, against another tournament of the same organisation");
@@ -900,25 +991,92 @@ async function main() {
       check(!raw.includes(codeAref) && !raw.includes(formatEventCode(codeAref)) && !raw.includes(hashEventCode(codeAref)), "no code (or its hash) is written to the audit log");
     }
 
+    section("the shared admin password cannot manage members or the profile (M2)");
+    {
+      const mbUser = await standinUser(`e2e.mb.member.${tag}@example.com`);
+      const { data: mbm } = await db().from("organization_members").insert({ organization_id: MB, auth_user_id: mbUser.id, invited_email: `e2e.mb.member.${tag}@example.com`, role: "manager", status: "active" }).select("id").single();
+      const MBM = (mbm as { id: string }).id;
+      created.mbMembers.push(MBM);
+      const { data: mbBefore } = await db().from("organizations").select("name, about").eq("id", MB).single();
+      const pages = await Promise.all(["/admin/org/members", "/admin/org/profile"].map((p) => http("GET", p, mbShared.headers)));
+      check(pages.every((r) => r.status === 404 || r.status === 307), "the members and profile pages are not the shared password's", pages.map((r) => r.status));
+      const M_ = "src/app/admin/org/members/actions.ts";
+      const inv = await action(M_, "inviteMember", [null, form({ email: `e2e.shared.self.${tag}@example.com`, role: "manager" })], mbShared.headers);
+      const { count: sharedInvites } = await db().from("organization_invites").select("id", { count: "exact", head: true }).eq("email", `e2e.shared.self.${tag}@example.com`);
+      check(actionRefused(inv) && sharedInvites === 0, "it cannot invite anyone (its holder's own email included) into Move Beyond", inv.text.slice(0, 120));
+      const demote = await action(M_, "changeMemberRole", [null, form({ member_id: MBM, role: "referee" })], mbShared.headers);
+      const remove = await action(M_, "removeMember", [null, form({ member_id: MBM })], mbShared.headers);
+      const { data: mbmNow } = await db().from("organization_members").select("role, status").eq("id", MBM).single();
+      check(actionRefused(demote) && actionRefused(remove) && JSON.stringify(mbmNow) === JSON.stringify({ role: "manager", status: "active" }), "it cannot demote or remove Move Beyond's members", mbmNow);
+      const rebrand = await action("src/app/admin/org/profile/actions.ts", "updateOrgProfile", [null, form({ organization_id: MB, name: (mbBefore as { name: string }).name, about: `PWNED ${tag}` })], mbShared.headers);
+      const { data: mbAfter } = await db().from("organizations").select("name, about").eq("id", MB).single();
+      check(actionRefused(rebrand) && JSON.stringify(mbAfter) === JSON.stringify(mbBefore), "it cannot rebrand Move Beyond", rebrand.text.slice(0, 120));
+      if (JSON.stringify(mbAfter) !== JSON.stringify(mbBefore)) await db().from("organizations").update(mbBefore as Record<string, unknown>).eq("id", MB);
+      const own = await http("GET", "/admin/tournaments", mbShared.headers);
+      check(own.status === 200, "…while it still runs Move Beyond's tournaments", own.status);
+    }
+
     /* ================= Part B: onboarding, invites, members, profile, app ================= */
 
-    const INVITE_RE = /invite\/open\?t=([A-Za-z0-9_-]{43})/;
+    // Either link form, so the attack checks also run against an older build (proof runs).
+    const INVITE_RE = /invite\/open[#?]t=([A-Za-z0-9_-]{43})/;
     const tokenIn = (text: string) => INVITE_RE.exec(text)?.[1] ?? null;
-    /** Opens an invite link (when given) and signs in with Google as `email` in the same browser. */
-    async function inviteSignIn(token: string | null, email: string, next = "/admin/tournaments"): Promise<{ token: string | null; landed: string }> {
-      let inviteCookie = "";
-      if (token) {
-        const o = await fetch(`${BASE_URL}/invite/open?t=${token}`, { redirect: "manual" });
-        inviteCookie = (o.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("mb_invite="))?.split(";")[0] ?? "";
+    const cookiesFrom = (res: Response, ...names: string[]) =>
+      (res.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]!).filter((c) => names.some((n) => c.startsWith(`${n}=`)));
+    /** A browser's cookie jar: later Set-Cookie headers replace earlier values (an empty value deletes). */
+    const jar = (into: Map<string, string>, res: Response) => {
+      for (const c of (res.headers.getSetCookie?.() ?? []).map((x) => x.split(";")[0]!)) {
+        const [k, ...v] = c.split("=");
+        if (v.join("=")) into.set(k!, v.join("="));
+        else into.delete(k!);
       }
+      return into;
+    };
+    const cookieHeader = (j: Map<string, string>) => [...j].map(([k, v]) => `${k}=${v}`).join("; ");
+    /** What /invite/open's page does with the link's fragment: a same-origin POST of the token. */
+    async function openInvite(token: string, origin = BASE_URL): Promise<Response> {
+      return fetch(`${BASE_URL}/invite/open`, { method: "POST", redirect: "manual", headers: { Origin: origin, "Content-Type": "application/x-www-form-urlencoded" }, body: `t=${encodeURIComponent(token)}` });
+    }
+    /** How an attacker plants an invite in someone's browser: whatever this server offers (the POST, or an older build's GET ?t=). */
+    async function plantInvite(token: string): Promise<Map<string, string>> {
+      const viaPost = jar(new Map(), await openInvite(token));
+      if (viaPost.has("mb_invite")) return viaPost;
+      return jar(new Map(), await fetch(`${BASE_URL}/invite/open?t=${token}`, { redirect: "manual" }));
+    }
+    /** A staff sign-in with Google in a browser holding `cookies` (an invite, say). Returns the jar after it. */
+    async function googleIn(email: string, cookies: Map<string, string>, next = "/admin/tournaments"): Promise<{ landed: string; jar: Map<string, string>; res: Response }> {
       const start = await fetch(`${BASE_URL}/staff/auth/google?next=${encodeURIComponent(next)}`, { redirect: "manual" });
-      const state = (start.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("mb_staff_oauth="))?.split(";")[0] ?? "";
+      const state = cookiesFrom(start, "mb_staff_oauth")[0] ?? "";
       const authorize = new URL(start.headers.get("location") ?? "");
       authorize.searchParams.set("login_hint", email);
       const back = await fetch(authorize, { redirect: "manual" });
-      const cb = await fetch(back.headers.get("location") ?? "", { redirect: "manual", headers: { Cookie: [state, inviteCookie].filter(Boolean).join("; ") } });
-      const staff = (cb.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("mb_session="))?.split(";")[0]?.slice("mb_session=".length) ?? null;
-      return { token: staff || null, landed: cb.headers.get("location") ?? "" };
+      // Each browser from its own address (the callback has a per-address brake of its own).
+      const cb = await fetch(back.headers.get("location") ?? "", { redirect: "manual", headers: { Cookie: [state, cookieHeader(cookies)].filter(Boolean).join("; "), "X-Forwarded-For": `192.0.2.${(randomBytes(1)[0] % 200) + 20}` } });
+      return { landed: cb.headers.get("location") ?? "", jar: jar(new Map(cookies), cb), res: cb };
+    }
+    /** POST /invite/accept or /invite/decline, the way the "Join … ?" page's buttons do. */
+    async function answer(which: "accept" | "decline", cookies: Map<string, string>, origin = BASE_URL) {
+      const res = await fetch(`${BASE_URL}/invite/${which}`, { method: "POST", redirect: "manual", headers: { Origin: origin, Cookie: cookieHeader(cookies), "Content-Type": "application/x-www-form-urlencoded" }, body: "" });
+      return { landed: res.headers.get("location") ?? "", jar: jar(new Map(cookies), res), res };
+    }
+    /**
+     * Opens an invite link (when given), signs in with Google as `email` in the same
+     * browser and, when the sign-in asks "Join … ?", answers Accept. Returns the staff
+     * cookie it ends with and where it landed.
+     */
+    async function inviteSignIn(token: string | null, email: string, opts: { accept?: boolean } = {}): Promise<{ token: string | null; landed: string; asked: boolean; jar: Map<string, string> }> {
+      let j = new Map<string, string>();
+      if (token) j = await plantInvite(token);
+      const signed = await googleIn(email, j);
+      j = signed.jar;
+      const asked = signed.landed.endsWith("/invite");
+      let landed = signed.landed;
+      if (asked && opts.accept !== false) {
+        const a = await answer("accept", j);
+        j = a.jar;
+        landed = a.landed;
+      }
+      return { token: j.get("mb_session") ?? null, landed, asked, jar: j };
     }
     const P = "src/app/admin/platform/organizations/actions.ts";
     const M = "src/app/admin/org/members/actions.ts";
@@ -928,9 +1086,9 @@ async function main() {
     const cName = `E2E Club C ${tag}`;
     let C = "";
     let C_SLUG = "";
+    const ip = { "X-Forwarded-For": `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0] % 200) + 20}` };
+    const apply = (o: Record<string, string>, who: Record<string, string> = ip) => action("src/app/organizations/apply/actions.ts", "applyAction", [null, form(o)], who);
     {
-      const ip = { "X-Forwarded-For": `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0] % 200) + 20}` };
-      const apply = (o: Record<string, string>, who: Record<string, string> = ip) => action("src/app/organizations/apply/actions.ts", "applyAction", [null, form(o)], who);
       const r = await apply({ name: cName, contact_name: "Cee Applicant", contact_email: applicant.toUpperCase(), city: "Giza", country: "Egypt", about: `About C ${tag}`, password: "hunter2-secret", via: "app" });
       check(r.status === 200 && /"ok":true/.test(r.text), "the public form takes an application", r.text.slice(0, 160));
       const { data: rows } = await db().from("organizations").select("id, slug, status, application").eq("name", cName);
@@ -953,6 +1111,13 @@ async function main() {
       created.orgs.push(...((floodRows ?? []) as { id: string }[]).map((o) => o.id));
       const pending = await http("GET", `/api/mobile/v1/orgs/${C_SLUG}`);
       check(pending.status === 404, "an organisation that only applied has no public page", pending.status);
+      check(/^applied-[0-9a-f]+$/.test(C_SLUG) && !C_SLUG.includes("club-c"), "an application holds no slug made from its name (a placeholder until approval)", C_SLUG);
+      for (const [label, name] of [["Move Beyond's name", "MOVE   beyond"], ["another organisation's name", `e2e club a ${tag}`], ["a web address", "https://evil.example/login"]] as const) {
+        const before = (await db().from("organizations").select("id", { count: "exact", head: true }).eq("name", name)).count;
+        const r = await apply({ name, contact_name: "Imp", contact_email: `imp.${randomBytes(3).toString("hex")}.${tag}@example.com` }, { "X-Forwarded-For": `198.18.3.${(randomBytes(1)[0] % 200) + 20}` });
+        const after = (await db().from("organizations").select("id", { count: "exact", head: true }).eq("name", name)).count;
+        check(/"ok":false/.test(r.text) && after === before, `an application under ${label} is refused`, r.text.slice(0, 140));
+      }
     }
 
     section("onboarding: only platform admins decide");
@@ -973,6 +1138,23 @@ async function main() {
       const ownerToken = tokenIn(approve.text);
       const { data: st } = await db().from("organizations").select("status").eq("id", C).single();
       check(actionOk(approve) && (st as { status: string }).status === "approved" && Boolean(ownerToken), "the platform admin approves it; the applicant is invited as owner (link shown once)", approve.text.slice(0, 200));
+      C_SLUG = ((await db().from("organizations").select("slug").eq("id", C).single()).data as { slug: string }).slug;
+      check(C_SLUG === `e2e-club-c-${tag}`, "…and only now gets its slug, from its name", C_SLUG);
+      const { data: decided } = await db().from("audit_logs").select("actor_role, actor_user_id").eq("organization_id", C).eq("action", "ORGANIZATION_APPROVED");
+      const dRow0 = ((decided ?? []) as { actor_role: string | null; actor_user_id: string | null }[])[0];
+      check(dRow0?.actor_role === "platform" && dRow0.actor_user_id === platformUser.id, "the approval is audited as the platform admin (\"platform\"), never as the organisation's owner", dRow0);
+      {
+        // A turned-down application never kept its name's address.
+        const rName = `E2E Club R ${tag}`;
+        await apply({ name: rName, contact_name: "R", contact_email: `r.${tag}@example.com` }, { "X-Forwarded-For": `198.18.4.${(randomBytes(1)[0] % 200) + 20}` });
+        const { data: rRow } = await db().from("organizations").select("id").eq("name", rName).maybeSingle();
+        if (rRow) created.orgs.push((rRow as { id: string }).id);
+        await action(P, "decideApplication", [null, form({ org_id: (rRow as { id: string } | null)?.id ?? "", decision: "reject" })], platform);
+        const made = await action(P, "createOrganization", [null, form({ name: rName, invite_email: `r.owner.${tag}@example.com`, invite_role: "owner" })], platform);
+        const { data: madeRow } = await db().from("organizations").select("id, slug").eq("name", rName).eq("status", "approved").maybeSingle();
+        if (madeRow) created.orgs.push((madeRow as { id: string }).id);
+        check(actionOk(made) && (madeRow as { slug: string } | null)?.slug === `e2e-club-r-${tag}`, "a turned-down application holds no slug: the name's slug is free for the real organisation", [made.text.slice(0, 120), madeRow]);
+      }
       const { data: inv } = await db().from("organization_invites").select("id, email, role, token_hash, expires_at").eq("organization_id", C);
       const invites = (inv ?? []) as { id: string; email: string; role: string; token_hash: string; expires_at: string }[];
       check(invites.length === 1 && invites[0]!.email === applicant && invites[0]!.role === "owner", "one invite, bound to the applicant's email, as owner", invites);
@@ -987,30 +1169,52 @@ async function main() {
       check(!JSON.stringify(auditRows ?? []).includes(ownerToken ?? "§"), "no invite token in the audit log");
 
       section("invites: accepted only by the invited email, once");
+      check(/invite\/open#t=/.test(approve.text) && !/invite\/open\?t=/.test(approve.text), "the link carries its token in the fragment, never the query string (no server, proxy log or Referer sees it)");
       const wrong = await inviteSignIn(ownerToken, `e2e.someone.else.${tag}@example.com`);
       const { count: wrongMembers } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C);
       check(!wrong.token && /\/invite\?error=wrong_email/.test(wrong.landed) && wrongMembers === 0, "signing in with another email is refused; no membership", wrong.landed);
+      check(!wrong.jar.has("mb_invite"), "…and that browser forgets the invite (a wrong-email cookie never lingers)", [...wrong.jar.keys()]);
       const { data: still } = await db().from("organization_invites").select("accepted_at").eq("organization_id", C).single();
       check((still as { accepted_at: string | null }).accepted_at === null, "…and the invite stays usable for the right person");
-      const invitePage = await fetch(`${BASE_URL}/invite/open?t=${ownerToken}`, { redirect: "manual" });
-      const ic = (invitePage.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("mb_invite="))?.split(";")[0] ?? "";
-      check(invitePage.status === 303 && (invitePage.headers.get("location") ?? "").endsWith("/invite") && /HttpOnly/i.test((invitePage.headers.getSetCookie?.() ?? []).join(";")), "the link moves its token into an httpOnly cookie and cleans the address bar", invitePage.headers.get("location"));
+      const landing = await fetch(`${BASE_URL}/invite/open?t=${ownerToken}`, { redirect: "manual" });
+      const landingHtml = await landing.text();
+      check(landing.status === 200 && (landing.headers.getSetCookie?.() ?? []).length === 0 && !landingHtml.includes(ownerToken ?? "§") && /no-referrer/.test(landing.headers.get("referrer-policy") ?? ""), "the link's page reads the fragment in the browser; a token in the query string is never read or set", landing.status);
+      const invitePage = await openInvite(ownerToken ?? "");
+      const ic = cookiesFrom(invitePage, "mb_invite")[0] ?? "";
+      check(invitePage.status === 303 && (invitePage.headers.get("location") ?? "").endsWith("/invite") && /HttpOnly/i.test((invitePage.headers.getSetCookie?.() ?? []).join(";")), "the page hands the token over in a POST that moves it into an httpOnly cookie", invitePage.headers.get("location"));
+      const crossSite = await openInvite(ownerToken ?? "", "https://evil.example");
+      check(cookiesFrom(crossSite, "mb_invite").length === 0 && /error=invalid/.test(crossSite.headers.get("location") ?? ""), "…only from this site (another origin's POST sets nothing)");
       const shown = await http("GET", "/invite", { Cookie: ic });
       check(shown.status === 200 && shown.text.includes(cName) && !shown.text.includes(applicant) && !shown.text.includes(ownerToken ?? "§"), "the invite page names the organisation, masks the email and never echoes the token");
-      const owner = await inviteSignIn(ownerToken, applicant);
-      check(Boolean(owner.token?.startsWith("mbs1.")) && owner.landed.endsWith("/admin/tournaments"), "the applicant signs in with Google and is let in", owner.landed);
+      const noAsk = await answer("accept", new Map([[ic.split("=")[0]!, ic.slice(ic.indexOf("=") + 1)]]));
+      const { count: noAskMembers } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C);
+      check(/error=invalid/.test(noAsk.landed) && noAskMembers === 0, "Accept without signing in as the invited address does nothing", noAsk.landed);
+      const ownerAsked = await inviteSignIn(ownerToken, applicant, { accept: false });
+      const { count: beforeAccept } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C);
+      check(ownerAsked.asked && beforeAccept === 0, "signing in as the invited address asks first: nothing is written by the sign-in", ownerAsked.landed);
+      const askPage = await http("GET", "/invite", { Cookie: cookieHeader(ownerAsked.jar) });
+      check(askPage.text.includes(`Join ${cName} as owner?`) && askPage.text.includes("invite-accept") && askPage.text.includes("invite-decline"), "the page asks \"Join … as owner?\" with Accept and Not now");
+      const forgedOrigin = await answer("accept", ownerAsked.jar, "https://evil.example");
+      const { count: afterForged } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C);
+      check(afterForged === 0, "Accept posted from another site does nothing", forgedOrigin.landed);
+      const accepted = await answer("accept", ownerAsked.jar);
+      const owner = { token: accepted.jar.get("mb_session") ?? null, landed: accepted.landed };
+      check(Boolean(owner.token?.startsWith("mbs1.")) && owner.landed.endsWith("/admin/tournaments"), "Accept: the applicant is let in", owner.landed);
       const { data: mem } = await db().from("organization_members").select("id, role, status, auth_user_id").eq("organization_id", C);
       const members = (mem ?? []) as { id: string; role: string; status: string; auth_user_id: string }[];
       check(members.length === 1 && members[0]!.role === "owner" && members[0]!.status === "active", "the membership activates as owner", members);
+      const { data: accAudit } = await db().from("audit_logs").select("actor_user_id, actor_role").eq("organization_id", C).eq("action", "INVITE_ACCEPTED");
+      check(((accAudit ?? []) as { actor_user_id: string | null }[]).some((r) => r.actor_user_id === members[0]?.auth_user_id), "INVITE_ACCEPTED records who accepted (actor_user_id)", accAudit);
       const cOwner = cookie(owner.token ?? "");
       const home = await http("GET", "/admin/tournaments", cOwner);
       check(home.status === 200 && home.text.includes(cName) && !home.text.includes(`Alpha Open ${tag}`), "the new owner works in C's console (and sees none of A's)");
       const reuse = await inviteSignIn(ownerToken, applicant);
-      check(/\/invite\?error=used/.test(reuse.landed), "the same invite cannot be used twice", reuse.landed);
+      const { count: reuseMembers } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C);
+      check(!reuse.asked && reuse.landed.endsWith("/admin/tournaments") && reuseMembers === 1 && !reuse.jar.has("mb_invite"), "a used invite asks nothing again: the sign-in goes on as usual and the browser forgets it", reuse.landed);
       const forged = await inviteSignIn("A".repeat(43), applicant);
-      check(/\/invite\?error=invalid/.test(forged.landed), "a forged invite token is refused", forged.landed);
-      const malformed = await fetch(`${BASE_URL}/invite/open?t=short`, { redirect: "manual" });
-      check(/error=invalid/.test(malformed.headers.get("location") ?? ""), "a malformed token never becomes a cookie");
+      check(!forged.asked && forged.landed.endsWith("/admin/tournaments") && !forged.jar.has("mb_invite"), "a forged invite token is ignored (and forgotten); the sign-in goes on", forged.landed);
+      const malformed = await openInvite("short");
+      check(/error=invalid/.test(malformed.headers.get("location") ?? "") && cookiesFrom(malformed, "mb_invite").length === 0, "a malformed token never becomes a cookie");
 
       section("members: invite, roles, removal, last owner");
       const mgrEmail = `e2e.c.manager.${tag}@example.com`;
@@ -1071,6 +1275,105 @@ async function main() {
       const refGone = await http("GET", "/admin/tournaments", cManager);
       check(actionOk(removeRef) && refGone.status === 307 && /membership_ended/.test(refGone.location), "a removed member is out on their next request", refGone.location);
 
+      section("invites never undo an owner's invite, demote anyone, or outlive their sender (L2)");
+      const adm2Email = `e2e.c.admin2.${tag}@example.com`;
+      const adm3Email = `e2e.c.admin3.${tag}@example.com`;
+      const adm2 = await inviteSignIn(tokenIn((await action(M, "inviteMember", [null, form({ email: adm2Email, role: "admin" })], cOwner)).text), adm2Email);
+      const adm3 = await inviteSignIn(tokenIn((await action(M, "inviteMember", [null, form({ email: adm3Email, role: "admin" })], cOwner)).text), adm3Email);
+      const cAdmin2 = cookie(adm2.token ?? "");
+      const cAdmin3 = cookie(adm3.token ?? "");
+      check(Boolean(adm2.token && adm3.token), "C's owner invites two more admins, who accept");
+      const memberOf = async (email: string) =>
+        ((await db().from("organization_members").select("id, role, status, auth_user_id").eq("organization_id", C).eq("invited_email", email).maybeSingle()).data as { id: string; role: string; status: string; auth_user_id: string } | null);
+      {
+        const vip = `e2e.c.vip.${tag}@example.com`;
+        await action(M, "inviteMember", [null, form({ email: vip, role: "admin" })], cOwner);
+        const over = await action(M, "inviteMember", [null, form({ email: vip, role: "manager" })], cAdmin2);
+        const { data: vipInv } = await db().from("organization_invites").select("role, revoked_at").eq("organization_id", C).eq("email", vip);
+        const rows = (vipInv ?? []) as { role: string; revoked_at: string | null }[];
+        check(/"ok":false/.test(over.text) && rows.some((r) => r.role === "admin" && r.revoked_at === null), "an admin cannot withdraw an owner's invite of an admin by inviting the same address", rows);
+      }
+      {
+        // adm3's member row names another address (an account whose email changed, say): the
+        // "already a member" check cannot see them, so an admin's invite gets through …
+        const a3Before = await memberOf(adm3Email);
+        await db().from("organization_members").update({ invited_email: `e2e.c.legacy3.${tag}@example.com` }).eq("id", a3Before?.id ?? "");
+        const lower = await action(M, "inviteMember", [null, form({ email: adm3Email, role: "manager" })], cAdmin2);
+        const r = await inviteSignIn(tokenIn(lower.text), adm3Email);
+        const { data: a3 } = await db().from("organization_members").select("role").eq("id", a3Before?.id ?? "").single();
+        const a3Role = (a3 as { role: string } | null)?.role;
+        check(Boolean(tokenIn(lower.text)) && a3Role === "admin", "… but accepting it never lowers an admin to manager", [r.landed, a3Role]);
+        await db().from("organization_members").update({ invited_email: adm3Email }).eq("id", a3Before?.id ?? "");
+      }
+      {
+        const late = `e2e.c.late.${tag}@example.com`;
+        const pend = `e2e.c.pending.${tag}@example.com`;
+        const lateInv = await action(M, "inviteMember", [null, form({ email: late, role: "manager" })], cAdmin2);
+        await action(M, "inviteMember", [null, form({ email: pend, role: "referee" })], cAdmin2);
+        const a2 = await memberOf(adm2Email);
+        // An open invite to the admin's own address, from before they joined.
+        await db().from("organization_invites").insert({ organization_id: C, email: adm2Email, role: "manager", token_hash: randomBytes(32).toString("hex"), expires_at: new Date(Date.now() + 86_400_000).toISOString(), created_by: null, created_by_role: "owner" });
+        await action(M, "changeMemberRole", [null, form({ member_id: a2?.id ?? "", role: "referee" })], cOwner);
+        const lateR = await inviteSignIn(tokenIn(lateInv.text), late);
+        const lateMember = await memberOf(late);
+        check(!lateMember && !lateR.token, "an invite whose sender has since lost the right to give that role is void", [lateR.landed, lateMember]);
+        await action(M, "removeMember", [null, form({ member_id: a2?.id ?? "" })], cOwner);
+        const { data: left } = await db().from("organization_invites").select("email, revoked_at").eq("organization_id", C).in("email", [pend, adm2Email]).is("accepted_at", null);
+        check(((left ?? []) as { revoked_at: string | null }[]).length >= 2 && ((left ?? []) as { revoked_at: string | null }[]).every((i) => i.revoked_at), "removing a member withdraws the open invites they sent and any to their own address", left);
+      }
+
+      section("the last owner, under concurrency (L1)");
+      {
+        const a3 = await memberOf(adm3Email);
+        const promote = await action(M, "changeMemberRole", [null, form({ member_id: a3?.id ?? "", role: "owner" })], cOwner);
+        check(actionOk(promote), "C gets a second owner", promote.text.slice(0, 120));
+        const ownerRow = await memberOf(applicant);
+        // Each owner demotes the other at the same moment: one must stay.
+        await Promise.all([
+          action(M, "changeMemberRole", [null, form({ member_id: a3?.id ?? "", role: "admin" })], cOwner),
+          action(M, "changeMemberRole", [null, form({ member_id: ownerRow?.id ?? "", role: "admin" })], cAdmin3),
+        ]);
+        const { count: owners } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C).eq("role", "owner").eq("status", "active");
+        check((owners ?? 0) >= 1, "two owners demoting each other at once leave one owner (the trigger locks the organisation)", owners);
+        // Put things back: the applicant is C's owner for the rest of the run.
+        const now1 = await memberOf(applicant);
+        if (now1?.role !== "owner") await db().from("organization_members").update({ role: "owner" }).eq("id", now1?.id ?? "");
+        await db().from("organization_members").update({ role: "admin" }).eq("id", a3?.id ?? "");
+      }
+
+      section("an invite planted in someone's browser: no silent join, no lockout (M4)");
+      {
+        const victim = `e2e.a.admin.${tag}@example.com`;
+        // Forced join: C's owner invites A's admin into C and plants the link in their browser.
+        const forcedInv = await action(M, "inviteMember", [null, form({ email: victim, role: "manager" })], cOwner);
+        const planted = await plantInvite(tokenIn(forcedInv.text) ?? "");
+        const signIn = await googleIn(victim, planted);
+        const { count: joined } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C).eq("auth_user_id", aAdminUser.id);
+        check(joined === 0, "signing in with a planted invite to another organisation joins nothing by itself", joined);
+        check(Boolean(signIn.jar.get("mb_session")?.startsWith("mbs1.")), "…and the person's own sign-in goes through (their staff cookie is set)", signIn.landed);
+        const asked = await http("GET", "/invite", { Cookie: cookieHeader(signIn.jar) });
+        check(signIn.landed.endsWith("/invite") && asked.text.includes(`Join ${cName} as manager?`), "…they are asked \"Join … as manager?\" instead", signIn.landed);
+        const no = await answer("decline", signIn.jar);
+        const { count: joined2 } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C).eq("auth_user_id", aAdminUser.id);
+        check(no.landed.endsWith("/admin/tournaments") && !no.jar.has("mb_invite") && !no.jar.has("mb_invite_ok") && joined2 === 0, "\"Not now\": the browser forgets the invite, nothing joined, on to their own console", no.landed);
+        // Lockout: an invite for someone else's address, planted in the victim's browser.
+        const other = await action(M, "inviteMember", [null, form({ email: `e2e.c.attacker.${tag}@example.com`, role: "referee" })], cOwner);
+        const planted2 = await plantInvite(tokenIn(other.text) ?? "");
+        const signIn2 = await googleIn(victim, planted2);
+        check(signIn2.landed.endsWith("/admin/tournaments") && Boolean(signIn2.jar.get("mb_session")?.startsWith("mbs1.")), "a planted invite for another address never blocks the person's sign-in", signIn2.landed);
+        check(!signIn2.jar.has("mb_invite"), "…and the browser forgets it at once", [...signIn2.jar.keys()]);
+        // The confirm cookie is bound to one invite: it cannot accept another.
+        const own = await action(M, "inviteMember", [null, form({ email: `e2e.c.confirm.${tag}@example.com`, role: "referee" })], cOwner);
+        const ownSigned = await googleIn(`e2e.c.confirm.${tag}@example.com`, await plantInvite(tokenIn(own.text) ?? ""));
+        const swapped = new Map(ownSigned.jar);
+        const third = await action(M, "inviteMember", [null, form({ email: `e2e.c.third.${tag}@example.com`, role: "referee" })], cOwner);
+        for (const [k, v] of await plantInvite(tokenIn(third.text) ?? "")) swapped.set(k, v);
+        const swapAccept = await answer("accept", swapped);
+        const { count: thirdIn } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C).eq("invited_email", `e2e.c.third.${tag}@example.com`);
+        const { count: confirmIn } = await db().from("organization_members").select("id", { count: "exact", head: true }).eq("organization_id", C).eq("invited_email", `e2e.c.confirm.${tag}@example.com`);
+        check(ownSigned.landed.endsWith("/invite") && thirdIn === 0 && confirmIn === 0 && /error=invalid/.test(swapAccept.landed), "a \"Join … ?\" answer only ever accepts the invite it was asked about", swapAccept.landed);
+      }
+
       section("organisations cannot reach each other's members, invites, codes or profile");
       const { data: bMem } = await db().from("organization_members").select("id").eq("organization_id", B).eq("status", "active").limit(1).single();
       const B_MEMBER = (bMem as { id: string }).id;
@@ -1106,6 +1409,8 @@ async function main() {
       const prof = form({ organization_id: C, name: cName, about: `About C ${tag}`, city: "Giza", country: "Egypt", color_primary: "#123456", color_accent: "#ABCDEF", venue_0_name: "C Courts", venue_0_address: "1 Pyramid Rd", venue_0_courts: "6" });
       prof.append("logo", new File([png], "logo.png", { type: "image/png" }));
       const saved = await action("src/app/admin/org/profile/actions.ts", "updateOrgProfile", [null, prof], cOwner);
+      /** The whole profile as saved above, with `extra` changed (a save sends every field). */
+      const profForm = (extra: Record<string, string>) => form({ organization_id: C, name: cName, about: `About C ${tag}`, city: "Giza", country: "Egypt", color_primary: "#123456", color_accent: "#ABCDEF", venue_0_name: "C Courts", venue_0_address: "1 Pyramid Rd", venue_0_courts: "6", ...extra });
       const { data: cRow } = await db().from("organizations").select("colors, logo_url, venues").eq("id", C).single();
       const cr = cRow as { colors: { primary: string; accent: string }; logo_url: string | null; venues: { name: string }[] };
       check(actionOk(saved) && cr.colors.primary === "#123456" && cr.colors.accent === "#abcdef" && Boolean(cr.logo_url) && cr.venues[0]?.name === "C Courts", "C's owner saves its profile, colours, logo and venues", saved.text.slice(0, 160));
@@ -1114,6 +1419,24 @@ async function main() {
       const fakeR = await action("src/app/admin/org/profile/actions.ts", "updateOrgProfile", [null, fake], cOwner);
       const { data: cRow2 } = await db().from("organizations").select("logo_url").eq("id", C).single();
       check(/"ok":false/.test(fakeR.text) && (cRow2 as { logo_url: string }).logo_url === cr.logo_url, "a file that is not the image it claims is refused (server-side check)", fakeR.text.slice(0, 160));
+      {
+        // L4: the stored type and extension come from the bytes, and huge canvases are refused.
+        const misnamed = profForm({});
+        misnamed.append("logo", new File([png], "logo.html", { type: "image/jpeg" }));
+        const mR = await action("src/app/admin/org/profile/actions.ts", "updateOrgProfile", [null, misnamed], cOwner);
+        const { data: mRow } = await db().from("organizations").select("logo_url").eq("id", C).single();
+        const mUrl = (mRow as { logo_url: string }).logo_url;
+        check(actionOk(mR) && /\.png$/.test(mUrl) && mUrl !== cr.logo_url, "a PNG uploaded as \"logo.html\" (declared JPEG) is stored as .png", mUrl);
+        const bomb = Buffer.alloc(33);
+        png.copy(bomb, 0, 0, 16);
+        bomb.writeUInt32BE(30000, 16);
+        bomb.writeUInt32BE(30000, 20);
+        const huge = profForm({});
+        huge.append("logo", new File([bomb], "logo.png", { type: "image/png" }));
+        const hR = await action("src/app/admin/org/profile/actions.ts", "updateOrgProfile", [null, huge], cOwner);
+        const { data: hRow } = await db().from("organizations").select("logo_url").eq("id", C).single();
+        check(/"ok":false/.test(hR.text) && (hRow as { logo_url: string }).logo_url === mUrl, "a logo declaring a 30000 × 30000 canvas is refused", hR.text.slice(0, 160));
+      }
       const bill = await action(P, "saveBilling", [null, form({ org_id: C, tier: "pro", commission_pct: "7.5", subscription_status: "trial" })], cOwner);
       const billP = await action(P, "saveBilling", [null, form({ org_id: C, tier: "standard", commission_pct: "5", subscription_status: "trial" })], platform);
       const { data: planRow } = await db().from("organizations").select("plan").eq("id", C).single();
@@ -1157,6 +1480,44 @@ async function main() {
       check(!((bogus.json?.follows ?? []) as { kind: string }[]).some((f) => f.kind === "organisation_admin"), "an unknown follow kind is ignored");
       await db().from("follows").delete().eq("owner_id", aAdminUser.id);
 
+      section("renames wait for Move Beyond; look-alike names are refused (L3)");
+      {
+        const PR = "src/app/admin/org/profile/actions.ts";
+        const nameNow = async (): Promise<{ name: string; pending_name: string | null }> => {
+          const r = await db().from("organizations").select("name, pending_name").eq("id", C).single();
+          // (A database without 0025 — a proof run against an older build — has no pending_name.)
+          if (r.error) return { name: ((await db().from("organizations").select("name").eq("id", C).single()).data as { name: string }).name, pending_name: null };
+          return r.data as { name: string; pending_name: string | null };
+        };
+        for (const [label, name] of [["Move Beyond's name", "move  BEYOND"], ["Move Score's name", "Move-Score"], ["another organisation's name (case and spaces aside)", `e2e   club a ${tag}`], ["a web address", "www.evil.example"]] as const) {
+          const r = await action(PR, "updateOrgProfile", [null, profForm({ name })], cOwner);
+          const n = await nameNow();
+          check(/"ok":false/.test(r.text) && n.name === cName && n.pending_name === null, `a rename to ${label} is refused`, [r.text.slice(0, 120), n]);
+        }
+        const newName = `C Renamed ${tag}`;
+        const r = await action(PR, "updateOrgProfile", [null, profForm({ name: newName })], cOwner);
+        const n = await nameNow();
+        const pubName = ((await http("GET", `/api/mobile/v1/orgs/${C_SLUG}?r=${tag}`)).json as { organization?: { name: string } } | null)?.organization?.name;
+        check(actionOk(r) && n.name === cName && n.pending_name === newName && pubName === cName, "a rename of an approved organisation waits for a platform admin; the public name stays", [n, pubName]);
+        const notYours = await action(P, "decideRename", [null, form({ org_id: C, decision: "approve" })], cOwner);
+        check(actionRefused(notYours) && (await nameNow()).name === cName, "the organisation cannot approve its own rename");
+        const listed = await http("GET", "/admin/platform/organizations", platform);
+        check(listed.text.includes(newName), "the platform admin sees the rename waiting");
+        const ok = await action(P, "decideRename", [null, form({ org_id: C, decision: "approve" })], platform);
+        const after = await nameNow();
+        check(actionOk(ok) && after.name === newName && after.pending_name === null, "approved, the new name applies", after);
+        const { data: renAudit } = await db().from("audit_logs").select("actor_role").eq("organization_id", C).eq("action", "ORGANIZATION_RENAMED");
+        check(((renAudit ?? []) as { actor_role: string }[]).every((x) => x.actor_role === "platform") && (renAudit ?? []).length === 1, "…audited as the platform's decision", renAudit);
+        await db().from("organizations").update({ name: cName }).eq("id", C);
+      }
+      {
+        // Invite email has brakes: per organisation, and per address.
+        const target = `e2e.spammed.${tag}@example.com`;
+        const results: boolean[] = [];
+        for (let i = 0; i < 6; i++) results.push(/"ok":true/.test((await action(M, "inviteMember", [null, form({ email: target, role: "referee" })], aAdmin.headers)).text));
+        check(results.slice(0, 4).every(Boolean) && !results[5], "one address cannot be sent invite after invite (a few a day at most)", results);
+      }
+
       section("suspension and status");
       const susp = await action(P, "setOrganizationStatus", [null, form({ org_id: C, status: "suspended" })], aAdmin.headers);
       check(actionRefused(susp), "A's admin cannot suspend C");
@@ -1197,6 +1558,15 @@ async function main() {
       }
       const afterGuess = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": "198.51.100.200" }, { code: codeMany });
       check(prefixLast === 401 && afterGuess.status === 429, "40 failed guesses at one prefix, spread over addresses, still close it", [prefixLast, afterGuess.status]);
+      // M3: counted before the attempt, atomically: a simultaneous wave gets no more tries than the limit.
+      const wave = { "X-Forwarded-For": `198.51.100.${(randomBytes(1)[0] % 150) + 50}` };
+      const waveStatuses = await Promise.all(Array.from({ length: 60 }, () => http("POST", "/api/mobile/v1/staff/session", wave, { code: generateEventCode() }).then((r) => r.status)));
+      const tried = waveStatuses.filter((x) => x === 401).length;
+      check(tried <= 20 && waveStatuses.every((x) => x === 401 || x === 429), "60 simultaneous wrong codes from one address: at most 20 are tried", { tried, refused: waveStatuses.filter((x) => x === 429).length });
+      const pw = { "X-Forwarded-For": `198.51.100.${(randomBytes(1)[0] % 40) + 210}` };
+      const pwStatuses = await Promise.all(Array.from({ length: 15 }, (_, i) => http("POST", "/api/mobile/v1/staff/session", pw, { code: `hunter2 #${i} ${tag}!` }).then((r) => r.status)));
+      const pwTried = pwStatuses.filter((x) => x === 401).length;
+      check(pwTried <= 6, "anything not shaped like an event code (a shared-password guess) gets a much smaller allowance, waves included", { tried: pwTried });
     }
   } finally {
     // Clean up: children first (tournaments cascade to their rows), then the organisations.
@@ -1213,7 +1583,10 @@ async function main() {
     await db().from("event_groups").delete().in("id", created.groups);
     await db().from("seasons").delete().in("id", created.seasons);
     await db().from("organization_players").delete().in("organization_id", created.orgs);
+    await db().from("friendly_ranking_snapshots").delete().in("player_profile_id", created.profiles);
     await db().from("player_profiles").delete().in("id", created.profiles);
+    await db().from("organization_members").delete().in("id", created.mbMembers);
+    await db().from("organization_invites").delete().eq("organization_id", MB).like("email", `%${tag}@example.com`);
     await db().from("message_deliveries").delete().like("address", `%${tag}@example.com`);
     // Members and invites go with their organisation (cascade; the last-owner trigger allows that).
     await db().from("organizations").delete().in("id", created.orgs);

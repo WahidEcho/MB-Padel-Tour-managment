@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { requireStaff } from "@/lib/guard";
-import { can } from "@/lib/auth";
+import { staffCan } from "@/lib/auth";
 import StateForm from "@/components/StateForm";
 import ImageInput from "@/components/ImageInput";
 import { cleanColors, cleanVenues, ORG_LIMITS } from "@/lib/orgs/profile";
@@ -12,16 +12,17 @@ export const dynamic = "force-dynamic";
 /** The organisation's public profile in the app, and the branding its tournaments default to. Owners and admins. */
 export default async function OrgProfilePage() {
   const staff = await requireStaff(["admin", "manager"], "/admin/org/profile");
-  if (!can(staff.role, "manage_org_profile") || staff.scopeTournamentId) notFound();
+  if (!staffCan(staff, "manage_org_profile") || staff.scopeTournamentId) notFound();
   const { data } = await db()
     .from("organizations")
-    .select("id, slug, name, logo_url, colors, about, city, country, venues, top_board_opt_out")
+    .select("id, slug, name, pending_name, logo_url, colors, about, city, country, venues, top_board_opt_out")
     .eq("id", staff.orgId)
     .maybeSingle();
   const org = data as {
     id: string;
     slug: string;
     name: string;
+    pending_name: string | null;
     logo_url: string | null;
     colors: unknown;
     about: string | null;
@@ -49,6 +50,11 @@ export default async function OrgProfilePage() {
           <div className="sm:col-span-2">
             <label className="label" htmlFor="org-name">Name</label>
             <input id="org-name" name="name" defaultValue={org.name} required maxLength={ORG_LIMITS.name} className="input" />
+            <p className="mt-1 text-xs text-muted" data-testid="org-name-note">
+              {org.pending_name
+                ? `"${org.pending_name}" is waiting for Move Beyond's approval.`
+                : "A new name is checked by Move Beyond before it shows anywhere."}
+            </p>
           </div>
           <div>
             <label className="label" htmlFor="org-city">City</label>

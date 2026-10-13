@@ -18,6 +18,7 @@ import { matchDayRules } from "../matchday/rules";
 import { sportOf } from "../sports/registry";
 import { showcaseOn, showcaseSubset } from "../tv/showcase";
 import { resolvePortrait } from "../portrait";
+import { profilesWithoutPhoto } from "../data";
 import { memo } from "./http";
 import { CARD_COLUMNS, MATCH_COLUMNS, SNAPSHOT_COLUMNS, getDiscover, getFlags, plateBrackets } from "./server";
 import { toCard, toCourtCall, toCourtTeam, toMatch, toSides, toStageRules, toTie, type CallRow, type TournamentRow } from "./projection";
@@ -108,6 +109,14 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
     const matchesOf = groupBy([...byId.values()].sort((a, b) => a.match_order - b.match_order));
     const tiesOf = groupBy((tiesRes.data ?? []) as unknown as (Tie & { tournament_id: string })[]);
     const teamsOf = groupBy((teamsRes.data ?? []) as unknown as TeamRow[]);
+    // Per event: the linked profiles its organisation may not show a photo of (src/lib/orgs/personFields.ts).
+    const noPhoto = new Map<string, Set<string>>();
+    await Promise.all(
+      ids.map(async (tid) => {
+        const profileIds = (teamsOf.get(tid) ?? []).flatMap((tm) => (tm.players ?? []).map((pl) => pl.player_profile_id));
+        noPhoto.set(tid, await profilesWithoutPhoto(tid, profileIds));
+      }),
+    );
     const callsOf = groupBy(calls);
 
     // What each event's cards need, then the scores of just those matches.
@@ -156,7 +165,7 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
         rules: toStageRules(p.t, plate.get(p.card.id) ?? []),
         sides: toSides(p.t.branding_config),
         courts: p.courts,
-        teams: (teamsOf.get(p.card.id) ?? []).filter((tm) => teamIds.has(tm.id)).map((tm) => toCourtTeam(withProfilePhotos(tm), showPhotos)),
+        teams: (teamsOf.get(p.card.id) ?? []).filter((tm) => teamIds.has(tm.id)).map((tm) => toCourtTeam(withProfilePhotos(tm, noPhoto.get(p.card.id)), showPhotos)),
         ties,
         matches,
         calls: p.calls.filter((c) => matchIds.has(c.matchId)),
@@ -167,11 +176,13 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
 }
 
 /** A linked profile's photo wins field by field (src/lib/portrait.ts); the embed itself is dropped. */
-function withProfilePhotos(t: TeamRow): TeamRow {
+function withProfilePhotos(t: TeamRow, hidden?: Set<string>): TeamRow {
   return {
     ...t,
     players: (t.players ?? []).map((p) => {
-      const { player_profiles: profile, ...row } = p as typeof p & { player_profiles?: Parameters<typeof resolvePortrait>[1] };
+      const { player_profiles: linked, ...row } = p as typeof p & { player_profiles?: Parameters<typeof resolvePortrait>[1] };
+      // A profile the event's organisation does not vouch for lends it no photo.
+      const profile = row.player_profile_id && hidden?.has(row.player_profile_id) ? null : linked;
       const r = resolvePortrait(row, profile);
       return { ...row, photo_url: r.photoUrl, portrait_url: r.portraitUrl, focal_x: r.focalX, focal_y: r.focalY };
     }),

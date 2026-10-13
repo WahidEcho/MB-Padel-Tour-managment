@@ -53,6 +53,25 @@ export function mayAssignRole(actor: OrgRole, current: OrgRole | null, next: Org
   return current === null || !OWNER_GRANTED.includes(current);
 }
 
+/** How far a role reaches, for "never lower" (referee and operator are side by side). */
+export const ROLE_RANK: Record<OrgRole, number> = { owner: 4, admin: 3, manager: 2, referee: 1, operator: 1 };
+
+/**
+ * The role an accepted invite leaves the person with. `inviter` is the role of
+ * whoever sent it, as it is **now** ("platform" for Move Beyond's platform admins;
+ * null when that person is no longer an active member). A new member takes the
+ * invited role only if the inviter may still give it (else null: the invite is
+ * refused). Someone already active keeps their role unless the invite raises it
+ * and the inviter may make that change: an invite never lowers anybody, and never
+ * does what the inviter could not do on the members page.
+ */
+export function roleOnAccept(invited: OrgRole, inviter: OrgRole | "platform" | null, current: OrgRole | null): OrgRole | null {
+  const may = (from: OrgRole | null) => inviter === "platform" || (inviter !== null && mayAssignRole(inviter, from, invited));
+  if (current === null) return may(null) ? invited : null;
+  if (ROLE_RANK[invited] <= ROLE_RANK[current]) return current;
+  return may(current) ? invited : current;
+}
+
 /** Whether `actor` may remove a member who holds `current`. */
 export function mayRemoveMember(actor: OrgRole, current: OrgRole): boolean {
   if (actor === "owner") return true;

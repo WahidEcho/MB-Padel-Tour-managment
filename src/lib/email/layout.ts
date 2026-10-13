@@ -53,6 +53,19 @@ const C = EMAIL_COLORS;
 const P_STYLE = `margin:0 0 16px;font-family:${BODY_FONT};font-size:16px;line-height:1.55;color:${C.text};`;
 const LINK_STYLE = `color:${C.stage};text-decoration:underline;`;
 
+/**
+ * Text that must never become a link (an organisation's name, say, which its own
+ * staff type): a zero-width space after the scheme, in "www." and before a
+ * domain-like dot keeps `textToHtml` (and mail clients' own autolinking) from
+ * turning it into one.
+ */
+export function noAutolink(text: string): string {
+  return text
+    .replace(/(https?)(:\/\/)/gi, "$1\u200B$2")
+    .replace(/\b(www)\./gi, "$1\u200B.")
+    .replace(/([a-z0-9-])\.([a-z]{2,})\b/gi, "$1\u200B.$2");
+}
+
 /** Escaped text with links made clickable and line breaks kept, one <p> per paragraph. */
 export function textToHtml(text: string): string {
   const escaped = escapeHtml(text);

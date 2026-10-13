@@ -91,9 +91,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `supabase/gate/reopen_open_access.sql` must never reopen the private tables (`src/lib/gateSql.test.ts`).
 - Organisations part B (onboarding): apply `/organizations/apply` → platform admins decide in
   `admin/platform/organizations`; invites `src/lib/orgs/invites.ts` (HMAC-only tokens, email-bound,
-  single use, 7 days; accepted inside the staff sign-in); members/profile pages `admin/org/{members,profile}`;
-  public org API `api/mobile/v1/orgs/[slug]` + app `org/[slug]`. Details and deploy notes: `docs/organizations.md`.
-  Gate: `npm run e2e:organizations` (stand-in).
+  single use, 7 days, token in the link's `#fragment`; a sign-in never accepts or is blocked by one — it asks
+  "Join … as …?" at `/invite`, Accept/Not now are `POST /invite/{accept,decline}`); members/profile pages
+  `admin/org/{members,profile}` (personal accounts only: `PERSONAL_ACCOUNT_ONLY` in `src/lib/auth.ts`; renames
+  wait for platform approval in `organizations.pending_name`, migration 0025); public org API
+  `api/mobile/v1/orgs/[slug]` + app `org/[slug]`. A profile an organisation does not vouch for lends its rows no
+  contact or photo (`hiddenPersonFields`). Staff-login brakes are atomic (`takeRateLimit`, compare-and-set, no RPC).
+  Details, the 0.5B review fixes and deploy notes: `docs/organizations.md`. Gate: `npm run e2e:organizations` (stand-in).
 - Public site: `https://tour.mbeg.org` (one constant, `src/lib/site.ts`, shared with the app through `@core`; server links read
   `PUBLIC_SITE_URL` first via `siteUrl()` in `src/lib/messaging/links.ts`). Never write the old `mb-tournament.vercel.app` host
   into links, emails or docs; it survives only as the legacy universal-link host in `move-score-app/app.config.ts`.

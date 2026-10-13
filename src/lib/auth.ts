@@ -142,6 +142,22 @@ const PERMISSIONS = {
 
 export type Permission = keyof typeof PERMISSIONS;
 
+/**
+ * Permissions a shared role password never carries, whatever role it acts as: who
+ * belongs to an organisation and how it presents itself are decided by a person
+ * signed in with their own account (a shared password could otherwise invite its
+ * holder's own email and keep a membership after the password is retired, or
+ * remove the organisation's real members). Platform settings need a platform
+ * admin besides (guard.ts).
+ */
+export const PERSONAL_ACCOUNT_ONLY: ReadonlySet<Permission> = new Set<Permission>(["manage_members", "manage_org_profile", "manage_platform"]);
+
+/** Whether a staff principal (its role and kind of credential) may do an action. */
+export function staffCan(staff: { role: Role | OrgRole; kind: string } | null | undefined, action: Permission): boolean {
+  if (!staff || !can(staff.role, action)) return false;
+  return !PERSONAL_ACCOUNT_ONLY.has(action) || staff.kind === "member";
+}
+
 /** Whether a role may do an action. An organisation's owner holds every admin permission. */
 export function can(role: Role | OrgRole | null | undefined, action: Permission): boolean {
   if (!role) return false;

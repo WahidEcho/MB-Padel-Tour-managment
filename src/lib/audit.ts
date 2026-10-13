@@ -4,6 +4,8 @@ import { orgOfTournament } from "./orgs/scope";
 
 /** Roles of flows no staff member performs (public forms, app users' own account routes). */
 export const PUBLIC_ACTORS = new Set(["public", "user"]);
+/** Labels an explicit caller sets that a staff principal never overrides. */
+const KEEP_ROLE = new Set(["system", "platform"]);
 
 /** Who did it, for the audit row: a member's user id, or "code:<id>" for an event code. */
 function actorUserId(staff: StaffPrincipal | null): string | null {
@@ -22,6 +24,11 @@ export async function audit(entry: {
   tournament_id?: string | null;
   organization_id?: string | null;
   actor_role?: string | null;
+  /**
+   * The person who did it when no staff cookie says so: an app user's own flow
+   * (accepting an invite they were sent, say), checked by the caller.
+   */
+  actor_user_id?: string | null;
   action: string;
   entity_type?: string;
   entity_id?: string | null;
@@ -41,15 +48,23 @@ export async function audit(entry: {
   // cookie: no staff role, user or organisation is stamped on it.
   const publicFlow = PUBLIC_ACTORS.has(entry.actor_role ?? "");
   const staff = publicFlow ? null : await currentStaffIfAny();
+  const explicitUser = typeof entry.actor_user_id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry.actor_user_id) ? entry.actor_user_id : null;
   const organizationId =
     entry.organization_id ?? (entry.tournament_id ? await orgOfTournament(entry.tournament_id).catch(() => null) : null) ?? staff?.orgId ?? null;
   const { error } = await db().from("audit_logs").insert({
     tournament_id: entry.tournament_id ?? null,
     organization_id: organizationId,
-    actor_user_id: actorUserId(staff),
+    actor_user_id: explicitUser ?? actorUserId(staff),
     // The organisation role (owner, not the admin it acts as) when a staff member did
-    // it; an explicit "system" (automatic follow-up work) keeps its own label.
-    actor_role: entry.actor_role === "system" ? "system" : (staff?.orgRole ?? entry.actor_role ?? null),
+    // it; an explicit "system" (automatic follow-up work) or "platform" (Move Beyond's
+    // platform admins acting on an organisation) keeps its own label, and so does a
+    // platform admin's action on an organisation other than the one they are signed
+    // in for (they are not its owner).
+    actor_role: KEEP_ROLE.has(entry.actor_role ?? "")
+      ? entry.actor_role
+      : staff?.platformAdmin && organizationId && organizationId !== staff.orgId
+        ? "platform"
+        : (staff?.orgRole ?? entry.actor_role ?? null),
     action: entry.action,
     entity_type: entry.entity_type ?? null,
     entity_id: isUuid ? id : null,
