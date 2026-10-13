@@ -47,6 +47,8 @@ export type { LeaguePointsRules, LeagueStreakRule, LeagueResultKind, LeaguePoint
 export { BOARD_LENGTHS, boardMonths, rankBoard, monthlyBoard, periodBoard, topOfAllLeagues, boardLineOf } from "../../../src/lib/leagues/boards";
 export type { BoardEntry, BoardLine, BoardLength, BoardLeague, TopScope } from "../../../src/lib/leagues/boards";
 export { JOIN_MODES, joinDecision, normalizeJoinModes, normalizeInviteCode } from "../../../src/lib/leagues/join";
+export { BOARD_LABELS, monthLabel, dayLabel, shiftMonth, isMonth, leaguePeriods } from "../../../src/lib/leagues/settings";
+export type { LeaguePeriods, LeagueKind } from "../../../src/lib/leagues/settings";
 export type { JoinMode, JoinDecision, JoinRefusal, JoinLeague, JoinApplicant, MembershipStatus } from "../../../src/lib/leagues/join";
 export { orderOfPlay, estimateTimes, aboutTime } from "../../../src/lib/friendly/scheduler";
 export type { ScheduledRound, ScheduledMatch, CourtOrder, CourtOrderEntry, MatchEstimate } from "../../../src/lib/friendly/scheduler";

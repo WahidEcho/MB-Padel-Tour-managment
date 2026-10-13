@@ -19,6 +19,7 @@ import { Button, Card, SectionHeader } from "../ui/Bits";
 import { appVersion, config } from "../config";
 import { PlayerSection } from "../player/PlayerSection";
 import { RegistrationBanner } from "../auth/RegistrationBanner";
+import { openLeagues } from "../nav/links";
 
 // Where the legal pages live when the server's config has not loaded yet.
 const SITE = APP_PAGE_URL;
@@ -113,6 +114,12 @@ export default function Account() {
               <Switch value={prefs[k]} onValueChange={(on) => changeAlertPref(k, on)} trackColor={{ true: t.ball, false: t.chip }} accessibilityLabel={label} />
             </View>
           ))}
+      </Card>
+
+      <SectionHeader title="Leagues" />
+      <Card onPress={openLeagues} accessibilityLabel="My leagues and the top of all leagues" style={{ gap: 2 }}>
+        <Body weight="semi">My leagues</Body>
+        <Body tone="ink2" size={12.5}>Your rank this month, and the top of all leagues.</Body>
       </Card>
 
       <SectionHeader title="Look" />

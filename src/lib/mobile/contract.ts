@@ -425,8 +425,153 @@ export interface MOrgProfile {
     venues: { name: string; address: string | null; courts: number | null }[];
   };
   tournaments: { live: MTournamentCard[]; upcoming: MTournamentCard[]; past: MTournamentCard[] };
-  /** Sections the app shows as "coming" (leagues and top boards arrive in Phase 7). Never filled with sample data. */
+  /** Its public leagues (active and closed), newest first. */
+  leagues: MLeagueCard[];
+  /** "Top of all leagues" in this organisation for the current month; null when none of its leagues counts toward it. */
+  topBoard: MTopBoard | null;
+  /** Sections an older app showed as "coming". Leagues and boards arrived (Phase 7): always empty now. */
   comingSoon: ("leagues" | "boards")[];
+}
+
+/* ---------- leagues (public, Phase 7) ---------- */
+
+export type MLeagueKind = "nights" | "season";
+export type MJoinMode = "open" | "approval" | "paid" | "invite_code";
+export type MMembershipStatus = "pending" | "awaiting_payment" | "active" | "removed";
+
+/** A league in a list (an organisation's page, Leagues). */
+export interface MLeagueCard {
+  slug: string;
+  name: string;
+  sport: string;
+  kind: MLeagueKind;
+  status: "active" | "closed";
+  organization: MOrgRef | null;
+  divisions: number;
+  members: number;
+  /** The next night or fixture date ("YYYY-MM-DD", the league's own day), if any. */
+  nextDate: string | null;
+  joinModes: MJoinMode[];
+}
+
+/**
+ * One line of a board. Public: a name and numbers only (never a profile id, a
+ * phone, an email or a photo). An organisation that only matched a player by a
+ * typed mobile sees the name typed on its own form (src/lib/orgs/personFields.ts).
+ */
+export interface MBoardLine {
+  rank: number;
+  name: string;
+  points: number;
+  wins: number;
+  losses: number;
+  played: number;
+  gameDiff: number;
+}
+
+export interface MBoardPeriod {
+  /** Months the board sums: 1 (monthly), 3, 6, 9 or 12. */
+  length: number;
+  label: string;
+  /** The month asked for ("YYYY-MM") and the months the board covers. */
+  month: string;
+  months: string[];
+}
+
+export interface MLeagueDivision {
+  id: string;
+  name: string;
+  members: number;
+  board: MBoardLine[];
+}
+
+export interface MLeagueNight {
+  date: string;
+  name: string;
+  /** Opens like a tournament (movescore://t/<slug>). */
+  slug: string;
+  liveCount: number;
+  matches: number;
+  finished: number;
+  division: string;
+}
+
+export interface MLeagueFixture {
+  date: string;
+  round: number | null;
+  division: string;
+  home: string;
+  away: string;
+  status: "scheduled" | "live" | "finished";
+  /** "6-4 6-3", when finished. */
+  score: string | null;
+  /** Opens the match (movescore://match/<id>) once it exists on a session the app shows. */
+  matchId: string | null;
+  slug: string | null;
+}
+
+export interface MLeague {
+  generatedAt: string;
+  league: {
+    slug: string;
+    name: string;
+    about: string | null;
+    sport: string;
+    kind: MLeagueKind;
+    status: "active" | "closed";
+    timezone: string;
+    organization: MOrgRef | null;
+    joinModes: MJoinMode[];
+    takingMembers: boolean;
+    fee: { membership: string | null; perNight: string | null; payAtVenue: boolean };
+    points: { win: number; draw: number; loss: number; walkoverWin: number; walkoverLoss: number; streak: { on: boolean; bonus: number; from: number; to: number } };
+    boards: number[];
+    yearStartMonth: number;
+  };
+  period: MBoardPeriod;
+  /** The whole league's board for the period, then each division's. */
+  board: MBoardLine[];
+  divisions: MLeagueDivision[];
+  nights: MLeagueNight[];
+  fixtures: MLeagueFixture[];
+}
+
+/** "Top of all leagues": per organisation, or across the platform (organisations may opt out). */
+export interface MTopBoard {
+  generatedAt: string;
+  scope: "organization" | "platform";
+  organization: MOrgRef | null;
+  month: string;
+  lines: MBoardLine[];
+}
+
+/** The signed-in account in its leagues (also the data a league widget will use). */
+export interface MMyLeague {
+  slug: string;
+  name: string;
+  organization: MOrgRef | null;
+  status: MMembershipStatus;
+  division: string | null;
+  payAtVenue: boolean;
+  /** This month's board in the league. */
+  month: string;
+  rank: number | null;
+  points: number;
+}
+
+export interface MMyLeagues {
+  generatedAt: string;
+  /** False when the account is not linked to a player profile yet (joining needs one). */
+  profileLinked: boolean;
+  leagues: MMyLeague[];
+}
+
+/** POST /leagues/<slug>/join. */
+export interface MJoinResult {
+  outcome: "joined" | "pending_approval" | "payment_required";
+  status: MMembershipStatus;
+  payAtVenue: boolean;
+  message: string;
 }
 
 export interface MFollow {

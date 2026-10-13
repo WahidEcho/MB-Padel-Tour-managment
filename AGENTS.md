@@ -139,3 +139,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   accounts linked to `player` targets. The reminder is a future `notification_events` row sent by the scheduled drain.
   `PUSH_DRY_RUN=1` sends nothing (tickets `dry-run[:self]`). Gate `npm run e2e:match-day` (stand-in; server started with
   `PUSH_DRY_RUN=1`).
+- Leagues (Phase 7, migration `0025_leagues`, not yet on the live project): pure `src/lib/leagues/{points,boards,join,settings,fixtures,results}.ts`
+  (shared with the app through `@core`), server `src/lib/leagues/{server,ops,inviteCode}.ts`, admin `admin/leagues`, app API
+  `leagues/[slug]`, `leagues/[slug]/join`, `leagues/top`, `me/leagues`; app screens `league/[slug]`, `leagues`. Points are recomputed from
+  results by the hooks in `src/lib/results/hooks.ts` (finalise, undo, correction, reset), unique per match + player. "Which profile is
+  this user" is `profileForUser` only (switches to `auth_user_id` with Phase 1). League sessions (nights, season fixtures) are the only
+  friendly sessions the app shows. Gate: `npm run e2e:leagues` (stand-in).

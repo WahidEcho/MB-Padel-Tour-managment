@@ -499,6 +499,12 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
         const { revertFriendlyResult } = await import("../friendly/ops");
         await revertFriendlyResult(matchId, "referee");
       }
+      // League points a tournament match gave (a session's go through
+      // revertFriendlyResult above).
+      if (match.stage !== "friendly") {
+        const { onMatchReopened } = await import("../results/hooks");
+        await onMatchReopened(match);
+      }
     }
   }
   // A retry whose events were all stored already carries nothing fresh, so a

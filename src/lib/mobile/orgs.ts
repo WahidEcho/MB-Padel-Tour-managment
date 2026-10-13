@@ -2,8 +2,9 @@
  * An organisation's public page in the app. Only approved organisations, only
  * the public columns (PUBLIC_ORG_COLUMNS), and only its tournaments the app may
  * show anyway (public, of kind "tournament", active or completed, and not demos
- * unless placed in an event group): never member emails, codes, the application,
- * the plan or billing.
+ * unless placed in an event group), its public leagues and its top board (names
+ * and points only): never member emails, codes, the application, the plan or
+ * billing, or whether it opted out of the platform board.
  */
 import { db } from "../supabase";
 import type { MOrgProfile, MTournamentCard } from "./contract";
@@ -13,14 +14,15 @@ import { CARD_COLUMNS } from "./server";
 import { PUBLIC_ORG_COLUMNS, toPublicOrg, type OrgRowPublicPart } from "../orgs/profile";
 import { isOrgSlug } from "../orgs/roles";
 
-export async function getOrgProfile(slug: string): Promise<MOrgProfile | null> {
+export async function getOrgProfile(slug: string, boardMonth?: string): Promise<MOrgProfile | null> {
   if (!isOrgSlug(slug)) return null;
   // Whether it is public is read every time (one small row): a suspended or
   // not-yet-approved organisation is never served from this instance's memo.
   const { data: gate } = await db().from("organizations").select("id, status, updated_at").eq("slug", slug).maybeSingle();
   const g = gate as { id: string; status: string; updated_at: string } | null;
   if (!g || g.status !== "approved") return null;
-  return memo(`org:${g.id}:${g.updated_at}`, 15_000, async () => {
+  const month = boardMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(boardMonth) ? boardMonth : undefined;
+  return memo(`org:${g.id}:${g.updated_at}:${month ?? "now"}`, 15_000, async () => {
     const { data } = await db().from("organizations").select(PUBLIC_ORG_COLUMNS).eq("id", g.id).maybeSingle();
     const org = data as (OrgRowPublicPart & { id: string; status: string }) | null;
     if (!org || org.status !== "approved") return null;
@@ -50,6 +52,17 @@ export async function getOrgProfile(slug: string): Promise<MOrgProfile | null> {
     const cards = list.map((t) => toCard(t, live.get(t.id) ?? 0, teams.get(t.id) ?? 0, branding));
     const today = new Date().toISOString().slice(0, 10);
     const isPast = (c: MTournamentCard) => c.status === "completed" || (c.endsOn !== null && c.endsOn < today);
+    // Leagues and the organisation's top board (Phase 7): names and numbers only.
+    const { leagueCards, topBoard } = await import("../leagues/server");
+    const orgRef = { slug: org.slug, name: org.name };
+    const leagues = await leagueCards({ organizationId: org.id }, new Map([[org.id, orgRef]]));
+    const top = await topBoard({ organizationId: org.id }, month);
+    const { count: counting } = await db()
+      .from("leagues")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", org.id)
+      .in("status", ["active", "closed"])
+      .eq("counts_toward_top_of_all", true);
     return {
       generatedAt: new Date().toISOString(),
       organization: toPublicOrg(org),
@@ -58,7 +71,9 @@ export async function getOrgProfile(slug: string): Promise<MOrgProfile | null> {
         upcoming: cards.filter((c) => c.liveCount === 0 && !isPast(c)),
         past: cards.filter((c) => c.liveCount === 0 && isPast(c)),
       },
-      comingSoon: ["leagues", "boards"],
+      leagues,
+      topBoard: (counting ?? 0) > 0 ? top : null,
+      comingSoon: [],
     };
   });
 }

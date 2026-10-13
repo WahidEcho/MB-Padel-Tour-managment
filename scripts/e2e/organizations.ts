@@ -1129,10 +1129,10 @@ async function main() {
         .single();
       created.tournaments.push((ct as { id: string }).id);
       const pub = await http("GET", `/api/mobile/v1/orgs/${C_SLUG}`);
-      const pj = pub.json as { organization?: Record<string, unknown>; tournaments?: { upcoming: { slug: string; organization?: { slug: string } }[] }; comingSoon?: string[] } | null;
+      const pj = pub.json as { organization?: Record<string, unknown>; tournaments?: { upcoming: { slug: string; organization?: { slug: string } }[] }; leagues?: unknown[]; topBoard?: unknown; comingSoon?: string[] } | null;
       check(pub.status === 200 && pj?.organization?.name === cName && (pj.organization.colors as { primary: string }).primary === "#123456", "the public organisation API shows the profile", pub.status);
       check(Boolean(pj?.tournaments?.upcoming.some((t) => t.slug === (ct as { slug: string }).slug && t.organization?.slug === C_SLUG)), "…its public tournaments, linked back to it");
-      check(JSON.stringify(pj?.comingSoon) === JSON.stringify(["leagues", "boards"]) && !/"leagues":\[|"boards":\[/.test(pub.text), "leagues and boards are marked as coming, with no sample data");
+      check(JSON.stringify(pj?.comingSoon) === "[]" && JSON.stringify(pj?.leagues) === "[]" && pj?.topBoard === null, "no leagues yet: an empty list and no top board, never sample data (leagues: scripts/e2e/leagues.ts)");
       const privateBits = [applicant, mgrEmail, admEmail, "contact_email", "application", "commission", "subscription", "\"plan\"", "top_board", "invited_email", "token_hash", "code_hash", "Cee Applicant", "\"applied\"", "\"approved\""];
       const leaks = privateBits.filter((x) => pub.text.includes(x));
       check(leaks.length === 0, "…and no private field: no member emails, application, plan or billing, codes", leaks);

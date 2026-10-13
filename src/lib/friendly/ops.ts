@@ -1449,6 +1449,13 @@ export async function revertFriendlyResult(matchId: string, actorRole: string): 
     entity_id: matchId,
     new_value: { players: players.length, sessions_recalculated: affected.size },
   });
+
+  // A league night or season fixture: its league points follow (Phase 7).
+  const { data: m } = await db().from("matches").select("id, tournament_id").eq("id", matchId).maybeSingle();
+  if (m) {
+    const { onMatchReopened } = await import("../results/hooks");
+    await onMatchReopened(m as { id: string; tournament_id: string });
+  }
 }
 
 /**
@@ -1568,6 +1575,10 @@ export async function applyFriendlyResult(
     entity_id: match.id,
     new_value: { ranking_model: session.ranking_model, status: opts.status },
   });
+
+  // A session that belongs to a league division: the league's points (Phase 7).
+  const { onMatchFinalized } = await import("../results/hooks");
+  await onMatchFinalized(match);
 }
 
 /**

@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MBundle, MConfig, MCourtsLive, MDiscover, MLive, MMatchDetail, MOrgProfile, MStandings, MTimeline } from "@core";
+import type { MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLive, MMatchDetail, MMyLeagues, MOrgProfile, MStandings, MTimeline, MTopBoard } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -128,6 +128,57 @@ export function useOrg(slug: string | undefined) {
     enabled: Boolean(slug),
     staleTime: 60_000,
   });
+}
+
+/* ---------- leagues (Phase 7) ---------- */
+
+/** A league's public page; `period` 1/3/6/9/12 months ending in `month` ("YYYY-MM", default this month). */
+export function useLeague(slug: string | undefined, period = 1, month?: string) {
+  const focused = useScreenFocused();
+  const qs = `?period=${period}${month ? `&month=${month}` : ""}`;
+  const key = `league:${slug}:${period}:${month ?? "now"}`;
+  return useQuery<MLeague>({
+    queryKey: ["league", slug, period, month ?? null],
+    queryFn: cached(key, () => api<MLeague>(`/api/mobile/v1/leagues/${encodeURIComponent(slug ?? "")}${qs}`)),
+    initialData: () => (slug ? initial<MLeague>(key) : undefined),
+    ...SAVED_IS_OLD,
+    enabled: Boolean(slug),
+    refetchInterval: focused ? 30_000 : false,
+  });
+}
+
+/** "Top of all leagues" across the platform for a month (default this month). */
+export function useTopBoard(month?: string) {
+  const key = `top:${month ?? "now"}`;
+  return useQuery<MTopBoard>({
+    queryKey: ["top-board", month ?? null],
+    queryFn: cached(key, () => api<MTopBoard>(`/api/mobile/v1/leagues/top${month ? `?month=${month}` : ""}`)),
+    initialData: () => initial<MTopBoard>(key),
+    ...SAVED_IS_OLD,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * The signed-in account's leagues: status, division and this month's rank in
+ * each (`slug` narrows to one league). Never shared: it rides on the account's
+ * token. Also the data a league widget will read (Phase 6 widgets).
+ */
+export function useMyLeagues(enabled: boolean, slug?: string) {
+  return useQuery<MMyLeagues>({
+    queryKey: ["my-leagues", slug ?? null],
+    queryFn: () => api<MMyLeagues>(`/api/mobile/v1/me/leagues${slug ? `?league=${encodeURIComponent(slug)}` : ""}`, { who: "me" }),
+    enabled,
+    staleTime: 15_000,
+  });
+}
+
+/** Joins (or asks to join) a league as the account's linked player. Throws ApiError with the server's reason. */
+export async function joinLeague(slug: string, body: { code?: string; divisionId?: string }): Promise<MJoinResult> {
+  const out = await api<MJoinResult>(`/api/mobile/v1/leagues/${encodeURIComponent(slug)}/join`, { method: "POST", body, who: "me" });
+  await queryClient.invalidateQueries({ queryKey: ["my-leagues"] });
+  await queryClient.invalidateQueries({ queryKey: ["league", slug] });
+  return out;
 }
 
 export function useLive(slug: string | undefined, intervalMs = 5_000) {

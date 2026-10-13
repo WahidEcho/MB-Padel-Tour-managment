@@ -29,7 +29,7 @@ function tablesCreatedFrom(from: number): { table: string; file: string }[] {
     );
 }
 
-const MUST_STAY_CLOSED = ["organizations", "organization_members", "organization_codes", "platform_admins", "organization_players", "organization_invites", "rls_canary"];
+const MUST_STAY_CLOSED = ["organizations", "organization_members", "organization_codes", "platform_admins", "organization_players", "organization_invites", "rls_canary", "leagues", "league_divisions", "league_members", "league_fixtures", "league_points"];
 
 /** Tables from 0023 on that may be reopened (none yet): table → why it holds nothing private. */
 const REOPEN_OK: Record<string, string> = {};

@@ -152,6 +152,7 @@ const ORG_LEVEL: Record<string, string> = {
   refreshTemplatesAction: "reads the WhatsApp template list only",
   createEventCode: "new code in the caller's organisation (its tournament is scope-checked)",
   inviteMember: "new invite into the caller's organisation (never one named in the form)",
+  createLeagueAction: "new league in the caller's organisation",
 };
 
 /** Data helpers that read or write rows, besides db() itself. */
@@ -266,6 +267,7 @@ const ORG_TABLES = [
   "organizations",
   "organization_members",
   "organization_invites",
+  "leagues",
 ];
 
 /** Line comments blanked out (same length), so a ";" in a comment never ends a statement. */
