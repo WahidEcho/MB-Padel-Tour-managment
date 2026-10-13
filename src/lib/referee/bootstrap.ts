@@ -32,6 +32,8 @@ export interface RefereeBootstrap {
   config: ScoringConfig;
   tennis: boolean;
   chess: boolean;
+  /** Chess: games per pairing (format_config.legs). */
+  legs: 1 | 2;
   /** Line-ups not yet nominated: the rubber cannot start. */
   waitingForLineups: string | null;
   sideA: RefereeSide | null;
@@ -114,6 +116,7 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
     }),
     tennis: sport.id === "tennis",
     chess: sport.engine === "chess",
+    legs: tournament.format_config?.legs === 2 ? 2 : 1,
     waitingForLineups: !teamA ? nationA.team_name : !teamB ? nationB.team_name : null,
     sideA: side(teamA),
     sideB: side(teamB),

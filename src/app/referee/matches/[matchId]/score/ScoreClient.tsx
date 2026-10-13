@@ -28,6 +28,9 @@ import { useScoringControl } from "./useScoringControl";
 import { useUmpireVoice } from "./useUmpireVoice";
 import { SIDES, sideTint } from "@/lib/sides";
 import FinalScoreEntry from "@/components/scoring/FinalScoreEntry";
+import CallCard from "@/components/scoring/CallCard";
+import type { CallSnapshot } from "@/lib/matchday/callCard";
+import type { MatchDayRules } from "@/lib/matchday/rules";
 import { enteredSetsFromState } from "@/lib/scoring/finalScore";
 import { RESULT_ENTERED, finalResultAllowed, type ResultPayload, type ResultProblem } from "@/lib/scoring/resultEntry";
 import { queueableResult, resultPayloadOf, resultRejection } from "@/lib/offline/finalResult";
@@ -96,6 +99,8 @@ export default function ScoreClient({
   redBlueTeams = false,
   tennis = false,
   scoringMode = "point_by_point",
+  matchDay = null,
+  initialCall = null,
 }: {
   match: Match;
   tournamentName: string;
@@ -112,6 +117,10 @@ export default function ScoreClient({
   tennis?: boolean;
   /** How this match is recorded (match override → session → match-day rules). */
   scoringMode?: ScoringModeChoice;
+  /** The tournament's match-day rules (court call, no-show prompt). */
+  matchDay?: MatchDayRules | null;
+  /** The match's call to court when the page loaded. */
+  initialCall?: CallSnapshot | null;
 }) {
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
@@ -819,6 +828,22 @@ export default function ScoreClient({
         </p>
       )}
       {!finished && !controlDisabled && <ControlPanel control={guardedControl} pendingCount={pendingCount} />}
+
+      {/* Calling the match to its court, until it starts (same card as the app). */}
+      {notStarted && matchDay && (
+        <div className="flex justify-center pb-3">
+          <CallCard
+            matchId={match.id}
+            rules={matchDay}
+            initialCall={initialCall}
+            matchStatus={renderStatus}
+            hasCourt={Boolean(match.court_id)}
+            names={{ A: teamA.name, B: teamB.name }}
+            deviceId={() => deviceIdRef.current}
+            onDecided={() => window.location.reload()}
+          />
+        </div>
+      )}
 
       {/* Pre-start */}
       {notStarted && !readOnly ? (

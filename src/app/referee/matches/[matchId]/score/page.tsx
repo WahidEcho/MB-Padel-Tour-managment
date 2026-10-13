@@ -7,7 +7,8 @@ import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 import { redBlueTeams } from "@/lib/sides";
 import { matchScoringMode } from "@/lib/referee/bootstrap";
-import { autoCallOnOpen } from "@/lib/matchday/server";
+import { autoCallOnOpen, getCall } from "@/lib/matchday/server";
+import { matchDayRules } from "@/lib/matchday/rules";
 import { chessCompetitionFor } from "@/lib/scoring/resultEntry";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
   }
 
   const scoringMode = await matchScoringMode(match, tournament);
+  const matchDay = matchDayRules(tournament.match_day_rules, tournament);
+  const initialCall = (await getCall(matchId))?.call ?? null;
 
   if (tournament.sport === "chess") {
     return (
@@ -81,6 +84,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         serverSnapshot={snapshot}
         scoringMode={scoringMode}
         competition={chessCompetitionFor(match.stage)}
+        matchDay={matchDay}
+        initialCall={initialCall}
       />
     );
   }
@@ -115,6 +120,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       reopenState={reopenState as ScoreState | null}
       redBlueTeams={redBlueTeams(tournament.branding_config)}
       scoringMode={scoringMode}
+      matchDay={matchDay}
+      initialCall={initialCall}
     />
   );
 }

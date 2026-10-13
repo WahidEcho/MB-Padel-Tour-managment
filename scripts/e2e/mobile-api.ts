@@ -191,6 +191,11 @@ async function main() {
       "Bootstrap gives the referee the full match-day rules and how to record the match",
       { courtCall: boot.json?.matchDay?.courtCall, scoringMode: boot.json?.scoringMode },
     );
+    check(
+      boot.json && "call" in boot.json && (boot.json.call === null || typeof boot.json.call?.status === "string") && boot.json.legs === 1,
+      "Bootstrap carries the call to court (for the app's call card) and the chess legs",
+      { call: boot.json?.call, legs: boot.json?.legs },
+    );
     const noAuth = await call("GET", `/api/mobile/v1/referee/matches/${mid}/bootstrap`);
     check(noAuth.status === 401, "Bootstrap needs the referee token (401: signed out)", noAuth.status);
 
@@ -455,12 +460,13 @@ async function liveCourtsHero(o: { tid: string; tag: string; courtId: string; ti
     const { data: codes } = await db().from("players").select("access_code").in("id", [o.pA, o.pB]);
 
     const hero = await call("GET", "/api/mobile/v1/courts/live");
-    type HeroEvent = { tournament: { id: string; slug: string; featured: boolean; isTies: boolean; showPhotos: boolean }; courts: { name: string }[]; matches: { id: string; status: string; score: { points: unknown } | null }[]; ties: { id: string }[]; teams: { players: { id: string; photoUrl: string | null; focalX: number }[] }[]; calls: { matchId: string; presentA: boolean; presentB: boolean; deadlineAt: string }[] };
+    type HeroEvent = { tournament: { id: string; slug: string; featured: boolean; isTies: boolean; showPhotos: boolean; imAtCourt?: boolean }; courts: { name: string }[]; matches: { id: string; status: string; score: { points: unknown } | null }[]; ties: { id: string }[]; teams: { players: { id: string; photoUrl: string | null; focalX: number }[] }[]; calls: { matchId: string; presentA: boolean; presentB: boolean; deadlineAt: string }[] };
     const events = (hero.json?.events ?? []) as HeroEvent[];
     const ev = events.find((e) => e.tournament.id === o.tid);
     check(hero.status === 200 && Boolean(ev), "The live courts hero carries the featured event on its live day", events.map((e) => e.tournament.slug));
     check(/s-maxage=2/.test(hero.cache), "The hero is shared at the CDN like the live feed", hero.cache);
     check(ev?.tournament.featured === true && ev.tournament.isTies === true && ev.tournament.showPhotos === true, "It knows the event is featured, a nations event, and shows photos", ev?.tournament);
+    check(typeof ev?.tournament.imAtCourt === "boolean", "It says whether players can mark themselves at court (the called card's button)", ev?.tournament.imAtCourt);
     check(JSON.stringify(ev?.courts.map((c) => c.name)) === JSON.stringify(["Court 1", "Court 2"]), "Both courts, in court order", ev?.courts);
     const rubber = ev?.matches.find((m) => m.id === o.mid);
     check(rubber?.status === "live" && rubber.score?.points != null, "The live rubber is there with its score", rubber?.score);

@@ -368,6 +368,8 @@ export interface MCourtsEvent {
     /** Part of a featured event group on Discover. */
     featured: boolean;
     skin: AppSkin;
+    /** Players mark themselves at the court from their phone (Match day tab). Absent from older servers. */
+    imAtCourt?: boolean;
   };
   rules: MStageRules;
   sides: MSides;

@@ -23,6 +23,9 @@ import ChessBoard from "@/components/ChessBoard";
 import ControlPanel from "./ControlPanel";
 import { useScoringControl } from "./useScoringControl";
 import FinalScoreEntry from "@/components/scoring/FinalScoreEntry";
+import CallCard from "@/components/scoring/CallCard";
+import type { CallSnapshot } from "@/lib/matchday/callCard";
+import type { MatchDayRules } from "@/lib/matchday/rules";
 import { RESULT_ENTERED, finalResultAllowed, type ResultPayload, type ResultProblem } from "@/lib/scoring/resultEntry";
 import { queueableResult, resultPayloadOf, resultRejection } from "@/lib/offline/finalResult";
 import type { ChessCompetition, ChessGameResult } from "@/lib/chess/result";
@@ -72,6 +75,8 @@ export default function ChessScoreClient({
   serverSnapshot,
   scoringMode = "point_by_point",
   competition = "knockout",
+  matchDay = null,
+  initialCall = null,
 }: {
   match: Match;
   tournamentName: string;
@@ -84,6 +89,10 @@ export default function ChessScoreClient({
   scoringMode?: ScoringModeChoice;
   /** What a draw means here (resultEntry.ts chessCompetitionFor). */
   competition?: ChessCompetition;
+  /** The tournament's match-day rules (court call, no-show prompt). */
+  matchDay?: MatchDayRules | null;
+  /** The match's call to court when the page loaded. */
+  initialCall?: CallSnapshot | null;
 }) {
   const [state, setState] = useState<ChessState | null>(null);
   const [history, setHistory] = useState<ChessState[]>([]);
@@ -467,6 +476,22 @@ export default function ChessScoreClient({
         <p className="mb-2 rounded-xl bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">{syncError}</p>
       )}
       {!renderFinished && !controlDisabled && <ControlPanel control={control} />}
+
+      {/* Calling the match to its board, until it starts (same card as the app). */}
+      {notStarted && matchDay && (
+        <div className="flex justify-center pb-3">
+          <CallCard
+            matchId={match.id}
+            rules={matchDay}
+            initialCall={initialCall}
+            matchStatus={renderStatus}
+            hasCourt={Boolean(match.court_id)}
+            names={{ A: teamA.name, B: teamB.name }}
+            deviceId={() => deviceIdRef.current}
+            onDecided={() => window.location.reload()}
+          />
+        </div>
+      )}
 
       {notStarted && !readOnly ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-5">

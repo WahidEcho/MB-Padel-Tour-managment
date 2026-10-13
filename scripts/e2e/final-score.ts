@@ -39,6 +39,8 @@ import { chessStateFromResults, type ChessGameResult } from "../../src/lib/chess
 import { newTournamentMatchDayRules } from "../../src/lib/matchday/rules";
 import { generateEventCode, hashEventCode } from "../../src/lib/orgs/codes";
 import { DEFAULT_SCORING_CONFIG, type Match, type MatchRules } from "../../src/lib/types";
+import { resultPayloadOf, resultRejection } from "../../src/lib/offline/finalResult";
+import { sameState } from "../../src/lib/scoring/eventGuard";
 import { BASE_URL, sessionToken, staffToken } from "./lib/session";
 
 const SUPA = process.env.SUPABASE_URL ?? "";
@@ -263,6 +265,20 @@ async function main() {
       check(mismatch.status === 400 && codeOf(mismatch) === "state_mismatch", "a client state that differs from the server's is a 400 state_mismatch", mismatch.text);
       const extra = await sendResult(g2, groupRules, [{ a: 6, b: 4 }, { a: 6, b: 2 }], REFEREE, { payload: { sets: [{ a: 6, b: 4 }, { a: 6, b: 2 }], winner: "A" } });
       check(extra.status === 400 && codeOf(extra) === "payload", "unknown payload fields are a 400 payload", extra.text);
+      {
+        // A phone's queued result that slipped past its own check: the 400 names it, so the
+        // phone takes it (and what followed) out of its queue and fills the form in again.
+        const { n, state: prev } = await lastEvent(g2.id);
+        const queued = ev(n + 1, "RESULT_ENTERED", prev, built(groupRules, [{ a: 6, b: 1 }, { a: 6, b: 2 }]), { team_id: g2.team_a_id, payload: { sets: [{ a: 6, b: 5 }, { a: 6, b: 2 }] } });
+        const after = ev(n + 2, "MATCH_ENDED", null, built(groupRules, [{ a: 6, b: 1 }, { a: 6, b: 2 }]));
+        const r = await send(g2.id, REFEREE, [queued, after]);
+        const rej = resultRejection([queued, after], r.status, r.json);
+        check(
+          r.status === 400 && rej?.drop.map((e) => e.client_event_id).join() === [queued.client_event_id, after.client_event_id].join() && rej.problems[0]?.code === "set_score" && JSON.stringify(resultPayloadOf(rej.result)) === JSON.stringify({ sets: [{ a: 6, b: 5 }, { a: 6, b: 2 }] }),
+          "a refused queued result is named: the phone drops it with what followed and refills the form",
+          r.text,
+        );
+      }
       await db().from("matches").update({ scoring_mode_override: "point_by_point" }).eq("id", g2.id);
       const mode = await sendResult(g2, groupRules, [{ a: 6, b: 4 }, { a: 6, b: 2 }], REFEREE);
       check(mode.status === 400 && codeOf(mode) === "mode", "a match recorded point by point refuses a final result", mode.text);
@@ -443,6 +459,8 @@ async function main() {
       check(final.status === "completed" && final.winner_team_id === c2, "the match is completed with the organiser's choice", `${final.status}`);
       const decidedState = (await lastEvent(chessMatch.id)).state as { winner?: string; needsArbiter?: boolean; scoreA?: number; scoreB?: number };
       check(decidedState.winner === "B" && decidedState.needsArbiter === false && decidedState.scoreA === 0.5 && decidedState.scoreB === 0.5, "the stored state is decideWinner's (½-½, B advances)", decidedState);
+      // The Move Score app's organiser entry (move-score-app/src/referee/chessResult.ts) builds the same state.
+      check(sameState({ ...chessState(["draw"], "knockout"), winner: "B", matchOver: true, needsArbiter: false }, decidedState), "the app's organiser result builds exactly the stored state", decidedState);
       const { data: gm } = await db().from("matches").insert({ tournament_id: C, stage: "group", round_name: "Round 1", match_order: 2, team_a_id: c1, team_b_id: c2, status: "scheduled" }).select("*").single();
       const groupDraw = await send((gm as Match).id, REFEREE, [ev(1, "RESULT_ENTERED", null, chessState(["draw"], "group"), { payload: { chess: ["draw"] } })]);
       check(groupDraw.status === 400 && codeOf(groupDraw) === "draw_unsupported", "a chess draw outside a knockout is refused (no table counts draws yet)", groupDraw.text);

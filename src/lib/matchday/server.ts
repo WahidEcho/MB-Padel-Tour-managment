@@ -750,6 +750,33 @@ export async function markPresentAsPlayer(userId: string, matchId: string, nowMs
 }
 
 /**
+ * The player's own view of their match's call ("I'm at court" on the phone): which
+ * side they play, whether the organiser uses "I'm at court", and the call's times
+ * and presence. Only for a match the account plays in; anything else is "Not
+ * found". Never the referee's prompt, actions or answer.
+ */
+export async function callForPlayer(
+  userId: string,
+  matchId: string,
+): Promise<Outcome<{ side: TeamKey; imAtCourt: boolean; call: Pick<CallState, "status" | "calledAt" | "deadlineAt" | "presentA" | "presentB"> | null }>> {
+  const day = await dayOf(matchId);
+  if (!day) return refuse(404, "not_found", "Not found");
+  const side = await sideOfUser(userId, day.match);
+  if (!side) return refuse(404, "not_found", "Not found");
+  const row = await readCall(matchId);
+  const c = row ? toState(row, day.rules, Date.now()) : null;
+  return {
+    ok: true,
+    status: 200,
+    value: {
+      side,
+      imAtCourt: day.rules.courtCall.on && day.rules.extras.imAtCourt,
+      call: c ? { status: c.status, calledAt: c.calledAt, deadlineAt: c.deadlineAt, presentA: c.presentA, presentB: c.presentB } : null,
+    },
+  };
+}
+
+/**
  * A match check-in scanned at the court (src/lib/pass/checkin.ts) by a player of
  * that match counts as "here" when the organiser turned that on. Silent: the
  * check-in answers as before whatever happens here. Never throws.

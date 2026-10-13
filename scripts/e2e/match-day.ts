@@ -39,6 +39,8 @@ import { stateFromFinalScore, type EnteredSet } from "../../src/lib/scoring/fina
 import { scoringConfigForMatch } from "../../src/lib/scoring/rules";
 import { matchScreenCode } from "../../src/lib/pass/venueCode";
 import type { Match, MatchRules } from "../../src/lib/types";
+import { callCardModel, type CallSnapshot } from "../../src/lib/matchday/callCard";
+import { matchDayRules, type MatchDayRules } from "../../src/lib/matchday/rules";
 import {
   appUser,
   assertStandIn,
@@ -303,11 +305,32 @@ async function main() {
     {
       const early = await http("POST", `/api/mobile/v1/me/matches/${N2.id}/here`, bearer(here.token));
       check(early.status === 409 && early.json?.code === "no_call", "\"I'm at court\" before the call: 409 no_call", early.text);
+      const before = await http("GET", `/api/mobile/v1/me/matches/${N2.id}/here`, bearer(here.token));
+      check(before.status === 200 && before.json?.side === "A" && before.json?.call === null && before.json?.imAtCourt === true, "GET here before the call: my side, \"I'm at court\" on, no call yet", before.text);
       const boot = await http("GET", `/api/mobile/v1/referee/matches/${N2.id}/bootstrap`, REF);
       check(boot.status === 200, "the referee phone opens N2", boot.text.slice(0, 200));
       const cr = await callRow(N2.id);
       check(cr?.status === "called" && cr.called_by_role === "referee:auto" && (await matchRow(N2.id)).status === "ready", "opening it called it to court (auto on referee open)", cr);
       check((boot.json?.call as { status?: string } | null)?.status === "called", "the bootstrap carries the call");
+      check(boot.json?.legs === 1 && (boot.json?.matchDay as { courtCall?: { on?: boolean } } | null)?.courtCall?.on === true, "…with the match-day rules the phone counts down with, and the chess legs", { legs: boot.json?.legs });
+      // The phone's call card from the bootstrap alone (callCardModel, shared with the web console).
+      const card = callCardModel({
+        call: boot.json?.call as CallSnapshot,
+        rules: boot.json?.matchDay as MatchDayRules,
+        nowMs: Date.now(),
+        matchStatus: "ready",
+        hasCourt: true,
+        names: { A: "T4", B: "T5" },
+      });
+      check(card.show && card.phase === "called" && /^[0-5]:[0-5]\d$/.test(card.countdown ?? "") && card.sides.every((s) => s.canMark), "the app's call card: called, counting down, both sides can be marked", card);
+      const mid = await http("GET", `/api/mobile/v1/me/matches/${N2.id}/here`, bearer(here.token));
+      const midCall = mid.json?.call as { status?: string; deadlineAt?: string; presentA?: boolean } | null;
+      check(mid.status === 200 && midCall?.status === "called" && Boolean(midCall.deadlineAt) && midCall.presentA === false, "GET here once called: the deadline, not yet present", mid.text);
+      check(!/actions|prompt|answer|view|extensions/.test(mid.text), "…and never the referee's prompt, actions or answer", mid.text);
+      const midOther = await http("GET", `/api/mobile/v1/me/matches/${N3.id}/here`, bearer(here.token));
+      check(midOther.status === 404, "GET here on someone else's match: 404", midOther.text);
+      const midGuest = await http("GET", `/api/mobile/v1/me/matches/${N2.id}/here`, {});
+      check(midGuest.status === 401, "GET here without signing in: 401", midGuest.text);
 
       const notMine = await http("POST", `/api/mobile/v1/me/matches/${N3.id}/here`, bearer(here.token));
       check(notMine.status === 404, "\"I'm at court\" on someone else's match: 404", notMine.text);
@@ -316,6 +339,8 @@ async function main() {
       const h = await http("POST", `/api/mobile/v1/me/matches/${N2.id}/here`, bearer(here.token));
       check(h.status === 200 && h.json?.side === "A" && (await callRow(N2.id))?.a_present_at !== null, "T4's player marks themselves present (side A)", h.text);
       check(!/actions|prompt|answer/.test(h.text), "the player's answer carries no referee prompt", h.text);
+      const seen = await http("GET", `/api/mobile/v1/me/matches/${N2.id}/here`, bearer(here.token));
+      check((seen.json?.call as { presentA?: boolean } | null)?.presentA === true, "GET here shows the player as present", seen.text);
 
       const scan = await http("POST", `/api/mobile/v1/matches/${N2.id}/checkin`, bearer(qr.token), { c: matchScreenCode(N2.id) });
       const after = await callRow(N2.id);
@@ -337,6 +362,8 @@ async function main() {
       const v = await view(N3.id);
       const cv = (v.json?.call as { view: { phase: string; prompt: { kind: string } | null; actions: string[] } }).view;
       check(cv.prompt?.kind === "both_absent" && !cv.actions.some((a) => a.startsWith("walkover") || a === "both_no_show"), "both absent: no walkover offered", cv);
+      const sheet = callCardModel({ call: v.json?.call as CallSnapshot, rules: matchDayRules(t!.match_day_rules, t!), nowMs: Date.now(), matchStatus: "ready", hasCourt: true, names: { A: "T1", B: "T2" } });
+      check(sheet.phase === "no_show" && (sheet.noShow ?? []).every((o) => !o.choice.startsWith("walkover")), "the consoles' no-show sheet offers no walkover either", sheet.noShow?.map((o) => o.choice));
       const wo = await call(N3.id, { action: "answer", answer: "walkover_to_a" });
       check(wo.status === 409 && wo.json?.code === "not_allowed", "a walkover is refused", wo.text);
       const wait = await call(N3.id, { action: "answer", answer: "wait" });

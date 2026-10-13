@@ -20,6 +20,9 @@ import { Takeover, type TakeoverMoment } from "../../ui/Takeover";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { startLockScreen, lockScreenSupported } from "../../live/lockScreen";
 import { openPlayer, openTeam, openTie, openTournament } from "../../nav/links";
+import { useMyPlayer } from "../../player/me";
+import { playsIn } from "../../player/mine";
+import { ImAtCourtCard } from "../../player/ImAtCourt";
 
 const ROW_H = 58;
 /** Doubles: both names, one per line. */
@@ -148,6 +151,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const live = m ? isLiveStatus(m.status) : false;
   // An organiser who saved the Match day tab with Live Activities off.
   const md = b.data?.tournament.matchDay;
+  const me = useMyPlayer().data ?? null;
   const lockScreenOff = Boolean(md?.on && !md.liveActivities);
   // Fetched again whenever the match moves, so the last point lands after the match leaves "live".
   const tl = useTimeline(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
@@ -282,6 +286,9 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
             </View>
           </View>
         </View>
+        {md?.courtCall && playsIn(m, me) ? (
+          <ImAtCourtCard matchId={m.id} waiting={m.status === "scheduled" || m.status === "ready"} sideNames={{ A: aLabel, B: bLabel }} />
+        ) : null}
         {flags.momentum !== false && (tl.data?.points.length ?? 0) > 1 && (
           <Card style={{ marginTop: 4 }}>
             <Eyebrow style={{ marginBottom: 10 }}>Momentum</Eyebrow>

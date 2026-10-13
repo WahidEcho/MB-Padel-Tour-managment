@@ -23,3 +23,19 @@ export function playsIn(m: MMatch, me: Pick<MMyPlayer, "playerId" | "entries"> |
 export function isMine(m: MMatch, me: Pick<MMyPlayer, "playerId" | "entries"> | null | undefined, starred: string[]): boolean {
   return starred.includes(m.id) || playsIn(m, me);
 }
+
+/**
+ * Which side of `m` the linked player is on, for "I'm at court" (the server
+ * decides for itself; this only says which button to show). Nominated players
+ * first, then the player's teams; null when they do not play in it.
+ */
+export function mySide(m: MMatch, me: Pick<MMyPlayer, "playerId" | "entries"> | null | undefined): "A" | "B" | null {
+  if (!me || !playsIn(m, me)) return null;
+  const ids = new Set([me.playerId, ...me.entries.map((e) => e.playerId)]);
+  if (m.aPlayers.some((p) => ids.has(p))) return "A";
+  if (m.bPlayers.some((p) => ids.has(p))) return "B";
+  const teams = new Set(me.entries.map((e) => e.teamId));
+  if (m.a && teams.has(m.a)) return "A";
+  if (m.b && teams.has(m.b)) return "B";
+  return null;
+}

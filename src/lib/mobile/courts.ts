@@ -151,6 +151,10 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
           showPhotos,
           featured: p.featured,
           skin: card.skin,
+          imAtCourt: (() => {
+            const md = matchDayRules(p.t.match_day_rules, p.t);
+            return md.courtCall.on && md.extras.imAtCourt;
+          })(),
         },
         rules: toStageRules(p.t, plate.get(p.card.id) ?? []),
         sides: toSides(p.t.branding_config),

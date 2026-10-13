@@ -43,6 +43,8 @@ interface Backend {
   mark(ids: string[], status: "synced"): Promise<void>;
   /** Gives up the match's unsent events: kept apart on the phone, never sent. Returns how many. */
   abandon(matchId: string): Promise<number>;
+  /** Takes these events out of the queue (a final result the server refused, and what was queued after it): kept apart, never sent. */
+  discard(ids: string[]): Promise<void>;
   match(matchId: string): Promise<LocalMatch | null>;
   saveMatch(m: LocalMatch): Promise<void>;
   /** Drops the phone's copy of the match, so the phone no longer counts as scoring it. */
@@ -69,6 +71,7 @@ function serialize(b: Backend): Backend {
     events: one(b.events),
     mark: one(b.mark),
     abandon: one(b.abandon),
+    discard: one(b.discard),
     match: one(b.match),
     saveMatch: one(b.saveMatch),
     forget: one(b.forget),
@@ -190,6 +193,14 @@ function sqliteBackend(): Backend {
       });
       return n;
     },
+    async discard(ids) {
+      if (!ids.length) return;
+      const marks = ids.map(() => "?").join(",");
+      await db.withTransactionAsync(async () => {
+        await db.runAsync(moveOut(`client_event_id IN (${marks})`), new Date().toISOString(), ...ids);
+        await db.runAsync(`DELETE FROM score_event_queue WHERE client_event_id IN (${marks})`, ...ids);
+      });
+    },
     async match(matchId) {
       const r = await db.getFirstAsync<{ match_id: string; state: string | null; history: string; last_event_number: number; match_status: string }>(`SELECT * FROM match_state WHERE match_id = ?`, matchId);
       return r ? { match_id: r.match_id, state: r.state ? JSON.parse(r.state) : null, history: JSON.parse(r.history), last_event_number: r.last_event_number, match_status: r.match_status } : null;
@@ -237,6 +248,9 @@ function webBackend(): Backend {
       const mine = (e: QueuedEvent) => e.match_id === id && e.sync_status === "pending";
       write("ms.q", q.map((e) => (mine(e) ? { ...e, sync_status: "abandoned" as const } : e)));
       return q.filter(mine).length;
+    },
+    async discard(ids) {
+      write("ms.q", all().map((e) => (ids.includes(e.client_event_id) ? { ...e, sync_status: "abandoned" as const } : e)));
     },
     async match(id) {
       return read<LocalMatch | null>(`ms.m:${id}`, null);

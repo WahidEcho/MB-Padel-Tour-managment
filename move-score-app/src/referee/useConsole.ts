@@ -11,10 +11,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
-import { Console, type EndsChange, type MatchSnapshot, type ScoreState, type TeamKey } from "@core";
-import { api } from "../api/client";
+import {
+  Console,
+  RESULT_ENTERED,
+  queueableResult,
+  resultPayloadOf,
+  type EndsChange,
+  type MatchSnapshot,
+  type ResultPayload,
+  type ResultProblem,
+  type ResultRejection,
+  type ScoreState,
+  type TeamKey,
+} from "@core";
+import { api, ApiError } from "../api/client";
 import type { RefereeBootstrap } from "./types";
-import { queue, type LocalMatch } from "./queue";
+import { queue, type LocalMatch, type QueuedEvent } from "./queue";
 import { createSyncer, type SyncState } from "./sync";
 
 /** Statuses the server holds as over (the console's own list adds `pending_sync`). */
@@ -43,6 +55,13 @@ export interface RestoreQuestion {
   last: number;
 }
 
+/** A final result that was not recorded: the form opens again, filled in, with why. */
+export interface ResultRefusal {
+  message: string;
+  problems: ResultProblem[];
+  initial: ResultPayload | null;
+}
+
 const fromBoot = (b: RefereeBootstrap): ServerView => ({ snapshot: b.snapshot, history: b.history, status: b.match.status, reopenState: b.reopenState });
 
 const NOT_SAVED = "That was not saved on this phone, so nothing changed. Tap again.";
@@ -60,6 +79,9 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
   const [writeError, setWriteError] = useState<string | null>(null);
   const [blocked, setBlockedState] = useState<string | null>(null);
   const [undoDepth, setUndoDepth] = useState(0);
+  const [refusal, setRefusal] = useState<ResultRefusal | null>(null);
+  /** The undo stack before each queued result (a result empties it), to put back if the server refuses the result. */
+  const beforeResult = useRef(new Map<string, ScoreState[]>());
   const stateRef = useRef<ScoreState | null>(null);
   const historyRef = useRef<ScoreState[]>([]);
   const numberRef = useRef(boot.snapshot?.last_event_number ?? 0);
@@ -152,7 +174,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     void restore(fromBoot(boot)).finally(() => {
       if (alive) setReady(true);
     });
-    syncer.current = createSyncer(m.id, deviceId, setSync);
+    syncer.current = createSyncer(m.id, deviceId, setSync, { onResultRefused: (r) => resultRefused(r) });
     syncer.current.syncNow();
     return () => {
       alive = false;
@@ -178,13 +200,15 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
         // A finished match takes nothing but Undo (the server refuses the rest).
         if (e.eventType !== "UNDO" && Console.isFinished(statusRef.current, prev, confirmFirst)) return false;
         const n = numberRef.current + 1;
-        const history = Console.nextHistory(historyRef.current, prev, e.eventType);
+        // A final result supersedes the points before it: nothing to undo back into (as on the server and the web).
+        const history = e.eventType === RESULT_ENTERED ? [] : Console.nextHistory(historyRef.current, prev, e.eventType);
+        const clientEventId = Crypto.randomUUID();
         const nextStatus = e.newStatus ?? statusRef.current;
         const payload = e.winner ? { ...(e.payload ?? {}), winner_team_id: sideId(e.winner) } : e.payload;
         try {
           await queue().record(
             {
-              client_event_id: Crypto.randomUUID(),
+              client_event_id: clientEventId,
               match_id: m.id,
               event_number: n,
               event_type: e.eventType,
@@ -203,6 +227,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
           return false;
         }
         // Saved: only now does the console move on.
+        if (e.eventType === RESULT_ENTERED) beforeResult.current.set(clientEventId, historyRef.current);
         numberRef.current = n;
         stateRef.current = e.next;
         historyRef.current = history;
@@ -245,6 +270,98 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     [m.id, enqueue],
   );
 
+  /**
+   * The server refused a queued final result (sync.ts has taken it, and anything
+   * after it, out of the queue): back to the score before it, and the form again.
+   */
+  const resultRefused = (r: ResultRejection<QueuedEvent>) =>
+    enqueue(async () => {
+      const restore = (r.restore as ScoreState | null) ?? null;
+      historyRef.current = beforeResult.current.get(r.result.client_event_id) ?? [];
+      beforeResult.current.delete(r.result.client_event_id);
+      stateRef.current = restore;
+      numberRef.current = r.lastEventNumber;
+      statusRef.current = restore ? (restore.matchOver ? statusRef.current : "live") : m.status;
+      try {
+        if (restore || r.lastEventNumber > 0) {
+          await queue().saveMatch({ match_id: m.id, state: restore, history: historyRef.current, last_event_number: r.lastEventNumber, match_status: statusRef.current });
+        } else {
+          await queue().forget(m.id);
+        }
+      } catch {
+        /* the phone's copy is rebuilt from the server on the next open */
+      }
+      show();
+      setRefusal({ message: `Result not recorded: ${r.message}`, problems: r.problems, initial: resultPayloadOf(r.result) });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+    });
+
+  /**
+   * A final result typed in one go (games sports). Checked here with the match's
+   * own rules before it is queued, so a result the rules cannot produce never
+   * enters the queue; then it goes through the queue like a point (offline too).
+   */
+  const enterResult = async (payload: ResultPayload): Promise<{ ok: true } | { ok: false; message: string; problems: ResultProblem[] }> => {
+    const q = queueableResult({ mode: boot.scoringMode ?? "point_by_point", engine: "games", rules: boot.config, payload });
+    if (!q.ok) return { ok: false, message: q.problems[0]?.message ?? "Check the score.", problems: q.problems };
+    setRefusal(null);
+    const saved = await record(() => ({
+      eventType: RESULT_ENTERED,
+      next: q.state as ScoreState,
+      team: q.winner,
+      payload: q.payload as unknown as Record<string, unknown>,
+      newStatus: q.over ? (online ? "completed" : "pending_sync") : "live",
+    }));
+    return saved ? { ok: true } : { ok: false, message: blockRef.current ?? NOT_SAVED, problems: [] };
+  };
+
+  /**
+   * A result sent straight to the server, never queued: correcting a finished
+   * match (the server reopens and re-finalises it) and chess results. Needs a
+   * connection. On success the console carries on from the server's score.
+   */
+  const sendResultNow = async (event: { payload: ResultPayload; state: unknown; winner: TeamKey | null }): Promise<{ ok: true } | { ok: false; message: string; problems: ResultProblem[] }> => {
+    try {
+      // Everything this phone holds goes first, so the result lands after it.
+      if (!(await (async () => {
+        await chain.current;
+        return (await syncer.current?.flush()) ?? true;
+      })())) {
+        return { ok: false, message: "Points on this phone have not reached the server yet. Send them first (check the signal).", problems: [] };
+      }
+      const st = await api<{ snapshot: MatchSnapshot | null }>(`/api/matches/${m.id}/state`, { who: "staff", timeoutMs: 10_000 });
+      await api(`/api/matches/${m.id}/events`, {
+        who: "staff",
+        timeoutMs: 15_000,
+        body: {
+          deviceId,
+          events: [
+            {
+              client_event_id: Crypto.randomUUID(),
+              event_number: (st.snapshot?.last_event_number ?? 0) + 1,
+              event_type: RESULT_ENTERED,
+              team_id: event.winner ? sideId(event.winner) : null,
+              previous_state: st.snapshot?.snapshot_json ?? null,
+              new_state: event.state,
+              payload: event.payload,
+              created_at_client: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.status !== 0) {
+        const body = (e.body ?? {}) as { problems?: ResultProblem[] };
+        return { ok: false, message: e.message, problems: Array.isArray(body.problems) ? body.problems : [] };
+      }
+      return { ok: false, message: "A result sent from here needs a connection. Try again when online.", problems: [] };
+    }
+    setRefusal(null);
+    const v = await fetchServer();
+    if (v) await dropLocal(v);
+    return { ok: true };
+  };
+
   const cur = () => stateRef.current;
   return {
     ready,
@@ -260,6 +377,11 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     writeError,
     blocked,
     clearWriteError: () => setWriteError(null),
+    /** The server refused a final result this phone queued: reopen the form with this. */
+    refusal,
+    clearRefusal: () => setRefusal(null),
+    enterResult,
+    sendResultNow,
     clearRest: () => setRest(null),
     start: (first: TeamKey) => record(() => Console.startMatch(first)),
     needsConfirm: (k: TeamKey) => (cur() ? Console.pointNeedsConfirm(cur()!, k, opts) : null),

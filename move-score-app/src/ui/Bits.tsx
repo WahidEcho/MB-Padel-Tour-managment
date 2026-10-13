@@ -141,13 +141,37 @@ export function LinkChip({ label, onPress, leading, accessibilityLabel, style }:
   );
 }
 
-export function Button({ label, onPress, kind = "primary", disabled, icon, style }: { label: string; onPress: () => void; kind?: "primary" | "ghost" | "danger"; disabled?: boolean; icon?: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function Button({
+  label,
+  onPress,
+  kind = "primary",
+  disabled,
+  icon,
+  style,
+  accessibilityLabel,
+  accessibilityHint,
+  selected,
+}: {
+  label: string;
+  onPress: () => void;
+  kind?: "primary" | "ghost" | "danger";
+  disabled?: boolean;
+  icon?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  /** A choice among several (win / draw / loss): said as selected. */
+  selected?: boolean;
+}) {
   const { t } = useTheme();
   const bg = kind === "primary" ? t.btnBg : kind === "danger" ? t.liveFill : t.chip;
   const ink = kind === "primary" ? t.btnInk : kind === "danger" ? "#FFFFFF" : t.ink;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: Boolean(disabled), ...(selected === undefined ? {} : { selected }) }}
       disabled={disabled}
       onPress={() => {
         void Haptics.selectionAsync().catch(() => {});

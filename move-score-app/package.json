@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "node --test",
+    "test": "vitest run",
     "postinstall": "patch-package"
   },
   "dependencies": {
