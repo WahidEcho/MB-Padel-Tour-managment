@@ -511,3 +511,120 @@ export function partnerVariety(rounds: ScheduledRound[]): Map<string, number> {
   }
   return new Map([...partners.entries()].map(([k, v]) => [k, v.size]));
 }
+
+/* ------------------------------------------------------------------ */
+/* Order of play and estimated times (Americano / Mexicano nights)     */
+/* ------------------------------------------------------------------ */
+
+export interface CourtOrderEntry {
+  round: number;
+  courtIndex: number;
+  /** 1-based position in this court's order of play. */
+  order: number;
+  match: ScheduledMatch;
+}
+
+export interface CourtOrder {
+  courtIndex: number;
+  matches: CourtOrderEntry[];
+}
+
+/**
+ * The order of play per court: each court plays its matches round by round,
+ * the next one as soon as the court is free (no timed rounds). Courts in index
+ * order; a court with no match in a round simply has fewer entries.
+ */
+export function orderOfPlay(rounds: ScheduledRound[]): CourtOrder[] {
+  const byCourt = new Map<number, ScheduledMatch[]>();
+  for (const r of [...rounds].sort((a, b) => a.round - b.round)) {
+    for (const m of r.matches) {
+      const list = byCourt.get(m.courtIndex) ?? [];
+      list.push(m);
+      byCourt.set(m.courtIndex, list);
+    }
+  }
+  return [...byCourt.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([courtIndex, list]) => ({
+      courtIndex,
+      matches: list.map((match, i) => ({ round: match.round, courtIndex, order: i + 1, match })),
+    }));
+}
+
+export interface MatchEstimate extends CourtOrderEntry {
+  /** Estimated start, epoch ms (exact, before rounding for the label). */
+  startsAt: number;
+  /** The same as an ISO instant, for `matches.scheduled_time`. */
+  startsAtIso: string;
+  endsAt: number;
+  /** "about 19:40": rounded to `roundToMinutes` in the event's zone. */
+  label: string;
+}
+
+export interface EstimateOptions {
+  /** IANA zone for the labels. Defaults to Africa/Cairo. */
+  timeZone?: string;
+  /** Labels round to this many minutes. Defaults to 5. */
+  roundToMinutes?: number;
+}
+
+const MINUTE_MS = 60_000;
+
+/** "about 19:40" for an instant, rounded to `roundToMinutes` in the zone (24-hour clock). */
+export function aboutTime(atMs: number, timeZone = "Africa/Cairo", roundToMinutes = 5): string {
+  const step = Math.max(1, Math.round(roundToMinutes)) * MINUTE_MS;
+  const rounded = Math.round(atMs / step) * step;
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(rounded));
+  let hhmm: string;
+  try {
+    hhmm = fmt(timeZone);
+  } catch {
+    hhmm = fmt("Africa/Cairo");
+  }
+  return `about ${hhmm}`;
+}
+
+/**
+ * Estimated start times for a schedule. A match starts when its court is free
+ * and its four players are free: each match takes `matchMinutes`, then the court
+ * and its players have `changeoverMinutes` before their next match. Matches are
+ * placed in round order (then court), so a court never runs ahead of a round whose
+ * players are still on another court. Estimates only: the table says "about".
+ */
+export function estimateTimes(
+  rounds: ScheduledRound[],
+  start: string | number | Date,
+  matchMinutes: number,
+  changeoverMinutes: number,
+  opts: EstimateOptions = {},
+): MatchEstimate[] {
+  const t0 = start instanceof Date ? start.getTime() : typeof start === "number" ? start : Date.parse(start);
+  if (!Number.isFinite(t0)) return [];
+  const play = Math.max(0, matchMinutes) * MINUTE_MS;
+  const gap = Math.max(0, changeoverMinutes) * MINUTE_MS;
+  const order = new Map<ScheduledMatch, CourtOrderEntry>();
+  for (const court of orderOfPlay(rounds)) for (const e of court.matches) order.set(e.match, e);
+
+  const courtFree = new Map<number, number>();
+  const playerFree = new Map<string, number>();
+  const out: MatchEstimate[] = [];
+  const matches = [...rounds]
+    .sort((a, b) => a.round - b.round)
+    .flatMap((r) => [...r.matches].sort((a, b) => a.courtIndex - b.courtIndex));
+  for (const m of matches) {
+    const players = [...m.teamA, ...m.teamB];
+    const startsAt = Math.max(t0, courtFree.get(m.courtIndex) ?? t0, ...players.map((p) => playerFree.get(p) ?? t0));
+    const endsAt = startsAt + play;
+    courtFree.set(m.courtIndex, endsAt + gap);
+    for (const p of players) playerFree.set(p, endsAt + gap);
+    out.push({
+      ...order.get(m)!,
+      startsAt,
+      startsAtIso: new Date(startsAt).toISOString(),
+      endsAt,
+      label: aboutTime(startsAt, opts.timeZone, opts.roundToMinutes),
+    });
+  }
+  return out;
+}

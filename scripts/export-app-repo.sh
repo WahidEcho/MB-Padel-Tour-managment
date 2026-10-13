@@ -20,17 +20,28 @@ PUSH="${2:-}"
 SHARED=(
   auth/password.ts
   auth/sessionRules.ts
-  mobile/contract.ts
-  mobile/alertsSwitch.ts
-  mobile/oauth.ts
+  chess/result.ts
   friendly/mobile.ts
+  friendly/scheduler.ts
+  leagues/boards.ts
+  leagues/join.ts
+  leagues/points.ts
+  matchday/call.ts
+  matchday/courtQueue.ts
+  matchday/eventDay.ts
+  matchday/nearEnd.ts
   matchday/rules.ts
+  mobile/alertsSwitch.ts
+  mobile/contract.ts
+  mobile/oauth.ts
   players/accessCode.ts
   players/phone.ts
+  roundrobin.ts
   scoring/conduct.ts
   scoring/console.ts
   scoring/engine.ts
   scoring/eventGuard.ts
+  scoring/finalScore.ts
   scoring/rules.ts
   scoringLease.ts
   site.ts

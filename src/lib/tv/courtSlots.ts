@@ -11,6 +11,7 @@
  */
 import type { Match } from "../types";
 import { RESULT } from "./timeline";
+import { nextOnCourt } from "../matchday/courtQueue";
 
 export type CourtSlotKind = "hold" | "live" | "rest" | "next" | "idle";
 
@@ -83,13 +84,7 @@ export function courtSlots<M extends SlotMatch>(
 
     if (latestResult && resultAge < restMs) return { courtId, kind: "rest" as const, match: latestResult };
 
-    const next = onCourt
-      .filter((m) => m.status === "scheduled" || m.status === "ready")
-      .sort(
-        (a, b) =>
-          (time(a.scheduled_time) || Infinity) - (time(b.scheduled_time) || Infinity) ||
-          a.match_order - b.match_order,
-      )[0];
+    const next = nextOnCourt(onCourt);
     if (next) return { courtId, kind: "next" as const, match: next };
 
     return { courtId, kind: "idle" as const, match: null };
