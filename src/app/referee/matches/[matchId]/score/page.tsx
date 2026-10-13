@@ -7,6 +7,7 @@ import ScoreClient from "./ScoreClient";
 import ChessScoreClient from "./ChessScoreClient";
 import { redBlueTeams } from "@/lib/sides";
 import { matchScoringMode } from "@/lib/referee/bootstrap";
+import { autoCallOnOpen } from "@/lib/matchday/server";
 import { chessCompetitionFor } from "@/lib/scoring/resultEntry";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function ScorePage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
   // The match's own tournament decides the organisation (and an event code's scope).
-  await requireEntityPage({ match: matchId }, ["referee", "admin", "manager"], `/referee/matches/${matchId}/score`);
+  const { staff } = await requireEntityPage({ match: matchId }, ["referee", "admin", "manager"], `/referee/matches/${matchId}/score`);
+  // Opening the match calls it to court when the organiser turned that on (match day only).
+  await autoCallOnOpen(matchId, staff.role);
 
   const match = await getMatch(matchId);
   if (!match || !match.team_a_id || !match.team_b_id) notFound();

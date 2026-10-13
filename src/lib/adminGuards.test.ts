@@ -391,3 +391,42 @@ describe("final results are entered only through organisation-scoped guards", ()
     expect(text.indexOf("appendScoreEvents(")).toBeGreaterThan(guard);
   });
 });
+
+/* ---------------- match day (Phase 3) ---------------- */
+
+describe("match-day routes are scoped to the match's organisation or to the player's own match", () => {
+  const read = (...p: string[]) => readFileSync(join(APP, ...p), "utf8");
+  it("the call route checks score_match on the match itself before every read and write", () => {
+    const text = read("api", "matches", "[matchId]", "call", "route.ts");
+    const guards = [...text.matchAll(/staffRoute\("score_match", \{ match: matchId \}\)/g)].map((m) => m.index);
+    expect(guards.length, "GET and POST are both guarded").toBe(2);
+    for (const fn of ["getCall(", "callToCourt(", "markPresent(", "extendCall(", "answerNoShow(", "cancelCall("]) {
+      const at = text.indexOf(fn, text.indexOf("export async function"));
+      expect(at, `${fn} is used`).toBeGreaterThan(-1);
+      expect(guards.some((g) => g < at), `${fn} comes after a guard`).toBe(true);
+    }
+  });
+  it("opening the match on a referee console (which may call it to court) is guarded first", () => {
+    const route = read("api", "mobile", "v1", "referee", "matches", "[matchId]", "bootstrap", "route.ts");
+    expect(route.indexOf("autoCallOnOpen(")).toBeGreaterThan(route.indexOf('staffRoute("score_match", { match: matchId })'));
+    const page = read("referee", "matches", "[matchId]", "score", "page.tsx");
+    expect(page.indexOf("autoCallOnOpen(")).toBeGreaterThan(page.indexOf("requireEntityPage({ match: matchId }"));
+  });
+  it("\"I'm at court\" needs a signed-in account and goes through its own player claims", () => {
+    const text = read("api", "mobile", "v1", "me", "matches", "[matchId]", "here", "route.ts");
+    const owner = text.indexOf('owner?.kind !== "user"');
+    expect(owner).toBeGreaterThan(-1);
+    expect(text.indexOf("markPresentAsPlayer(owner.id")).toBeGreaterThan(owner);
+    const server = readFileSync(join(__dirname, "matchday", "server.ts"), "utf8");
+    const fn = server.slice(server.indexOf("export async function markPresentAsPlayer"));
+    expect(fn.indexOf("sideOfUser(")).toBeGreaterThan(-1);
+    expect(fn.indexOf("sideOfUser(")).toBeLessThan(fn.indexOf("markPresent(matchId"));
+    expect(server.slice(server.indexOf("export async function sideOfUser"))).toMatch(/from\("player_claims"\)\.select\("player_id"\)\.eq\("user_id", userId\)/);
+  });
+  it("the match-day engine never selects a player's private columns", () => {
+    const server = readFileSync(join(__dirname, "matchday", "server.ts"), "utf8");
+    for (const m of server.matchAll(/\.from\("players"\)\.select\("([^"]*)"\)/g)) {
+      expect(m[1], "players columns").not.toMatch(/\*|phone|email|access_code|mobile/);
+    }
+  });
+});

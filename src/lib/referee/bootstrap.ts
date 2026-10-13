@@ -13,6 +13,7 @@ import { redBlueTeams } from "../sides";
 import { sportOf } from "../sports/registry";
 import { matchDayRules, resolveScoringMode, type MatchDayRules, type ScoringModeChoice } from "../matchday/rules";
 import { getLease, isLeaseLive } from "../scoringControl";
+import { getCall, type CallState } from "../matchday/server";
 import type { Match, MatchSnapshot, ScoringConfig, Team } from "../types";
 
 export interface RefereeSide {
@@ -45,6 +46,8 @@ export interface RefereeBootstrap {
   matchDay: MatchDayRules;
   /** How this match is recorded: the match's override, its session's mode, then the rules. */
   scoringMode: ScoringModeChoice;
+  /** The match's call to court (match_calls), null when it was never called. */
+  call: CallState | null;
 }
 
 const HISTORY_EVENTS = 300;
@@ -123,6 +126,7 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
       : null,
     matchDay,
     scoringMode: await matchScoringMode(match, tournament),
+    call: (await getCall(matchId))?.call ?? null,
   };
 }
 

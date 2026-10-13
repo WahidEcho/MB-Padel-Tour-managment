@@ -166,6 +166,33 @@ export function finishedMatchCut(
   return null;
 }
 
+/**
+ * An UNDO sent after a final result (RESULT_ENTERED) is refused: the result's
+ * state was rebuilt by the server from the sets entered, not reached point by
+ * point, so there is nothing to step back to. A result is changed only by a new
+ * RESULT_ENTERED (an audited correction). `resultStored` is whether the match's
+ * log already holds a result that is not superseded; the batch (fresh events,
+ * sorted) is walked in order, so an UNDO before the result in the same batch is
+ * still fine. Returns the first refused event, or null.
+ */
+export function undoAfterResultCut(
+  resultStored: boolean,
+  events: { event_number: number; event_type: string }[],
+): FinishedCut | null {
+  let result = resultStored;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.event_type === "RESULT_ENTERED") result = true;
+    else if (e.event_type === "UNDO" && result) {
+      return {
+        index: i,
+        error: `This match's result was entered in one go, so Undo (event ${e.event_number}) was refused. To change it, enter the corrected result.`,
+      };
+    }
+  }
+  return null;
+}
+
 /** Order-insensitive structural equality, for comparing states that went through jsonb (which reorders keys). */
 export function sameState(a: unknown, b: unknown): boolean {
   if (a === b) return true;

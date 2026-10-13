@@ -1119,6 +1119,12 @@ export interface FinalizeOptions {
    * match some other way).
    */
   resultSource?: ResultSource;
+  /**
+   * False when the match was already finished and this replaces its result (a
+   * correction): the players and fans already had "match finished", and no alert
+   * kind says "result corrected", so none is sent again. Default true.
+   */
+  notifyFinished?: boolean;
 }
 
 /** Central completion path: updates the match, standings, and bracket. */
@@ -1146,7 +1152,7 @@ export async function finalizeMatch(match: Match, opts: FinalizeOptions) {
     entity_id: match.id,
     new_value: { winner_team_id: opts.winnerTeamId, note: opts.note ?? null, result_source: opts.resultSource ?? null },
   });
-  {
+  if (opts.notifyFinished !== false) {
     const { notifyMatchFinished } = await import("./notify/hooks");
     await notifyMatchFinished(match.id);
   }

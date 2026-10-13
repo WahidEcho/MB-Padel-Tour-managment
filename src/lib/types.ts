@@ -428,6 +428,8 @@ export interface Match {
   scoring_mode_override?: ScoringMode | null;
   /** How the finished result was recorded (migration 0022); null before that. */
   result_source?: ResultSource | null;
+  /** When the next match on its court was told "soon" (migration 0022); set once. */
+  match_soon_at?: string | null;
 }
 
 /**

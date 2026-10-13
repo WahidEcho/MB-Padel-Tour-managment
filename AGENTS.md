@@ -121,3 +121,16 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (`needsArbiter`) until the organiser picks who advances (`decideWinner`); a draw outside a knockout is refused
   (`draw_unsupported`) because standings have no draws. Web UI `src/components/scoring/FinalScoreEntry.tsx`; offline queue
   helpers `src/lib/offline/finalResult.ts`. Gate `npm run e2e:final-score` (stand-in).
+  An UNDO after an entered result is refused (409 `conflict: "result_entered"`); a correction of a finished match sends no
+  second "match finished" (`finalizeMatch({ notifyFinished: false })`).
+- Match-day engine (plan Phase 3): `src/lib/matchday/server.ts` over the pure `call.ts`/`nearEnd.ts`/`courtQueue.ts`.
+  "Match soon" runs from `append.ts` after each batch and goes once per match (`matches.match_soon_at`, claimed with a
+  filtered update) to the next match on the court's linked players, never for a TBD side or players live on another court.
+  Calls live in `match_calls` (status `called|started|walkover|cancelled`; match status `ready` while called); routes
+  `api/matches/[matchId]/call` (staff, `score_match`, org-scoped) and `api/mobile/v1/me/matches/[matchId]/here` (only the
+  account's own match via `player_claims`); a court QR check-in by a player marks them present; opening the match on a
+  referee console auto-calls it (rules toggle, match days). Alerts `match_soon`/`called_to_court`/`call_reminder`
+  (category `court`); `payload.self` = the players' own wording, chosen per phone in the drain; `recipientsFor` adds
+  accounts linked to `player` targets. The reminder is a future `notification_events` row sent by the scheduled drain.
+  `PUSH_DRY_RUN=1` sends nothing (tickets `dry-run[:self]`). Gate `npm run e2e:match-day` (stand-in; server started with
+  `PUSH_DRY_RUN=1`).

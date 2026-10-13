@@ -133,6 +133,42 @@ function sideLabel(ctx: Ctx, m: Pick<Match, "tie_id" | "team_a_id" | "team_b_id"
   return players.length ? `${players.map((p) => surname(p.full_name)).join(" / ")} (${sd.code ?? sd.name})` : sd.code ?? sd.name;
 }
 
+/* ---------------- match day (src/lib/matchday/server.ts) ---------------- */
+
+export type AlertContext = Ctx;
+
+/** Names for a tournament's alerts: teams with their players (id and name only), courts. */
+export function alertContext(tournamentId: string): Promise<AlertContext> {
+  return context(tournamentId);
+}
+
+/** A side as the alerts name it: the team, or "Popa / Grant (ROU)" in a rubber. */
+export function alertSideLabel(ctx: AlertContext, m: Pick<Match, "tie_id" | "team_a_id" | "team_b_id" | "team_a_player_ids" | "team_b_player_ids">, s: "A" | "B"): string {
+  return sideLabel(ctx, m, s);
+}
+
+/** The player row ids on one side of a match: a rubber's nominees, or the whole team. */
+export function alertSidePlayerIds(ctx: AlertContext, m: Pick<Match, "team_a_id" | "team_b_id" | "team_a_player_ids" | "team_b_player_ids">, s: "A" | "B"): string[] {
+  return sidePlayers(ctx, s === "A" ? m.team_a_id : m.team_b_id, s === "A" ? m.team_a_player_ids : m.team_b_player_ids).map((p) => p.id);
+}
+
+/**
+ * Stores a match-day alert once under its dedupe key and sends what is due. A
+ * `fireAt` in the future waits for the scheduled drain (the call reminder).
+ * Never throws.
+ */
+export function enqueueAlert(row: {
+  kind: AlertKind;
+  tournamentId: string;
+  matchId: string;
+  tieId?: string | null;
+  dedupeKey: string;
+  payload: AlertPayload;
+  fireAt?: string;
+}): Promise<void> {
+  return safely(row.kind, () => enqueue(row));
+}
+
 /* ---------------- ties ---------------- */
 
 export function notifyTieScheduled(tieId: string, previous: { court_id: string | null; scheduled_time: string | null } | null) {

@@ -736,7 +736,8 @@ async function clearUnstartedMatches(tournamentId: string): Promise<number> {
     .select("id")
     .eq("tournament_id", tournamentId)
     .eq("stage", "friendly")
-    .eq("status", "scheduled");
+    // "ready" is called to court but not started: still part of the unplayed schedule.
+    .in("status", ["scheduled", "ready"]);
   const ids = (removable ?? []).map((m) => m.id as string);
   if (ids.length === 0) return 0;
 
@@ -1048,7 +1049,8 @@ export async function setFixedPairs(
     .select("id", { count: "exact", head: true })
     .eq("tournament_id", session.tournament_id)
     .eq("stage", "friendly")
-    .neq("status", "scheduled");
+    // A match called to court ("ready") has not started either.
+    .not("status", "in", "(scheduled,ready)");
   if ((started ?? 0) > 0) {
     throw new Error("Matches have already started — pairs can no longer be rebuilt wholesale");
   }

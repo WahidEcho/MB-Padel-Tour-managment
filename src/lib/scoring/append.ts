@@ -34,6 +34,7 @@ import {
   batchProblem,
   finishedMatchCut,
   reopensMatch,
+  undoAfterResultCut,
   sameState,
   shadowMismatches,
 } from "./eventGuard";
@@ -294,9 +295,28 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
   // (the batch that finished the match, say) and are kept; the refusal is
   // reported after them.
   const finishedNow = (FINISHED_MATCH_STATUSES as readonly string[]).includes(match.status);
-  const cut = finishedMatchCut(match.status, fresh, requiresConfirmation);
+  // An UNDO after a final result is refused the same way: a result is changed
+  // only by a new result (an audited correction), never stepped back.
+  let resultStored = false;
+  if (fresh.some((e) => e.event_type === "UNDO")) {
+    const { data: results } = await db()
+      .from("score_events")
+      .select("event_number")
+      .eq("match_id", matchId)
+      .eq("event_type", RESULT_ENTERED)
+      .eq("sync_status", "synced")
+      .limit(1);
+    resultStored = (results ?? []).length > 0;
+  }
+  const cuts = [
+    { cut: finishedMatchCut(match.status, fresh, requiresConfirmation), conflict: "finished" },
+    { cut: undoAfterResultCut(resultStored, fresh), conflict: "result_entered" },
+  ].filter((c): c is { cut: NonNullable<typeof c.cut>; conflict: string } => c.cut !== null);
+  const first = cuts.sort((a, b) => a.cut.index - b.cut.index)[0] ?? null;
+  const cut = first?.cut ?? null;
+  const cutConflict = first?.conflict ?? "finished";
   if (cut && cut.index === 0) {
-    return { status: 409, body: { error: cut.error, conflict: "finished", applied: [] } };
+    return { status: 409, body: { error: cut.error, conflict: cutConflict, applied: [] } };
   }
   if (cut) fresh.splice(cut.index);
   const reopens = finishedNow && fresh.some((e) => reopensMatch(e, requiresConfirmation));
@@ -522,10 +542,32 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
       winnerTeamId: finalize.winner,
       actorRole: String(role ?? "referee"),
       resultSource: finalize.source,
+      // A corrected result of a match that had already finished: "match finished"
+      // went out the first time, and there is no "result corrected" alert.
+      notifyFinished: !corrects,
     });
+  }
+  // Match day: the call to court is over once the match starts or is decided.
+  if (startedNow || (finalize && finalize.winner)) {
+    const { closeCall } = await import("../matchday/server");
+    await closeCall(matchId, finalize?.status === "walkover" ? "walkover" : "started");
   }
   if (startedNow && !finalize) {
     defer(() => notifyMatchLive(match));
+  }
+
+  // Match day: one game from the end tells the next match on the court (once per match).
+  if (fresh.length > 0 && finalState && !finalize && sportOf(ownerRow ?? undefined).supports.nearEnd) {
+    const before = snapshotBefore;
+    const after = finalState;
+    defer(async () => {
+      try {
+        const { onScoreProgress } = await import("../matchday/server");
+        await onScoreProgress({ match, before, after });
+      } catch (err) {
+        console.error("match soon check failed", err);
+      }
+    });
   }
 
   // iPhone lock-screen scores following this match.
@@ -592,7 +634,7 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
   }
 
   if (cut) {
-    return { status: 409, body: { error: cut.error, conflict: "finished", applied, last_event_number: lastApplied } };
+    return { status: 409, body: { error: cut.error, conflict: cutConflict, applied, last_event_number: lastApplied } };
   }
 
   return {

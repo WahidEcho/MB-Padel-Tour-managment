@@ -38,7 +38,8 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   const friendly = matches.filter((m) => m.stage === "friendly");
   const live = friendly.filter((m) => ["live", "paused"].includes(m.status));
-  const upcoming = friendly.filter((m) => m.status === "scheduled").slice(0, 6);
+  // "ready" is a match called to its court and not started yet (match day).
+  const upcoming = friendly.filter((m) => m.status === "scheduled" || m.status === "ready").slice(0, 6);
 
   const names = await listPublicPlayers(ranking.map((r) => r.player_profile_id));
   const label = (id: string | null) => (id ? (tm.get(id)?.team_name ?? "?") : "TBD");

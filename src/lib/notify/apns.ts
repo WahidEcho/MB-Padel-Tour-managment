@@ -89,6 +89,8 @@ type Verdict = ReturnType<typeof apnsVerdict>;
 async function sendAll(tokens: string[], body: string, priority: 5 | 10, what: string): Promise<Map<string, Verdict>> {
   const verdicts = new Map<string, Verdict>();
   if (!tokens.length || !process.env.APNS_BUNDLE_ID) return verdicts;
+  // PUSH_DRY_RUN=1 (tests): nothing leaves the server, as for the Expo alerts (drain.ts).
+  if (process.env.PUSH_DRY_RUN === "1" || process.env.PUSH_DRY_RUN === "true") return verdicts;
   const jwt = await providerToken();
   if (!jwt) return verdicts;
   const host = process.env.APNS_SANDBOX === "1" ? "api.sandbox.push.apple.com" : "api.push.apple.com";
