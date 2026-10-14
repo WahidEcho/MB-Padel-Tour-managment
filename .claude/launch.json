@@ -47,6 +47,25 @@
         "set -a; . ./.env.localdb; set +a; exec npx next dev -p 3077"
       ],
       "port": 3077
+    },
+    {
+      "name": "registration-server",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env.localdb; set +a; PUBLIC_SITE_URL=http://localhost:3077 PUSH_DRY_RUN=1 MESSAGING_DRY_RUN=1 exec npx next start -p 3077"
+      ],
+      "port": 3077
+    },
+    {
+      "name": "fake-move-tick",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "--env-file=.env.localdb",
+        "scripts/demo/fake-move-tick.ts"
+      ],
+      "port": 54399
     }
   ]
 }

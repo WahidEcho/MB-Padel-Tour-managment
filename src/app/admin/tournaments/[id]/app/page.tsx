@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import { isoToZonedInput } from "@/lib/tennis/ties";
 import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +67,11 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
           <label><span className="label">Country (2 letters)</span><input name="country_code" defaultValue={tournament.country_code ?? ""} className="input" placeholder="EG" maxLength={2} /></label>
           <label><span className="label">First day</span><input type="date" name="starts_on" defaultValue={tournament.starts_on ?? ""} className="input" /></label>
           <label><span className="label">Last day</span><input type="date" name="ends_on" defaultValue={tournament.ends_on ?? ""} className="input" /></label>
+          <label className="col-span-2">
+            <span className="label">First match (start time, in the time zone below)</span>
+            <input type="datetime-local" name="starts_at" defaultValue={isoToZonedInput(tournament.starts_at ?? null, tournament.timezone ?? "Africa/Cairo")} className="input" />
+            <span className="mt-1 block text-xs text-muted">Registration refunds close 24 hours before this time.</span>
+          </label>
           <label className="col-span-2"><span className="label">Time zone</span><input name="timezone" defaultValue={tournament.timezone ?? "Africa/Cairo"} className="input" /></label>
           <label><span className="label">Skin colour 1</span><input type="color" name="seed_a" defaultValue={skin.seedA ?? "#1e6bff"} className="input h-10 p-1" /></label>
           <label><span className="label">Skin colour 2</span><input type="color" name="seed_b" defaultValue={skin.seedB ?? "#fcfc00"} className="input h-10 p-1" /></label>

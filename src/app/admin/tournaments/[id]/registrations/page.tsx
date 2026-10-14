@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireTournamentPage } from "@/lib/guard";
 import { staffCan } from "@/lib/auth";
@@ -79,7 +80,15 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
           <p className="text-sm text-muted">
             Players register in the Move Score app or at{" "}
             <a className="underline" href={`/register/${event.slug}`} target="_blank">{`${siteUrl()}/register/${event.slug}`}</a>. Refunds are possible until 24 hours before the
-            start time{startsAt ? ` (${when(new Date(Date.parse(startsAt) - 24 * 3600_000).toISOString())})` : ": set it in Settings first"}.
+            start time
+            {startsAt ? (
+              ` (${when(new Date(Date.parse(startsAt) - 24 * 3600_000).toISOString())})`
+            ) : (
+              <>
+                : set it first ({session ? "the session's start time" : <Link className="underline" href={`/admin/tournaments/${id}/app`}>App tab → First match</Link>}); until then no refund can be made
+              </>
+            )}
+            .
           </p>
         )}
         {!online && (

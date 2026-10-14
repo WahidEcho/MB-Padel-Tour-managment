@@ -6,6 +6,7 @@ import { requireScopedPermission, requireTournamentPermission } from "@/lib/guar
 import { audit } from "@/lib/audit";
 import { notifyAnnouncement } from "@/lib/notify/hooks";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
+import { zonedToIso } from "@/lib/tennis/ties";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const path = (id: string) => `/admin/tournaments/${id}/app`;
@@ -49,6 +50,10 @@ export async function saveAppSettings(formData: FormData) {
   } catch {
     throw new Error("Unknown time zone. Use a name like Africa/Cairo.");
   }
+  // The first match, entered as the event's wall clock (refunds close 24 h before it).
+  const startsLocal = text(formData, "starts_at", 16);
+  const startsAt = startsLocal ? zonedToIso(startsLocal, tz) : null;
+  if (startsLocal && !startsAt) throw new Error("Enter the start time as a date and a time.");
   const patch = {
     event_group_id: groupId,
     venue_name: text(formData, "venue_name"),
@@ -57,6 +62,8 @@ export async function saveAppSettings(formData: FormData) {
     timezone: tz,
     starts_on: text(formData, "starts_on", 10),
     ends_on: text(formData, "ends_on", 10),
+    // Only when the form sends the field, so a caller without it never clears a set start time.
+    ...(formData.has("starts_at") ? { starts_at: startsAt } : {}),
     app_skin: {
       seedA: seedA && HEX.test(seedA) ? seedA : null,
       seedB: seedB && HEX.test(seedB) ? seedB : null,
