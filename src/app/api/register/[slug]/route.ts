@@ -1,6 +1,7 @@
 /**
  * The public web registration form (a guest, no account): POST
- * { people: [{ name, phone, email }], teamName?, payment?, website } → { ok, message, checkoutUrl, statusUrl }.
+ * { people: [{ name, phone, email }], teamName?, payment?, entryType? ("individual" | "team", for an event
+ * that takes both), website } → { ok, message, checkoutUrl (always null: Pay opens it), statusUrl }.
  *
  * Defensive like the friendly sessions' public form: a honeypot (`website`),
  * atomic rate limits per network address, per event and per email address typed
@@ -35,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     const r = await takeRateLimit({ key, limit, windowSeconds });
     if (!r.allowed) return reply({ ok: false, message: "Too many attempts. Please try again shortly." }, 429);
   }
-  const body = await strictBody(request, ["people", "teamName", "payment", "website"], 4000);
+  const body = await strictBody(request, ["people", "teamName", "payment", "entryType", "website"], 4000);
   if (!body) return reply({ ok: false, message: "Invalid request." }, 400);
   // Honeypot: hidden on the real form. Same answer as a real registration, nothing written.
   if (typeof body.website === "string" && body.website.trim() !== "") return reply({ ok: true, message: "Almost done: we emailed you a link. Open it within 24 hours to confirm your registration.", checkoutUrl: null, statusUrl: null });
@@ -53,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       if (!r.allowed) return reply({ ok: false, message: "Too many attempts. Please try again shortly." }, 429);
     }
   }
-  const r = await register({ slug, source: "web", userId: null, verifiedEmail: null, people: body.people, teamName: body.teamName, payment: body.payment });
+  const r = await register({ slug, source: "web", userId: null, verifiedEmail: null, people: body.people, teamName: body.teamName, payment: body.payment, entryType: body.entryType });
   if (!r.ok) return reply({ ok: false, message: r.status === 404 ? "Registration for this event is not open." : r.error }, r.status === 404 ? 409 : r.status);
   return reply({ ok: true, message: r.value.message, checkoutUrl: r.value.checkoutUrl, statusUrl: returnUrlFor(r.value.registration.id) });
 }

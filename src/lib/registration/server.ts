@@ -3,12 +3,15 @@
  * Move Tick: ./moveTick.ts, contract docs/move-tick-partner-api.md.
  *
  *   announce → register (app, signed in; or the web form as a guest)
- *            → organiser approves (default) → pay (Move Tick, or at the venue)
+ *            → first paid, first in (default): pay (Move Tick) → confirmed the
+ *              moment the full online amount is paid; nothing due online (free,
+ *              or paid at the venue) → confirmed at once while a place is free.
+ *              Or, in organiser mode: the organiser approves → pay
  *            → confirmed: the entry is made in the event (a team and its players,
  *              or friendly-session entries) and, for an app account, the
  *              registrant's own player row is linked to it (src/lib/players/link.ts,
  *              proof "registration"; a partner's row is never linked to anyone)
- *            → refund (organiser only, audited, until 24 h before the start)
+ *            → refund (organiser only, audited, always in full, until 24 h before the start)
  *            → archive (player_claims.archived_at, 24 h after the event ended).
  *
  * Everything money-shaped is decided here from the database: the amount comes
@@ -35,12 +38,18 @@ import {
   CLOSED_MESSAGES,
   GUEST_CONFIRM_MS,
   CHECKOUT_HOLD_MS,
+  CHECKOUTS_PER_DAY,
   PAYMENT_HOLD_MS,
   REFUND_MESSAGES,
   STATUS_LABELS,
   archiveAt,
   canMove,
   charges,
+  capacitySeats,
+  holdsPlace,
+  entryFits,
+  entryKindFor,
+  entryKinds,
   initialStatus,
   moneyLabel,
   paymentOptions,
@@ -121,15 +130,17 @@ export interface RegistrationRow {
   materialized_at: string | null;
   /** The only address ever written to about this entry, and only a verified one (null: no messages). */
   notify_email: string | null;
-  /** How long an approved entry waiting for its online payment keeps its place. */
+  /** How long an entry waiting for its online payment keeps its place (null / past: it holds none). */
   hold_until: string | null;
   hold_started_at: string | null;
+  /** "checkout": a Move Tick checkout's 15 minutes; "approval": an organiser approval's 24 hours. */
+  hold_kind: "checkout" | "approval" | null;
   created_at: string;
   updated_at: string;
 }
 
 const REG_COLUMNS =
-  "id, tournament_id, organization_id, auth_user_id, source, entry_type, team_name, people, status, payment_choice, amount_online, amount_venue, currency, paid_at, venue_paid_at, venue_paid_by, refund_requested_at, refunded_at, decided_at, decided_by, decision_note, team_id, player_id, entry_ids, materialized_at, notify_email, hold_until, hold_started_at, created_at, updated_at";
+  "id, tournament_id, organization_id, auth_user_id, source, entry_type, team_name, people, status, payment_choice, amount_online, amount_venue, currency, paid_at, venue_paid_at, venue_paid_by, refund_requested_at, refunded_at, decided_at, decided_by, decision_note, team_id, player_id, entry_ids, materialized_at, notify_email, hold_until, hold_started_at, hold_kind, created_at, updated_at";
 
 export interface PaymentRow {
   id: string;
@@ -153,12 +164,12 @@ export interface PaymentRow {
 const PAY_COLUMNS = "id, registration_id, organization_id, method, amount, currency, status, session_id, checkout_url, expires_at, test_mode, paid_at, refund_amount, refunded_at, review_reason, created_at";
 
 const now = () => new Date().toISOString();
-/** A new payment hold: 24 hours from now (approval), and when it started. */
-const newHold = () => ({ hold_until: new Date(Date.now() + PAYMENT_HOLD_MS).toISOString(), hold_started_at: now() });
+/** Organiser mode: the place an approval keeps for 24 hours from now, and when it started. */
+const approvalHold = () => ({ hold_until: new Date(Date.now() + PAYMENT_HOLD_MS).toISOString(), hold_started_at: now(), hold_kind: "approval" });
 type DbError = { code?: string; message?: string } | null | undefined;
 /** A unique index refused the write (Postgres 23505). */
 const isUnique = (e: DbError) => e?.code === "23505" || /duplicate key|unique constraint/i.test(e?.message ?? "");
-/** The capacity trigger (0029 registration_capacity_guard) refused the write. */
+/** The capacity trigger (registration_capacity_guard, 0030) refused the write. */
 const isFull = (e: DbError) => /registration_full/.test(e?.message ?? "");
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -235,17 +246,19 @@ export async function saveSettings(event: EventRow, settings: RegistrationSettin
 }
 
 /**
- * The places taken: confirmed entries and approved ones inside their payment hold
- * (rules.ts holdsPlace). Requests waiting for the organiser, unconfirmed guests and
- * lapsed holds take none. Shown and checked up front; the database trigger is what
- * makes the limit atomic.
+ * The players holding places: confirmed entries and entries waiting for their
+ * payment inside a hold (rules.ts holdsPlace) — a team counts its players, a solo
+ * entry one. Unpaid entries without a hold, requests waiting for the organiser,
+ * unconfirmed guests and lapsed holds take none. Shown and checked up front; the
+ * database trigger is what makes the limit atomic.
  */
-async function placesTaken(tournamentId: string): Promise<number> {
+export async function seatsTaken(tournamentId: string): Promise<number> {
   const [confirmed, held] = await Promise.all([
-    db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", tournamentId).eq("status", "confirmed"),
-    db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", tournamentId).eq("status", "awaiting_payment").gt("hold_until", now()),
+    db().from("registrations").select("people").eq("tournament_id", tournamentId).eq("status", "confirmed").limit(4000),
+    db().from("registrations").select("people").eq("tournament_id", tournamentId).eq("status", "awaiting_payment").gt("hold_until", now()).limit(4000),
   ]);
-  return (confirmed.count ?? 0) + (held.count ?? 0);
+  const seats = (rows: unknown) => ((rows ?? []) as { people: unknown[] | null }[]).reduce((n, r) => n + Math.max(1, Array.isArray(r.people) ? r.people.length : 1), 0);
+  return seats(confirmed.data) + seats(held.data);
 }
 
 function eventStatusFor(event: EventRow, session: SessionRow | null): string | null {
@@ -271,22 +284,28 @@ export async function registrationInfo(slug: string): Promise<MRegistrationInfo 
   const { event, org, session } = found;
   const s = await getSettings(event.id);
   const startsAt = startsAtOf(event, session);
-  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, s.capacity === null ? 0 : await placesTaken(event.id));
+  const taken = s.capacity === null ? 0 : await seatsTaken(event.id);
+  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, taken);
   const cutoff = refundCutoff(startsAt);
+  const cap = capacitySeats(s);
   return {
     event: publicEvent(event, org, session),
     open: reason === null,
     closedMessage: reason ? CLOSED_MESSAGES[reason] : null,
     entryType: s.entryType,
+    // A team entry's players (for "both" too); a solo entry is one.
     people: peoplePerEntry(s),
+    // Kinds that still fit: a team may no longer fit where a solo player still does.
+    entryKinds: entryKinds(s).filter((k) => entryFits(s, taken, peoplePerEntry(s, k))),
+    placesLeft: cap === null ? null : Math.max(0, cap - taken),
     feePerPlayer: s.feeAmount,
     currency: "EGP",
     feeLabel: s.feeAmount > 0 ? `${moneyLabel(s.feeAmount)} per player` : null,
     paymentOptions: paymentOptions(s, onlinePaymentAvailable(org.slug)) as MPaymentChoice[],
     teamPayer: s.teamPayer,
     approval: s.approvalMode,
+    checkoutHoldMinutes: CHECKOUT_HOLD_MS / 60_000,
     refundsUntil: cutoff === null ? null : new Date(cutoff).toISOString(),
-    refundFeePercent: s.refundFeePercent,
     closesAt: s.closesAt,
     note: s.note,
   };
@@ -308,6 +327,8 @@ export interface RegisterInput {
   people: unknown;
   teamName: unknown;
   payment: unknown;
+  /** For an event that takes both: "individual" or "team" (absent: read from the number of people). */
+  entryType?: unknown;
 }
 
 const cleanName = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
@@ -366,10 +387,14 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
   const { event, org, session } = found;
   const s = await getSettings(event.id);
   const startsAt = startsAtOf(event, session);
-  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, s.capacity === null ? 0 : await placesTaken(event.id));
+  const taken = s.capacity === null ? 0 : await seatsTaken(event.id);
+  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, taken);
   if (reason) return fail(409, reason, CLOSED_MESSAGES[reason]);
+  const kind = entryKindFor(s, input.entryType, Array.isArray(input.people) ? input.people.length : 0);
+  if (!kind) return fail(400, "invalid", s.entryType === "both" ? "Pick a solo or a team entry." : s.entryType === "team" ? "This event takes teams." : "This event takes individual players.");
+  if (!entryFits(s, taken, peoplePerEntry(s, kind))) return fail(409, "full", kind === "team" ? "There is no place left for a team: register on your own, or ask the organiser." : CLOSED_MESSAGES.full);
 
-  const read = readPeople(input.people, peoplePerEntry(s), {
+  const read = readPeople(input.people, peoplePerEntry(s, kind), {
     registrantContact: input.source === "web" ? "phone_and_email" : "phone",
     // A session's players are found and made by their mobile number.
     partnerPhone: event.kind === "friendly_session",
@@ -387,6 +412,7 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
   const money = charges(s, choice, people.length);
   // A web guest's entry waits for the link emailed to the address they typed: until
   // it is opened the entry holds no place, reaches no organiser and is sent nothing else.
+  // An entry waiting for its online payment holds no place either (first paid, first in).
   const status: RegistrationStatus = guest ? "unconfirmed" : initialStatus(s, money.online);
 
   const { data, error } = await db()
@@ -396,8 +422,8 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
       organization_id: event.organization_id,
       auth_user_id: input.userId,
       source: input.source,
-      entry_type: s.entryType,
-      team_name: s.entryType === "team" ? teamName : null,
+      entry_type: kind,
+      team_name: kind === "team" ? teamName : null,
       people,
       status,
       payment_choice: choice,
@@ -405,7 +431,6 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
       amount_venue: money.venue,
       currency: "EGP",
       notify_email: guest ? null : input.verifiedEmail,
-      ...(status === "awaiting_payment" ? newHold() : {}),
     })
     .select(REG_COLUMNS)
     .single();
@@ -424,10 +449,11 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
     action: "REGISTRATION_SUBMITTED",
     entity_type: "registration",
     entity_id: reg.id,
-    new_value: { status, entry_type: s.entryType, people: people.length, payment_choice: choice, amount_online: money.online, amount_venue: money.venue },
+    new_value: { status, entry_type: kind, people: people.length, payment_choice: choice, amount_online: money.online, amount_venue: money.venue },
   });
 
-  let checkoutUrl: string | null = null;
+  // No checkout is opened here: opening one takes a place (CHECKOUT_HOLD_MS), so it is the payer's own step (Pay).
+  const checkoutUrl: string | null = null;
   let message: string;
   if (status === "unconfirmed") {
     await sendGuestConfirmation(reg, event);
@@ -436,9 +462,7 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
     reg = (await confirmEntry(reg, event, "registered")) ?? reg;
     message = money.venue > 0 ? `You're in. Pay ${moneyLabel(money.venue)} at the venue.` : "You're in.";
   } else if (status === "awaiting_payment") {
-    const pay = await startPayment(reg, event, input.source);
-    checkoutUrl = pay.ok ? pay.value.checkoutUrl : null;
-    message = pay.ok ? `Pay ${moneyLabel(money.online)} to finish registering.` : "Registered. Online payment is not reachable right now: try Pay again in a moment.";
+    message = `Registered. Pay ${moneyLabel(money.online)} to confirm your place: only paid entries hold a place, and yours is confirmed when your payment goes through.`;
     await notify(reg, event, "awaiting_payment");
   } else {
     message = "Registration received. The organiser confirms each entry.";
@@ -503,12 +527,14 @@ export async function confirmGuest(registrationId: string, token: unknown): Prom
   if (!email) return NOT_FOUND;
   const session = await sessionOf(event);
   const s = await getSettings(event.id);
-  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt: startsAtOf(event, session) }, s.capacity === null ? 0 : await placesTaken(event.id));
+  const taken = s.capacity === null ? 0 : await seatsTaken(event.id);
+  const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt: startsAtOf(event, session) }, taken);
   if (reason) return fail(409, reason, CLOSED_MESSAGES[reason]);
+  if (!entryFits(s, taken, reg.people.length)) return fail(409, "full", CLOSED_MESSAGES.full);
   const to = initialStatus(s, reg.amount_online);
   const { data, error } = await db()
     .from("registrations")
-    .update({ status: to, notify_email: email, ...(to === "awaiting_payment" ? newHold() : {}), updated_at: now() })
+    .update({ status: to, notify_email: email, updated_at: now() })
     .eq("id", reg.id)
     .eq("status", "unconfirmed")
     .select(REG_COLUMNS);
@@ -529,7 +555,7 @@ export async function confirmGuest(registrationId: string, token: unknown): Prom
     message = moved.amount_venue > 0 ? `You're in. Pay ${moneyLabel(moved.amount_venue)} at the venue.` : "You're in.";
   } else if (to === "awaiting_payment") {
     await notify(moved, event, "awaiting_payment");
-    message = `Confirmed. Pay ${moneyLabel(moved.amount_online)} to finish registering.`;
+    message = `Email confirmed. Pay ${moneyLabel(moved.amount_online)} to confirm your place: only paid entries hold a place.`;
   } else {
     await notify(moved, event, "received");
     message = "Confirmed. The organiser confirms each entry; we'll email you when they do.";
@@ -577,18 +603,24 @@ async function openPayment(registrationId: string): Promise<PaymentRow | null> {
 }
 
 /**
- * The approved entry's place while it is paid for. The hold runs 24 hours from
- * approval; a checkout made in its last hour stretches it to the checkout's length,
- * never past start + 25 hours (so pressing Pay again and again keeps no place). Once
- * it ran out the entry may still pay while a place is free, but holds nothing: the
- * payment confirms it only if a place is free when it lands (the capacity trigger),
- * else it is held for a refund.
+ * The place an entry keeps while its checkout is open. Both approval modes:
+ *
+ *   - an organiser approval's 24-hour hold with more than a checkout's length left
+ *     keeps the place as it is; one in its last 15 minutes is stretched to the
+ *     checkout's length, never past approval + 24 h + 15 min (organiser mode only);
+ *   - otherwise (first paid, first in; or a lapsed approval hold) opening a checkout
+ *     takes a checkout hold of CHECKOUT_HOLD_MS (15 minutes, the Move Tick checkout's
+ *     lifetime) — only if a place is free: the capacity trigger decides atomically,
+ *     so of two players racing for the last place exactly one gets the hold and the
+ *     other is told "This event is full" before any checkout is made.
+ *
+ * Returns the hold it took (to give back if the checkout cannot be made), or null.
  */
-async function ensureHold(reg: RegistrationRow, event: EventRow): Promise<Outcome<null>> {
+async function ensureHold(reg: RegistrationRow): Promise<Outcome<{ until: string; kind: "checkout" | "approval" } | null>> {
   const nowMs = Date.now();
   const until = reg.hold_until ? Date.parse(reg.hold_until) : 0;
-  if (until - nowMs > CHECKOUT_HOLD_MS) return { ok: true, value: null };
-  if (until > nowMs) {
+  if (reg.hold_kind === "approval" && until > nowMs) {
+    if (until - nowMs > CHECKOUT_HOLD_MS) return { ok: true, value: null };
     const started = reg.hold_started_at ? Date.parse(reg.hold_started_at) : until - PAYMENT_HOLD_MS;
     const next = Math.min(nowMs + CHECKOUT_HOLD_MS, started + PAYMENT_HOLD_MS + CHECKOUT_HOLD_MS);
     if (next > until) {
@@ -597,16 +629,34 @@ async function ensureHold(reg: RegistrationRow, event: EventRow): Promise<Outcom
     }
     return { ok: true, value: null };
   }
-  const s = await getSettings(event.id);
-  if (s.capacity !== null && (await placesTaken(event.id)) >= s.capacity) return fail(409, "full", "This event is full: the place kept for this entry ran out before it was paid.");
-  return { ok: true, value: null };
+  // A checkout hold for this new checkout (a live one of an earlier checkout that closed is renewed:
+  // CHECKOUTS_PER_DAY bounds how often).
+  const hold = new Date(nowMs + CHECKOUT_HOLD_MS).toISOString();
+  let q = db().from("registrations").update({ hold_until: hold, hold_started_at: new Date(nowMs).toISOString(), hold_kind: "checkout", updated_at: now() }).eq("id", reg.id).eq("status", "awaiting_payment");
+  q = reg.hold_until ? q.eq("hold_until", reg.hold_until) : q.is("hold_until", null);
+  const { data, error } = await q.select("id");
+  if (error) return isFull(error) ? fail(409, "full", CLOSED_MESSAGES.full) : fail(409, "conflict", "Could not start the payment. Try again.");
+  if (!data?.length) return fail(409, "conflict", "This entry changed meanwhile. Try again.");
+  return { ok: true, value: { until: hold, kind: "checkout" } };
+}
+
+/** Gives back a checkout hold this request took when no checkout came of it. */
+async function releaseHold(regId: string, until: string): Promise<void> {
+  await db().from("registrations").update({ hold_until: null, hold_kind: null, updated_at: now() }).eq("id", regId).eq("status", "awaiting_payment").eq("hold_kind", "checkout").eq("hold_until", until);
+}
+
+/** A checkout closed unpaid (failed or expired): the checkout hold it took ends with it. */
+async function endCheckoutHold(regId: string): Promise<void> {
+  await db().from("registrations").update({ hold_until: now(), updated_at: now() }).eq("id", regId).eq("status", "awaiting_payment").eq("hold_kind", "checkout").gt("hold_until", now());
 }
 
 /**
  * A Move Tick checkout for what this registration owes online. Never two at once:
  * the open one is reused (the database allows one open checkout per registration),
  * and one whose time ran out is first settled with Move Tick (paid, or closed)
- * before another is made. The amount is the registration row's, written by the server.
+ * before another is made. A new checkout first takes a place hold (ensureHold): when
+ * no place is free, Pay is refused before any checkout ("This event is full"). The
+ * amount is the registration row's, written by the server.
  */
 export async function startPayment(reg: RegistrationRow, event: EventRow, source: "app" | "web" | "admin"): Promise<Outcome<{ checkoutUrl: string; paymentId: string }>> {
   if (reg.status !== "awaiting_payment" || reg.amount_online <= 0) return fail(409, "not_due", "Nothing is due online for this entry.");
@@ -617,8 +667,6 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
   await reconcileOnline(reg.id, { force: true });
   const fresh = await loadReg(reg.id);
   if (!fresh || fresh.reg.status !== "awaiting_payment") return fail(409, "not_due", "Nothing is due online for this entry.");
-  const held = await ensureHold(fresh.reg, fresh.event);
-  if (!held.ok) return held;
 
   let payment = await openPayment(reg.id);
   if (payment?.status === "open") {
@@ -626,8 +674,30 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
       // Move Tick has not closed it yet (or could not be asked): never open a second one beside it.
       return fail(409, "checkout_open", "The last checkout is still being closed by Move Tick. Try again in a minute.");
     }
-    if (payment.checkout_url) return { ok: true, value: { checkoutUrl: payment.checkout_url, paymentId: payment.id } };
+    if (payment.checkout_url) {
+      // The open checkout is reused: pressing Pay again never stretches a live hold. One whose hold
+      // already ran out (a checkout that outlives its hold) is reused only while a place is free.
+      if (!holdsPlace(fresh.reg)) {
+        const hold = await ensureHold(fresh.reg);
+        if (!hold.ok) return hold;
+      }
+      return { ok: true, value: { checkoutUrl: payment.checkout_url, paymentId: payment.id } };
+    }
   }
+  // A new checkout: within the day's allowance, and only with a place held for it.
+  let held: { until: string; kind: "checkout" | "approval" } | null = null;
+  if (!payment) {
+    const { count } = await db().from("registration_payments").select("id", { count: "exact", head: true }).eq("registration_id", reg.id).eq("method", "online").gte("created_at", new Date(Date.now() - 86400_000).toISOString());
+    if ((count ?? 0) >= CHECKOUTS_PER_DAY) return fail(429, "too_many_checkouts", "Too many payment attempts for this entry today. Try again tomorrow, or ask the organiser.");
+  }
+  if (!payment || payment.status === "created") {
+    const hold = await ensureHold(fresh.reg);
+    if (!hold.ok) return hold;
+    held = hold.value;
+  }
+  const giveBack = async () => {
+    if (held?.kind === "checkout") await releaseHold(reg.id, held.until);
+  };
   if (!payment) {
     const { data, error } = await db()
       .from("registration_payments")
@@ -637,7 +707,10 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
     if (error) {
       // Another request made it a moment ago (one open checkout per registration): use that one.
       payment = isUnique(error) ? await openPayment(reg.id) : null;
-      if (!payment) return fail(409, "conflict", "Could not start the payment. Try again.");
+      if (!payment) {
+        await giveBack();
+        return fail(409, "conflict", "Could not start the payment. Try again.");
+      }
       if (payment.status === "open" && payment.checkout_url) return { ok: true, value: { checkoutUrl: payment.checkout_url, paymentId: payment.id } };
     } else payment = data as PaymentRow;
   }
@@ -669,6 +742,8 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
   } catch (e) {
     const code = e instanceof MoveTickError ? e.code : "error";
     console.error("[registration] Move Tick checkout failed", code);
+    // No checkout came of it: the place goes back (the payment row stays "created" for a retry with the same key).
+    await giveBack();
     if (code === "PAYMENT_SESSION_OPEN") return fail(409, "checkout_open", "A checkout for this entry is still open at Move Tick. Try again in a few minutes.");
     if (code === "ORDER_ALREADY_PAID") return fail(409, "checkout_open", "Move Tick already has a payment for this entry. It will show here shortly.");
     return fail(502, "move_tick", "Online payment is not reachable right now. Try again in a moment.");
@@ -722,6 +797,13 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
       await audit({ ...base, action: "REGISTRATION_PAYMENT_MISMATCH", new_value: { payment_id: payment.id, reported: e.data.amount, expected: payment.amount } });
       return "needs_review";
     }
+    // "Full payment" is the entry's whole online amount (amount_online: the whole fee, or with
+    // team_payer each_player the registrant's own share): a checkout for less never confirms.
+    if (payment.amount < reg.amount_online) {
+      await db().from("registration_payments").update({ status: "needs_review", paid_at: now(), review_reason: `Paid ${payment.amount}; the entry owes ${reg.amount_online} online: refund it.`, last_event_id: e.id, updated_at: now() }).eq("id", payment.id).in("status", ["created", "open", "failed", "expired"]);
+      await audit({ ...base, action: "REGISTRATION_PAYMENT_SHORT", new_value: { payment_id: payment.id, paid: payment.amount, owed: reg.amount_online } });
+      return "needs_review";
+    }
     const { data: moved } = await db()
       .from("registration_payments")
       .update({ status: "paid", paid_at: now(), last_event_id: e.id, updated_at: now() })
@@ -741,10 +823,11 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
       .is("paid_at", null)
       .select(REG_COLUMNS);
     if (confErr && isFull(confErr)) {
-      // Its place ran out before the payment landed, and the event filled meanwhile: nothing was bought.
-      await db().from("registration_payments").update({ status: "needs_review", review_reason: "Paid after the place kept for this entry ran out, and the event is full: refund it.", updated_at: now() }).eq("id", payment.id).eq("status", "paid");
+      // It held no place when the payment landed (its checkout hold ran out) and the event is full: nothing was bought.
+      await db().from("registration_payments").update({ status: "needs_review", review_reason: "Paid when the event was already full (its checkout's hold had run out): refund it in full.", updated_at: now() }).eq("id", payment.id).eq("status", "paid");
       await audit({ ...base, action: "REGISTRATION_PAYMENT_FULL", new_value: { payment_id: payment.id, amount: payment.amount } });
-      await alertOrgAdmins(event, `${event.name}: a payment to refund`, `Move Tick took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} whose place ran out before it was paid, and the event is full. Open Registrations and refund it.`, `registration:${reg.id}:review:${payment.id}`);
+      await alertOrgAdmins(event, `${event.name}: a payment to refund`, `Move Tick took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} after the event was already full (the place kept while paying had run out). The entry was not confirmed. Open Registrations and refund it in full.`, `registration:${reg.id}:review:${payment.id}`);
+      await notify(reg, event, "full", payment.id);
       return "needs_review";
     }
     // Any other error: let Move Tick retry (applyWebhook forgets the event id; the payment's own move is undone below).
@@ -767,11 +850,14 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
   }
 
   if (e.type === "payment.failed" || e.type === "payment.expired") {
-    await db()
+    const { data: closed } = await db()
       .from("registration_payments")
       .update({ status: e.type === "payment.failed" ? "failed" : "expired", last_event_id: e.id, updated_at: now() })
       .eq("id", payment.id)
-      .in("status", ["created", "open"]);
+      .in("status", ["created", "open"])
+      .select("id");
+    // The place this checkout held goes back with it.
+    if (closed?.length) await endCheckoutHold(reg.id);
     return "applied";
   }
 
@@ -1066,7 +1152,8 @@ class EventFullError extends Error {
 /** A conditional status change from the status the row was read in. Throws EventFullError when the capacity trigger refuses it. */
 async function move(reg: RegistrationRow, to: RegistrationStatus, patch: Record<string, unknown> = {}): Promise<RegistrationRow | null> {
   if (!canMove(reg.status, to)) return null;
-  const hold = to === "awaiting_payment" ? newHold() : {};
+  // Only an organiser's approval moves an entry into awaiting_payment here: it keeps a place for 24 h.
+  const hold = to === "awaiting_payment" ? approvalHold() : {};
   const { data, error } = await db()
     .from("registrations")
     .update({ status: to, ...hold, ...patch, updated_at: now() })
@@ -1142,10 +1229,10 @@ export async function pairRegistrations(ids: [string, string], tournamentId: str
 /**
  * Refunds one online payment (named by its id) through Move Tick: the organiser's
  * action only, audited. A payment that confirmed the entry: until 24 h before the
- * event's start time. A payment held for review after it was taken (paid after the
- * entry was cancelled or refused, or a second payment for an entry already paid):
- * at any time, since it bought nothing. The amount is the payment's own, less the
- * card fee the settings keep (none by default).
+ * event's start time. A payment held for review after it was taken (paid when the
+ * event was full, after the entry was cancelled or refused, or a second payment for
+ * an entry already paid): at any time, since it bought nothing. Always the payment's
+ * whole amount (Move Beyond absorbs the card fee).
  */
 export async function refund(registrationId: string, paymentId: string, actor: Actor, reasonText: string | null): Promise<string> {
   const found = await loadReg(registrationId);
@@ -1166,8 +1253,7 @@ export async function refund(registrationId: string, paymentId: string, actor: A
 async function refundPayment(reg: RegistrationRow, event: EventRow, payment: PaymentRow, actor: Actor, reasonText: string | null, opts: { skipCutoff: boolean }): Promise<string> {
   const cfg = moveTickConfig();
   if (!cfg) throw new Error("Move Tick is not configured on this server.");
-  const settings = await getSettings(event.id);
-  const amount = refundAmount(payment.amount, settings.refundFeePercent);
+  const amount = refundAmount(payment.amount);
   const { data: claimed } = await db()
     .from("registration_payments")
     .update({ status: "refund_pending", refund_amount: amount, refund_requested_by: actor.label, updated_at: now() })
@@ -1181,7 +1267,7 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
     action: "REGISTRATION_REFUND_REQUESTED",
     entity_type: "registration",
     entity_id: reg.id,
-    new_value: { payment_id: payment.id, paid: payment.amount, refund: amount, fee_percent: settings.refundFeePercent, reason: reasonText, after_cutoff_review: opts.skipCutoff },
+    new_value: { payment_id: payment.id, paid: payment.amount, refund: amount, reason: reasonText, after_cutoff_review: opts.skipCutoff },
   });
   try {
     const r = await refundPaymentSession(cfg, { sessionId: payment.session_id!, reference: reg.id, amount, reason: reasonText ?? "Registration refunded by the organiser", idempotencyKey: `refund-${payment.id}` });
@@ -1201,7 +1287,7 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
     await db().from("registration_payments").update({ status: payment.status, updated_at: now() }).eq("id", payment.id).eq("status", "refund_pending");
     const code = e instanceof MoveTickError ? e.code : "error";
     await audit({ tournament_id: event.id, actor_role: actor.role, action: "REGISTRATION_REFUND_FAILED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, code } });
-    throw new Error(code === "PARTIAL_REFUND_UNSUPPORTED" ? "Move Tick can only refund the full amount for now: set the card fee kept on refunds to 0 %." : "Move Tick did not take the refund. Try again in a moment.");
+    throw new Error("Move Tick did not take the refund. Try again in a moment.");
   }
 }
 
@@ -1413,7 +1499,7 @@ export async function eventRegistrations(tournamentId: string): Promise<AdminReg
 
 /* ---------------- messages ---------------- */
 
-type Notice = "received" | "awaiting_payment" | "confirmed" | "refused" | "refunded";
+type Notice = "received" | "awaiting_payment" | "confirmed" | "refused" | "refunded" | "full";
 
 /**
  * Tells the registrant, by email, and only at the entry's verified address
@@ -1429,10 +1515,13 @@ async function notify(reg: RegistrationRow, event: EventRow, kind: Notice, why?:
   const app = reg.auth_user_id ? " It is also in your Move Score app (My profile → Registrations)." : "";
   const text: Record<Notice, [string, string, string]> = {
     received: [`${event.name}: registration received`, `We received your registration for ${event.name}. The organiser confirms each entry; you'll hear from us when they do.`, "See your registration"],
-    awaiting_payment: [`${event.name}: pay to finish registering`, `Your entry for ${event.name} is approved. Pay ${moneyLabel(reg.amount_online)} with the button below to confirm your place: it is kept for you for 24 hours.${app}`, `Pay ${moneyLabel(reg.amount_online)}`],
+    awaiting_payment: reg.decided_at
+      ? [`${event.name}: pay to finish registering`, `Your entry for ${event.name} is approved. Pay ${moneyLabel(reg.amount_online)} with the button below to confirm your place: it is kept for you for 24 hours.${app}`, `Pay ${moneyLabel(reg.amount_online)}`]
+      : [`${event.name}: pay to confirm your place`, `Pay ${moneyLabel(reg.amount_online)} with the button below to enter ${event.name}. Only paid entries hold a place: yours is confirmed when your payment goes through, while places remain.${app}`, `Pay ${moneyLabel(reg.amount_online)}`],
     confirmed: [`${event.name}: you're in`, `Your place in ${event.name} is confirmed.${venue}${app}`, "See your registration"],
     refused: [`${event.name}: registration not accepted`, `The organiser could not accept your registration for ${event.name}.`, "See your registration"],
     refunded: [`${event.name}: refunded`, `A payment for your entry in ${event.name} was refunded (${moneyLabel(amount ?? 0)}). It can take a few days to reach your card.`, "See your registration"],
+    full: [`${event.name}: the event filled up`, `Your payment for ${event.name} went through after the last place was taken, so your entry is not confirmed. The organiser refunds it in full; you'll get an email when they do.`, "See your registration"],
   };
   const [title, message, cta] = text[kind];
   try {

@@ -185,6 +185,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   The messaging cron also archives finished events' player links (`player_claims.archived_at`).
   Hardening (security review): migration `0029_registration_hardening.sql` (not yet on the live project; apply after 0028):
   web guests confirm by an emailed link (`unconfirmed`, `/register/confirm`), app registration needs a confirmed email, messages
-  only to `registrations.notify_email` (verified), capacity = confirmed + 24 h payment holds (trigger), one open checkout per
-  registration, refunds by payment id, status page Pay button (`/api/register/pay`). Move Tick partner branch: one open
-  session per reference (`409 PAYMENT_SESSION_OPEN`).
+  only to `registrations.notify_email` (verified), one open checkout per registration, refunds by payment id, status page Pay
+  button (`/api/register/pay`). Move Tick partner branch: one open session per reference (`409 PAYMENT_SESSION_OPEN`).
+  Owner's final decisions (DECISIONS.md § 8; migration `0030_registration_first_paid.sql`, not yet on the live project; apply
+  after 0029): default `approval_mode = on_payment` ("first paid, first in"; `automatic` is gone, `organiser` stays): registering
+  holds no place and opens no checkout; Pay takes a 15-min checkout hold (`CHECKOUT_HOLD_MS` = Move Tick's
+  `PARTNER_SESSION_TTL_MINUTES`) only while a place is free (else 409 `full` before any checkout); the full `amount_online`
+  paid → `confirmed`, no organiser step; a payment into a full event → `needs_review`, admins + player emailed, refund in full
+  any time. Capacity = players of confirmed entries + unexpired holds (`hold_kind` checkout|approval; organiser mode keeps its
+  24 h approval hold), trigger `registration_capacity_guard` (0030). Entry type `individual|team|both` (both: the player picks;
+  a solo fills one of a team's places; solos paired by `pairRegistrations`). Refunds always 100 % (no card-fee setting).
+  Local walkthrough: `npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts` + `scripts/demo/fake-move-tick.ts`.

@@ -13,7 +13,7 @@ import { decide, eventById, markVenuePaid, pairRegistrations, refund, saveSettin
  * (any real tournament or session row, nothing else). The organisation is always
  * resolved from the row itself: the event for the settings, the registration for
  * everything done to one (src/lib/guard.ts). Refunds need refund_registrations
- * (admins with their own account) and are audited.
+ * (admins with their own account), are always in full and are audited.
  */
 
 const path = (id: string) => `/admin/tournaments/${id}/registrations`;
@@ -42,7 +42,6 @@ export async function saveRegistrationSettings(formData: FormData) {
     feeAmount: fee,
     payment: text(formData.get("payment"), 20),
     teamPayer: text(formData.get("team_payer"), 20),
-    refundFeePercent: Number(text(formData.get("refund_fee_percent"), 6) || 0),
     capacity: text(formData.get("capacity"), 6),
     closesAt,
     note: text(formData.get("note"), 1000),

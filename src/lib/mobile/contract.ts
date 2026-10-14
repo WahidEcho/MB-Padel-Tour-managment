@@ -888,9 +888,14 @@ export interface MRegistrationInfo {
   open: boolean;
   /** Why it is not open (closed, full, deadline passed, finished); null when open. */
   closedMessage: string | null;
-  entryType: "individual" | "team";
-  /** People per entry (the registrant included). */
+  /** "both": the player picks a solo or a team entry. */
+  entryType: "individual" | "team" | "both";
+  /** People per team entry (the registrant included); 1 for individual entry. A solo entry is always 1. */
   people: number;
+  /** The kinds of entry that still fit (a team may no longer fit where a solo player still does). */
+  entryKinds: ("individual" | "team")[];
+  /** Players' places left (a team takes `people` of them), or null when there is no limit. */
+  placesLeft: number | null;
   feePerPlayer: number;
   currency: "EGP";
   /** "EGP 250 per player", or null when free. */
@@ -898,10 +903,15 @@ export interface MRegistrationInfo {
   /** "online" (Move Tick) only for Move Beyond's events while it is configured. */
   paymentOptions: MPaymentChoice[];
   teamPayer: "registrant" | "each_player";
-  approval: "organiser" | "automatic";
-  /** The last moment a paid entry can be refunded (ISO), or null when the start time is not set. */
+  /**
+   * "on_payment" (first paid, first in): confirmed the moment the online payment goes
+   * through; only paid entries hold a place. "organiser": the organiser approves first.
+   */
+  approval: "on_payment" | "organiser";
+  /** How long opening a checkout keeps a place for the payer (minutes). */
+  checkoutHoldMinutes: number;
+  /** The last moment a paid entry can be refunded in full (ISO), or null when the start time is not set. */
   refundsUntil: string | null;
-  refundFeePercent: number;
   closesAt: string | null;
   note: string | null;
 }
@@ -936,7 +946,7 @@ export interface MRegistration {
 /** POST /t/{slug}/registration and the /me/registrations/{id}/* actions. */
 export interface MRegistrationResult {
   registration: MRegistration;
-  /** Move Tick's hosted checkout, when payment is due online now. */
+  /** Move Tick's hosted checkout (the pay action); registering never opens one: Pay does. */
   checkoutUrl: string | null;
   message: string;
 }

@@ -1898,7 +1898,7 @@ async function main() {
       const { data: before } = await db().from("friendly_entries").select("approval, source, hidden, preferred_partner_profile_id, updated_at").eq("id", EB).single();
       const { error: setErr } = await db()
         .from("registration_settings")
-        .upsert({ tournament_id: SB.tournament_id, organization_id: B, open: true, entry_type: "team", team_size: 2, approval_mode: "automatic", fee_amount: 0, payment: "free" }, { onConflict: "tournament_id" });
+        .upsert({ tournament_id: SB.tournament_id, organization_id: B, open: true, entry_type: "team", team_size: 2, approval_mode: "on_payment", fee_amount: 0, payment: "free" }, { onConflict: "tournament_id" });
       const att = await standinUser(`e2e.reg.h1.${tag}@example.com`);
       const asAtt = { ...bearer(att.accessToken), "X-Forwarded-For": freshAddr() };
       const ownPhone = `+2011${String(Date.now()).slice(-8)}`;

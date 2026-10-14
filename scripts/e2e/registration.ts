@@ -2,19 +2,31 @@
  * Registration and payment (plan Phase 9), end to end on the stand-in, with a
  * fake Move Tick inside this script (the partner API of docs/move-tick-partner-api.md).
  *
- *   1. Settings and info: team entry, organiser approval, Move Beyond online + venue;
- *      another organisation is offered the venue only, whatever it saves.
- *   2. Team registration in the app: strict body (a client amount is refused),
- *      approval, a Move Tick checkout for the server's amount, the payment webhook:
- *      bad signature, stale timestamp and wrong mode refused; the real one confirms,
- *      makes the team and links the registrant's own row only; a replay (same id, or
- *      a fresh id) changes nothing; an amount mismatch is held for review.
- *   3. Individual entries: a friendly session (free, automatic, the account's own
- *      profile), and web guests in a padel tournament paired by the organiser.
+ *   1. Settings and info: the defaults (closed, first paid first in, registrant pays,
+ *      no card fee), Move Beyond online + venue; another organisation is offered the
+ *      venue only, whatever it saves.
+ *   2. Organiser mode: team registration in the app, strict body (a client amount is
+ *      refused), approval (a 24 h approval hold), a Move Tick checkout for the server's
+ *      amount, the payment webhook: bad signature, stale timestamp and wrong mode
+ *      refused; the real one confirms, makes the team and links the registrant's own
+ *      row only; a replay (same id, or a fresh id) changes nothing; an amount mismatch
+ *      is held for review.
+ *   2b. First paid, first in (the default): registering holds no place and opens no
+ *      checkout; Pay takes a 15-minute checkout hold only while a place is free (two
+ *      players racing for the last place: one checkout, the other "This event is
+ *      full" before any checkout); the paid one is confirmed with no organiser step;
+ *      a failed / expired checkout or a lapsed hold frees the place; a payment that
+ *      lands when the event is full is flagged, the admins emailed, and refunded in
+ *      full; a free event confirms at once while places remain.
+ *   2c. Entry type both: a team and solo players in one event (fees per player,
+ *      capacity counted in players: a team no longer fits where a solo still does),
+ *      solo players paired by the organiser.
+ *   3. Individual entries: a friendly session (free, first paid first in, the
+ *      account's own profile), and web guests in a padel tournament paired by the organiser.
  *   4. Pay at the venue: approve, then "paid at the venue".
- *   5. Refunds: before the 24 h cut-off (Move Tick refunds; the entry leaves the
- *      event), refused after it, refused for a manager and the shared password, and
- *      a refund that Move Tick confirms later by webhook.
+ *   5. Refunds, always in full: before the 24 h cut-off (Move Tick refunds; the entry
+ *      leaves the event), refused after it, refused for a manager and the shared
+ *      password, and a refund that Move Tick confirms later by webhook.
  *   6. Cross-organisation attacks and other accounts: another organisation's admin
  *      cannot see, approve, refuse, record or refund; another account's registration
  *      answers like a missing one; web form honeypot and rate limit.
@@ -86,7 +98,8 @@ function fakeMoveTick(): http.Server {
           prior ??
           ({ sessionId: `pts_test_${randomUUID().slice(0, 12)}`, reference: String(body?.reference), amount: Number(body?.amount), status: "open", idem, returnUrl: String(body?.returnUrl) } satisfies FakeSession);
         mt.sessions.set(s.sessionId, s);
-        return send(201, { sessionId: s.sessionId, checkoutUrl: `${MT_URL}/checkout/${s.sessionId}`, status: s.status, amount: s.amount, currency: "EGP", reference: s.reference, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(), testMode: true });
+        // Move Tick's partner checkouts live 15 minutes (the place hold Move Score takes for them).
+        return send(201, { sessionId: s.sessionId, checkoutUrl: `${MT_URL}/checkout/${s.sessionId}`, status: s.status, amount: s.amount, currency: "EGP", reference: s.reference, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), testMode: true });
       }
       const one = /^\/api\/partner\/v1\/payment-sessions\/([^/]+)$/.exec(url);
       if (req.method === "GET" && one) {
@@ -167,8 +180,11 @@ async function reg(id: string) {
   const { data } = await db().from("registrations").select("*").eq("id", id).single();
   return data as Record<string, unknown> & { status: string; team_id: string | null; player_id: string | null; entry_ids: string[]; paid_at: string | null; venue_paid_at: string | null; amount_online: number; amount_venue: number; materialized_at: string | null };
 }
+/** The app's Pay button. */
+const payNow = (id: string, who: Who) => call("POST", `/api/mobile/v1/me/registrations/${id}/pay`, who, {});
+
 async function settings(tournamentId: string, fields: Record<string, string>, who: Who) {
-  const r = await act("saveRegistrationSettings", { tournament_id: tournamentId, open: "on", entry_type: "team", team_size: "2", approval_mode: "organiser", fee: "250", payment: "online_or_venue", team_payer: "registrant", refund_fee_percent: "0", capacity: "", closes_at: "", note: "", ...fields }, who, tournamentId);
+  const r = await act("saveRegistrationSettings", { tournament_id: tournamentId, open: "on", entry_type: "team", team_size: "2", approval_mode: "organiser", fee: "250", payment: "online_or_venue", team_payer: "registrant", capacity: "", closes_at: "", note: "", ...fields }, who, tournamentId);
   if (!actionOk(r)) throw new Error(`settings: ${r.status} ${r.text.slice(0, 300)}`);
 }
 
@@ -199,7 +215,8 @@ async function main() {
     const player = async (who: string) => {
       const u = await appUser(`e2e.reg.${who}.${tag}@example.com`);
       created.users.push(u.userId);
-      return { ...u, who: bearer(u.token) };
+      // Each player on its own network address (the app's per-address registration limit is 30 an hour).
+      return { ...u, who: { ...bearer(u.token), ...xff(freshIp()) } };
     };
     const U1 = await player("u1");
     const U2 = await player("u2");
@@ -234,7 +251,7 @@ async function main() {
     section("settings and what players are offered");
     const T1 = await event("Team Cup", MB);
     const before = await call("GET", `/api/mobile/v1/t/${T1.slug}/registration`);
-    check(before.status === 200 && before.json?.open === false && before.json?.approval === "organiser" && before.json?.teamPayer === "registrant" && before.json?.refundFeePercent === 0, "a new event is closed, organiser approves, registrant pays, full refunds (the defaults)", before.json);
+    check(before.status === 200 && before.json?.open === false && before.json?.approval === "on_payment" && before.json?.teamPayer === "registrant" && !("refundFeePercent" in (before.json ?? {})) && before.json?.checkoutHoldMinutes === 15, "a new event is closed, first paid first in, registrant pays, no card-fee setting (the owner's defaults)", before.json);
     await settings(T1.id, {}, mbAdmin);
     const info = await call("GET", `/api/mobile/v1/t/${T1.slug}/registration`);
     check(info.status === 200 && info.json?.open === true && JSON.stringify(info.json?.paymentOptions) === JSON.stringify(["online", "venue"]) && info.json?.feePerPlayer === 25000 && info.json?.people === 2, "Move Beyond's event offers Move Tick and the venue, EGP 250 per player, teams of 2", info.json);
@@ -273,7 +290,8 @@ async function main() {
     check(payEarly.status === 409, "no payment before the organiser approves", payEarly.json);
 
     const approve = await act("decideRegistrationAction", { registration_id: R1, decision: "approve" }, mbAdmin, T1.id);
-    check(actionOk(approve) && (await reg(R1)).status === "awaiting_payment", "the organiser approves: awaiting payment", approve.text.slice(0, 200));
+    const approved = await reg(R1);
+    check(actionOk(approve) && approved.status === "awaiting_payment" && approved.hold_kind === "approval" && Math.abs(Date.parse(String(approved.hold_until)) - (Date.now() + 24 * 3600_000)) < 120_000, "organiser mode: the approval keeps the place for 24 hours while it is paid", { status: approved.status, kind: approved.hold_kind, until: approved.hold_until });
     const pay = await call("POST", `/api/mobile/v1/me/registrations/${R1}/pay`, U1.who, {});
     const s1 = [...mt.sessions.values()].find((s) => s.reference === R1)!;
     check(pay.status === 200 && String(pay.json?.checkoutUrl).startsWith(`${MT_URL}/checkout/`) && s1?.amount === 50000, "a Move Tick checkout for the server's amount (the registrant pays for the team: EGP 500)", { status: pay.status, amount: s1?.amount });
@@ -329,6 +347,150 @@ async function main() {
     const cancel4 = await call("POST", `/api/mobile/v1/me/registrations/${R4}/cancel`, U4.who, {});
     check(cancel4.status === 200 && (await reg(R4)).status === "cancelled", "the player cancels an unpaid entry");
 
+    /* ---------------- 2b ---------------- */
+    section("first paid, first in (the default)");
+    const sessionsFor = (ref: string) => [...mt.sessions.values()].filter((x) => x.reference === ref);
+    const idOf = (r: { json: Record<string, unknown> | null }) => String((r.json?.registration as { id?: string } | undefined)?.id ?? "");
+    const solo = (slug: string, who: Who, name: string, extra: Record<string, unknown> = {}) => call("POST", `/api/mobile/v1/t/${slug}/registration`, who, { people: [{ name, phone: phone() }], payment: "online", ...extra });
+    const mbAdminEmail = `e2e.reg.mbadmin.${tag}@example.com`;
+
+    const TF1 = await event("First Paid Cup", MB);
+    await settings(TF1.id, { entry_type: "individual", fee: "250", payment: "online", approval_mode: "on_payment", capacity: "1" }, mbAdmin);
+    const FA = await player("fa");
+    const FB = await player("fb");
+    const FC = await player("fc");
+    const ra = await solo(TF1.slug, FA.who, "Fay First");
+    const RA = idOf(ra);
+    const ga = await reg(RA);
+    check(
+      ra.status === 201 && ga.status === "awaiting_payment" && ga.hold_until === null && ra.json?.checkoutUrl === null && sessionsFor(RA).length === 0 && (ra.json?.registration as { canPay?: boolean } | undefined)?.canPay === true,
+      "registering holds no place and opens no checkout: the entry waits for its payment",
+      { status: ga.status, hold: ga.hold_until, sessions: sessionsFor(RA).length },
+    );
+    const rb = await solo(TF1.slug, FB.who, "Fred Second");
+    const RB2 = idOf(rb);
+    const infoF = await call("GET", `/api/mobile/v1/t/${TF1.slug}/registration`);
+    check(rb.status === 201 && infoF.json?.open === true && infoF.json?.placesLeft === 1 && infoF.json?.approval === "on_payment", "an unpaid entry takes no place: a second player registers for the last place too", { rb: rb.status, info: infoF.json });
+    const [pa, pb] = await Promise.all([payNow(RA, FA.who), payNow(RB2, FB.who)]);
+    const aWon = pa.status === 200;
+    const winner = aWon ? { id: RA, who: FA.who } : { id: RB2, who: FB.who };
+    const loser = aWon ? { id: RB2, who: FB.who, res: pb } : { id: RA, who: FA.who, res: pa };
+    check(
+      [pa.status, pb.status].sort().join(",") === "200,409" && loser.res.json?.code === "full" && /full/i.test(String(loser.res.json?.error)) && sessionsFor(loser.id).length === 0 && sessionsFor(winner.id).length === 1,
+      "two players press Pay at once for the last place: one checkout; the other is told the event is full before any checkout",
+      { a: pa.status, b: pb.status, loser: loser.res.json },
+    );
+    const wr = await reg(winner.id);
+    check(wr.hold_kind === "checkout" && Math.abs(Date.parse(String(wr.hold_until)) - (Date.now() + 15 * 60_000)) < 60_000, "the open checkout keeps the place for 15 minutes (the Move Tick checkout's lifetime)", { kind: wr.hold_kind, until: wr.hold_until });
+    const infoHeld = await call("GET", `/api/mobile/v1/t/${TF1.slug}/registration`);
+    check(infoHeld.json?.open === false && infoHeld.json?.closedMessage === "This event is full." && infoHeld.json?.placesLeft === 0, "while it is open the event shows as full", infoHeld.json);
+    const repay = await payNow(winner.id, winner.who);
+    check(repay.status === 200 && sessionsFor(winner.id).length === 1 && (await reg(winner.id)).hold_until === wr.hold_until, "pressing Pay again reuses the checkout and never stretches the hold");
+    const sw = sessionsFor(winner.id)[0]!;
+    await webhook(paidEvent(sw));
+    sw.status = "paid";
+    const wc = await reg(winner.id);
+    check(
+      wc.status === "confirmed" && wc.decided_at === null && Boolean(wc.paid_at) && (await deliveriesOf(winner.id)).some((d) => d.idempotency_key.includes(":confirmed")),
+      "the full payment confirms the entry at once, with no organiser step (and the player is emailed)",
+      { status: wc.status, decided: wc.decided_at },
+    );
+    const loserAgain = await payNow(loser.id, loser.who);
+    const third = await solo(TF1.slug, FC.who, "Flo Third");
+    check(loserAgain.status === 409 && loserAgain.json?.code === "full" && third.status === 409 && third.json?.code === "full", "the other player still cannot pay, and nobody else can register: the event is full", { pay: loserAgain.status, third: third.status });
+
+    // A checkout that expires (or fails) gives its place back; so does a hold that ran out on its own.
+    const TF2 = await event("Hold Expiry Cup", MB);
+    await settings(TF2.id, { entry_type: "individual", fee: "250", payment: "online", approval_mode: "on_payment", capacity: "1" }, mbAdmin);
+    const HA = await player("ha");
+    const HB = await player("hb");
+    const HC = await player("hc");
+    const RHA = idOf(await solo(TF2.slug, HA.who, "Hana Hold"));
+    const RHB = idOf(await solo(TF2.slug, HB.who, "Hugo Hold"));
+    await payNow(RHA, HA.who);
+    const sHA = sessionsFor(RHA)[0]!;
+    const blocked = await payNow(RHB, HB.who);
+    check(blocked.status === 409 && blocked.json?.code === "full", "while the first player's checkout is open, the place is theirs", blocked.json);
+    const exp = await webhook({ id: `evt_${randomUUID().slice(0, 12)}`, type: "payment.expired", createdAt: new Date().toISOString(), data: { sessionId: sHA.sessionId, reference: RHA, amount: sHA.amount, currency: "EGP", refundedAmount: null, testMode: true } });
+    sHA.status = "expired";
+    const ha = await reg(RHA);
+    const infoFreed = await call("GET", `/api/mobile/v1/t/${TF2.slug}/registration`);
+    check(exp.status === 200 && Date.parse(String(ha.hold_until)) <= Date.now() && ha.status === "awaiting_payment" && infoFreed.json?.open === true && infoFreed.json?.placesLeft === 1, "Move Tick reports the checkout expired: its place is free again", { hold: ha.hold_until, info: infoFreed.json });
+    const pHB = await payNow(RHB, HB.who);
+    check(pHB.status === 200 && sessionsFor(RHB).length === 1, "…and the next player can pay", pHB.json);
+    await db().from("registrations").update({ hold_until: new Date(Date.now() - 1000).toISOString() }).eq("id", RHB);
+    const infoLapsed = await call("GET", `/api/mobile/v1/t/${TF2.slug}/registration`);
+    check(infoLapsed.json?.open === true && infoLapsed.json?.placesLeft === 1, "a checkout hold that ran out (15 minutes, no word from Move Tick) frees the place on its own", infoLapsed.json);
+    const RHC = idOf(await solo(TF2.slug, HC.who, "Hal Hold"));
+    const pHC = await payNow(RHC, HC.who);
+    check(pHC.status === 200, "someone else takes the place by paying", pHC.json);
+    const sHB = sessionsFor(RHB)[0]!;
+    await webhook(paidEvent(sHB));
+    sHB.status = "paid";
+    const hbPay = (await onlinePayments(RHB)).find((p) => p.session_id === sHB.sessionId);
+    const hbMail = await deliveriesOf(RHB);
+    const { count: overfill } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", TF2.id).eq("status", "confirmed");
+    check(
+      (await reg(RHB)).status === "awaiting_payment" && hbPay?.status === "needs_review" && (overfill ?? 0) === 0 && hbMail.some((d) => d.idempotency_key.includes(":review:") && d.address === mbAdminEmail) && hbMail.some((d) => /:full:/.test(d.idempotency_key)),
+      "a payment landing when the event is already full is not confirmed: flagged for a refund, the admins and the player emailed",
+      { pay: hbPay?.status, review: hbPay?.review_reason, mail: hbMail.map((d) => d.idempotency_key) },
+    );
+    const refHB = await act("refundRegistrationAction", { registration_id: RHB, payment_id: hbPay?.id ?? "", confirm: "REFUND", reason: "event full" }, mbAdmin, TF2.id);
+    const callHB = mt.calls.find((c) => /\/refund$/.test(c.path) && (c.body as { reference?: string })?.reference === RHB);
+    check(actionOk(refHB) && (callHB?.body as { amount?: number } | undefined)?.amount === 25000 && (await onlinePayments(RHB)).find((p) => p.id === hbPay?.id)?.status === "refunded", "one click refunds the flagged payment in full", { ok: actionOk(refHB), call: callHB?.body });
+    const sHC = sessionsFor(RHC)[0]!;
+    await webhook(paidEvent(sHC));
+    sHC.status = "paid";
+    check((await reg(RHC)).status === "confirmed", "the player whose checkout held the place is confirmed by their payment");
+
+    // A free event: confirmed on registration while places remain.
+    const TF3 = await event("Free First Cup", MB);
+    await settings(TF3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment", capacity: "1" }, mbAdmin);
+    const fr1 = await solo(TF3.slug, (await player("fr1")).who, "Fran Free", { payment: "free" });
+    const fr2 = await solo(TF3.slug, (await player("fr2")).who, "Finn Free", { payment: "free" });
+    check(fr1.status === 201 && (await reg(idOf(fr1))).status === "confirmed" && fr2.status === 409 && fr2.json?.code === "full", "a free event confirms on registration while places remain, then is full", { fr1: fr1.status, fr2: fr2.status });
+
+    /* ---------------- 2c ---------------- */
+    section("entry type both: solo players and teams in one event");
+    const TBo = await event("Mixed Cup", MB);
+    await settings(TBo.id, { entry_type: "both", team_size: "2", fee: "250", payment: "online_or_venue", approval_mode: "on_payment", capacity: "2" }, mbAdmin);
+    const infoBo = await call("GET", `/api/mobile/v1/t/${TBo.slug}/registration`);
+    check(infoBo.json?.entryType === "both" && infoBo.json?.people === 2 && JSON.stringify(infoBo.json?.entryKinds) === JSON.stringify(["team", "individual"]) && infoBo.json?.placesLeft === 4, "an event that takes both offers a team of 2 or a solo entry; 2 teams = 4 player places", infoBo.json);
+    const BT = await player("bt");
+    const BS = await player("bs");
+    const BX = await player("bx");
+    const rt = await call("POST", `/api/mobile/v1/t/${TBo.slug}/registration`, BT.who, { people: [{ name: "Tia Team", phone: phone() }, { name: "Tom Team" }], teamName: "Tia & Tom", entryType: "team", payment: "venue" });
+    const gt = await reg(idOf(rt));
+    check(rt.status === 201 && gt.status === "confirmed" && gt.entry_type === "team" && gt.amount_venue === 50000 && Boolean(gt.team_id), "a team paying at the venue is in at once, for both players' fees (EGP 500 at the venue)", { status: gt.status, venue: gt.amount_venue });
+    const rs = await call("POST", `/api/mobile/v1/t/${TBo.slug}/registration`, BS.who, { people: [{ name: "Sol Solo", phone: phone() }], entryType: "individual", payment: "online" });
+    const RS = idOf(rs);
+    const gs = await reg(RS);
+    await payNow(RS, BS.who);
+    const ss = sessionsFor(RS)[0];
+    check(rs.status === 201 && gs.entry_type === "individual" && gs.amount_online === 25000 && ss?.amount === 25000, "a solo player pays one player's fee online (EGP 250)", { kind: gs.entry_type, online: gs.amount_online, checkout: ss?.amount });
+    if (ss) {
+      await webhook(paidEvent(ss));
+      ss.status = "paid";
+    }
+    const gs2 = await reg(RS);
+    check(gs2.status === "confirmed" && !gs2.materialized_at, "paid: the solo player is in, waiting to be paired", { status: gs2.status });
+    const infoMid = await call("GET", `/api/mobile/v1/t/${TBo.slug}/registration`);
+    const teamLate = await call("POST", `/api/mobile/v1/t/${TBo.slug}/registration`, BX.who, { people: [{ name: "Xan Late", phone: phone() }, { name: "Xia Late" }], entryType: "team", payment: "venue" });
+    const badKind = await call("POST", `/api/mobile/v1/t/${TBo.slug}/registration`, BX.who, { people: [{ name: "Xan Late", phone: phone() }], entryType: "squad", payment: "venue" });
+    check(
+      infoMid.json?.open === true && JSON.stringify(infoMid.json?.entryKinds) === JSON.stringify(["individual"]) && infoMid.json?.placesLeft === 1 && teamLate.status === 409 && teamLate.json?.code === "full" && badKind.status === 400,
+      "with 3 of 4 places taken a team no longer fits but a solo player still does (and an unknown entry kind is refused)",
+      { info: infoMid.json?.entryKinds, team: teamLate.status, bad: badKind.status },
+    );
+    const gB = await guestRegister(TBo.slug, { name: "Gwen Guest", email: `gwen.${tag}@example.com` }, { entryType: "individual", payment: "venue" });
+    if (gB.id) await confirmLink(gB.id);
+    const gg = gB.id ? await reg(gB.id) : null;
+    const infoBoFull = await call("GET", `/api/mobile/v1/t/${TBo.slug}/registration`);
+    check(gg?.status === "confirmed" && gg.entry_type === "individual" && gg.amount_venue === 25000 && infoBoFull.json?.open === false, "a web guest enters solo too (confirmed by the emailed link); now the event is full", { status: gg?.status, open: infoBoFull.json?.open });
+    const pairBo = await act("pairRegistrationsAction", { tournament_id: TBo.id, registration_ids: [RS, gB.id ?? ""] }, mbAdmin, TBo.id);
+    const { count: teamsBo } = await db().from("teams").select("id", { count: "exact", head: true }).eq("tournament_id", TBo.id);
+    check(actionOk(pairBo) && teamsBo === 2 && Boolean((await reg(RS)).team_id), "the organiser pairs the two solo players: two teams fill the two places", { teamsBo });
+
     /* ---------------- 3 ---------------- */
     section("individual entries");
     const S = await createFriendlySession({ name: `E2E Reg Night ${tag}`, seasonId: null, startsAt: new Date(Date.now() + 48 * 3600_000).toISOString(), durationMinutes: 120, courtCount: 2, pairingMode: "americano", rankingModel: "win_points", setsToWinMatch: 1, gamesToWinSet: 6, maxPlayers: null, registrationDeadline: null, organizationId: MB, actorRole: "admin" });
@@ -336,7 +498,7 @@ async function main() {
     created.tournaments.push(ST);
     const { data: st } = await db().from("tournaments").select("slug").eq("id", ST).single();
     const sSlug = (st as { slug: string }).slug;
-    await settings(ST, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "automatic" }, mbAdmin);
+    await settings(ST, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment" }, mbAdmin);
     const p3 = phone();
     created.phones.push(p3);
     const r3 = await call("POST", `/api/mobile/v1/t/${sSlug}/registration`, U3.who, { people: [{ name: "Sam Single", phone: p3 }] });
@@ -347,7 +509,7 @@ async function main() {
     check(r3.status === 201 && g3.status === "confirmed" && (g3.entry_ids ?? []).length === 1 && ((entry ?? []) as { player_profile_id: string; approval: string }[]).some((e) => e.player_profile_id === (p3prof as { id: string } | null)?.id && e.approval === "approved"), "a free individual session entry is confirmed at once, as the account's own profile", { status: g3.status, entry });
 
     const T3 = await event("Singles Pool", MB);
-    await settings(T3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "automatic" }, mbAdmin);
+    await settings(T3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment" }, mbAdmin);
     const g = async (ip: string, name: string) => {
       const res = await fetch(`${BASE_URL}/api/register/${T3.slug}`, { method: "POST", headers: { "Content-Type": "application/json", ...xff(ip) }, body: JSON.stringify({ people: [{ name, phone: phone(), email: `${name.split(" ")[0]!.toLowerCase()}.${tag}@example.com` }], website: "" }) });
       return { status: res.status, json: (await res.json()) as { ok: boolean; message: string; statusUrl: string | null } };
@@ -424,10 +586,11 @@ async function main() {
 
     // After the cut-off: the event starts in 10 hours.
     const T5 = await event("Late Cup", MB, { startsInHours: 10 });
-    await settings(T5.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);
+    await settings(T5.id, { approval_mode: "on_payment", payment: "online" }, mbAdmin);
     const r6 = await call("POST", `/api/mobile/v1/t/${T5.slug}/registration`, U2.who, { people: [{ name: "Lou Late", phone: phone() }, { name: "Lee Late" }], payment: "online" });
     const R6 = String((r6.json?.registration as { id: string }).id);
-    check(r6.status === 201 && String(r6.json?.checkoutUrl).startsWith(MT_URL), "automatic approval: the checkout comes straight back");
+    const p6 = await payNow(R6, U2.who);
+    check(r6.status === 201 && r6.json?.checkoutUrl === null && String(p6.json?.checkoutUrl).startsWith(MT_URL), "first paid, first in: registering opens no checkout; Pay does");
     const s6 = [...mt.sessions.values()].find((s) => s.reference === R6)!;
     await webhook(paidEvent(s6));
     s6.status = "paid";
@@ -440,9 +603,10 @@ async function main() {
 
     // A refund Move Tick confirms later, by webhook.
     const T6 = await event("Pending Refund Cup", MB);
-    await settings(T6.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);
+    await settings(T6.id, { approval_mode: "on_payment", payment: "online" }, mbAdmin);
     const r7 = await call("POST", `/api/mobile/v1/t/${T6.slug}/registration`, U5.who, { people: [{ name: "Ray Refund", phone: phone() }, { name: "Rex Refund" }], payment: "online" });
     const R7 = String((r7.json?.registration as { id: string }).id);
+    await payNow(R7, U5.who);
     const s7 = [...mt.sessions.values()].find((s) => s.reference === R7)!;
     await webhook(paidEvent(s7));
     s7.status = "paid";
@@ -459,6 +623,7 @@ async function main() {
     // A webhook that never arrived: My registrations asks Move Tick and catches up (once).
     const r8 = await call("POST", `/api/mobile/v1/t/${T6.slug}/registration`, U4.who, { people: [{ name: "Lost Hook", phone: phone() }, { name: "Lost Partner" }], payment: "online" });
     const R8 = String((r8.json?.registration as { id: string }).id);
+    await payNow(R8, U4.who);
     const s8 = [...mt.sessions.values()].find((s) => s.reference === R8)!;
     s8.status = "paid";
     const list8 = await call("GET", "/api/mobile/v1/me/registrations", U4.who);
@@ -474,7 +639,7 @@ async function main() {
     section("other organisations and other accounts");
     const bApprove = await act("decideRegistrationAction", { registration_id: R5, decision: "refuse" }, bAdmin, T4.id);
     check(!actionOk(bApprove) && (await reg(R5)).status === "confirmed", "another organisation's admin cannot refuse Move Beyond's entry");
-    const bSettings = await act("saveRegistrationSettings", { tournament_id: T1.id, open: "", entry_type: "team", team_size: "2", approval_mode: "automatic", fee: "1", payment: "venue", team_payer: "registrant", refund_fee_percent: "0" }, bAdmin, T1.id);
+    const bSettings = await act("saveRegistrationSettings", { tournament_id: T1.id, open: "", entry_type: "team", team_size: "2", approval_mode: "on_payment", fee: "1", payment: "venue", team_payer: "registrant" }, bAdmin, T1.id);
     check(!actionOk(bSettings), "nor change its settings");
     const bPage = await fetch(`${BASE_URL}/admin/tournaments/${T1.id}/registrations`, { headers: bAdmin, redirect: "manual" });
     const bPageText = await bPage.text();
@@ -519,7 +684,7 @@ async function main() {
 
     await attack("H1", async () => {
       const S2 = await sessionEvent("Partner Night");
-      await settings(S2.id, { entry_type: "team", team_size: "2", fee: "0", payment: "free", approval_mode: "automatic" }, mbAdmin);
+      await settings(S2.id, { entry_type: "team", team_size: "2", fee: "0", payment: "free", approval_mode: "on_payment" }, mbAdmin);
       // The victim already has an entry in the session, as the organiser left it (waitlisted, hidden).
       const V = await victimProfile("Vera Victim");
       const { data: ve } = await db().from("friendly_entries").insert({ session_id: S2.sessionId, player_profile_id: V.id, source: "admin", approval: "waitlisted", hidden: true }).select("id").single();
@@ -544,10 +709,11 @@ async function main() {
 
     await attack("M1", async () => {
       const TM = await event("Double Cup", MB, { startsInHours: 10 });
-      await settings(TM.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);
+      await settings(TM.id, { approval_mode: "on_payment", payment: "online" }, mbAdmin);
       const U9 = await player("u9");
       const r = await call("POST", `/api/mobile/v1/t/${TM.slug}/registration`, U9.who, { people: [{ name: "Dee Double", phone: phone() }, { name: "Dan Double" }], payment: "online" });
       const RD = regId(r);
+      await payNow(RD, U9.who);
       const sA = sessionsOf(RD)[0]!;
       await db().from("registration_payments").update({ expires_at: new Date(Date.now() + 30_000).toISOString() }).eq("session_id", sA.sessionId);
       const again = await call("POST", `/api/mobile/v1/me/registrations/${RD}/pay`, U9.who, {});
@@ -586,7 +752,7 @@ async function main() {
 
     await attack("M2", async () => {
       const TP = await event("Same Name Pool", MB);
-      await settings(TP.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "automatic" }, mbAdmin);
+      await settings(TP.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment" }, mbAdmin);
       const U10 = await player("u10");
       const U11 = await player("u11");
       const a = regId(await call("POST", `/api/mobile/v1/t/${TP.slug}/registration`, U10.who, { people: [{ name: "Sam Same", phone: phone() }] }));
@@ -644,13 +810,13 @@ async function main() {
       const second = await act("decideRegistrationAction", { registration_id: regId(b), decision: "approve" }, mbAdmin, TC.id);
       check((await reg(regId(a))).status === "confirmed" && !actionOk(second) && (await reg(regId(b))).status === "pending_approval", "M4: once full, approving one more is refused", second.status);
       const TC2 = await event("Race Cup", MB);
-      await settings(TC2.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "automatic", capacity: "1" }, mbAdmin);
+      await settings(TC2.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment", capacity: "1" }, mbAdmin);
       const racers = [await player("u15"), await player("u16"), await player("u17")];
       const raced = await Promise.all(racers.map((u, i) => call("POST", `/api/mobile/v1/t/${TC2.slug}/registration`, u.who, { people: [{ name: `Racer ${i}`, phone: phone() }] })));
       const { count: in2 } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", TC2.id).eq("status", "confirmed");
       check(in2 === 1 && raced.filter((x) => x.status === 409).length === 2, "M4: three registrations at once for the last place: exactly one gets it (atomic)", { confirmed: in2, statuses: raced.map((x) => x.status) });
       const TC3 = await event("Dedupe Pool", MB);
-      await settings(TC3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "automatic" }, mbAdmin);
+      await settings(TC3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment" }, mbAdmin);
       const email = `twice.${tag}@example.com`;
       const g1 = await guestRegister(TC3.slug, { name: "Twice One", email });
       const g2 = await guestRegister(TC3.slug, { name: "Twice Two", email });
@@ -661,24 +827,27 @@ async function main() {
     });
 
     await attack("M4 holds", async () => {
+      // Organiser mode: the approval keeps the place 24 h; pressing Pay near its end stretches it once, never past 24 h + 15 min.
       const TH = await event("Hold Cup", MB);
-      await settings(TH.id, { entry_type: "individual", fee: "250", payment: "online", approval_mode: "automatic", capacity: "1" }, mbAdmin);
+      await settings(TH.id, { entry_type: "individual", fee: "250", payment: "online", approval_mode: "organiser", capacity: "1" }, mbAdmin);
       const U23 = await player("u23");
-      const r = await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U23.who, { people: [{ name: "Holly Hold", phone: phone() }], payment: "online" });
-      const RH = regId(r);
+      const RH = regId(await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U23.who, { people: [{ name: "Holly Hold", phone: phone() }], payment: "online" }));
+      await act("decideRegistrationAction", { registration_id: RH, decision: "approve" }, mbAdmin, TH.id);
+      await payNow(RH, U23.who);
       const sH = sessionsOf(RH)[0]!;
       // 30 hours after approval, with ten minutes of hold left: paying again stretches nothing.
       const ten = new Date(Date.now() + 10 * 60_000).toISOString();
       await db().from("registrations").update({ hold_started_at: new Date(Date.now() - 30 * 3600_000).toISOString(), hold_until: ten }).eq("id", RH);
-      await call("POST", `/api/mobile/v1/me/registrations/${RH}/pay`, U23.who, {});
+      await payNow(RH, U23.who);
       const h1 = await reg(RH);
       check(Date.parse(String(h1.hold_until)) <= Date.parse(ten) + 1000, "M4: pressing Pay again after the 24 h hold window keeps no place (the hold is not renewed)", h1.hold_until);
-      // The hold runs out; someone else takes the place; the first entry can no longer pay, and a late payment is held for a refund.
+      // The hold runs out; the organiser approves someone else, who takes the place; the first entry can no longer pay.
       await db().from("registrations").update({ hold_until: new Date(Date.now() - 60_000).toISOString() }).eq("id", RH);
       const U24 = await player("u24");
-      const other = await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U24.who, { people: [{ name: "Otto Other", phone: phone() }], payment: "online" });
-      const lapsedPay = await call("POST", `/api/mobile/v1/me/registrations/${RH}/pay`, U23.who, {});
-      check(other.status === 201 && lapsedPay.status === 409 && lapsedPay.json?.code === "full", "M4: once its hold ran out and the place was taken, the entry cannot pay", { other: other.status, pay: lapsedPay.status });
+      const other = regId(await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U24.who, { people: [{ name: "Otto Other", phone: phone() }], payment: "online" }));
+      const approveOther = await act("decideRegistrationAction", { registration_id: other, decision: "approve" }, mbAdmin, TH.id);
+      const lapsedPay = await payNow(RH, U23.who);
+      check(actionOk(approveOther) && lapsedPay.status === 409 && lapsedPay.json?.code === "full", "M4: once its hold ran out and the place was taken, the entry cannot pay (not even on its still-open checkout)", { approve: actionOk(approveOther), pay: lapsedPay.status, code: lapsedPay.json?.code });
       await webhook(paidEvent(sH));
       const ph = (await onlinePayments(RH)).find((p) => p.session_id === sH.sessionId);
       const { count: inH } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", TH.id).eq("status", "confirmed");
@@ -687,9 +856,10 @@ async function main() {
 
     await attack("L1", async () => {
       const TL = await event("Fault Cup", MB);
-      await settings(TL.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);
+      await settings(TL.id, { approval_mode: "on_payment", payment: "online" }, mbAdmin);
       const U18 = await player("u18");
       const RL = regId(await call("POST", `/api/mobile/v1/t/${TL.slug}/registration`, U18.who, { people: [{ name: "Faye Fault", phone: phone() }, { name: "Finn Fault" }], payment: "online" }));
+      await payNow(RL, U18.who);
       const sL = sessionsOf(RL)[0]!;
       await standinSql("alter table move_tick_events add constraint e2e_l1_fault check (event_id not like 'evt_l1fault%')");
       const evtId = `evt_l1fault_${randomUUID().slice(0, 8)}`;
@@ -705,6 +875,7 @@ async function main() {
       check(retry.status === 200 && (await reg(RL)).status === "confirmed", "L1: the retry of that event then applies", retry.json);
       const U19 = await player("u19");
       const RL2 = regId(await call("POST", `/api/mobile/v1/t/${TL.slug}/registration`, U19.who, { people: [{ name: "Lex Late", phone: phone() }, { name: "Lia Late" }], payment: "online" }));
+      await payNow(RL2, U19.who);
       const sL2 = sessionsOf(RL2)[0]!;
       await db().from("registration_payments").update({ status: "expired" }).eq("session_id", sL2.sessionId);
       sL2.status = "paid";
@@ -736,9 +907,10 @@ async function main() {
 
     await attack("L4", async () => {
       const TX = await event("External Refund Cup", MB);
-      await settings(TX.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);
+      await settings(TX.id, { approval_mode: "on_payment", payment: "online" }, mbAdmin);
       const U20 = await player("u20");
       const RX = regId(await call("POST", `/api/mobile/v1/t/${TX.slug}/registration`, U20.who, { people: [{ name: "Ed External", phone: phone() }, { name: "Eve External" }], payment: "online" }));
+      await payNow(RX, U20.who);
       const sX = sessionsOf(RX)[0]!;
       await webhook(paidEvent(sX));
       sX.status = "refunded";
@@ -750,7 +922,7 @@ async function main() {
 
     await attack("L5", async () => {
       const TF = await event("Half Team Cup", MB);
-      await settings(TF.id, { fee: "0", payment: "free", approval_mode: "automatic" }, mbAdmin);
+      await settings(TF.id, { fee: "0", payment: "free", approval_mode: "on_payment" }, mbAdmin);
       const teamName = `L5 Fault ${tag}`;
       await standinSql(`create or replace function e2e_l5_fault() returns trigger language plpgsql as $f$ begin if new.team_id is not null and new.team_name = '${teamName}' then raise exception 'e2e_l5_fault'; end if; return new; end $f$; drop trigger if exists e2e_l5_fault on registrations; create trigger e2e_l5_fault before update on registrations for each row execute function e2e_l5_fault();`);
       let rf: Awaited<ReturnType<typeof call>>;
@@ -768,9 +940,10 @@ async function main() {
 
     await attack("L6", async () => {
       const TV = await event("Status Views Cup", MB);
-      await settings(TV.id, { approval_mode: "automatic", payment: "online" }, mbAdmin);
+      await settings(TV.id, { approval_mode: "on_payment", payment: "online" }, mbAdmin);
       const U22 = await player("u22");
       const RV = regId(await call("POST", `/api/mobile/v1/t/${TV.slug}/registration`, U22.who, { people: [{ name: "Viv Views", phone: phone() }, { name: "Val Views" }], payment: "online" }));
+      await payNow(RV, U22.who);
       const sV = sessionsOf(RV)[0]!;
       const gets = () => mt.calls.filter((c) => c.path === `/api/partner/v1/payment-sessions/${sV.sessionId}` && c.body === null).length;
       const before = gets();

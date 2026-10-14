@@ -9,7 +9,7 @@ repo (`move-score-partner-api`). The only live change this session was the `rls_
 secret-key switch the owner made.
 
 > Do not push `move-score-mobile` until the deploy steps below are done. The new code reads tables and
-> columns from migrations 0022–0029; deployed without them, staff sign-in and the app API fail.
+> columns from migrations 0022–0030; deployed without them, staff sign-in and the app API fail.
 
 ## 1. What each phase delivered
 
@@ -67,7 +67,7 @@ against the live database.
    `STAFF_SESSION_SECRET`, `EVENT_CODE_PEPPER`, `PLAYER_CODE_PEPPER` (different from the event pepper),
    and confirm `PUBLIC_SITE_URL=https://tour.mbeg.org`. Later: `APNS_*` (Live Activities),
    `MOVE_TICK_*` (payments), `WA_OTP_TEMPLATE` (after Meta approves).
-3. **Apply migrations 0022 → 0029** to the live project, in order (all additive). Apply 0023 off-peak
+3. **Apply migrations 0022 → 0030** to the live project, in order (all additive). Apply 0023 off-peak
    (it briefly locks `tournaments`). Then run Supabase advisors (security + performance).
 4. **Supabase Auth**: add `https://tour.mbeg.org/staff/auth/callback` to the redirect allow-list. Keep
    Resend click tracking off.
@@ -92,9 +92,8 @@ code, and check TVs — the shared role passwords still work for Move Beyond, so
 
 - Americano points format (rally-to-N?) and the reference table layout — the night table is built so either
   is a small change (`src/lib/friendly/nightTable.ts`).
-- Registration defaults (currently safe defaults, each a per-event setting): approval mode = organiser
-  approves; team fee = registering player pays for all; card fee kept on refunds = 0 % (XPay refunds only in
-  full anyway).
+- ~~Registration defaults~~ — decided 14 Oct 2026 (DECISIONS.md § 8, migration 0030): first paid, first in by
+  default (organiser approval still an option), entry type individual / team / both, refunds always 100 %.
 - 9-month boards: block of 9 then the remaining 3, or rolling last 9 months (both built).
 - League defaults chosen: walkover win 2 / loss 0, streak off, chess draw 1.5.
 

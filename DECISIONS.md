@@ -328,7 +328,7 @@ seconds after each point. Source of truth: `src/lib/voice/*` and its tests.
 Source of truth: `src/lib/registration/rules.ts` (pure, with tests) and
 `src/lib/registration/server.ts`; contract with Move Tick: `docs/move-tick-partner-api.md`.
 
-Decided by the owner:
+Decided by the owner (final, 14 Oct 2026):
 
 - Players **register in Move Score** (the app, signed in; or the public web form as a
   guest) and **pay through Move Tick** (partner API: Move Score sends the reference and
@@ -336,12 +336,45 @@ Decided by the owner:
   HMAC-signed webhooks). **Pay at the venue** is always the fallback.
 - Paid online flows only for the **Move Beyond** organisation; other organisations run
   free or pay-at-venue events until a direct XPay integration exists.
-- **Refunds until 24 hours before the event's start time** (`tournaments.starts_at`;
-  a session's own start for a session), only by the organiser's audited action
-  (admins with their own account); players can ask for one.
-- **Team or individual entry** is a setting of each event (tournaments and friendly
-  sessions). A padel tournament's individual entries are paired into teams by the
-  organiser; a one-player sport (chess) enters each player directly.
+- **Refunds are always 100 %** (Move Beyond absorbs the card fee; there is no card-fee setting any
+  more), **until 24 hours before the event's start time** (`tournaments.starts_at`; a session's own
+  start for a session), none after, only by the organiser's audited action (admins with their own
+  account); players can ask for one. A payment flagged for review (paid when the event was already
+  full, after a cancellation, or a second payment) can be refunded in full at any time.
+- **Default approval: "first paid, first in"** (`approval_mode = 'on_payment'`, migration
+  `0030_registration_first_paid.sql`; it replaced the old `automatic`). Registering creates an entry
+  `awaiting_payment` that **holds no place**. It becomes `confirmed` automatically, with no organiser
+  step, the moment the **full online amount for that entry** is paid (the signed Move Tick webhook or
+  reconciliation; the amount is re-checked against the session and the entry). "Full" means the
+  entry's `amount_online`: the whole fee for a solo entry or for a team whose registrant pays for
+  everyone; with `team_payer = each_player` the registrant's own share (the partners' shares are due at
+  the venue, as `charges` in `rules.ts` defines). An entry with nothing due online (free, or paid at
+  the venue) is confirmed on registration while places remain.
+- **Capacity counts confirmed entries and open checkout holds only.** Pressing Pay takes a **15-minute
+  hold** (`CHECKOUT_HOLD_MS`, the Move Tick partner checkout's lifetime, `PARTNER_SESSION_TTL_MINUTES`)
+  only if a place is free; otherwise Pay is refused before any checkout ("This event is full"). The
+  hold ends when the checkout is paid, fails or expires (webhook), or after 15 minutes on its own.
+  Pressing Pay again reuses the open checkout and never stretches the hold; at most 6 checkouts per
+  entry per 24 h. A payment that lands when the event is already full (its hold ran out and someone
+  else paid) is **not confirmed**: it is flagged `needs_review`, the organisation's admins and the
+  player are emailed, and it is refundable in full at any time with one click. The atomic trigger
+  `registration_capacity_guard` (0030) enforces it, on the stand-in too.
+- **Organiser approval stays an option** (`approval_mode = 'organiser'`): the organiser approves first,
+  and an approved entry keeps its place for **24 hours** (`hold_kind = 'approval'`) while it is paid; a
+  checkout opened in that hold's last 15 minutes stretches it once, never past approval + 24 h + 15 min.
+  Once it lapsed the entry pays like a first-paid entry (a 15-minute checkout hold while a place is
+  free). Kept as it was rather than simplified: the organiser has chosen who gets in, so a day to pay is
+  fair, and the trigger already guards both kinds of hold the same way.
+- **Entry type per event: `individual`, `team` or `both`** (tournaments and friendly sessions). With
+  `both` the player picks on the form (web and app) to enter on their own or as a team (team size from
+  the settings). A padel tournament's solo entries are paired into teams by the organiser
+  (`pairRegistrations`); a one-player sport (chess) enters each player directly. **Capacity is counted
+  in players**: the setting is in entries of the event's size — teams for team or both entry (a team
+  fills `team_size` players' places, a solo player one, so two paired solo players fill exactly one
+  team's place), players for individual entry. Fees stay per player: a solo entry pays one player's
+  fee, a team its players' (`charges`).
+- **Who pays for a team**: the registering player pays for the whole team by default
+  (`team_payer = registrant`); each player their share is the alternative.
 - The registrant's **own player row is linked to their account automatically** when
   the entry is confirmed (`src/lib/players/link.ts`, proof `registration`); a
   partner's row is never linked to anyone.
@@ -350,14 +383,9 @@ Decided by the owner:
   `player_claims.archived_at`. Archived links keep the history but send no alerts and
   no longer fill the widget.
 
-Still waiting on the owner — each is a per-event setting with this **conservative
-default**, to change here first when the owner decides:
-
-| Question | Default |
-|---|---|
-| Default approval mode | The organiser approves each entry (approval comes before payment, so nobody pays for a refused request) |
-| Who pays for a team | The registering player pays for the whole team (alternative: each player their share; partners pay at the venue) |
-| Card fee kept on refunds | None: a refund gives everything back (the setting allows up to 20 %, but Move Tick refunds in full only for now) |
+Statuses: `unconfirmed` (web guest, email link not opened yet) → `awaiting_payment` (first paid, first
+in) or `pending_approval` (organiser mode) → `confirmed` (paid in full, or nothing due online) →
+`refunded`; or `refused` / `cancelled`.
 
 Security review of Phase 9 (migration `0029_registration_hardening.sql`):
 
@@ -367,8 +395,9 @@ Security review of Phase 9 (migration `0029_registration_hardening.sql`):
   accounts cannot register.
 - **Messages go by email to the verified address only** (`notify_email`), in the server's words with no
   typed name; never WhatsApp, never a typed phone. One live entry per verified email per event.
-- **Capacity** counts confirmed entries and approved entries inside a **24-hour payment hold** only
-  (atomic database trigger). Requests waiting for the organiser never fill an event.
+- **Capacity** counts confirmed entries and entries inside a payment hold only (atomic database
+  trigger; since 0030: 15-minute checkout holds, and organiser mode's 24-hour approval holds). Requests
+  waiting for the organiser and unpaid entries never fill an event.
 - **One open checkout** per registration (Move Score) and per reference (Move Tick), reused, never
   replaced while Move Tick may still take it.
 - **Refunds name a payment**. A payment held for review after it was taken (a duplicate, or paid after the

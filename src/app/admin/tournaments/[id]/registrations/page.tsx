@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireTournamentPage } from "@/lib/guard";
 import { staffCan } from "@/lib/auth";
 import { isoToZonedInput } from "@/lib/tennis/ties";
-import { STATUS_LABELS, moneyLabel, refundAllowed, refundAmount, REFUND_MESSAGES, type RegistrationStatus } from "@/lib/registration/rules";
+import { CHECKOUT_HOLD_MS, STATUS_LABELS, capacitySeats, holdsPlace, moneyLabel, refundAllowed, refundAmount, REFUND_MESSAGES, seatsPerPlace, type RegistrationStatus } from "@/lib/registration/rules";
 import { eventById, eventRefusal, eventRegistrations, getSettings, onlinePaymentAvailable, startsAtOf, waitsForPairing } from "@/lib/registration/server";
 import { siteUrl } from "@/lib/messaging/links";
 import { db } from "@/lib/supabase";
@@ -25,9 +25,11 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB"
 
 /**
  * Registrations (Phase 9): settings for this event, and the entries — approve or
- * refuse, record a payment at the venue, pair individual players, refund an online
- * payment through Move Tick (admins with their own account, until 24 h before the
- * start). People's contact details are the ones they typed on their registration.
+ * refuse (organiser mode), record a payment at the venue, pair solo players, refund
+ * an online payment through Move Tick in full (admins with their own account, until
+ * 24 h before the start; a flagged payment at any time). By default an entry is
+ * confirmed the moment its online payment goes through ("first paid, first in").
+ * People's contact details are the ones they typed on their registration.
  */
 export default async function RegistrationsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -46,6 +48,11 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
   const mayRefund = staffCan(staff, "refund_registrations");
   const unpaired = regs.filter((r) => r.status === "confirmed" && !r.materialized_at && waitsForPairing(event, r.entry_type));
   const tz = event.timezone ?? "Africa/Cairo";
+  // Places are counted in players: a team takes its players' places, a solo entry one.
+  const seatsHeld = regs.filter((r) => holdsPlace(r)).reduce((n, r) => n + Math.max(1, r.people.length), 0);
+  const seatsCap = capacitySeats(settings);
+  const perPlace = seatsPerPlace(settings);
+  const flagged = regs.filter((r) => r.payments.some((p) => p.status === "needs_review"));
 
   return (
     <div className="space-y-4">
@@ -65,6 +72,25 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
             Online payment (Move Tick) is available only for Move Beyond&apos;s events, once Move Tick is configured. Fees here are paid at the venue.
           </p>
         )}
+        {!refusal && (
+          <p className="text-sm text-muted">
+            {settings.approvalMode === "on_payment"
+              ? `First paid, first in: an entry is confirmed the moment its online payment goes through. Only paid entries hold a place; opening a checkout keeps one for ${CHECKOUT_HOLD_MS / 60_000} minutes while places remain. Free and pay-at-the-venue entries are confirmed at once while places remain.`
+              : "You approve each entry first; an approved entry keeps its place for 24 hours while it is paid."}{" "}
+            Refunds are always in full.
+          </p>
+        )}
+        {seatsCap !== null && (
+          <p className="text-sm">
+            <span className="font-semibold">Places:</span> {seatsHeld} of {seatsCap} player places taken
+            {perPlace > 1 ? ` (${seatsCap / perPlace} teams of ${perPlace}; a solo player takes one place)` : ""}, counting confirmed entries and open checkouts.
+          </p>
+        )}
+        {flagged.length > 0 && (
+          <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+            {flagged.length} payment{flagged.length === 1 ? "" : "s"} to refund (flagged below): refund in full at any time.
+          </p>
+        )}
       </section>
 
       {!refusal && (
@@ -78,6 +104,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
             <select name="entry_type" defaultValue={settings.entryType} className="input">
               <option value="team">Teams</option>
               <option value="individual">Individual players</option>
+              <option value="both">Both (each player picks solo or team)</option>
             </select>
           </label>
           <label className="text-sm">
@@ -87,8 +114,8 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
           <label className="text-sm">
             <span className="label">Approval</span>
             <select name="approval_mode" defaultValue={settings.approvalMode} className="input">
+              <option value="on_payment">First paid, first in (confirmed on full payment)</option>
               <option value="organiser">The organiser approves each entry</option>
-              <option value="automatic">Automatic</option>
             </select>
           </label>
           <label className="text-sm">
@@ -112,11 +139,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
             </select>
           </label>
           <label className="text-sm">
-            <span className="label">Card fee kept on refunds (%) — Move Tick refunds in full only for now</span>
-            <input type="number" name="refund_fee_percent" min={0} max={20} step="0.5" defaultValue={settings.refundFeePercent} className="input" />
-          </label>
-          <label className="text-sm">
-            <span className="label">Most entries (empty = no limit)</span>
+            <span className="label">Most entries: teams for team or both entry (a solo player fills one of a team&apos;s places), players for individual entry (empty = no limit)</span>
             <input type="number" name="capacity" min={1} max={2000} defaultValue={settings.capacity ?? ""} className="input" />
           </label>
           <label className="text-sm">
@@ -136,7 +159,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
       {unpaired.length >= 2 && (
         <form action={pairRegistrationsAction} className="card space-y-2">
           <input type="hidden" name="tournament_id" value={id} />
-          <h3 className="font-bold">Pair individual players into teams</h3>
+          <h3 className="font-bold">Pair solo players into teams</h3>
           <div className="grid gap-1 sm:grid-cols-2">
             {unpaired.map((r) => (
               <label key={r.id} className="flex items-center gap-2 text-sm">
@@ -196,6 +219,8 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                               .join(" · ")}
                         {r.payments.some((p) => p.test_mode) ? " · test mode" : ""}
                         {r.status === "confirmed" && !r.materialized_at && waitsForPairing(event, r.entry_type) ? " · not in a team yet" : ""}
+                        {settings.entryType === "both" ? (r.entry_type === "team" ? " · team entry" : " · solo entry") : ""}
+                        {r.status === "awaiting_payment" ? (holdsPlace(r) ? ` · place kept until ${when(r.hold_until)}` : " · holds no place until paid") : ""}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {r.status === "pending_approval" && (
@@ -231,7 +256,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                               <input name="reason" placeholder="reason" maxLength={200} className="input py-1 text-xs" />
                               <input name="confirm" placeholder="type REFUND" maxLength={10} className="input w-28 py-1 text-xs" />
                               <button className="btn-secondary text-xs" disabled={!refundWindow.ok && p.status !== "needs_review"}>
-                                Refund {moneyLabel(refundAmount(p.amount, settings.refundFeePercent))}
+                                Refund {moneyLabel(refundAmount(p.amount))} in full
                                 {p.status === "needs_review" ? " (held for review)" : ""}
                               </button>
                               {p.review_reason && <span className="text-xs text-danger">{p.review_reason}</span>}

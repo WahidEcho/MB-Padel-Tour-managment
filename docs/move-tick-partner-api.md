@@ -11,8 +11,10 @@ organisations yet) and only while Move Tick is configured on the server. Everywh
 at the venue. Plan: Phase 9; decisions: `DECISIONS.md` § 8.
 
 - Move Score side: `src/lib/registration/` (`rules.ts` pure, `moveTick.ts` client, `signature.ts`,
-  `server.ts`), webhook `src/app/api/webhooks/move-tick/route.ts`, migration `0028_registration.sql`,
-  gate `npm run e2e:registration` (with a fake Move Tick inside the script).
+  `server.ts`), webhook `src/app/api/webhooks/move-tick/route.ts`, migrations `0028_registration.sql`,
+  `0029_registration_hardening.sql`, `0030_registration_first_paid.sql`, gate `npm run e2e:registration`
+  (with a fake Move Tick inside the script). Local demo: `scripts/demo/registration-demo.ts` +
+  `scripts/demo/fake-move-tick.ts`.
 - Move Tick side: branch `move-score-partner-api` of the Move Tick repo — `src/services/partner-payments.service.ts`,
   `src/app/api/partner/v1/**`, `src/lib/partner/`, migration `20261069_partner_payment_sessions.sql`,
   tests `src/test/partner-payments.test.ts`, setup `docs/MOVE_SCORE_PARTNER_API.md`.
@@ -45,10 +47,18 @@ Idempotency-Key: <Move Score's registration_payments.id>
   "amount":      50000,
   "currency":    "EGP",
   "reference":   "<registration id>",
-  "expiresAt":   "…" | null,
+  "expiresAt":   "…" | null,          // creation + 15 minutes (PARTNER_SESSION_TTL_MINUTES)
   "testMode":    true | false           // XPay sk_test_ key
 }
 ```
+
+- **A checkout lives 15 minutes**, and Move Score keeps the registration's place for exactly that long
+  ("first paid, first in": `CHECKOUT_HOLD_MS` on Move Score, `PARTNER_SESSION_TTL_MINUTES` on Move Tick).
+  Move Score makes a checkout only after it took that place hold (atomically, while a place is free);
+  with no place free the payer is told "This event is full" and Move Tick is never called. XPay's own page
+  lives 30 minutes (its minimum): Move Tick closes it at XPay once `expiresAt` passed (housekeeping every
+  5 minutes, or the next create for the reference; never while a card is completing on it). A payment that
+  still lands in between is reported as usual and Move Score confirms it only if a place is free then.
 
 - **Idempotent** on `(partner, Idempotency-Key)`: a retry returns the same session; the same key with
   another reference or amount is `409 IDEMPOTENCY_KEY_REUSED`.
@@ -94,12 +104,13 @@ POST /api/partner/v1/payment-sessions/{sessionId}/refund
   id), so a registration holding two payments can have the extra one refunded. The payment that
   confirmed the entry: only until **24 hours before the event's start time** (`tournaments.starts_at`),
   and refunding it refunds the entry (it leaves the event). A payment **held for review after it was
-  taken** — paid after the entry was cancelled or refused, or a second payment for an entry already paid
-  (flagged automatically, admins emailed) — can be refunded **at any time** (it bought nothing; decided in
-  the security review of Phase 9) and leaves the entry as it is. Players can only *ask* for a refund.
-- **Full refunds only** for now (XPay refunds a payment intent whole): an amount other than the
-  session's is `422 PARTIAL_REFUND_UNSUPPORTED`. Move Score's "card fee kept on refunds" setting stays at
-  0 % (the default) until partial refunds exist.
+  taken** — paid when the event was already full (its place hold had run out), paid after the entry was
+  cancelled or refused, or a second payment for an entry already paid (flagged automatically, admins
+  emailed) — can be refunded **at any time** (it bought nothing) and leaves the entry as it is. Players
+  can only *ask* for a refund.
+- **Refunds are always 100 %** (the owner's decision: Move Beyond absorbs the card fee; Move Score has no
+  card-fee setting). Move Score always sends the payment's whole amount; Move Tick refuses anything else
+  with `422 PARTIAL_REFUND_UNSUPPORTED` (XPay refunds a payment intent whole).
 - Idempotent per session (`movetick-partner-refund-<session>` at XPay); a second call answers
   `refunded` without refunding again; not paid: `409 REFUND_PAYMENT_NOT_CHARGED`.
 
@@ -145,10 +156,14 @@ Move Score's checks, in order (`src/lib/registration/signature.ts`, `server.ts a
 6. **Amount**: `payment.succeeded` must carry exactly the amount and currency Move Score asked for;
    otherwise the payment is held as `needs_review` and the entry is not confirmed.
 
-Effects: `payment.succeeded` → payment `paid`, registration `awaiting_payment → confirmed`, the entry is
-made in the event and the registrant's own player row is linked to their account (paid after the entry
-was cancelled or refused: kept as `needs_review` for the organiser to refund); `payment.failed` /
-`payment.expired` → the checkout is closed (the player can pay again); `payment.refunded` → payment
+Effects: `payment.succeeded` → payment `paid`, registration `awaiting_payment → confirmed` with no
+organiser step (the full online amount of the entry, `amount_online`, re-checked), the entry is made in
+the event and the registrant's own player row is linked to their account. Not confirmed, kept as
+`needs_review` for the organiser to refund in full: paid when the event was already full (the place hold
+had run out and the places were taken: the organisation's admins and the player are emailed), paid after
+the entry was cancelled or refused, or for less than the entry owes. `payment.failed` /
+`payment.expired` → the checkout is closed and the place hold it took ends (the player can pay again
+while a place is free); `payment.refunded` → payment
 `refunded`; when it was the payment that confirmed the entry, registration `refunded` and the entry leaves
 the event (a team that already has matches stays, for the organiser); a payment held for review leaves the
 entry as it is. A second `payment.succeeded` for an entry already paid is recorded `paid` then
@@ -175,25 +190,30 @@ and the daily housekeeping cron.
 | Registration (Move Score) | Meaning |
 |---|---|
 | `unconfirmed` | a web guest's entry until the link emailed to the typed address is opened (24 h, then cancelled); holds no place, reaches no organiser, never paid |
-| `pending_approval` | waiting for the organiser (default approval mode: the organiser approves) |
-| `awaiting_payment` | approved, online payment due (approval comes before payment); holds a place for 24 h from approval (`hold_until`); making a checkout can stretch it to at most 25 h from approval, so pressing Pay again and again keeps no place. A payment that lands after the hold lapsed, into a full event, is flagged `needs_review` for refund instead of overfilling |
-| `confirmed` | in the event (paid online, due at the venue, or free) |
+| `pending_approval` | organiser mode only: waiting for the organiser |
+| `awaiting_payment` | online payment due. **First paid, first in** (default): holds **no place** until Pay opens a checkout, which keeps one for **15 minutes** (`hold_kind = 'checkout'`) only if a place is free — otherwise Pay answers "This event is full" before any checkout; the hold ends when the checkout is paid, fails or expires. **Organiser mode**: approved; keeps its place for 24 h from approval (`hold_kind = 'approval'`), a checkout in its last 15 minutes stretching it once to at most 24 h 15 min; after that it pays like a first-paid entry |
+| `confirmed` | in the event: paid in full online (no organiser step in first paid, first in), due at the venue, or free |
 | `refused` / `cancelled` | turned down by the organiser / withdrawn by the player before paying |
-| `refunded` | paid online and refunded by the organiser |
+| `refunded` | paid online and refunded (always in full) by the organiser |
 
 | Payment (both sides) | |
 |---|---|
 | `created`/`creating` → `open` → `paid` → `refund_pending` → `refunded` | the happy path |
-| `failed`, `expired` | closed unpaid; a new checkout can be made |
-| `needs_review` | an amount that did not match, or a payment after the entry was cancelled: a person decides |
+| `failed`, `expired` | closed unpaid; the place hold ends; a new checkout can be made (at most 6 per entry per 24 h) |
+| `needs_review` | paid when the event was full, after the entry was cancelled, a second payment, or an amount that did not match: a person decides (refund in full at any time) |
 
-Capacity counts `confirmed` entries and unexpired payment holds only (never requests waiting for the
-organiser or unconfirmed guests), enforced atomically by the trigger `registration_capacity_guard`
-(0029). One live entry per verified email per event (`registrations_contact_event_uq`). The web form is limited per typed email: 3 per event and 10 overall (atomic counters).
+Capacity is counted in players and covers `confirmed` entries and unexpired holds only (never unpaid
+first-paid entries, requests waiting for the organiser or unconfirmed guests), enforced atomically by the
+trigger `registration_capacity_guard` (0030, replacing 0029's): the setting is in entries of the event's
+size (teams for team or both entry — a team fills `team_size` places, a solo player one — players for
+individual entry). One live entry per verified email per event (`registrations_contact_event_uq`). The
+web form is limited per typed email: 3 per event and 10 overall (atomic counters).
 
 Messages about an entry go **by email only, to its verified address only** (`registrations.notify_email`),
 in the server's own words with no typed name; the link is the signed status page, where an approved entry
-is paid (`/register/status` → `POST /api/register/pay`). App registration needs an account with a
+is paid (`/register/status` → `POST /api/register/pay`). Registering never opens a checkout (it would
+take a place): the app calls `POST /me/registrations/{id}/pay` right after, the web guest presses Pay on
+the status page. App registration needs an account with a
 confirmed email (anonymous / player-code accounts get `403 email_required`).
 
 ## 4. Environment
@@ -212,10 +232,12 @@ venue (the registration pages say so). Missing any of Move Tick's: the partner A
 
 ## 5. Deploy order
 
-1. Move Tick: apply `20261069_partner_payment_sessions.sql` then `20261070_partner_one_open_session.sql` (one open session per reference; it first closes older duplicate open rows), set the four `MOVE_SCORE_*` variables, deploy
+1. Move Tick: apply `20261069_partner_payment_sessions.sql` then `20261070_partner_one_open_session.sql` (one open session per reference; it first closes older duplicate open rows), set the four `MOVE_SCORE_*` variables, deploy (the branch's partner checkouts live 15 minutes, matching Move Score's place hold)
    the branch (after review), schedule `/api/cron/partner-webhooks` every 5 minutes (pg_cron + pg_net
    with the Vault `CRON_SECRET`, like `20261068`; the daily housekeeping cron retries too).
-2. Move Score: apply `0028_registration.sql` then `0029_registration_hardening.sql` (after 0022–0027), set `MOVE_TICK_*` (with
-   `MOVE_TICK_MODE=test` and Move Tick on an `sk_test_` key first), deploy.
-3. Rehearse with a test card end to end (register → approve → pay → webhook → refund), then switch both
-   sides to live together (`MOVE_TICK_MODE=live`, `sk_live_`).
+2. Move Score: apply `0028_registration.sql`, `0029_registration_hardening.sql` then
+   `0030_registration_first_paid.sql` (after 0022–0027), set `MOVE_TICK_*` (with `MOVE_TICK_MODE=test`
+   and Move Tick on an `sk_test_` key first), deploy.
+3. Rehearse with a test card end to end (register → pay → webhook → confirmed → refund; and once in
+   organiser mode: register → approve → pay), then switch both sides to live together
+   (`MOVE_TICK_MODE=live`, `sk_live_`).

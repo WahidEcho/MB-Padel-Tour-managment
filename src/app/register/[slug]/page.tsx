@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { registrationInfo } from "@/lib/registration/server";
-import { moneyLabel } from "@/lib/registration/rules";
 import RegisterForm from "./RegisterForm";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +30,12 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
 
       <section className="card space-y-1 text-sm">
         <p>
-          <span className="font-semibold">Entry:</span> {info.entryType === "team" ? `teams of ${info.people}` : "individual players"}
+          <span className="font-semibold">Entry:</span>{" "}
+          {info.entryType === "team" ? `teams of ${info.people}` : info.entryType === "both" ? `on your own, or as a team of ${info.people}` : "individual players"}
         </p>
         <p>
           <span className="font-semibold">Fee:</span> {paid ? info.feeLabel : "free"}
-          {paid && info.entryType === "team" ? (info.teamPayer === "registrant" ? " (you pay for the whole team)" : " (each player pays their own share)") : ""}
+          {paid && info.entryType !== "individual" ? (info.teamPayer === "registrant" ? " (a team's registrant pays for the whole team)" : " (each player pays their own share)") : ""}
         </p>
         {paid && (
           <p>
@@ -48,13 +48,17 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
           </p>
         )}
         <p>
-          <span className="font-semibold">Approval:</span> {info.approval === "organiser" ? "the organiser confirms each entry (you pay only after that)" : "automatic"}
+          <span className="font-semibold">Places:</span>{" "}
+          {info.approval === "organiser"
+            ? "the organiser confirms each entry (you pay only after that)"
+            : info.paymentOptions.includes("online")
+              ? "first paid, first in. Only paid entries hold a place: your place is confirmed when your payment goes through."
+              : "first come, first in while places remain."}
+          {info.placesLeft !== null ? ` ${info.placesLeft} player place${info.placesLeft === 1 ? "" : "s"} left.` : ""}
         </p>
         {paid && (
           <p className="text-muted">
-            {info.refundsUntil
-              ? `Refunds until ${when(info.refundsUntil)} (24 hours before the start)${info.refundFeePercent > 0 ? `, less a ${info.refundFeePercent}% card fee` : ""}.`
-              : "Refunds until 24 hours before the start."}
+            {info.refundsUntil ? `Full refunds until ${when(info.refundsUntil)} (24 hours before the start).` : "Full refunds until 24 hours before the start."}
           </p>
         )}
         {info.note && <p className="whitespace-pre-line text-muted">{info.note}</p>}
@@ -63,11 +67,11 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
       {info.open ? (
         <RegisterForm
           slug={slug}
-          people={info.people}
-          entryType={info.entryType}
+          teamSize={info.people}
+          kinds={info.entryKinds}
           options={info.paymentOptions}
           partnerPhoneRequired={info.event.kind === "session"}
-          totalLabel={paid ? moneyLabel(info.feePerPlayer * info.people) : null}
+          feePerPlayer={info.feePerPlayer}
         />
       ) : (
         <div className="card space-y-2 text-center">

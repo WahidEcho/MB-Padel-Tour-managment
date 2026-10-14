@@ -6,7 +6,9 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Registration · Move Score", robots: { index: false } };
 
 const ERRORS: Record<string, string> = {
-  full: "Sorry: the place kept for this entry ran out and the event is now full.",
+  full: "Sorry: this event is full. Only paid entries hold a place, and the last ones were taken.",
+  too_many_checkouts: "Too many payment attempts for this entry today. Try again tomorrow, or ask the organiser.",
+  conflict: "This entry changed meanwhile. Try again.",
   checkout_open: "A checkout for this entry is still open. Try again in a few minutes.",
   move_tick: "Online payment is not reachable right now. Try again in a moment.",
   not_due: "Nothing is due online for this entry.",
@@ -16,7 +18,7 @@ const ERRORS: Record<string, string> = {
 /**
  * Where Move Tick sends a payer back, the link the web form shows and the link in
  * every email: the event and the registration's status, nothing personal, and a
- * Pay button once an approved entry is due online (a web guest's way to pay). Only
+ * Pay button while an entry is due online (a web guest's way to pay). Only
  * a link signed for this registration opens it; any other gets the same "not found".
  */
 export default async function RegistrationStatus({ searchParams }: { searchParams: Promise<{ r?: string; s?: string; e?: string; confirmed?: string }> }) {
@@ -33,7 +35,7 @@ export default async function RegistrationStatus({ searchParams }: { searchParam
           {e && <p className="text-sm text-danger">{ERRORS[e] ?? "Something went wrong. Try again."}</p>}
           <p className="text-sm text-muted">
             {view.status === "awaiting_payment"
-              ? "Approved. Pay to confirm your place; if you just paid, this page updates within a minute."
+              ? "Pay to confirm your place: only paid entries hold a place, and yours is confirmed when your payment goes through. If you just paid, this page updates within a minute."
               : view.status === "confirmed"
                 ? "You're in. The confirmation is on its way."
                 : view.status === "unconfirmed"

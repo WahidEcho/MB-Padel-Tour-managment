@@ -1,28 +1,35 @@
 "use client";
 
 import { useState } from "react";
+import { moneyLabel } from "@/lib/registration/rules";
 
 type Choice = "free" | "online" | "venue";
+type Kind = "individual" | "team";
 
 export default function RegisterForm({
   slug,
-  people,
-  entryType,
+  teamSize,
+  kinds,
   options,
   partnerPhoneRequired,
-  totalLabel,
+  feePerPlayer,
 }: {
   slug: string;
-  people: number;
-  entryType: "individual" | "team";
+  /** Players in a team entry. */
+  teamSize: number;
+  /** The entry kinds a player may pick (both for an event that takes both). */
+  kinds: Kind[];
   options: Choice[];
   partnerPhoneRequired: boolean;
-  totalLabel: string | null;
+  feePerPlayer: number;
 }) {
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const [choice, setChoice] = useState<Choice>(options[0] ?? "free");
+  const [kind, setKind] = useState<Kind>(kinds[0] ?? "individual");
   const [statusUrl, setStatusUrl] = useState<string | null>(null);
+  const people = kind === "team" ? teamSize : 1;
+  const totalLabel = feePerPlayer > 0 ? moneyLabel(feePerPlayer * people) : null;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -41,7 +48,8 @@ export default function RegisterForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           people: list,
-          ...(entryType === "team" ? { teamName: String(form.get("team_name") ?? "") } : {}),
+          entryType: kind,
+          ...(kind === "team" ? { teamName: String(form.get("team_name") ?? "") } : {}),
           payment: choice,
           website: String(form.get("website") ?? ""),
         }),
@@ -77,7 +85,24 @@ export default function RegisterForm({
 
   return (
     <form onSubmit={onSubmit} className="card space-y-3">
-      {entryType === "team" && (
+      {kinds.length > 1 && (
+        <div className="flex gap-1 rounded-xl border border-border p-1" role="radiogroup" aria-label="How you enter">
+          {kinds.map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={kind === k}
+              onClick={() => setKind(k)}
+              className={`flex-1 rounded-lg px-2 py-1.5 text-sm font-semibold ${kind === k ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground"}`}
+            >
+              {k === "team" ? `As a team of ${teamSize}` : "On my own"}
+            </button>
+          ))}
+        </div>
+      )}
+      {kind === "individual" && kinds.includes("team") && <p className="text-xs text-muted">The organiser pairs players who enter on their own.</p>}
+      {kind === "team" && (
         <div>
           <label className="label" htmlFor="reg-team">Team name</label>
           <input id="reg-team" name="team_name" className="input" maxLength={60} placeholder="optional" />
@@ -125,6 +150,10 @@ export default function RegisterForm({
         <label htmlFor="reg-website">Leave this empty</label>
         <input id="reg-website" name="website" tabIndex={-1} autoComplete="off" />
       </div>
+
+      {choice === "online" && (
+        <p className="text-xs text-muted">Only paid entries hold a place: after confirming your email you pay online, and your place is confirmed when your payment goes through.</p>
+      )}
 
       {status === "error" && <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-semibold text-danger">{message}</p>}
 

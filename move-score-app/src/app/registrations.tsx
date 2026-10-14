@@ -47,9 +47,10 @@ function Row({ r }: { r: MRegistration }) {
       <Body weight="bold" size={16}>{r.event.name}</Body>
       <Body tone="ink2" size={13}>{[r.teamName, r.people.map((p) => p.name).join(" / ")].filter(Boolean).join(" · ")}</Body>
       {money.length ? <Body tone="ink2" size={13}>{money.join(" · ")}</Body> : <Body tone="ink2" size={13}>Free</Body>}
+      {r.status === "awaiting_payment" && r.canPay ? <Body tone="ink3" size={12}>Only paid entries hold a place: your place is confirmed when your payment goes through.</Body> : null}
       {r.linked ? <Body tone="ink3" size={12}>Linked to your account: your matches show up in the app.</Body> : null}
       {r.refundRequested ? <Body tone="ink3" size={12}>Refund asked for: the organiser decides.</Body> : null}
-      {r.paid && r.refundsUntil && !r.refundRequested && r.status === "confirmed" ? <Body tone="ink3" size={12}>{`Refunds until ${day(r.refundsUntil)}.`}</Body> : null}
+      {r.paid && r.refundsUntil && !r.refundRequested && r.status === "confirmed" ? <Body tone="ink3" size={12}>{`Full refunds until ${day(r.refundsUntil)}.`}</Body> : null}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         {r.canPay ? <Button label={busy === "pay" ? "Opening…" : `Pay ${moneyLabel(r.amountOnline)}`} disabled={Boolean(busy)} onPress={() => void act("pay")} /> : null}
         {r.canRequestRefund ? <Button kind="ghost" label="Ask for a refund" disabled={Boolean(busy)} onPress={() => void act("refund-request")} /> : null}

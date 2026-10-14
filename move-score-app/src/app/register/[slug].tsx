@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { charges, moneyLabel, type MPaymentChoice, type MRegistrationInfo } from "@core";
 import { ApiError, errorMessage } from "../../api/client";
-import { registerFor, useMyRegistrations, useRegistrationInfo } from "../../api/queries";
+import { registerFor, registrationAction, useMyRegistrations, useRegistrationInfo } from "../../api/queries";
 import { session } from "../../state/session";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -22,8 +22,11 @@ const CHOICE_LABEL: Record<MPaymentChoice, string> = { online: "Pay now (Move Ti
  * Register for an event (Phase 9): announce → register → pay → confirmation.
  * The registrant is always the signed-in account's own player (the server uses
  * the linked player's name); partners are typed here and are never linked to
- * this account. Online payment opens Move Tick's checkout in the browser; the
- * entry shows under My registrations.
+ * this account. First paid, first in (the default): registering holds no place;
+ * Pay opens Move Tick's checkout in the browser (which keeps a place for a few
+ * minutes) and the entry is confirmed when the payment goes through. An event
+ * that takes both lets the player enter on their own (the organiser pairs solo
+ * players) or as a team. The entry shows under My registrations.
  */
 function Field({ label, value, onChange, keyboard, auto }: { label: string; value: string; onChange: (s: string) => void; keyboard?: "phone-pad" | "email-address"; auto?: "name" | "tel" | "email" | "off" }) {
   const { t } = useTheme();
@@ -44,14 +47,20 @@ function Field({ label, value, onChange, keyboard, auto }: { label: string; valu
   );
 }
 
+type Kind = "individual" | "team";
+
 function RegisterForm({ info }: { info: MRegistrationInfo }) {
-  const [people, setPeople] = useState(() => Array.from({ length: info.people }, () => ({ name: "", phone: "", email: "" })));
+  const kinds: Kind[] = info.entryKinds?.length ? info.entryKinds : [info.entryType === "individual" ? "individual" : "team"];
+  const [kind, setKind] = useState<Kind>(kinds[0]!);
+  const count = kind === "team" ? info.people : 1;
+  const [all, setAll] = useState(() => Array.from({ length: Math.max(1, info.people) }, () => ({ name: "", phone: "", email: "" })));
+  const people = all.slice(0, count);
   const [teamName, setTeamName] = useState("");
   const [choice, setChoice] = useState<MPaymentChoice>(info.paymentOptions[0] ?? "free");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
-  const cost = charges({ feeAmount: info.feePerPlayer, teamPayer: info.teamPayer, entryType: info.entryType, teamSize: info.people }, choice, info.people);
-  const set = (i: number, k: "name" | "phone" | "email", v: string) => setPeople((p) => p.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const cost = charges({ feeAmount: info.feePerPlayer, teamPayer: info.teamPayer, entryType: kind, teamSize: info.people }, choice, count);
+  const set = (i: number, k: "name" | "phone" | "email", v: string) => setAll((p) => p.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
 
   const submit = async () => {
     setMsg(null);
@@ -59,11 +68,21 @@ function RegisterForm({ info }: { info: MRegistrationInfo }) {
     try {
       const r = await registerFor(info.event.slug, {
         people: people.map((p, i) => ({ name: p.name.trim(), ...(p.phone.trim() ? { phone: p.phone.trim() } : {}), ...(i === 0 && p.email.trim() ? { email: p.email.trim() } : {}) })),
-        ...(info.entryType === "team" && teamName.trim() ? { teamName: teamName.trim() } : {}),
+        ...(kind === "team" && teamName.trim() ? { teamName: teamName.trim() } : {}),
+        ...(info.entryType === "both" ? { entryType: kind } : {}),
         payment: choice,
       });
       setMsg({ text: r.message });
-      if (r.checkoutUrl) await WebBrowser.openBrowserAsync(r.checkoutUrl);
+      // Registering holds no place: paying does. Open the checkout straight away (the place is kept while it is open).
+      if (r.registration.canPay) {
+        try {
+          const pay = await registrationAction(r.registration.id, "pay");
+          if (pay.checkoutUrl) await WebBrowser.openBrowserAsync(pay.checkoutUrl);
+        } catch (e) {
+          setMsg({ text: errorMessage(e), bad: true });
+          return;
+        }
+      }
       openRegistrations();
     } catch (e) {
       if (e instanceof ApiError && (e.body as { code?: string } | null)?.code === "already_registered") openRegistrations();
@@ -75,7 +94,11 @@ function RegisterForm({ info }: { info: MRegistrationInfo }) {
 
   return (
     <Card style={{ gap: 12 }}>
-      {info.entryType === "team" ? <Field label="Team name (optional)" value={teamName} onChange={setTeamName} /> : null}
+      {kinds.length > 1 ? (
+        <Segments<Kind> value={kind} onChange={setKind} options={kinds.map((k) => ({ key: k, label: k === "team" ? `Team of ${info.people}` : "On my own" }))} />
+      ) : null}
+      {kind === "individual" && kinds.includes("team") ? <Body tone="ink3" size={12}>The organiser pairs players who enter on their own.</Body> : null}
+      {kind === "team" ? <Field label="Team name (optional)" value={teamName} onChange={setTeamName} /> : null}
       {people.map((p, i) => (
         <View key={i} style={{ gap: 8 }}>
           <Eyebrow size={10}>{i === 0 ? "You" : `Player ${i + 1}`}</Eyebrow>
@@ -91,10 +114,11 @@ function RegisterForm({ info }: { info: MRegistrationInfo }) {
         <Body tone="ink2" size={13}>
           {[cost.online ? `${moneyLabel(cost.online)} now` : null, cost.venue ? `${moneyLabel(cost.venue)} at the venue` : null].filter(Boolean).join(" + ")}
           {info.approval === "organiser" && cost.online ? " (you pay after the organiser approves)" : ""}
+          {info.approval === "on_payment" && cost.online ? ". Only paid entries hold a place: yours is confirmed when your payment goes through." : ""}
         </Body>
       ) : null}
       <Body tone="ink3" size={12}>Your name and the contact details you enter are shared with the organiser.</Body>
-      <Button label={busy ? "Registering…" : "Register"} disabled={busy || people.some((p, i) => p.name.trim().length < 2 || (i === 0 && p.phone.trim().length < 8))} onPress={() => void submit()} />
+      <Button label={busy ? "Registering…" : cost.online && info.approval === "on_payment" ? `Register and pay ${moneyLabel(cost.online)}` : "Register"} disabled={busy || people.some((p, i) => p.name.trim().length < 2 || (i === 0 && p.phone.trim().length < 8))} onPress={() => void submit()} />
       {msg ? <Body tone={msg.bad ? "live" : "ink2"} size={13} accessibilityLiveRegion="polite">{msg.text}</Body> : null}
     </Card>
   );
@@ -121,10 +145,17 @@ function RegisterPage({ slug }: { slug: string }) {
       <Display size={26} style={{ marginTop: 4 }}>{info.event.name}</Display>
       <Body tone="ink2" size={13} style={{ marginTop: 4 }}>{`Starts ${when(info.event.startsAt)}`}</Body>
       <Card style={{ gap: 4, marginTop: 14 }}>
-        <Body size={14}>{info.entryType === "team" ? `Teams of ${info.people}` : "Individual entry"}</Body>
-        <Body size={14}>{info.feeLabel ?? "Free"}{info.feeLabel && info.entryType === "team" ? (info.teamPayer === "registrant" ? " · you pay for the team" : " · each pays their share") : ""}</Body>
-        <Body tone="ink2" size={13}>{info.approval === "organiser" ? "The organiser approves each entry." : "Entries are accepted straight away."}</Body>
-        {info.feePerPlayer > 0 ? <Body tone="ink2" size={13}>{`Refunds until ${when(info.refundsUntil)}${info.refundFeePercent ? `, less ${info.refundFeePercent}%` : ""}.`}</Body> : null}
+        <Body size={14}>{info.entryType === "team" ? `Teams of ${info.people}` : info.entryType === "both" ? `On your own, or as a team of ${info.people}` : "Individual entry"}</Body>
+        <Body size={14}>{info.feeLabel ?? "Free"}{info.feeLabel && info.entryType !== "individual" ? (info.teamPayer === "registrant" ? " · a team's registrant pays for the team" : " · each pays their share") : ""}</Body>
+        <Body tone="ink2" size={13}>
+          {info.approval === "organiser"
+            ? "The organiser approves each entry."
+            : info.paymentOptions.includes("online")
+              ? "First paid, first in: your place is confirmed when your payment goes through."
+              : "First come, first in while places remain."}
+          {info.placesLeft !== null && info.placesLeft !== undefined ? ` ${info.placesLeft} place${info.placesLeft === 1 ? "" : "s"} left.` : ""}
+        </Body>
+        {info.feePerPlayer > 0 ? <Body tone="ink2" size={13}>{`Full refunds until ${when(info.refundsUntil)}.`}</Body> : null}
         {info.note ? <Body tone="ink2" size={13}>{info.note}</Body> : null}
       </Card>
       <View style={{ marginTop: 14 }}>

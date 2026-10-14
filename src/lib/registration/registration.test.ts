@@ -2,11 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  CHECKOUT_HOLD_MS,
   DEFAULT_REGISTRATION_SETTINGS,
   archiveAt,
   canMove,
+  capacitySeats,
   charges,
   endOfDay,
+  entryFits,
+  entryKindFor,
+  entryKinds,
   holdsPlace,
   initialStatus,
   minorFromMajor,
@@ -27,11 +32,11 @@ const SECRET = "s".repeat(40);
 const REF = "0b7c3f3e-2a7e-4d55-9d1f-5f0d8c9f2a11";
 
 describe("settings", () => {
-  it("defaults are the conservative ones the owner has not overruled yet", () => {
+  it("defaults are the owner's final decisions: closed, first paid first in, registrant pays", () => {
     expect(DEFAULT_REGISTRATION_SETTINGS.open).toBe(false);
-    expect(DEFAULT_REGISTRATION_SETTINGS.approvalMode).toBe("organiser");
+    expect(DEFAULT_REGISTRATION_SETTINGS.approvalMode).toBe("on_payment");
     expect(DEFAULT_REGISTRATION_SETTINGS.teamPayer).toBe("registrant");
-    expect(DEFAULT_REGISTRATION_SETTINGS.refundFeePercent).toBe(0);
+    expect("refundFeePercent" in DEFAULT_REGISTRATION_SETTINGS).toBe(false);
     expect(registrationSettings(null)).toEqual(DEFAULT_REGISTRATION_SETTINGS);
   });
   it("cleans bad input to the defaults and clamps ranges", () => {
@@ -39,11 +44,17 @@ describe("settings", () => {
     expect(s.open).toBe(false);
     expect(s.entryType).toBe("team");
     expect(s.teamSize).toBe(8);
-    expect(s.approvalMode).toBe("organiser");
+    expect(s.approvalMode).toBe("on_payment");
     expect(s.feeAmount).toBe(0);
     expect(s.payment).toBe("free");
-    expect(s.refundFeePercent).toBe(20);
     expect(s.capacity).toBeNull();
+  });
+  it("the old automatic approval reads as first paid, first in; an old card-fee value is ignored", () => {
+    expect(registrationSettings({ approval_mode: "automatic" }).approvalMode).toBe("on_payment");
+    expect(registrationSettings({ approval_mode: "organiser" }).approvalMode).toBe("organiser");
+    const old = registrationSettings({ refund_fee_percent: 5, fee_amount: 10000, payment: "online" });
+    expect(old).not.toHaveProperty("refundFeePercent");
+    expect(storedRegistrationSettings(old)).not.toHaveProperty("refund_fee_percent");
   });
   it("a fee is never free; no fee is always free; individual entry is one person", () => {
     expect(registrationSettings({ feeAmount: 5000, payment: "free" }).payment).toBe("venue");
@@ -53,8 +64,50 @@ describe("settings", () => {
     expect(peoplePerEntry({ entryType: "team", teamSize: 2 })).toBe(2);
   });
   it("round-trips through the stored row", () => {
-    const s = registrationSettings({ open: true, entryType: "team", teamSize: 2, approvalMode: "automatic", feeAmount: 25000, payment: "online_or_venue", teamPayer: "each_player", refundFeePercent: 3, capacity: 16, closesAt: "2026-11-01T10:00:00Z", note: "Bring water" });
+    const s = registrationSettings({ open: true, entryType: "both", teamSize: 2, approvalMode: "organiser", feeAmount: 25000, payment: "online_or_venue", teamPayer: "each_player", capacity: 16, closesAt: "2026-11-01T10:00:00Z", note: "Bring water" });
+    expect(s.entryType).toBe("both");
     expect(registrationSettings(storedRegistrationSettings(s))).toEqual(s);
+  });
+});
+
+describe("entry type both, and capacity counted in players", () => {
+  const both = registrationSettings({ entryType: "both", teamSize: 2, capacity: 2 });
+  it("the player picks solo or team; a team names teamSize players, a solo one", () => {
+    expect(entryKinds(both)).toEqual(["team", "individual"]);
+    expect(entryKinds(registrationSettings({ entryType: "team" }))).toEqual(["team"]);
+    expect(peoplePerEntry(both)).toBe(2);
+    expect(peoplePerEntry(both, "individual")).toBe(1);
+    expect(entryKindFor(both, "individual", 1)).toBe("individual");
+    expect(entryKindFor(both, "team", 2)).toBe("team");
+    expect(entryKindFor(both, undefined, 1)).toBe("individual");
+    expect(entryKindFor(both, undefined, 2)).toBe("team");
+    expect(entryKindFor(both, "squad", 2)).toBeNull();
+    expect(entryKindFor(registrationSettings({ entryType: "team" }), "individual", 1)).toBeNull();
+    expect(entryKindFor(registrationSettings({ entryType: "individual" }), undefined, 1)).toBe("individual");
+  });
+  it("capacity is in teams for team/both (a solo fills one of a team's places), in players for individual", () => {
+    expect(capacitySeats(both)).toBe(4);
+    expect(capacitySeats(registrationSettings({ entryType: "individual", capacity: 8 }))).toBe(8);
+    expect(capacitySeats(registrationSettings({ entryType: "team", teamSize: 4, capacity: 3 }))).toBe(12);
+    expect(capacitySeats(registrationSettings({ capacity: null }))).toBeNull();
+    // One team + one solo: a solo still fits, a team does not.
+    expect(entryFits(both, 3, 1)).toBe(true);
+    expect(entryFits(both, 3, 2)).toBe(false);
+    expect(entryFits(both, 4, 1)).toBe(false);
+  });
+  it("fees per entry: a solo pays one player's fee, a team its players'", () => {
+    const paid = { ...both, feeAmount: 50000, teamPayer: "registrant" as const };
+    expect(charges(paid, "online", 1)).toEqual({ online: 50000, venue: 0, total: 50000 });
+    expect(charges(paid, "online", 2)).toEqual({ online: 100000, venue: 0, total: 100000 });
+    expect(charges({ ...paid, teamPayer: "each_player" }, "online", 2)).toEqual({ online: 50000, venue: 50000, total: 100000 });
+  });
+  it("full is when not even the smallest entry fits", () => {
+    const now = Date.parse("2026-11-01T12:00:00Z");
+    const open = { ...both, open: true, closesAt: null };
+    expect(registrationClosedReason(open, { status: "active" }, 3, now)).toBeNull();
+    expect(registrationClosedReason(open, { status: "active" }, 4, now)).toBe("full");
+    const teams = { ...registrationSettings({ entryType: "team", teamSize: 2, capacity: 2 }), open: true };
+    expect(registrationClosedReason(teams, { status: "active" }, 3, now)).toBe("full");
   });
 });
 
@@ -74,10 +127,11 @@ describe("payment options and charges", () => {
     expect(charges({ ...team, teamPayer: "registrant" }, "venue")).toEqual({ online: 0, venue: 50000, total: 50000 });
     expect(charges({ ...team, teamPayer: "registrant" }, "free")).toEqual({ online: 0, venue: 0, total: 0 });
   });
-  it("approval comes before payment", () => {
+  it("first paid, first in: waiting for the payment, or in at once when nothing is due online; organiser mode approves first", () => {
     expect(initialStatus({ approvalMode: "organiser" }, 50000)).toBe("pending_approval");
-    expect(initialStatus({ approvalMode: "automatic" }, 50000)).toBe("awaiting_payment");
-    expect(initialStatus({ approvalMode: "automatic" }, 0)).toBe("confirmed");
+    expect(initialStatus({ approvalMode: "organiser" }, 0)).toBe("pending_approval");
+    expect(initialStatus({ approvalMode: "on_payment" }, 50000)).toBe("awaiting_payment");
+    expect(initialStatus({ approvalMode: "on_payment" }, 0)).toBe("confirmed");
     expect(statusAfterApproval(50000, false)).toBe("awaiting_payment");
     expect(statusAfterApproval(50000, true)).toBe("confirmed");
     expect(statusAfterApproval(0, false)).toBe("confirmed");
@@ -103,7 +157,7 @@ describe("payment options and charges", () => {
 describe("open, refunds and archiving", () => {
   const now = Date.parse("2026-11-01T12:00:00Z");
   it("closed, deadline, full and finished", () => {
-    const s = { open: true, closesAt: null, capacity: 2 };
+    const s = { open: true, closesAt: null, capacity: 2, entryType: "individual" as const, teamSize: 1 };
     expect(registrationClosedReason({ ...s, open: false }, { status: "active" }, 0, now)).toBe("closed");
     expect(registrationClosedReason(s, { status: "completed" }, 0, now)).toBe("finished");
     expect(registrationClosedReason({ ...s, closesAt: "2026-11-01T11:00:00Z" }, { status: "active" }, 0, now)).toBe("deadline");
@@ -116,10 +170,9 @@ describe("open, refunds and archiving", () => {
     expect(refundAllowed("2026-11-02T12:00:01Z", now).ok).toBe(true);
     expect(refundAllowed("2026-11-02T11:59:59Z", now)).toMatchObject({ ok: false, reason: "too_late" });
   });
-  it("a refund gives everything back unless a card fee is kept", () => {
-    expect(refundAmount(50000, 0)).toBe(50000);
-    expect(refundAmount(50000, 3)).toBe(48500);
-    expect(refundAmount(50000, 99)).toBe(40000);
+  it("a refund always gives everything back (Move Beyond absorbs the card fee)", () => {
+    expect(refundAmount(50000)).toBe(50000);
+    expect(refundAmount(0)).toBe(0);
   });
   it("archives 24 h after the last day ends in the event's zone, or after completion if later", () => {
     const eod = endOfDay("2026-11-02", "Africa/Cairo")!;
@@ -193,12 +246,14 @@ describe("registration code never trusts a client amount", () => {
   });
 });
 
-describe("security review of Phase 9 (0029)", () => {
+describe("security review of Phase 9 (0029, 0030)", () => {
   const server = readFileSync(join(__dirname, "server.ts"), "utf8");
   const sql = readFileSync(join(__dirname, "../../../supabase/migrations/0029_registration_hardening.sql"), "utf8");
+  const sql30 = readFileSync(join(__dirname, "../../../supabase/migrations/0030_registration_first_paid.sql"), "utf8");
   const notify = server.slice(server.indexOf("async function notify("), server.indexOf("async function alertOrgAdmins("));
 
-  it("only confirmed entries and unexpired payment holds take a place (M4)", () => {
+  it("only confirmed entries and unexpired payment holds take a place (M4); a checkout keeps one for 15 minutes", () => {
+    expect(CHECKOUT_HOLD_MS).toBe(15 * 60_000);
     const now = Date.parse("2026-11-01T10:00:00Z");
     expect(holdsPlace({ status: "confirmed" }, now)).toBe(true);
     expect(holdsPlace({ status: "pending_approval" }, now)).toBe(false);
@@ -244,5 +299,30 @@ describe("security review of Phase 9 (0029)", () => {
     expect(fn).toMatch(/ignoreDuplicates: true/);
     expect(fn).toMatch(/found\.created \? "approved" : "pending"/);
     expect(fn).not.toMatch(/\.eq\("player_profile_id"/);
+  });
+
+  it("first paid, first in (0030): capacity counts players of confirmed entries and unexpired holds, atomically", () => {
+    expect(sql30).toMatch(/approval_mode in \('on_payment', 'organiser'\)/);
+    expect(sql30).toMatch(/set default 'on_payment'/);
+    expect(sql30).toMatch(/entry_type in \('individual', 'team', 'both'\)/);
+    expect(sql30).toMatch(/for update/);
+    expect(sql30).toMatch(/jsonb_array_length\(r\.people\)/);
+    expect(sql30).toMatch(/r\.status = 'confirmed' or \(r\.status = 'awaiting_payment' and r\.hold_until is not null and r\.hold_until > now\(\)\)/);
+    expect(sql30).toMatch(/raise exception 'registration_full'/);
+  });
+
+  it("registering holds no place and opens no checkout; a new checkout takes a hold first", () => {
+    const reg = server.slice(server.indexOf("export async function register("), server.indexOf("/* ---------------- a web guest's emailed link"));
+    expect(reg).not.toMatch(/startPayment\(|hold_until|approvalHold\(/);
+    const start = server.slice(server.indexOf("export async function startPayment("), server.indexOf("/* ---------------- webhooks"));
+    expect(start.indexOf("ensureHold(fresh.reg)")).toBeGreaterThan(-1);
+    expect(start.indexOf("ensureHold(fresh.reg)")).toBeLessThan(start.indexOf("createPaymentSession("));
+    expect(start).toMatch(/CHECKOUTS_PER_DAY/);
+  });
+
+  it("a payment confirms only for the entry's whole online amount, and a full event flags it for a full refund", () => {
+    expect(server).toMatch(/payment\.amount < reg\.amount_online/);
+    expect(server).toMatch(/isFull\(confErr\)/);
+    expect(server).toMatch(/const amount = refundAmount\(payment\.amount\);/);
   });
 });

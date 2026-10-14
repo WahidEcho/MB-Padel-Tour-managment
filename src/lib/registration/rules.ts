@@ -3,23 +3,30 @@
  * app through move-score-app/src/core/index.ts, and with the server
  * (./server.ts), which alone decides amounts, statuses and refunds.
  *
- * Owner decisions (DECISIONS.md, "Registration and payment"):
+ * Owner decisions (DECISIONS.md § 8, final):
  *   - register in Move Score, pay through Move Tick; pay at the venue otherwise;
  *   - online payment only for the Move Beyond organisation (others: free or pay at
  *     the venue), and only while Move Tick is configured;
- *   - refunds until 24 h before the event's start time (tournaments.starts_at);
- *   - team or individual entry is a setting of each event.
- * Still waiting on the owner, so each is a setting with a conservative default:
- *   - approval: the organiser approves (approval_mode "organiser");
- *   - who pays for a team: the registering player pays for everyone ("registrant");
- *   - card fee on refunds: none kept, a refund gives everything back (0 %).
+ *   - approval: "first paid, first in" by default (approval_mode "on_payment"): an
+ *     entry is confirmed, with no organiser step, the moment its full online amount
+ *     is paid. Only paid entries (and short checkout holds) take a place. The
+ *     organiser may still approve each entry instead ("organiser");
+ *   - entry: individual, team or both (the player picks) per event;
+ *   - who pays for a team: the registering player pays for everyone ("registrant"),
+ *     or each player their share ("each_player": the registrant's share online, the
+ *     partners' at the venue);
+ *   - refunds are always 100 % (Move Beyond absorbs the card fee), until 24 h before
+ *     the event's start time (tournaments.starts_at); flagged payments at any time.
  *
  * Money is integer minor units (piastres) everywhere; EGP only.
  */
 import { zonedToIso } from "../tennis/ties";
 
+/** What one entry is. */
 export type EntryType = "individual" | "team";
-export type ApprovalMode = "organiser" | "automatic";
+/** What an event takes: one kind of entry, or both (the player picks). */
+export type EntrySetting = EntryType | "both";
+export type ApprovalMode = "on_payment" | "organiser";
 export type PaymentSetting = "free" | "online" | "venue" | "online_or_venue";
 export type TeamPayer = "registrant" | "each_player";
 export type PaymentChoice = "free" | "online" | "venue";
@@ -33,22 +40,27 @@ export const REGISTRATION_STATUSES: readonly RegistrationStatus[] = ["unconfirme
  */
 export const LIVE_STATUSES: readonly RegistrationStatus[] = ["pending_approval", "awaiting_payment", "confirmed"];
 
-/** How long an approved entry waiting for its online payment keeps its place. */
+/** Organiser mode only: how long an approved entry waiting for its online payment keeps its place. */
 export const PAYMENT_HOLD_MS = 24 * 3600_000;
 /**
- * A checkout made with less than this left on the hold stretches the hold to the
- * checkout's length, but never past the hold's start + PAYMENT_HOLD_MS + this: a
- * place cannot be kept by pressing Pay again and again.
+ * How long opening a Move Tick checkout keeps a place: 15 minutes, the lifetime of
+ * a Move Tick partner checkout (docs/move-tick-partner-api.md). Taken only while a
+ * place is free; it ends when the checkout is paid, fails or expires. In organiser
+ * mode a checkout made in the approval hold's last 15 minutes stretches that hold
+ * to the checkout's length, never past approval + 24 h + 15 min.
  */
-export const CHECKOUT_HOLD_MS = 3600_000;
+export const CHECKOUT_HOLD_MS = 15 * 60_000;
+/** Checkouts one entry may open in 24 hours (each takes a hold): a place cannot be kept by pressing Pay all day. */
+export const CHECKOUTS_PER_DAY = 6;
 /** How long a web guest's emailed confirmation link works. */
 export const GUEST_CONFIRM_MS = 24 * 3600_000;
 
 /**
- * Whether an entry counts toward the event's capacity: confirmed, or approved and
- * still inside its payment hold. Requests waiting for the organiser never do, so
- * nobody can fill an event with requests (the database trigger
- * registration_capacity_guard, 0029, applies the same rule atomically).
+ * Whether an entry counts toward the event's capacity: confirmed, or waiting for
+ * its payment inside a hold (a checkout's 15 minutes, or an organiser approval's
+ * 24 hours). An unpaid "first paid, first in" entry and a request waiting for the
+ * organiser never do, so nobody can fill an event without paying (the database
+ * trigger registration_capacity_guard, 0030, applies the same rule atomically).
  */
 export function holdsPlace(r: { status: RegistrationStatus; hold_until?: string | null }, now = Date.now()): boolean {
   if (r.status === "confirmed") return true;
@@ -62,12 +74,11 @@ export const REFUND_CUTOFF_MS = 24 * 3600_000;
 export const ARCHIVE_AFTER_MS = 24 * 3600_000;
 /** The largest fee per player (minor units): 100,000 EGP. */
 export const MAX_FEE = 10_000_000;
-export const MAX_REFUND_FEE_PERCENT = 20;
 
 export interface RegistrationSettings {
   open: boolean;
-  entryType: EntryType;
-  /** Players per entry for team entry (individual entry is always 1). */
+  entryType: EntrySetting;
+  /** Players per team entry (team or both); individual entry is always 1. */
   teamSize: number;
   approvalMode: ApprovalMode;
   /** Per player, minor units. */
@@ -75,24 +86,26 @@ export interface RegistrationSettings {
   currency: typeof CURRENCY;
   payment: PaymentSetting;
   teamPayer: TeamPayer;
-  /** Kept from a refund (the card fee), 0–20 %. */
-  refundFeePercent: number;
+  /**
+   * The most entries, or null: teams for team or both entry (a solo player fills
+   * one of a team's places), players for individual entry. Counted in players
+   * (capacitySeats), so two solo players paired fill exactly one team's place.
+   */
   capacity: number | null;
   closesAt: string | null;
   note: string | null;
 }
 
-/** Closed, organiser approves, registrant pays for the team, full refunds. */
+/** Closed, first paid first in, registrant pays for the team. */
 export const DEFAULT_REGISTRATION_SETTINGS: RegistrationSettings = {
   open: false,
   entryType: "team",
   teamSize: 2,
-  approvalMode: "organiser",
+  approvalMode: "on_payment",
   feeAmount: 0,
   currency: CURRENCY,
   payment: "free",
   teamPayer: "registrant",
-  refundFeePercent: 0,
   capacity: null,
   closesAt: null,
   note: null,
@@ -107,14 +120,16 @@ const oneOf = <T extends string>(v: unknown, list: readonly T[], fallback: T): T
 /**
  * Settings from a database row (snake_case) or an already-shaped object
  * (camelCase), cleaned: anything unknown or out of range falls back to the
- * conservative default.
+ * default. The old "automatic" approval reads as "on_payment" (it replaced it);
+ * an old stored refund_fee_percent is ignored (refunds are always in full).
  */
 export function registrationSettings(raw: unknown): RegistrationSettings {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_REGISTRATION_SETTINGS };
   const r = raw as Record<string, unknown>;
   const pick = (camel: string, snake: string) => (camel in r ? r[camel] : r[snake]);
   const d = DEFAULT_REGISTRATION_SETTINGS;
-  const entryType = oneOf(pick("entryType", "entry_type"), ["individual", "team"] as const, d.entryType);
+  const entryType = oneOf(pick("entryType", "entry_type"), ["individual", "team", "both"] as const, d.entryType);
+  const approvalRaw = pick("approvalMode", "approval_mode");
   const feeAmount = int(pick("feeAmount", "fee_amount"), 0, MAX_FEE, 0);
   const closes = pick("closesAt", "closes_at");
   const closesAt = typeof closes === "string" && Number.isFinite(Date.parse(closes)) ? new Date(Date.parse(closes)).toISOString() : null;
@@ -129,12 +144,11 @@ export function registrationSettings(raw: unknown): RegistrationSettings {
     open: pick("open", "open") === true,
     entryType,
     teamSize: entryType === "individual" ? 1 : int(pick("teamSize", "team_size"), 2, 8, 2),
-    approvalMode: oneOf(pick("approvalMode", "approval_mode"), ["organiser", "automatic"] as const, d.approvalMode),
+    approvalMode: approvalRaw === "automatic" ? "on_payment" : oneOf(approvalRaw, ["on_payment", "organiser"] as const, d.approvalMode),
     feeAmount,
     currency: CURRENCY,
     payment,
     teamPayer: oneOf(pick("teamPayer", "team_payer"), ["registrant", "each_player"] as const, d.teamPayer),
-    refundFeePercent: Math.min(MAX_REFUND_FEE_PERCENT, Math.max(0, Number(pick("refundFeePercent", "refund_fee_percent")) || 0)),
     capacity,
     closesAt,
     note: typeof note === "string" && note.trim() ? note.trim().slice(0, 1000) : null,
@@ -152,16 +166,54 @@ export function storedRegistrationSettings(s: RegistrationSettings): Record<stri
     currency: s.currency,
     payment: s.payment,
     team_payer: s.teamPayer,
-    refund_fee_percent: s.refundFeePercent,
     capacity: s.capacity,
     closes_at: s.closesAt,
     note: s.note,
   };
 }
 
-/** How many people one entry names. */
-export function peoplePerEntry(s: Pick<RegistrationSettings, "entryType" | "teamSize">): number {
+/** How many people one entry names: a team entry (the default for team or both events) or a solo one. */
+export function peoplePerEntry(s: Pick<RegistrationSettings, "entryType" | "teamSize">, kind?: EntryType): number {
+  const k = kind ?? (s.entryType === "individual" ? "individual" : "team");
+  return k === "individual" ? 1 : Math.max(2, s.teamSize);
+}
+
+/** The kinds of entry a player may pick for this event. */
+export function entryKinds(s: Pick<RegistrationSettings, "entryType">): EntryType[] {
+  return s.entryType === "both" ? ["team", "individual"] : [s.entryType];
+}
+
+/**
+ * The entry kind a registration asked for: the event's own kind, or for "both" the
+ * one picked (or, when nothing was picked, the one the number of people names).
+ * Null when the event does not take that kind.
+ */
+export function entryKindFor(s: Pick<RegistrationSettings, "entryType">, picked: unknown, peopleCount: number): EntryType | null {
+  if (s.entryType !== "both") return picked === undefined || picked === null || picked === s.entryType ? s.entryType : null;
+  if (picked === "individual" || picked === "team") return picked;
+  if (picked !== undefined && picked !== null) return null;
+  return peopleCount === 1 ? "individual" : "team";
+}
+
+/** Players per place: 1 for individual entry, the team size for team or both entry. */
+export function seatsPerPlace(s: Pick<RegistrationSettings, "entryType" | "teamSize">): number {
   return s.entryType === "individual" ? 1 : Math.max(2, s.teamSize);
+}
+
+/** The capacity in players (null: no limit). A team takes teamSize of them, a solo player one. */
+export function capacitySeats(s: Pick<RegistrationSettings, "entryType" | "teamSize" | "capacity">): number | null {
+  return s.capacity === null ? null : s.capacity * seatsPerPlace(s);
+}
+
+/** The smallest entry this event takes, in players. */
+function smallestEntry(s: Pick<RegistrationSettings, "entryType" | "teamSize">): number {
+  return s.entryType === "team" ? Math.max(2, s.teamSize) : 1;
+}
+
+/** Whether an entry of `people` players fits next to `takenSeats` players already holding places. */
+export function entryFits(s: Pick<RegistrationSettings, "entryType" | "teamSize" | "capacity">, takenSeats: number, people: number): boolean {
+  const cap = capacitySeats(s);
+  return cap === null || takenSeats + Math.max(1, people) <= cap;
 }
 
 /** The ways a player may pay for this event now. `onlineAvailable`: Move Beyond's event and Move Tick configured. */
@@ -187,7 +239,13 @@ export function charges(
   return { online: own, venue: total - own, total };
 }
 
-/** The status a new entry starts in. Approval comes before payment, so nobody pays for a request that is turned down. */
+/**
+ * The status a new entry starts in. Organiser mode: waiting for the organiser
+ * (approval comes before payment, so nobody pays for a request that is turned
+ * down). First paid, first in: waiting for its online payment (holding no place
+ * until a checkout is opened), or confirmed at once when nothing is due online
+ * (free, or paid at the venue) while a place is free.
+ */
 export function initialStatus(s: Pick<RegistrationSettings, "approvalMode">, amountOnline: number): RegistrationStatus {
   if (s.approvalMode === "organiser") return "pending_approval";
   return amountOnline > 0 ? "awaiting_payment" : "confirmed";
@@ -213,18 +271,21 @@ export function canMove(from: RegistrationStatus, to: RegistrationStatus): boole
   return TRANSITIONS[from]?.includes(to) ?? false;
 }
 
-/** Why registration is not taking entries now, or null. `taken` counts the places held (holdsPlace). */
+/**
+ * Why registration is not taking entries now, or null. `takenSeats` counts the
+ * players holding places (holdsPlace): full when not even the smallest entry fits.
+ */
 export function registrationClosedReason(
-  s: Pick<RegistrationSettings, "open" | "closesAt" | "capacity">,
+  s: Pick<RegistrationSettings, "open" | "closesAt" | "capacity" | "entryType" | "teamSize">,
   event: { status: string | null | undefined; startsAt?: string | null },
-  taken: number,
+  takenSeats: number,
   now = Date.now(),
 ): "closed" | "deadline" | "full" | "finished" | null {
   if (!s.open) return "closed";
   if (event.status === "completed" || event.status === "archived") return "finished";
   if (s.closesAt && Date.parse(s.closesAt) <= now) return "deadline";
   if (event.startsAt && Date.parse(event.startsAt) <= now) return "deadline";
-  if (s.capacity !== null && taken >= s.capacity) return "full";
+  if (!entryFits(s, takenSeats, smallestEntry(s))) return "full";
   return null;
 }
 
@@ -259,10 +320,9 @@ export const REFUND_MESSAGES: Record<RefundRefusal, string> = {
   already_refunded: "This entry was already refunded.",
 };
 
-/** What a refund gives back: everything, less the card fee the settings keep (0 % by default). */
-export function refundAmount(paid: number, feePercent: number): number {
-  const pct = Math.min(MAX_REFUND_FEE_PERCENT, Math.max(0, feePercent || 0));
-  return Math.max(0, paid - Math.round((paid * pct) / 100));
+/** What a refund gives back: always everything (Move Beyond absorbs the card fee). */
+export function refundAmount(paid: number): number {
+  return Math.max(0, paid);
 }
 
 /** The UTC instant a date's day ends in a time zone ("2026-11-02" in Cairo → 21:59:59.999Z). */
@@ -303,7 +363,7 @@ export function minorFromMajor(text: string): number | null {
 export const STATUS_LABELS: Record<RegistrationStatus, string> = {
   unconfirmed: "Waiting for the email to be confirmed",
   pending_approval: "Waiting for the organiser",
-  awaiting_payment: "Approved — waiting for payment",
+  awaiting_payment: "Waiting for payment",
   confirmed: "Confirmed",
   refused: "Not accepted",
   cancelled: "Cancelled",

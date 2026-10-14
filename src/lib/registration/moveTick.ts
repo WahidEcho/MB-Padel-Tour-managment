@@ -183,7 +183,7 @@ export async function getPaymentSession(cfg: MoveTickConfig, sessionId: string):
   return asSession(await call<unknown>(cfg, "GET", `/api/partner/v1/payment-sessions/${encodeURIComponent(sessionId)}`), cfg);
 }
 
-/** Asks Move Tick to refund (all, or `amount` when a card fee is kept). The result arrives as a webhook too. */
+/** Asks Move Tick to refund the whole payment (refunds are always in full). The result arrives as a webhook too. */
 export async function refundPaymentSession(
   cfg: MoveTickConfig,
   input: { sessionId: string; reference: string; amount: number; reason: string; idempotencyKey: string },
