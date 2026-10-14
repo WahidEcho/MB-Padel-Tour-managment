@@ -1,5 +1,10 @@
 # Move Tick partner API (Move Score registrations)
 
+> **Since 14 Oct 2026 Move Score takes payments directly through XPay** (`docs/xpay-direct.md`), so Move Tick's
+> live ticket code does not change. This partner API stays available as the alternative
+> (`PAYMENT_PROVIDER=move_tick`, `src/lib/payments/provider.ts`) and is still covered by
+> `npm run e2e:registration` (run with `PAYMENT_PROVIDER=move_tick`).
+
 Move Score takes registrations; Move Tick takes the money. Players register for a tournament or a
 friendly session in Move Score (the app, or the public web form at `/register/<slug>`); when the entry
 fee is paid online, Move Score asks Move Tick for a hosted XPay checkout and Move Tick tells Move Score

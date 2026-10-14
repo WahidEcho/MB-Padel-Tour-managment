@@ -12,12 +12,14 @@ const ERRORS: Record<string, string> = {
   conflict: "This entry changed meanwhile. Try again.",
   checkout_open: "A checkout for this entry is still open. Try again in a few minutes.",
   move_tick: "Online payment is not reachable right now. Try again in a moment.",
+  payment_unreachable: "Online payment is not reachable right now. Try again in a moment.",
+  below_card_minimum: "This fee is below the card minimum (EGP 50): pay it at the venue.",
   not_due: "Nothing is due online for this entry.",
   unavailable: "Online payment is not available for this event.",
 };
 
 /**
- * Where Move Tick sends a payer back, the link the web form shows and the link in
+ * Where the payment page sends a payer back, the link the web form shows and the link in
  * every email: the event and the registration's status, nothing personal, and a
  * Pay button while an entry is due online (a web guest's way to pay). Only
  * a link signed for this registration opens it; any other gets the same "not found".

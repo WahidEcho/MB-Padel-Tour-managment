@@ -3,8 +3,8 @@
  *
  *   open          anyone signed in joins at once
  *   approval      the request waits for the organiser
- *   paid          a membership fee is paid first. Paid joining runs through
- *                 Move Tick for the Move Beyond organisation only; elsewhere the
+ *   paid          a membership fee is paid first. Paid joining is paid
+ *                 online for the Move Beyond organisation only; elsewhere the
  *                 fee is paid at the venue (the player joins, flagged unpaid).
  *   invite_code   the player must give the league's code
  *
@@ -42,7 +42,7 @@ export interface JoinLeague {
   closed?: boolean;
   /** Membership fee; 0 or absent means no fee even when "paid" is a mode. */
   membershipFee?: { amount: number; currency: string } | null;
-  /** Paid joining through Move Tick (the Move Beyond organisation only, for now). */
+  /** Paid joining online (the Move Beyond organisation only, for now). */
   paymentsEnabled: boolean;
 }
 
@@ -51,7 +51,7 @@ export interface JoinApplicant {
   membership?: MembershipStatus | null;
   /** The code the player gave, as the server judged it; absent when none was given. */
   inviteCode?: { valid: boolean } | null;
-  /** The membership fee is paid (Move Tick confirmed it). */
+  /** The membership fee is paid (the payment provider confirmed it). */
   paid?: boolean;
 }
 

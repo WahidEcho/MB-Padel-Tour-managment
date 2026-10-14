@@ -134,7 +134,7 @@ const PERMISSIONS = {
   manage_leagues: ["admin", "manager"],
   // Registrations (Admin → event → Registrations): settings, approve / refuse, paid at the venue.
   manage_registrations: ["admin", "manager"],
-  // Refunding an online payment through Move Tick: admins with their own account only (PERSONAL_ACCOUNT_ONLY).
+  // Refunding an online payment: admins with their own account only (PERSONAL_ACCOUNT_ONLY).
   refund_registrations: ["admin"],
   // Members and invites (Admin → Members): owners and admins; who may give which
   // role is decided by the organisation role (src/lib/orgs/roles.ts mayAssignRole).

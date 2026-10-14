@@ -1,9 +1,11 @@
 /**
  * Registration and payment (plan Phase 9), server side. Rules: ./rules.ts.
- * Move Tick: ./moveTick.ts, contract docs/move-tick-partner-api.md.
+ * Online payment: directly through XPay (src/lib/payments/xpay.ts, docs/xpay-direct.md),
+ * or through Move Tick's partner API (./moveTick.ts, docs/move-tick-partner-api.md):
+ * PAYMENT_PROVIDER, src/lib/payments/provider.ts.
  *
  *   announce → register (app, signed in; or the web form as a guest)
- *            → first paid, first in (default): pay (Move Tick) → confirmed the
+ *            → first paid, first in (default): pay (XPay) → confirmed the
  *              moment the full online amount is paid; nothing due online (free,
  *              or paid at the venue) → confirmed at once while a place is free.
  *              Or, in organiser mode: the organiser approves → pay
@@ -40,6 +42,8 @@ import {
   GUEST_CONFIRM_MS,
   CHECKOUT_HOLD_MS,
   CHECKOUTS_PER_DAY,
+  CARD_MINIMUM,
+  CARD_MINIMUM_MESSAGE,
   PAYMENT_HOLD_MS,
   REFUND_MESSAGES,
   STATUS_LABELS,
@@ -74,6 +78,9 @@ import {
 } from "./rules";
 import { Refusal } from "../refusal";
 import { MoveTickError, createPaymentSession, getPaymentSession, moveTickConfig, refundPaymentSession, type WebhookEvent } from "./moveTick";
+import { paymentProvider, type PaymentProvider } from "../payments/provider";
+import { XpayError, createCheckout, expireCheckout, refundIntent, retrieveCheckout, sessionMoney, xpayConfig, type XpaySession } from "../payments/xpay";
+import { eventOutcome, type XpayEvent } from "../payments/xpayWebhook";
 
 /* ---------------- rows ---------------- */
 
@@ -141,7 +148,7 @@ export interface RegistrationRow {
   /** How long an entry waiting for its online payment keeps its place (null / past: it holds none). */
   hold_until: string | null;
   hold_started_at: string | null;
-  /** "checkout": a Move Tick checkout's 15 minutes; "approval": an organiser approval's 24 hours. */
+  /** "checkout": an online checkout's 15 minutes; "approval": an organiser approval's 24 hours. */
   hold_kind: "checkout" | "approval" | null;
   created_at: string;
   updated_at: string;
@@ -155,10 +162,14 @@ export interface PaymentRow {
   registration_id: string;
   organization_id: string;
   method: "online" | "venue";
+  /** Who took it: its webhooks, reconciliation and refund go there (whatever new checkouts use now). */
+  provider: "move_tick" | "xpay" | "venue";
   amount: number;
   currency: string;
   status: "created" | "open" | "paid" | "failed" | "expired" | "refund_pending" | "refunded" | "needs_review";
   session_id: string | null;
+  /** XPay's payment intent (refunds name it), once paid. */
+  intent_id: string | null;
   checkout_url: string | null;
   expires_at: string | null;
   test_mode: boolean;
@@ -169,7 +180,7 @@ export interface PaymentRow {
   created_at: string;
 }
 
-const PAY_COLUMNS = "id, registration_id, organization_id, method, amount, currency, status, session_id, checkout_url, expires_at, test_mode, paid_at, refund_amount, refunded_at, review_reason, created_at";
+const PAY_COLUMNS = "id, registration_id, organization_id, method, provider, amount, currency, status, session_id, intent_id, checkout_url, expires_at, test_mode, paid_at, refund_amount, refunded_at, review_reason, created_at";
 
 const now = () => new Date().toISOString();
 /** Organiser mode: the place an approval keeps for 24 hours from now, and when it started. */
@@ -217,12 +228,16 @@ async function orgOf(orgId: string): Promise<{ id: string; slug: string; name: s
 }
 
 /**
- * Online payment through Move Tick: the Move Beyond organisation only (no payouts
- * to other organisations yet), and only while Move Tick is configured.
+ * Online payment: the Move Beyond organisation only (no payouts to other
+ * organisations yet), and only while a payment provider is configured (XPay
+ * directly, or Move Tick: src/lib/payments/provider.ts).
  */
 export function onlinePaymentAvailable(orgSlug: string | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
-  return orgSlug === MOVE_BEYOND_SLUG && moveTickConfig(env) !== null;
+  return orgSlug === MOVE_BEYOND_SLUG && paymentProvider(env) !== null;
 }
+
+/** The provider's name, in messages to organisers. */
+const providerName = (p: string | null | undefined) => (p === "move_tick" ? "Move Tick" : "XPay");
 
 /** A public event by its slug, of an approved organisation. Null for unknown, private or refused events alike. */
 export async function publicEventBySlug(slug: string): Promise<{ event: EventRow; org: { id: string; slug: string; name: string }; session: SessionRow | null } | null> {
@@ -245,6 +260,7 @@ export async function getSettings(tournamentId: string): Promise<RegistrationSet
 export async function saveSettings(event: EventRow, settings: RegistrationSettings, actor: { role: string; label: string | null }): Promise<RegistrationSettings> {
   const refused = eventRefusal(event);
   if (refused) throw new Refusal(refused);
+  if (settings.feeAmount > 0 && settings.feeAmount < CARD_MINIMUM && (settings.payment === "online" || settings.payment === "online_or_venue")) throw new Refusal(CARD_MINIMUM_MESSAGE);
   const before = await getSettings(event.id);
   const row = { tournament_id: event.id, organization_id: event.organization_id, ...storedRegistrationSettings(settings), updated_by: actor.label, updated_at: now() };
   const { error } = await db().from("registration_settings").upsert(row, { onConflict: "tournament_id" });
@@ -601,7 +617,7 @@ export async function expireUnconfirmed(nowMs = Date.now()): Promise<number> {
 
 /* ---------------- payment ---------------- */
 
-/** Where Move Tick sends the payer back: a status page that shows nothing but the event and the status. */
+/** Where the checkout sends the payer back: a status page that shows nothing but the event and the status. */
 export function returnUrlFor(registrationId: string): string {
   return `${siteUrl()}/register/status?r=${registrationId}&s=${statusToken(registrationId)}`;
 }
@@ -634,7 +650,7 @@ async function openPayment(registrationId: string): Promise<PaymentRow | null> {
  *     keeps the place as it is; one in its last 15 minutes is stretched to the
  *     checkout's length, never past approval + 24 h + 15 min (organiser mode only);
  *   - otherwise (first paid, first in; or a lapsed approval hold) opening a checkout
- *     takes a checkout hold of CHECKOUT_HOLD_MS (15 minutes, the Move Tick checkout's
+ *     takes a checkout hold of CHECKOUT_HOLD_MS (15 minutes, the checkout's
  *     lifetime) — only if a place is free: the capacity trigger decides atomically,
  *     so of two players racing for the last place exactly one gets the hold and the
  *     other is told "This event is full" before any checkout is made.
@@ -680,9 +696,10 @@ async function endCheckoutHold(regId: string): Promise<void> {
 }
 
 /**
- * A Move Tick checkout for what this registration owes online. Never two at once:
+ * An online checkout for what this registration owes, with the configured provider
+ * (XPay directly, or Move Tick: src/lib/payments/provider.ts). Never two at once:
  * the open one is reused (the database allows one open checkout per registration),
- * and one whose time ran out is first settled with Move Tick (paid, or closed)
+ * and one whose time ran out is first settled with its provider (paid, or closed)
  * before another is made. A new checkout first takes a place hold (ensureHold): when
  * no place is free, Pay is refused before any checkout ("This event is full"). The
  * amount is the registration row's, written by the server.
@@ -690,19 +707,31 @@ async function endCheckoutHold(regId: string): Promise<void> {
 export async function startPayment(reg: RegistrationRow, event: EventRow, source: "app" | "web" | "admin"): Promise<Outcome<{ checkoutUrl: string; paymentId: string }>> {
   if (reg.status !== "awaiting_payment" || reg.amount_online <= 0) return fail(409, "not_due", "Nothing is due online for this entry.");
   const org = await orgOf(event.organization_id);
-  const cfg = moveTickConfig();
-  if (!cfg || org?.slug !== MOVE_BEYOND_SLUG) return fail(409, "unavailable", "Online payment is not available for this event.");
+  const provider = paymentProvider();
+  if (!provider || org?.slug !== MOVE_BEYOND_SLUG) return fail(409, "unavailable", "Online payment is not available for this event.");
+  if (reg.amount_online < CARD_MINIMUM) return fail(409, "below_card_minimum", CARD_MINIMUM_MESSAGE);
   // A checkout that may have been paid (or closed) without a word reaching us: ask first.
   await reconcileOnline(reg.id, { force: true });
-  const fresh = await loadReg(reg.id);
+  let fresh = await loadReg(reg.id);
   if (!fresh || fresh.reg.status !== "awaiting_payment") return fail(409, "not_due", "Nothing is due online for this entry.");
 
   let payment = await openPayment(reg.id);
-  if (payment?.status === "open") {
-    if (payment.expires_at && Date.parse(payment.expires_at) <= Date.now()) {
+  if (payment?.status === "open" && payment.expires_at && Date.parse(payment.expires_at) <= Date.now()) {
+    if (payment.provider !== "xpay") {
       // Move Tick has not closed it yet (or could not be asked): never open a second one beside it.
       return fail(409, "checkout_open", "The last checkout is still being closed by Move Tick. Try again in a minute.");
     }
+    // XPay: Move Score closes its own lapsed page (never while a card is completing on it).
+    const closed = await closeLapsedXpay(payment);
+    if (closed === "unreachable") return fail(502, "payment_unreachable", "Online payment is not reachable right now. Try again in a moment.");
+    if (closed === "busy") return fail(409, "checkout_open", "Your last payment for this entry is still being completed (a card check, or a reference to pay later). Try again once it is paid or has expired.");
+    if (closed === "paid") return fail(409, "not_due", "Your payment for this entry was just received.");
+    // Closing it may have ended its hold: read the entry again before taking a new one.
+    fresh = await loadReg(reg.id);
+    if (!fresh || fresh.reg.status !== "awaiting_payment") return fail(409, "not_due", "Nothing is due online for this entry.");
+    payment = await openPayment(reg.id);
+  }
+  if (payment?.status === "open") {
     if (payment.checkout_url) {
       // The open checkout is reused: pressing Pay again never stretches a live hold. One whose hold
       // already ran out (a checkout that outlives its hold) is reused only while a place is free.
@@ -727,10 +756,20 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
   const giveBack = async () => {
     if (held?.kind === "checkout") await releaseHold(reg.id, held.until);
   };
+  if (payment?.status === "created" && payment.provider !== provider) {
+    // A checkout that was never made, left from before the provider changed: it is made with the current one.
+    const { data: moved } = await db().from("registration_payments").update({ provider, updated_at: now() }).eq("id", payment.id).eq("status", "created").is("session_id", null).select(PAY_COLUMNS);
+    payment = ((moved ?? []) as PaymentRow[])[0] ?? null;
+    if (!payment) {
+      await giveBack();
+      return fail(409, "conflict", "Could not start the payment. Try again.");
+    }
+  }
   if (!payment) {
+    const testMode = provider === "xpay" ? xpayConfig()?.mode === "test" : moveTickConfig()?.mode === "test";
     const { data, error } = await db()
       .from("registration_payments")
-      .insert({ registration_id: reg.id, organization_id: reg.organization_id, method: "online", provider: "move_tick", amount: reg.amount_online, currency: "EGP", status: "created", test_mode: cfg.mode === "test" })
+      .insert({ registration_id: reg.id, organization_id: reg.organization_id, method: "online", provider, amount: reg.amount_online, currency: "EGP", status: "created", test_mode: testMode })
       .select(PAY_COLUMNS)
       .single();
     if (error) {
@@ -745,16 +784,7 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
   }
   const registrant = reg.people[0];
   try {
-    // The payment row's id is the Idempotency-Key: a retry, or a request racing this one, gets the same session.
-    const session = await createPaymentSession(cfg, {
-      reference: reg.id,
-      amount: payment.amount,
-      currency: "EGP",
-      description: `${event.name} — entry`,
-      returnUrl: returnUrlFor(reg.id),
-      customer: { name: registrant?.name ?? "Player", email: reg.notify_email, phone: null },
-      idempotencyKey: payment.id,
-    });
+    const session = await openSession(payment, reg, event, registrant?.name ?? "Player");
     const { data: opened, error } = await db()
       .from("registration_payments")
       .update({ status: "open", session_id: session.sessionId, checkout_url: session.checkoutUrl, expires_at: session.expiresAt, test_mode: session.testMode, updated_at: now() })
@@ -766,22 +796,149 @@ export async function startPayment(reg: RegistrationRow, event: EventRow, source
       if (again?.id === payment.id && again.status === "open" && again.session_id === session.sessionId) return { ok: true, value: { checkoutUrl: session.checkoutUrl, paymentId: payment.id } };
       return fail(409, "conflict", "Could not start the payment. Try again.");
     }
-    await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: source === "app" ? "user" : source === "web" ? "public" : null, action: "REGISTRATION_PAYMENT_STARTED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, amount: payment.amount, session_id: session.sessionId, test_mode: session.testMode } });
+    await audit({ tournament_id: event.id, organization_id: event.organization_id, actor_role: source === "app" ? "user" : source === "web" ? "public" : null, action: "REGISTRATION_PAYMENT_STARTED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, provider: payment.provider, amount: payment.amount, session_id: session.sessionId, test_mode: session.testMode } });
     return { ok: true, value: { checkoutUrl: session.checkoutUrl, paymentId: payment.id } };
   } catch (e) {
-    const code = e instanceof MoveTickError ? e.code : "error";
-    console.error("[registration] Move Tick checkout failed", code);
+    const code = e instanceof MoveTickError || e instanceof XpayError ? e.code : "error";
+    console.error(`[registration] ${providerName(payment.provider)} checkout failed`, code);
     // No checkout came of it: the place goes back (the payment row stays "created" for a retry with the same key).
     await giveBack();
     if (code === "PAYMENT_SESSION_OPEN") return fail(409, "checkout_open", "A checkout for this entry is still open at Move Tick. Try again in a few minutes.");
     if (code === "ORDER_ALREADY_PAID") return fail(409, "checkout_open", "Move Tick already has a payment for this entry. It will show here shortly.");
-    return fail(502, "move_tick", "Online payment is not reachable right now. Try again in a moment.");
+    return fail(502, "payment_unreachable", "Online payment is not reachable right now. Try again in a moment.");
   }
+}
+
+/**
+ * Makes the provider's hosted checkout for a payment row. The row's id keys the
+ * provider's idempotency: a retry, or a request racing this one, gets the same
+ * session. The checkout ends with the place hold (CHECKOUT_HOLD_MS): Move Tick's
+ * partner sessions live exactly that long; XPay's page lives 30 minutes (its
+ * minimum) and is closed by Move Score when the hold ends (closeLapsedXpay).
+ */
+async function openSession(payment: PaymentRow, reg: RegistrationRow, event: EventRow, name: string): Promise<{ sessionId: string; checkoutUrl: string; expiresAt: string | null; testMode: boolean }> {
+  const description = `${event.name} — entry`;
+  if (payment.provider === "xpay") {
+    const cfg = xpayConfig();
+    if (!cfg) throw new XpayError("not_configured", "XPay is not configured.");
+    const s = await createCheckout(cfg, { amount: payment.amount, description, returnUrl: returnUrlFor(reg.id), registrationId: reg.id, paymentId: payment.id });
+    const ours = Date.now() + CHECKOUT_HOLD_MS;
+    const theirs = s.expiresAt ? Date.parse(s.expiresAt) : NaN;
+    return { sessionId: s.id, checkoutUrl: s.url, expiresAt: new Date(Number.isFinite(theirs) ? Math.min(ours, theirs) : ours).toISOString(), testMode: cfg.mode === "test" };
+  }
+  const cfg = moveTickConfig();
+  if (!cfg) throw new MoveTickError("not_configured", "Move Tick is not configured.");
+  const session = await createPaymentSession(cfg, {
+    reference: reg.id,
+    amount: payment.amount,
+    currency: "EGP",
+    description,
+    returnUrl: returnUrlFor(reg.id),
+    customer: { name, email: reg.notify_email, phone: null },
+    idempotencyKey: payment.id,
+  });
+  return { sessionId: session.sessionId, checkoutUrl: session.checkoutUrl, expiresAt: session.expiresAt, testMode: session.testMode };
+}
+
+/**
+ * An open XPay checkout whose hold ran out, closed for good. XPay is asked first: a
+ * page a card is still completing on (3-D Secure, processing) or a completed page
+ * whose reference is still unpaid is never closed from under the payer ("busy"), and
+ * a page that was paid meanwhile is applied as paid. An open page is then expired at
+ * XPay, and only a page XPay reports expired is marked expired here (its hold ends).
+ * Mirrors Move Tick's own close of its partner sessions.
+ */
+async function closeLapsedXpay(pay: PaymentRow): Promise<"closed" | "paid" | "busy" | "unreachable"> {
+  const cfg = xpayConfig();
+  if (!cfg || !pay.session_id) return "unreachable";
+  let s: XpaySession;
+  try {
+    s = await retrieveCheckout(cfg, pay.session_id);
+  } catch {
+    return "unreachable";
+  }
+  const settle = async (x: XpaySession): Promise<"paid" | "busy" | null> => {
+    const money = sessionMoney(x);
+    if (money === "paid") {
+      await applyPaymentEvent(xpayPaymentEvent(x, "payment.succeeded", `reconcile:${x.id}:paid`, pay));
+      return "paid";
+    }
+    return money === "settling" ? "busy" : null;
+  };
+  const first = await settle(s);
+  if (first) return first;
+  if (s.status === "open") {
+    try {
+      s = await expireCheckout(cfg, pay.session_id);
+    } catch {
+      return "unreachable";
+    }
+    const second = await settle(s);
+    if (second) return second;
+  }
+  if (s.status !== "expired") return "busy";
+  await applyPaymentEvent(xpayPaymentEvent(s, "payment.expired", `close:${s.id}:expired`, pay));
+  return "closed";
 }
 
 /* ---------------- webhooks ---------------- */
 
-export type WebhookOutcome = "applied" | "duplicate" | "ignored" | "unknown_reference" | "mode_mismatch" | "needs_review";
+export type WebhookOutcome = "applied" | "duplicate" | "ignored" | "unknown_reference" | "mode_mismatch" | "needs_review" | "awaiting";
+
+/** One payment event, whichever provider reported it (a webhook, or what reconciliation read). */
+export interface PaymentEvent {
+  provider: PaymentProvider;
+  /** As recorded in move_tick_events: Move Tick's id as it is, XPay's as "xpay:<id>", reconciliation's "reconcile:…". */
+  id: string;
+  type: "payment.succeeded" | "payment.failed" | "payment.expired" | "payment.refunded";
+  sessionId: string;
+  /** The registration the provider says it is about (Move Tick's reference; XPay's metadata.registration_id). */
+  registrationId: string | null;
+  /** XPay's metadata.payment_id: finds a payment whose session id never got written (a failed write after the create). */
+  paymentId: string | null;
+  /** What the provider reports was paid (minor units); null when it did not say (held for review if it was paid). */
+  amount: number | null;
+  currency: string | null;
+  refundedAmount: number | null;
+  /** The provider's mode, when the event says it; null when it does not. */
+  testMode: boolean | null;
+  intentId: string | null;
+}
+
+/** A Move Tick webhook (docs/move-tick-partner-api.md) as a payment event. */
+export function moveTickPaymentEvent(e: WebhookEvent): PaymentEvent {
+  return {
+    provider: "move_tick",
+    id: e.id,
+    type: e.type,
+    sessionId: e.data.sessionId,
+    registrationId: e.data.reference,
+    paymentId: null,
+    amount: e.data.amount,
+    currency: e.data.currency,
+    refundedAmount: e.data.refundedAmount,
+    testMode: e.data.testMode,
+    intentId: null,
+  };
+}
+
+const metaUuid = (v: string | undefined) => (v && UUID.test(v) ? v.toLowerCase() : null);
+
+function xpayPaymentEvent(s: XpaySession, type: PaymentEvent["type"], id: string, known?: Pick<PaymentRow, "registration_id" | "id">): PaymentEvent {
+  return {
+    provider: "xpay",
+    id,
+    type,
+    sessionId: s.id,
+    registrationId: metaUuid(s.metadata.registration_id) ?? known?.registration_id ?? null,
+    paymentId: metaUuid(s.metadata.payment_id) ?? known?.id ?? null,
+    amount: s.amountTotal,
+    currency: s.currency,
+    refundedAmount: null,
+    testMode: null,
+    intentId: s.intentId,
+  };
+}
 
 /**
  * Applies one Move Tick event (signature already verified by the route).
@@ -790,13 +947,72 @@ export type WebhookOutcome = "applied" | "duplicate" | "ignored" | "unknown_refe
  * means "seen before"; any other database error is an error (Move Tick retries).
  */
 export async function applyWebhook(e: WebhookEvent): Promise<WebhookOutcome> {
-  const { error: dup } = await db().from("move_tick_events").insert({ event_id: e.id, type: e.type, reference: e.data.reference });
+  return applyPaymentEvent(moveTickPaymentEvent(e));
+}
+
+/**
+ * Applies one XPay event (signature already verified by the route). Checkout events
+ * only, and only about Move Score's own payments: a session whose metadata names
+ * another app (Move Tick's tickets on the same XPay account), or that matches no
+ * payment row here, is acknowledged and ignored without being recorded. A completed
+ * page that is still unpaid (a reference to pay later) changes nothing: the money
+ * arrives as async_payment_succeeded, or async_payment_failed closes it.
+ */
+export async function applyXpayEvent(ev: XpayEvent): Promise<WebhookOutcome> {
+  const s = ev.session;
+  if (!s) return "ignored";
+  if (s.metadata.app && s.metadata.app !== "move-score") return "ignored";
+  const outcome = eventOutcome(ev.type, s);
+  if (!outcome) return "ignored";
+  const payment = await paymentForSession("xpay", s.id, metaUuid(s.metadata.payment_id), metaUuid(s.metadata.registration_id));
+  if (!payment) return "unknown_reference";
+  const cfg = xpayConfig();
+  if (!cfg) return "ignored";
+  // A live event for a test payment (or the other way round) never changes anything.
+  if ((ev.livemode !== null && ev.livemode === (cfg.mode === "test")) || payment.test_mode !== (cfg.mode === "test")) return "mode_mismatch";
+  const id = `xpay:${ev.id}`;
+  if (outcome === "awaiting") {
+    // Recorded once, so a replay is a duplicate like any other.
+    const { error } = await db().from("move_tick_events").insert({ event_id: id, type: ev.type, reference: payment.registration_id, provider: "xpay", outcome: "awaiting" });
+    if (error && !isUnique(error)) throw new Error(`move_tick_events: ${error.message ?? "insert failed"}`);
+    return error ? "duplicate" : "awaiting";
+  }
+  const e = xpayPaymentEvent(s, outcome, id, payment);
+  e.testMode = ev.livemode === null ? null : !ev.livemode;
+  return applyPaymentEvent(e);
+}
+
+/**
+ * The payment row a provider's session is about: by its session id; for XPay also by
+ * the metadata's payment id when the session id was never written (the create
+ * succeeded, the write after it failed), cross-checked against the registration.
+ */
+async function paymentForSession(provider: PaymentProvider, sessionId: string, paymentId: string | null, registrationId: string | null): Promise<PaymentRow | null> {
+  const { data: bySession, error } = await db().from("registration_payments").select(PAY_COLUMNS).eq("session_id", sessionId).maybeSingle();
+  if (error) throw new Error(`registration_payments: ${error.message ?? "read failed"}`);
+  if (bySession) return (bySession as PaymentRow).provider === provider ? (bySession as PaymentRow) : null;
+  if (provider !== "xpay" || !paymentId) return null;
+  const { data: byId, error: idErr } = await db().from("registration_payments").select(PAY_COLUMNS).eq("id", paymentId).maybeSingle();
+  if (idErr) throw new Error(`registration_payments: ${idErr.message ?? "read failed"}`);
+  const row = byId as PaymentRow | null;
+  if (!row || row.provider !== "xpay" || row.method !== "online" || row.session_id !== null || (registrationId && row.registration_id !== registrationId)) return null;
+  return row;
+}
+
+/**
+ * Applies one payment event (any provider). Idempotent: the event id is recorded
+ * first (a replay stops there), and every change is conditional on the status it
+ * moves from. Only a unique-key refusal means "seen before"; any other database
+ * error is an error (the provider retries).
+ */
+export async function applyPaymentEvent(e: PaymentEvent): Promise<WebhookOutcome> {
+  const { error: dup } = await db().from("move_tick_events").insert({ event_id: e.id, type: e.type, reference: e.registrationId, provider: e.provider });
   if (dup) {
     if (isUnique(dup)) return "duplicate";
     throw new Error(`move_tick_events: ${dup.message ?? "insert failed"}`);
   }
-  const outcome = await applyWebhookOnce(e).catch(async (err) => {
-    // Let Move Tick retry: forget the event id so the retry is not taken for a replay.
+  const outcome = await applyPaymentEventOnce(e).catch(async (err) => {
+    // Let the provider retry: forget the event id so the retry is not taken for a replay.
     await db().from("move_tick_events").delete().eq("event_id", e.id);
     throw err;
   });
@@ -804,43 +1020,48 @@ export async function applyWebhook(e: WebhookEvent): Promise<WebhookOutcome> {
   return outcome;
 }
 
-async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
-  const cfg = moveTickConfig();
-  if (!cfg) return "ignored";
-  const { data: p } = await db().from("registration_payments").select(PAY_COLUMNS).eq("session_id", e.data.sessionId).maybeSingle();
-  const payment = p as PaymentRow | null;
-  // The reference must be the registration the session was made for.
-  if (!payment || payment.registration_id !== e.data.reference) return "unknown_reference";
-  if (e.data.testMode !== (cfg.mode === "test") || payment.test_mode !== e.data.testMode) return "mode_mismatch";
+async function applyPaymentEventOnce(e: PaymentEvent): Promise<WebhookOutcome> {
+  const payment = await paymentForSession(e.provider, e.sessionId, e.paymentId, e.registrationId);
+  // The registration must be the one the session was made for.
+  if (!payment || (e.registrationId !== null && payment.registration_id !== e.registrationId)) return "unknown_reference";
+  const cfgMode = payment.provider === "xpay" ? xpayConfig()?.mode : payment.provider === "move_tick" ? moveTickConfig()?.mode : undefined;
+  if (!cfgMode) return "ignored";
+  const testMode = cfgMode === "test";
+  if ((e.testMode !== null && e.testMode !== testMode) || payment.test_mode !== testMode) return "mode_mismatch";
   const { data: r } = await db().from("registrations").select(REG_COLUMNS).eq("id", payment.registration_id).maybeSingle();
   const reg = r as RegistrationRow | null;
   if (!reg) return "unknown_reference";
   const event = await eventById(reg.tournament_id);
   if (!event) return "unknown_reference";
   const base = { tournament_id: event.id, organization_id: event.organization_id, actor_role: "system", entity_type: "registration", entity_id: reg.id };
+  const who = providerName(payment.provider);
+  // A payment found by the metadata's payment id gets its session id now (the write that should have done it failed).
+  const link = payment.session_id ? {} : { session_id: e.sessionId };
+  const intent = e.intentId ? { intent_id: e.intentId } : {};
 
   if (e.type === "payment.succeeded") {
     // Amounts are never taken from the message: it must be exactly what this server asked for.
-    if (e.data.amount !== payment.amount || e.data.currency !== payment.currency) {
-      await db().from("registration_payments").update({ status: "needs_review", review_reason: `Move Tick reported ${e.data.amount} ${e.data.currency}; expected ${payment.amount} ${payment.currency}.`, last_event_id: e.id, updated_at: now() }).eq("id", payment.id).in("status", ["created", "open", "failed", "expired"]);
-      await audit({ ...base, action: "REGISTRATION_PAYMENT_MISMATCH", new_value: { payment_id: payment.id, reported: e.data.amount, expected: payment.amount } });
+    if (e.amount !== payment.amount || (e.currency ?? "").toUpperCase() !== payment.currency) {
+      await db().from("registration_payments").update({ status: "needs_review", paid_at: now(), ...link, ...intent, review_reason: `${who} reported ${e.amount ?? "no amount"} ${e.currency ?? ""}; expected ${payment.amount} ${payment.currency}.`.slice(0, 300), last_event_id: e.id, updated_at: now() }).eq("id", payment.id).in("status", ["created", "open", "failed", "expired"]);
+      await audit({ ...base, action: "REGISTRATION_PAYMENT_MISMATCH", new_value: { payment_id: payment.id, provider: payment.provider, reported: e.amount, expected: payment.amount } });
+      await alertOrgAdmins(event, `${event.name}: a payment to check`, `${who} reported a payment for an entry in ${event.name} that is not the amount Move Score asked for (${moneyLabel(payment.amount)}). The entry was not confirmed. Open Registrations to check it and refund it.`, `registration:${reg.id}:review:${payment.id}`);
       return "needs_review";
     }
     // "Full payment" is the entry's whole online amount (amount_online: the whole fee, or with
     // team_payer each_player the registrant's own share): a checkout for less never confirms.
     if (payment.amount < reg.amount_online) {
-      await db().from("registration_payments").update({ status: "needs_review", paid_at: now(), review_reason: `Paid ${payment.amount}; the entry owes ${reg.amount_online} online: refund it.`, last_event_id: e.id, updated_at: now() }).eq("id", payment.id).in("status", ["created", "open", "failed", "expired"]);
+      await db().from("registration_payments").update({ status: "needs_review", paid_at: now(), ...link, ...intent, review_reason: `Paid ${payment.amount}; the entry owes ${reg.amount_online} online: refund it.`, last_event_id: e.id, updated_at: now() }).eq("id", payment.id).in("status", ["created", "open", "failed", "expired"]);
       await audit({ ...base, action: "REGISTRATION_PAYMENT_SHORT", new_value: { payment_id: payment.id, paid: payment.amount, owed: reg.amount_online } });
       return "needs_review";
     }
     const { data: moved } = await db()
       .from("registration_payments")
-      .update({ status: "paid", paid_at: now(), last_event_id: e.id, updated_at: now() })
+      .update({ status: "paid", paid_at: now(), ...link, ...intent, last_event_id: e.id, updated_at: now() })
       .eq("id", payment.id)
       .in("status", ["created", "open", "failed", "expired"])
       .select("id");
     if (!moved?.length) return "duplicate";
-    await audit({ ...base, action: "REGISTRATION_PAID", new_value: { payment_id: payment.id, amount: payment.amount, session_id: payment.session_id, test_mode: payment.test_mode } });
+    await audit({ ...base, action: "REGISTRATION_PAID", new_value: { payment_id: payment.id, provider: payment.provider, amount: payment.amount, session_id: e.sessionId, test_mode: payment.test_mode } });
     // Paid while it was still waiting for the payment: confirmed. Paid after it was
     // cancelled or refused, or a second payment for an entry already paid: kept for
     // the organiser to refund (by this payment's id).
@@ -855,11 +1076,11 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
       // It held no place when the payment landed (its checkout hold ran out) and the event is full: nothing was bought.
       await db().from("registration_payments").update({ status: "needs_review", review_reason: "Paid when the event was already full (its checkout's hold had run out): refund it in full.", updated_at: now() }).eq("id", payment.id).eq("status", "paid");
       await audit({ ...base, action: "REGISTRATION_PAYMENT_FULL", new_value: { payment_id: payment.id, amount: payment.amount } });
-      await alertOrgAdmins(event, `${event.name}: a payment to refund`, `Move Tick took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} after the event was already full (the place kept while paying had run out). The entry was not confirmed. Open Registrations and refund it in full.`, `registration:${reg.id}:review:${payment.id}`);
+      await alertOrgAdmins(event, `${event.name}: a payment to refund`, `${who} took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} after the event was already full (the place kept while paying had run out). The entry was not confirmed. Open Registrations and refund it in full.`, `registration:${reg.id}:review:${payment.id}`);
       await notify(reg, event, "full", payment.id);
       return "needs_review";
     }
-    // Any other error: let Move Tick retry (applyWebhook forgets the event id; the payment's own move is undone below).
+    // Any other error: let the provider retry (applyPaymentEvent forgets the event id; the payment's own move is undone below).
     if (confErr) {
       await db().from("registration_payments").update({ status: payment.status, paid_at: null, updated_at: now() }).eq("id", payment.id).eq("status", "paid");
       throw new Error(`registrations: ${confErr.message ?? "confirm failed"}`);
@@ -874,14 +1095,14 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
     await db().from("registration_payments").update({ status: "needs_review", review_reason: reason, updated_at: now() }).eq("id", payment.id).eq("status", "paid");
     await db().from("registrations").update({ paid_at: now(), updated_at: now() }).eq("id", reg.id).is("paid_at", null);
     await audit({ ...base, action: second ? "REGISTRATION_PAYMENT_DUPLICATE" : "REGISTRATION_PAYMENT_LATE", new_value: { payment_id: payment.id, amount: payment.amount, status: reg.status } });
-    await alertOrgAdmins(event, `${event.name}: a payment to refund`, `Move Tick took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} that ${second ? "was already paid" : "was no longer waiting for payment"}. Open Registrations and refund it.`, `registration:${reg.id}:review:${payment.id}`);
+    await alertOrgAdmins(event, `${event.name}: a payment to refund`, `${who} took a payment of ${moneyLabel(payment.amount)} for an entry in ${event.name} that ${second ? "was already paid" : "was no longer waiting for payment"}. Open Registrations and refund it.`, `registration:${reg.id}:review:${payment.id}`);
     return "needs_review";
   }
 
   if (e.type === "payment.failed" || e.type === "payment.expired") {
     const { data: closed } = await db()
       .from("registration_payments")
-      .update({ status: e.type === "payment.failed" ? "failed" : "expired", last_event_id: e.id, updated_at: now() })
+      .update({ status: e.type === "payment.failed" ? "failed" : "expired", ...link, last_event_id: e.id, updated_at: now() })
       .eq("id", payment.id)
       .in("status", ["created", "open"])
       .select("id");
@@ -890,11 +1111,11 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
     return "applied";
   }
 
-  // payment.refunded. Normally the answer to this server's own refund (refund_pending).
+  // payment.refunded (Move Tick). Normally the answer to this server's own refund (refund_pending).
   // Move Tick may also refund on its own (a dispute, a payment it refunded from its
   // side): the money is back with the payer either way, so it is recorded, audited
   // apart and the organisation's admins are told.
-  const refunded = e.data.refundedAmount ?? payment.refund_amount ?? payment.amount;
+  const refunded = e.refundedAmount ?? payment.refund_amount ?? payment.amount;
   if (refunded > payment.amount) return "needs_review";
   const requested = payment.status === "refund_pending";
   const { data: moved } = await db()
@@ -906,7 +1127,7 @@ async function applyWebhookOnce(e: WebhookEvent): Promise<WebhookOutcome> {
   if (!moved?.length) return "duplicate";
   if (!requested) {
     await audit({ ...base, action: "REGISTRATION_REFUND_EXTERNAL", new_value: { payment_id: payment.id, amount: refunded, was: payment.status } });
-    await alertOrgAdmins(event, `${event.name}: Move Tick refunded a payment`, `Move Tick refunded ${moneyLabel(refunded)} for an entry in ${event.name} without a refund asked for in Move Score. Open Registrations to check the entry.`, `registration:${reg.id}:external-refund:${payment.id}`);
+    await alertOrgAdmins(event, `${event.name}: ${who} refunded a payment`, `${who} refunded ${moneyLabel(refunded)} for an entry in ${event.name} without a refund asked for in Move Score. Open Registrations to check the entry.`, `registration:${reg.id}:external-refund:${payment.id}`);
   }
   await finishRefund(reg, event, refunded, payment);
   return "applied";
@@ -918,20 +1139,18 @@ async function otherPaidPayment(registrationId: string, paymentId: string): Prom
   return Boolean(data?.length);
 }
 
-/** How often one payment may be looked up at Move Tick (status page views, My registrations). */
+/** How often one payment may be looked up at its provider (status page views, My registrations). */
 const RECONCILE_EVERY_MS = 30_000;
 
 /**
- * A webhook that never arrived: asks Move Tick (authenticated, server to server)
- * how a checkout ended, and applies the answer through the same idempotent path as
- * a webhook (event id "reconcile:<session>:<status>"). The amount check still
- * applies. Looks at open checkouts and at ones marked expired or failed here (a
- * late payment is not lost), each at most once per 30 seconds unless `force` (paying again).
- * Errors are ignored: the webhook or the next look will do.
+ * A webhook that never arrived: asks the payment's provider (authenticated, server
+ * to server) how a checkout ended, and applies the answer through the same
+ * idempotent path as a webhook (event id "reconcile:<session>:<status>"). The
+ * amount check still applies. Looks at open checkouts and at ones marked expired or
+ * failed here (a late payment is not lost), each at most once per 30 seconds unless
+ * `force` (paying again). Errors are ignored: the webhook or the next look will do.
  */
 export async function reconcileOnline(registrationId: string, opts: { force?: boolean } = {}): Promise<void> {
-  const cfg = moveTickConfig();
-  if (!cfg) return;
   const since = new Date(Date.now() - 14 * 86400_000).toISOString();
   const { data } = await db()
     .from("registration_payments")
@@ -945,7 +1164,10 @@ export async function reconcileOnline(registrationId: string, opts: { force?: bo
     .limit(3);
   for (const pay of (data ?? []) as PaymentRow[]) {
     if (!pay.session_id) continue;
-    // Claimed with a compare-and-set, so two views at once ask Move Tick once.
+    const mtCfg = pay.provider === "move_tick" ? moveTickConfig() : null;
+    const xpCfg = pay.provider === "xpay" ? xpayConfig() : null;
+    if (!mtCfg && !xpCfg) continue;
+    // Claimed with a compare-and-set, so two views at once ask the provider once.
     const stamp = now();
     const claim = () => db().from("registration_payments").update({ reconciled_at: stamp }).eq("id", pay.id);
     let claimed = opts.force ? (await claim().select("id")).data : null;
@@ -955,13 +1177,24 @@ export async function reconcileOnline(registrationId: string, opts: { force?: bo
     }
     if (!claimed?.length) continue;
     try {
-      const s = await getPaymentSession(cfg, pay.session_id);
+      if (xpCfg) {
+        const s = await retrieveCheckout(xpCfg, pay.session_id);
+        const reg = metaUuid(s.metadata.registration_id);
+        if (reg && reg !== registrationId) continue;
+        // Paid: applied as paid. Expired at XPay: closed here too. Anything else (open, or a
+        // completed page still unpaid: a reference to pay later) waits for its webhook.
+        const type = sessionMoney(s) === "paid" ? "payment.succeeded" : s.status === "expired" ? "payment.expired" : null;
+        if (!type) continue;
+        await applyPaymentEvent(xpayPaymentEvent(s, type, `reconcile:${s.id}:${type === "payment.succeeded" ? "paid" : "expired"}`, pay));
+        continue;
+      }
+      const s = await getPaymentSession(mtCfg!, pay.session_id);
       if (s.reference !== registrationId || s.sessionId !== pay.session_id) continue;
       const type = s.status === "paid" ? "payment.succeeded" : s.status === "failed" ? "payment.failed" : s.status === "expired" ? "payment.expired" : null;
       if (!type) continue;
       await applyWebhook({ id: `reconcile:${pay.session_id}:${s.status}`, type, createdAt: now(), data: { sessionId: s.sessionId, reference: s.reference, amount: s.amount, currency: s.currency, refundedAmount: null, testMode: s.testMode } });
     } catch {
-      /* Move Tick unreachable or the session unknown: nothing to do now */
+      /* the provider unreachable or the session unknown: nothing to do now */
     }
   }
 }
@@ -1256,7 +1489,8 @@ export async function pairRegistrations(ids: [string, string], tournamentId: str
 }
 
 /**
- * Refunds one online payment (named by its id) through Move Tick: the organiser's
+ * Refunds one online payment (named by its id) through the provider that took it
+ * (XPay, or Move Tick for its own payments): the organiser's
  * action only, audited. A payment that confirmed the entry: until 24 h before the
  * event's start time. A payment held for review after it was taken (paid when the
  * event was full, after the entry was cancelled or refused, or a second payment for
@@ -1280,8 +1514,10 @@ export async function refund(registrationId: string, paymentId: string, actor: A
 }
 
 async function refundPayment(reg: RegistrationRow, event: EventRow, payment: PaymentRow, actor: Actor, reasonText: string | null, opts: { skipCutoff: boolean }): Promise<string> {
-  const cfg = moveTickConfig();
-  if (!cfg) throw new Refusal("Move Tick is not configured on this server.");
+  const who = providerName(payment.provider);
+  const mtCfg = payment.provider === "move_tick" ? moveTickConfig() : null;
+  const xpCfg = payment.provider === "xpay" ? xpayConfig() : null;
+  if (!mtCfg && !xpCfg) throw new Refusal(`${who} is not configured on this server.`);
   const amount = refundAmount(payment.amount);
   const { data: claimed } = await db()
     .from("registration_payments")
@@ -1299,7 +1535,26 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
     new_value: { payment_id: payment.id, paid: payment.amount, refund: amount, reason: reasonText, after_cutoff_review: opts.skipCutoff },
   });
   try {
-    const r = await refundPaymentSession(cfg, { sessionId: payment.session_id!, reference: reg.id, amount, reason: reasonText ?? "Registration refunded by the organiser", idempotencyKey: `refund-${payment.id}` });
+    if (xpCfg) {
+      // XPay refunds the payment intent, always whole (no amount is sent: Move Score refunds in full).
+      let intentId = payment.intent_id;
+      if (!intentId) {
+        const s = await retrieveCheckout(xpCfg, payment.session_id!);
+        if (sessionMoney(s) === "paid") intentId = s.intentId;
+      }
+      if (!intentId) throw new XpayError("no_intent", "XPay has no payment for this checkout.");
+      const r = await refundIntent(xpCfg, { intentId, paymentId: payment.id });
+      // XPay accepted the refund (a failed or cancelled one throws): the money goes back to the payer.
+      const { data: done } = await db()
+        .from("registration_payments")
+        .update({ status: "refunded", refund_id: r.refundId, intent_id: intentId, refunded_at: now(), updated_at: now() })
+        .eq("id", payment.id)
+        .eq("status", "refund_pending")
+        .select("id");
+      if (done?.length) await finishRefund(reg, event, amount, payment);
+      return `Refunded ${moneyLabel(amount)}.`;
+    }
+    const r = await refundPaymentSession(mtCfg!, { sessionId: payment.session_id!, reference: reg.id, amount, reason: reasonText ?? "Registration refunded by the organiser", idempotencyKey: `refund-${payment.id}` });
     if (r.status === "refunded") {
       const { data: done } = await db()
         .from("registration_payments")
@@ -1314,14 +1569,14 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
     return `Refund of ${moneyLabel(amount)} requested from Move Tick.`;
   } catch (e) {
     await db().from("registration_payments").update({ status: payment.status, updated_at: now() }).eq("id", payment.id).eq("status", "refund_pending");
-    const code = e instanceof MoveTickError ? e.code : "error";
-    await audit({ tournament_id: event.id, actor_role: actor.role, action: "REGISTRATION_REFUND_FAILED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, code } });
-    throw new Refusal("Move Tick did not take the refund. Try again in a moment.");
+    const code = e instanceof MoveTickError || e instanceof XpayError ? e.code : "error";
+    await audit({ tournament_id: event.id, actor_role: actor.role, action: "REGISTRATION_REFUND_FAILED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, provider: payment.provider, code } });
+    throw new Refusal(`${who} did not take the refund. Try again in a moment.`);
   }
 }
 
 /**
- * After Move Tick refunded a payment. The payment that confirmed the entry: the
+ * After the provider refunded a payment. The payment that confirmed the entry: the
  * registration is refunded and the entry leaves the event. A payment held for
  * review (it bought nothing: a duplicate, or paid after the entry was cancelled):
  * the registration stays as it is.
@@ -1504,9 +1759,9 @@ export interface StatusView {
 }
 
 /**
- * The web status page (Move Tick's return URL, and the link in every email): the
+ * The web status page (the checkout's return URL, and the link in every email): the
  * event and the status, nothing personal, and a Pay button once an approved entry
- * is due online. Asks Move Tick at most once per 30 seconds per payment.
+ * is due online. Asks the payment provider at most once per 30 seconds per payment.
  */
 export async function statusView(registrationId: string, token: string | null): Promise<StatusView | null> {
   if (!statusTokenValid(registrationId, token)) return null;
@@ -1673,13 +1928,42 @@ export async function archiveFinishedEvents(opts: { days?: number; nowMs?: numbe
   return n;
 }
 
-/** Online payments whose checkout expired without a word from Move Tick. */
+/**
+ * Housekeeping (the messaging cron, every minute). Move Tick checkouts that expired
+ * an hour ago without a word from Move Tick are marked expired. Open XPay checkouts
+ * whose hold ended (expires_at) are closed at XPay, a few per run: XPay's own page
+ * lives 30 minutes (its minimum), longer than the 15-minute hold, so Move Score
+ * ends it itself (never while a card is completing on it; closeLapsedXpay).
+ */
 export async function expireStalePayments(nowMs = Date.now()): Promise<number> {
   const { data } = await db()
     .from("registration_payments")
     .update({ status: "expired", updated_at: new Date(nowMs).toISOString() })
+    .eq("provider", "move_tick")
     .in("status", ["created", "open"])
     .lt("expires_at", new Date(nowMs - 3600_000).toISOString())
     .select("id");
-  return (data ?? []).length;
+  let n = (data ?? []).length;
+  const xp = xpayConfig();
+  if (xp) {
+    // Only this key's mode: the other mode's sessions cannot be read with this key.
+    const { data: lapsed } = await db()
+      .from("registration_payments")
+      .select(PAY_COLUMNS)
+      .eq("provider", "xpay")
+      .eq("test_mode", xp.mode === "test")
+      .eq("status", "open")
+      .not("session_id", "is", null)
+      .lt("expires_at", new Date(nowMs).toISOString())
+      .order("expires_at", { ascending: true })
+      .limit(20);
+    for (const pay of (lapsed ?? []) as PaymentRow[]) {
+      try {
+        if ((await closeLapsedXpay(pay)) === "closed") n++;
+      } catch (err) {
+        console.error("[registration] closing a lapsed XPay checkout failed", err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  return n;
 }

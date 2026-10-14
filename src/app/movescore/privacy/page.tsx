@@ -34,7 +34,7 @@ export default function PrivacyPolicy() {
             "No location. The app reads your phone's time zone setting so match times show in your local time; it never asks for GPS or location permission.",
             "You do not need an account. Without one, your follows and pass are linked to a random number the app makes for your phone, not to you.",
             "The camera is only used, when you choose, to read the venue QR code. Images stay on your phone.",
-            "Registering for an event shares the names and contact details you enter with the organisation running it. Online payments are made on Move Tick's page; Move Score never sees your card.",
+            "Registering for an event shares the names and contact details you enter with the organisation running it. Online payments are made on the payment page of our payment provider, XPay; Move Score never sees your card.",
             "We never sell your data.",
           ]}
         />
@@ -127,11 +127,11 @@ export default function PrivacyPolicy() {
           entered once you have opened the confirmation link we send to it.
         </p>
         <p>
-          <strong>Online payments</strong> (Move Beyond&apos;s own events only) are made on a checkout page run by Move Tick,
-          Move Beyond&apos;s ticketing service, and its payment provider XPay. Move Score sends Move Tick the amount, a
-          reference number for your registration, the name you entered and your confirmed email; it never receives your card
-          details. Move Tick tells Move Score whether the payment succeeded or was refunded. We keep the amount, the date and
-          Move Tick&apos;s reference for the event&apos;s accounts and for refunds.
+          <strong>Online payments</strong> (Move Beyond&apos;s own events only) are processed by XPay, our payment provider,
+          on its own checkout page. Move Score sends XPay the amount, the event&apos;s name and reference numbers for your
+          registration and payment; it never receives your card details, and what you enter on the payment page goes to XPay
+          under its own terms. XPay tells Move Score whether the payment succeeded, failed or was refunded. We keep the amount,
+          the date and XPay&apos;s references for the event&apos;s accounts and for refunds.
         </p>
         <p>
           About a day after an event ends, the link between your account and that event&apos;s entry is archived: your history
@@ -166,7 +166,7 @@ export default function PrivacyPolicy() {
             "Location (precise or approximate), contacts, photos or files from your phone.",
             "Microphone or audio. The app has no microphone permission.",
             "Advertising identifiers (IDFA / Android advertising ID) or any data for advertising.",
-            "Health information, or card and bank details: Move Score has no in-app purchases, and online entry fees are paid on Move Tick's page, never in Move Score.",
+            "Health information, or card and bank details: Move Score has no in-app purchases, and online entry fees are paid on XPay's payment page, never in Move Score.",
           ]}
         />
         <p>
@@ -191,7 +191,7 @@ export default function PrivacyPolicy() {
             "Expo, Apple Push Notification service and Google Firebase Cloud Messaging: delivering alerts and lock-screen scores to your phone.",
             "Apple and Google: Sign in with Apple and Google Sign-In, only if you use them.",
             "Resend (email) and Meta's WhatsApp Business platform: confirmations, codes and organisers' announcements.",
-            "Move Tick (Move Beyond) and its payment provider XPay: online entry fees for Move Beyond's events, only if you pay online.",
+            "XPay, our payment provider: online entry fees for Move Beyond's events, only if you pay online.",
             "Sentry: crash reports, only when enabled for a release.",
           ]}
         />

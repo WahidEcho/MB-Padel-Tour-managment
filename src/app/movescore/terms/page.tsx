@@ -85,7 +85,7 @@ export default function Terms() {
           items={[
             "Registering asks for a place; the organiser may approve or turn it down (by default each entry is approved by the organiser). You only pay online after your entry is approved.",
             "When you register a team, you confirm the other players agreed to be registered and to their details being shared with the organiser. Their entries are not linked to your account.",
-            "Online payments are taken by Move Tick, Move Beyond's ticketing service, through its payment provider (XPay), and only for Move Beyond's own events. Move Score never sees your card. Other events are free or paid at the venue.",
+            "Online payments are processed by XPay, our payment provider, and only for Move Beyond's own events. Move Score never sees your card. Other events are free or paid at the venue.",
             "Refunds of an online payment are made by the organiser until 24 hours before the event's start time; after that, entries are not refunded except where the law requires it. You can ask for a refund in the app (My profile → Registrations).",
             "Fees paid at the venue are settled with the organiser.",
           ]}

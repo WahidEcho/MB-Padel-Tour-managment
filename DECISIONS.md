@@ -326,16 +326,23 @@ seconds after each point. Source of truth: `src/lib/voice/*` and its tests.
 ## 8. Registration and payment (Phase 9)
 
 Source of truth: `src/lib/registration/rules.ts` (pure, with tests) and
-`src/lib/registration/server.ts`; contract with Move Tick: `docs/move-tick-partner-api.md`.
+`src/lib/registration/server.ts`; payments: `docs/xpay-direct.md` (XPay directly, the default) and
+`docs/move-tick-partner-api.md` (the Move Tick partner API, kept as the alternative).
 
 Decided by the owner (final, 14 Oct 2026):
 
 - Players **register in Move Score** (the app, signed in; or the public web form as a
-  guest) and **pay through Move Tick** (partner API: Move Score sends the reference and
-  its own amount; Move Tick returns a hosted XPay checkout and reports back with
-  HMAC-signed webhooks). **Pay at the venue** is always the fallback.
+  guest) and **pay directly through XPay** (owner + lead, 14 Oct 2026, replacing the Move Tick
+  partner API so Move Tick's live ticket-payment code does not change): Move Score creates the
+  hosted XPay checkout itself for its own amount, on the same XPay account as Move Tick, and
+  XPay reports to Move Score's own webhook endpoint (`/api/webhooks/xpay`, its own signing
+  secret). Every checkout's metadata is `{ app: "move-score", registration_id, payment_id }`;
+  events are matched only to Move Score's own payment rows, anything else (Move Tick's
+  tickets) answers 200 and is ignored. `PAYMENT_PROVIDER=move_tick` keeps the partner API
+  path working. **Pay at the venue** is always the fallback. The card minimum is **EGP 50**:
+  a lower fee is paid at the venue.
 - Paid online flows only for the **Move Beyond** organisation; other organisations run
-  free or pay-at-venue events until a direct XPay integration exists.
+  free or pay-at-venue events (no payouts to other organisations yet).
 - **Refunds are always 100 %** (Move Beyond absorbs the card fee; there is no card-fee setting any
   more), **until 24 hours before the event's start time** (`tournaments.starts_at`; a session's own
   start for a session), none after, only by the organiser's audited action (admins with their own
@@ -344,15 +351,16 @@ Decided by the owner (final, 14 Oct 2026):
 - **Default approval: "first paid, first in"** (`approval_mode = 'on_payment'`, migration
   `0030_registration_first_paid.sql`; it replaced the old `automatic`). Registering creates an entry
   `awaiting_payment` that **holds no place**. It becomes `confirmed` automatically, with no organiser
-  step, the moment the **full online amount for that entry** is paid (the signed Move Tick webhook or
-  reconciliation; the amount is re-checked against the session and the entry). "Full" means the
+  step, the moment the **full online amount for that entry** is paid (the signed XPay (or Move Tick)
+  webhook or reconciliation; the amount is re-checked against the session and the entry). "Full" means the
   entry's `amount_online`: the whole fee for a solo entry or for a team whose registrant pays for
   everyone; with `team_payer = each_player` the registrant's own share (the partners' shares are due at
   the venue, as `charges` in `rules.ts` defines). An entry with nothing due online (free, or paid at
   the venue) is confirmed on registration while places remain.
 - **Capacity counts confirmed entries and open checkout holds only.** Pressing Pay takes a **15-minute
-  hold** (`CHECKOUT_HOLD_MS`, the Move Tick partner checkout's lifetime, `PARTNER_SESSION_TTL_MINUTES`)
-  only if a place is free; otherwise Pay is refused before any checkout ("This event is full"). The
+  hold** (`CHECKOUT_HOLD_MS`; XPay's own page lives 30 minutes, its minimum, so Move Score closes the page
+  at XPay when the hold ends: on the next Pay or in the every-minute cron, never while a card is completing
+  on it; the Move Tick partner checkout lives exactly 15 minutes) only if a place is free; otherwise Pay is refused before any checkout ("This event is full"). The
   hold ends when the checkout is paid, fails or expires (webhook), or after 15 minutes on its own.
   Pressing Pay again reuses the open checkout and never stretches the hold; at most 6 checkouts per
   entry per 24 h. A payment that lands when the event is already full (its hold ran out and someone
@@ -398,12 +406,18 @@ Security review of Phase 9 (migration `0029_registration_hardening.sql`):
 - **Capacity** counts confirmed entries and entries inside a payment hold only (atomic database
   trigger; since 0030: 15-minute checkout holds, and organiser mode's 24-hour approval holds). Requests
   waiting for the organiser and unpaid entries never fill an event.
-- **One open checkout** per registration (Move Score) and per reference (Move Tick), reused, never
-  replaced while Move Tick may still take it.
+- **One open checkout** per registration (Move Score; and per reference on Move Tick's side), reused, never
+  replaced while the provider may still take it (an XPay page is first closed at XPay).
 - **Refunds name a payment**. A payment held for review after it was taken (a duplicate, or paid after the
-  entry was cancelled or refused) may be refunded **at any time** (it bought nothing). **Refunds Move Tick
+  entry was cancelled or refused) may be refunded **at any time** (it bought nothing). XPay refunds are full
+  refunds of the payment intent (`POST /refunds`, an idempotency key per payment). **Refunds Move Tick
   makes on its own are accepted** (the money is back with the payer) but audited apart and the
-  organisation's owners and admins are emailed.
+  organisation's owners and admins are emailed. A refund made by hand in the XPay dashboard is not seen
+  by Move Score: refunds are made from Admin → Registrations.
+- **XPay specifics** (`docs/xpay-direct.md`): Move Score fulfils on `paymentStatus = paid` only; a completed
+  page still unpaid (a reference to pay later, Fawry-style) waits, `async_payment_succeeded` confirms,
+  `async_payment_failed` fails (the place goes back). The key's prefix is the mode (`sk_test_` / `sk_live_`;
+  anything else is not configured); a payment never changes on an event of the other mode.
 - A session registration only ever **adds** entries; a partner found by a typed mobile enters as
   **pending** (the organiser decides); a cancellation or refund withdraws only the entries it made.
 

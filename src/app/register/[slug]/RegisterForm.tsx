@@ -59,7 +59,7 @@ export default function RegisterForm({
       });
       const data = (await res.json()) as { ok: boolean; message?: string; checkoutUrl?: string | null; statusUrl?: string | null };
       if (data.ok && data.checkoutUrl) {
-        // Move Tick's hosted checkout; it sends the payer back to the status page.
+        // The payment provider's hosted checkout; it sends the payer back to the status page.
         window.location.assign(data.checkoutUrl);
         return;
       }
@@ -143,7 +143,7 @@ export default function RegisterForm({
               onClick={() => setChoice(o)}
               className={`flex-1 rounded-lg px-2 py-1.5 text-sm font-semibold ${choice === o ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground"}`}
             >
-              {o === "online" ? "Pay online (Move Tick)" : o === "venue" ? "Pay at the venue" : "Free"}
+              {o === "online" ? "Pay online" : o === "venue" ? "Pay at the venue" : "Free"}
             </button>
           ))}
         </div>

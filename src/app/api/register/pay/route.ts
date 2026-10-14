@@ -11,7 +11,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The Pay button on the signed status page (the way a web guest pays once the
- * organiser approved): a form POST of { r, s } → 303 to the Move Tick checkout
+ * organiser approved): a form POST of { r, s } → 303 to the online checkout
  * (the open one when there is one: never a second), or back to the status page
  * with the reason. Anyone holding the signed status link may pay; paying is all it
  * can do. Rate-limited per network address.

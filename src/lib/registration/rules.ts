@@ -4,9 +4,10 @@
  * (./server.ts), which alone decides amounts, statuses and refunds.
  *
  * Owner decisions (DECISIONS.md § 8, final):
- *   - register in Move Score, pay through Move Tick; pay at the venue otherwise;
+ *   - register in Move Score, pay online (directly through XPay, or through Move Tick:
+ *     PAYMENT_PROVIDER); pay at the venue otherwise;
  *   - online payment only for the Move Beyond organisation (others: free or pay at
- *     the venue), and only while Move Tick is configured;
+ *     the venue), and only while a payment provider is configured;
  *   - approval: "first paid, first in" by default (approval_mode "on_payment"): an
  *     entry is confirmed, with no organiser step, the moment its full online amount
  *     is paid. Only paid entries (and short checkout holds) take a place. The
@@ -43,8 +44,9 @@ export const LIVE_STATUSES: readonly RegistrationStatus[] = ["pending_approval",
 /** Organiser mode only: how long an approved entry waiting for its online payment keeps its place. */
 export const PAYMENT_HOLD_MS = 24 * 3600_000;
 /**
- * How long opening a Move Tick checkout keeps a place: 15 minutes, the lifetime of
- * a Move Tick partner checkout (docs/move-tick-partner-api.md). Taken only while a
+ * How long opening a checkout keeps a place: 15 minutes (the lifetime of a Move Tick
+ * partner checkout, docs/move-tick-partner-api.md; an XPay page is closed at its end,
+ * docs/xpay-direct.md). Taken only while a
  * place is free; it ends when the checkout is paid, fails or expires. In organiser
  * mode a checkout made in the approval hold's last 15 minutes stretches that hold
  * to the checkout's length, never past approval + 24 h + 15 min.
@@ -52,6 +54,12 @@ export const PAYMENT_HOLD_MS = 24 * 3600_000;
 export const CHECKOUT_HOLD_MS = 15 * 60_000;
 /** Checkouts one entry may open in 24 hours (each takes a hold): a place cannot be kept by pressing Pay all day. */
 export const CHECKOUTS_PER_DAY = 6;
+/**
+ * The smallest amount a card checkout takes: EGP 50 (XPay's card minimum; Move Tick
+ * refuses paid tickets below it too). Minor units. A fee below it is paid at the venue.
+ */
+export const CARD_MINIMUM = 5000;
+export const CARD_MINIMUM_MESSAGE = "Online payment needs a fee of at least EGP 50 per player (the card minimum). Lower fees are paid at the venue.";
 /** How long a web guest's emailed confirmation link works. */
 export const GUEST_CONFIRM_MS = 24 * 3600_000;
 
@@ -216,10 +224,11 @@ export function entryFits(s: Pick<RegistrationSettings, "entryType" | "teamSize"
   return cap === null || takenSeats + Math.max(1, people) <= cap;
 }
 
-/** The ways a player may pay for this event now. `onlineAvailable`: Move Beyond's event and Move Tick configured. */
+/** The ways a player may pay for this event now. `onlineAvailable`: Move Beyond's event and a payment provider configured. */
 export function paymentOptions(s: Pick<RegistrationSettings, "feeAmount" | "payment">, onlineAvailable: boolean): PaymentChoice[] {
   if (s.feeAmount <= 0 || s.payment === "free") return ["free"];
-  const online = onlineAvailable && (s.payment === "online" || s.payment === "online_or_venue");
+  // Below the card minimum a fee cannot be taken by card: it is paid at the venue.
+  const online = onlineAvailable && s.feeAmount >= CARD_MINIMUM && (s.payment === "online" || s.payment === "online_or_venue");
   const venue = s.payment === "venue" || s.payment === "online_or_venue" || !online;
   // Pay-at-venue fallback: when online payment is not available, the fee is paid at the venue.
   return [...(online ? (["online"] as const) : []), ...(venue ? (["venue"] as const) : [])];
@@ -298,7 +307,7 @@ export const CLOSED_MESSAGES: Record<NonNullable<ReturnType<typeof registrationC
 
 /**
  * The players holding places, split by how firmly: `firm` = confirmed entries and
- * organiser approvals' 24-hour holds; `checkout` = places kept only while a Move Tick
+ * organiser approvals' 24-hour holds; `checkout` = places kept only while an online
  * checkout is open (CHECKOUT_HOLD_MS). Each entry is counted once, by its status: a
  * confirmed entry's leftover hold_until never counts it again.
  */
