@@ -1,3 +1,4 @@
+import StateForm from "@/components/StateForm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
@@ -43,7 +44,7 @@ export default async function LeaguesPage() {
 
       <details className="card" open={leagues.length === 0}>
         <summary className="cursor-pointer font-bold">New league</summary>
-        <form action={createLeagueAction} className="mt-3 grid gap-3 sm:grid-cols-3">
+        <StateForm action={createLeagueAction} className="mt-3 grid gap-3 sm:grid-cols-3">
           <div className="sm:col-span-3">
             <label className="label" htmlFor="league-name">Name</label>
             <input id="league-name" name="name" className="input" placeholder="Tuesday Padel League" required maxLength={120} />
@@ -66,7 +67,7 @@ export default async function LeaguesPage() {
           <div className="flex items-end">
             <button className="btn-primary w-full">Create league</button>
           </div>
-        </form>
+        </StateForm>
       </details>
 
       <div className="overflow-x-auto rounded-[20px] border border-border">

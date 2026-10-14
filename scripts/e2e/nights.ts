@@ -76,7 +76,8 @@ function actionId(name: string): string {
 async function formAction(name: string, form: Record<string, string | string[]>, who: Who) {
   const fd = new FormData();
   for (const [k, v] of Object.entries(form)) for (const x of Array.isArray(v) ? v : [v]) fd.append(`_1_${k}`, x);
-  fd.set("0", JSON.stringify(["$K1"]));
+  // publishNightTableAction is a (state, form) action: its refusals come back as { ok: false, message }.
+  fd.set("0", JSON.stringify(STATE_ACTIONS.has(name) ? [null, "$K1"] : ["$K1"]));
   const res = await fetch(`${BASE_URL}/admin/friendly-sessions`, { method: "POST", headers: { "Next-Action": actionId(name), Accept: "text/x-component", Origin: BASE_URL, ...who }, body: fd, redirect: "manual" });
   return { status: res.status, text: await res.text() };
 }
@@ -91,7 +92,9 @@ async function argsAction(name: string, args: unknown[], who: Who) {
   });
   return { status: res.status, text: await res.text() };
 }
-const actionOk = (r: { status: number; text: string }) => (r.status === 200 || r.status === 303) && !/"digest"|Not found|Not allowed/.test(r.text);
+const STATE_ACTIONS = new Set(["publishNightTableAction"]);
+/** Went through: no error, and not a (state, form) action answering { ok: false }. */
+const actionOk = (r: { status: number; text: string }) => (r.status === 200 || r.status === 303) && !/"digest"|Not found|Not allowed|"ok":false/.test(r.text);
 
 /* ---------------- scoring through the events route ---------------- */
 
@@ -399,7 +402,11 @@ async function main() {
     await db().from("friendly_sessions").update({ scoring_mode: "either" }).eq("id", night.sessionId);
     const again = await formAction("publishNightTableAction", { session_id: night.sessionId, confirm_players: "1", playing: P.slice(0, 8) }, aAdmin);
     const after = await matchesOf(T1);
-    check(!actionOk(again) && after.length === m1.length && after.every((m) => m1.some((x) => x.id === m.id)), "once the night has started its table cannot be published again", again.text.slice(0, 200));
+    check(
+      !actionOk(again) && /"ok":false/.test(again.text) && /The night has started/.test(again.text) && after.length === m1.length && after.every((m) => m1.some((x) => x.id === m.id)),
+      "once the night has started its table cannot be published again (said next to the button, not an error page)",
+      again.text.slice(0, 200),
+    );
 
     section("6. the night in the live courts hero while a match is on");
     const onCourt = after.find((m) => m.status === "scheduled")!;

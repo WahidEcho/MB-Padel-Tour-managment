@@ -6,6 +6,7 @@ import { requirePlatformPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { DEFAULT_FLAGS } from "@/lib/mobile/server";
 import { DISCOVER_ORDER_KEY, MAX_DISCOVER_ITEMS } from "@/lib/platform/discoverOrder";
+import type { FormState } from "@/lib/refusal";
 
 const PATH = "/admin/platform/discover";
 const FLAG_NAME = /^[a-z][a-z0-9_]{1,39}$/;
@@ -50,15 +51,15 @@ export async function saveDiscoverOrder(formData: FormData) {
   revalidatePath(PATH);
 }
 
-/** The app's feature switches. Every known flag is saved as on or off; a new one may be added by name. */
-export async function saveFlags(formData: FormData) {
+/** The app's feature switches. Every known flag is saved as on or off; a new one may be added by name (a bad name is answered inline). */
+export async function saveFlags(_prev: FormState, formData: FormData): Promise<FormState> {
   const role = (await requirePlatformPermission()).role;
   const { data } = await db().from("platform_settings").select("value_json").eq("key", "flags").maybeSingle();
   const stored = ((data as { value_json: Record<string, unknown> } | null)?.value_json ?? {}) as Record<string, unknown>;
   const names = new Set([...Object.keys(DEFAULT_FLAGS), ...Object.keys(stored)].filter((k) => FLAG_NAME.test(k)));
   const added = String(formData.get("new_flag") ?? "").trim().toLowerCase();
   if (added) {
-    if (!FLAG_NAME.test(added)) throw new Error("A flag name is 2–40 lowercase letters, digits or underscores.");
+    if (!FLAG_NAME.test(added)) return { ok: false, message: "A flag name is 2–40 lowercase letters, digits or underscores." };
     names.add(added);
   }
   const flags: Record<string, boolean> = {};
@@ -66,4 +67,5 @@ export async function saveFlags(formData: FormData) {
   await saveSetting("flags", flags, role);
   await audit({ actor_role: role, action: "APP_FLAGS_EDITED", entity_type: "platform_settings", old_value: stored, new_value: flags });
   revalidatePath(PATH);
+  return { ok: true, message: "Saved." };
 }

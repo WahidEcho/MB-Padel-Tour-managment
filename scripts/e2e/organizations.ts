@@ -615,7 +615,7 @@ async function main() {
       { label: "offer to link B's player to an app account", file: "src/app/admin/players/actions.ts", name: "offerAppLinkAction", args: () => [form({ profile_id: PB, account_email: `pwned-${tag}@example.com` })] },
       { label: "withdraw B's link offers", file: "src/app/admin/players/actions.ts", name: "withdrawAppLinkAction", args: () => [form({ profile_id: PB })] },
       // Move Beyond's platform settings: platform admins only, never the shared admin password.
-      { label: "change the app's feature flags", file: "src/app/admin/platform/discover/actions.ts", name: "saveFlags", args: () => [form({ new_flag: `pwned_${tag}`, new_flag_on: "on" })] },
+      { label: "change the app's feature flags", file: "src/app/admin/platform/discover/actions.ts", name: "saveFlags", args: () => [null, form({ new_flag: `pwned_${tag}`, new_flag_on: "on" })] },
       { label: "reorder Discover", file: "src/app/admin/platform/discover/actions.ts", name: "saveDiscoverOrder", args: () => [form({ item: TB.id, [`pos.${TB.id}`]: "0" })] },
     ];
     async function bSnapshot() {
@@ -1607,23 +1607,23 @@ async function main() {
       const MEMBER_A = ((await db().from("league_members").select("id").eq("league_id", LA.id).eq("player_profile_id", PA).single()).data as { id: string }).id;
       ownParams = { ...ownParams, league: LA.id };
       {
-        const own = await action("src/app/admin/leagues/actions.ts", "saveLeagueSettings", [form({ league_id: LA.id, name: `Alpha League ${tag} renamed`, status: "active", sport: "padel", timezone: "Africa/Cairo" })], aAdmin.headers);
+        const own = await action("src/app/admin/leagues/actions.ts", "saveLeagueSettings", [null, form({ league_id: LA.id, name: `Alpha League ${tag} renamed`, status: "active", sport: "padel", timezone: "Africa/Cairo" })], aAdmin.headers);
         const { data: la } = await db().from("leagues").select("name").eq("id", LA.id).single();
-        check(actionOk(own) && (la as { name: string }).name === `Alpha League ${tag} renamed`, "A's admin saves A's own league (the harness reaches league actions)", own.status);
+        check(!actionRefused(own) && (la as { name: string }).name === `Alpha League ${tag} renamed`, "A's admin saves A's own league (the harness reaches league actions)", own.status);
       }
 
       const L = "src/app/admin/leagues/actions.ts";
       const S = "src/app/admin/friendly-sessions/actions.ts";
       const leagueAttacks: { label: string; file: string; name: string; args: () => unknown[] }[] = [
-        { label: "rename B's league", file: L, name: "saveLeagueSettings", args: () => [form({ league_id: LB.id, name: "PWNED", status: "archived", sport: "padel", timezone: "Africa/Cairo" })] },
+        { label: "rename B's league", file: L, name: "saveLeagueSettings", args: () => [null, form({ league_id: LB.id, name: "PWNED", status: "archived", sport: "padel", timezone: "Africa/Cairo" })] },
         { label: "change B's league points", file: L, name: "savePointsRules", args: () => [form({ league_id: LB.id, win: "100", loss: "0" })] },
         { label: "change B's league boards", file: L, name: "savePeriods", args: () => [form({ league_id: LB.id, boards: "12", year_start_month: "5" })] },
         { label: "change B's night template", file: L, name: "saveNightTemplate", args: () => [form({ league_id: LB.id, courts: "9", pairing_mode: "mexicano" })] },
         { label: "set an invite code on B's league", file: L, name: "setInviteCodeAction", args: () => [null, form({ league_id: LB.id })] },
         { label: "clear B's invite code", file: L, name: "clearInviteCodeAction", args: () => [form({ league_id: LB.id })] },
-        { label: "add a division to B's league", file: L, name: "addDivisionAction", args: () => [form({ league_id: LB.id, name: "PWNED" })] },
-        { label: "rename B's division", file: L, name: "renameDivisionAction", args: () => [form({ division_id: DIV_B, name: "PWNED" })] },
-        { label: "delete B's division", file: L, name: "deleteDivisionAction", args: () => [form({ division_id: DIV_B })] },
+        { label: "add a division to B's league", file: L, name: "addDivisionAction", args: () => [null, form({ league_id: LB.id, name: "PWNED" })] },
+        { label: "rename B's division", file: L, name: "renameDivisionAction", args: () => [null, form({ division_id: DIV_B, name: "PWNED" })] },
+        { label: "delete B's division", file: L, name: "deleteDivisionAction", args: () => [null, form({ division_id: DIV_B })] },
         { label: "remove B's league member", file: L, name: "decideMemberAction", args: () => [form({ member_id: MEMBER_B, decision: "remove" })] },
         { label: "move B's member out of its division", file: L, name: "setMemberDivisionAction", args: () => [form({ member_id: MEMBER_B, division_id: "" })] },
         { label: "move A's member into B's division", file: L, name: "setMemberDivisionAction", args: () => [form({ member_id: MEMBER_A, division_id: DIV_B })] },
@@ -1632,14 +1632,14 @@ async function main() {
         { label: "add B's player to A's league", file: L, name: "addMemberAction", args: () => [form({ league_id: LA.id, profile_id: PB, division_id: DIV_A })] },
         { label: "add A's player to B's league", file: L, name: "addMemberAction", args: () => [form({ league_id: LB.id, profile_id: PA, division_id: DIV_B })] },
         { label: "add A's player to A's league in B's division", file: L, name: "addMemberAction", args: () => [form({ league_id: LA.id, profile_id: PA, division_id: DIV_B })] },
-        { label: "create a night in B's division", file: L, name: "createNightAction", args: () => [form({ division_id: DIV_B, date: "2026-12-01" })] },
-        { label: "delete B's night", file: L, name: "deleteNightAction", args: () => [form({ fixture_id: FIXTURE_B })] },
-        { label: "move B's night", file: L, name: "setFixtureDateAction", args: () => [form({ fixture_id: FIXTURE_B, date: "2027-01-01" })] },
-        { label: "generate fixtures in B's division", file: L, name: "generateFixturesAction", args: () => [form({ division_id: DIV_B, dates: "2026-12-01\n2026-12-08" })] },
+        { label: "create a night in B's division", file: L, name: "createNightAction", args: () => [null, form({ division_id: DIV_B, date: "2026-12-01" })] },
+        { label: "delete B's night", file: L, name: "deleteNightAction", args: () => [null, form({ fixture_id: FIXTURE_B })] },
+        { label: "move B's night", file: L, name: "setFixtureDateAction", args: () => [null, form({ fixture_id: FIXTURE_B, date: "2027-01-01" })] },
+        { label: "generate fixtures in B's division", file: L, name: "generateFixturesAction", args: () => [null, form({ division_id: DIV_B, dates: "2026-12-01\n2026-12-08" })] },
         { label: "count A's tournament toward B's division", file: L, name: "setCountsTowardAction", args: () => [form({ tournament_id: TA.id, division_id: DIV_B })] },
         { label: "recalculate B's league", file: L, name: "recalculateLeagueAction", args: () => [form({ league_id: LB.id })] },
-        { label: "publish B's night table", file: S, name: "publishNightTableAction", args: () => [form({ session_id: nightB.sessionId, confirm_players: "1", match_minutes: "20" })] },
-        { label: "publish B's night table with A's player", file: S, name: "publishNightTableAction", args: () => [form({ session_id: SA.id, confirm_players: "1", playing: PB })] },
+        { label: "publish B's night table", file: S, name: "publishNightTableAction", args: () => [null, form({ session_id: nightB.sessionId, confirm_players: "1", match_minutes: "20" })] },
+        { label: "publish B's night table with A's player", file: S, name: "publishNightTableAction", args: () => [null, form({ session_id: SA.id, confirm_players: "1", playing: PB })] },
         { label: "draw B's next round", file: S, name: "nextRoundAction", args: () => [form({ session_id: nightB.sessionId })] },
         { label: "enter a result on B's night match", file: S, name: "enterSessionResult", args: () => [nightB.sessionId, NIGHT_B_M, { sets: [{ a: 2, b: 0 }] }] },
         { label: "enter a result on B's night match through A's session", file: S, name: "enterSessionResult", args: () => [SA.id, NIGHT_B_M, { sets: [{ a: 2, b: 0 }] }] },
@@ -1793,11 +1793,11 @@ async function main() {
       const others = await Promise.all(["Ax2", "Ax3", "Ax4"].map((n) => newProfile(`${n} ${tag}`, A)));
       for (const p of others) await addMember(LA.id, p, DIV_A, "e2e");
       const nightA = await createNight(DIV_A, "2026-11-21", "e2e");
-      const pub = await action(S, "publishNightTableAction", [form({ session_id: nightA.sessionId })], aAdmin.headers);
+      const pub = await action(S, "publishNightTableAction", [null, form({ session_id: nightA.sessionId })], aAdmin.headers);
       const nightAT = ((await db().from("friendly_sessions").select("tournament_id").eq("id", nightA.sessionId).single()).data as { tournament_id: string }).tournament_id;
       const { data: nightRows } = await db().from("players").select("id").eq("tournament_id", nightAT).eq("player_profile_id", PX);
       const { data: thiefClaims } = await db().from("player_claims").select("player_id").eq("user_id", thief.id);
-      check(actionOk(pub) && (nightRows ?? []).length > 0 && (thiefClaims ?? []).length === 0, "H1: publishing A's night links none of the player's night rows to that account", { published: pub.status, rows: nightRows?.length, claims: thiefClaims?.length });
+      check(!actionRefused(pub) && (nightRows ?? []).length > 0 && (thiefClaims ?? []).length === 0, "H1: publishing A's night links none of the player's night rows to that account", { published: pub.status, rows: nightRows?.length, claims: thiefClaims?.length });
       const asThiefPlayer = await http("GET", "/api/mobile/v1/me/player", asCodeThief);
       const asThiefLeagues = await http("GET", "/api/mobile/v1/me/leagues", asCodeThief);
       check(asThiefPlayer.status !== 200 || !asThiefPlayer.text.includes(`Code Holder ${tag}`), "…the account sees nothing of the player", asThiefPlayer.status);

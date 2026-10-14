@@ -296,6 +296,104 @@ export const CLOSED_MESSAGES: Record<NonNullable<ReturnType<typeof registrationC
   finished: "This event has finished.",
 };
 
+/**
+ * The players holding places, split by how firmly: `firm` = confirmed entries and
+ * organiser approvals' 24-hour holds; `checkout` = places kept only while a Move Tick
+ * checkout is open (CHECKOUT_HOLD_MS). Each entry is counted once, by its status: a
+ * confirmed entry's leftover hold_until never counts it again.
+ */
+export interface SeatCount {
+  firm: number;
+  checkout: number;
+}
+
+/** Players holding places in these registrations (holdsPlace), each entry once, split as SeatCount. */
+export function countSeats(
+  regs: readonly { status: RegistrationStatus; hold_until?: string | null; hold_kind?: string | null; people?: readonly unknown[] | null }[],
+  now = Date.now(),
+): SeatCount {
+  const out: SeatCount = { firm: 0, checkout: 0 };
+  for (const r of regs) {
+    if (!holdsPlace(r, now)) continue;
+    const seats = Math.max(1, Array.isArray(r.people) ? r.people.length : 1);
+    if (r.status === "awaiting_payment" && r.hold_kind === "checkout") out.checkout += seats;
+    else out.firm += seats;
+  }
+  return out;
+}
+
+/** When the event is full only because checkouts are being paid: it may free up within minutes. */
+export const HELD_FULL_MESSAGE = `All places are taken or being paid for right now. A place frees up if a payment isn't completed within ${CHECKOUT_HOLD_MS / 60_000} minutes — try again then.`;
+
+/**
+ * What a player is told when an entry of `people` players does not fit (default:
+ * the smallest entry the event takes). Full for good when confirmed entries (and
+ * organiser approvals) fill it; "try again" when only open checkouts do. `teamMessage`
+ * replaces the plain message for a team that no longer fits where a solo player would.
+ */
+export function fullMessage(
+  s: Pick<RegistrationSettings, "entryType" | "teamSize" | "capacity">,
+  seats: SeatCount,
+  people: number = smallestEntry(s),
+  teamMessage?: string,
+): string {
+  if (seats.checkout > 0 && entryFits(s, seats.firm, people)) return HELD_FULL_MESSAGE;
+  return teamMessage ?? CLOSED_MESSAGES.full;
+}
+
+/** Shown while the entry still waits for its payment and its latest checkout failed or expired. */
+export const PAYMENT_FAILED_MESSAGE = "Your payment didn't go through — nothing was charged. You can try again.";
+
+/** Whether the latest online checkout of an entry still awaiting payment failed or expired (PAYMENT_FAILED_MESSAGE). */
+export function latestPaymentFailed(status: RegistrationStatus, onlinePayments: readonly { status: string; created_at: string }[]): boolean {
+  if (status !== "awaiting_payment" || !onlinePayments.length) return false;
+  const latest = [...onlinePayments].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0]!;
+  return latest.status === "failed" || latest.status === "expired";
+}
+
+/**
+ * What an entry waiting for its online payment is told about its place. An entry the
+ * organiser approved keeps its place until its hold ends (24 hours, organiser mode);
+ * in "first paid, first in" only paid entries hold a place.
+ */
+export function awaitingPaymentNote(r: { approved: boolean; holdUntil: string | null }, when: (iso: string) => string, now = Date.now()): string {
+  if (r.approved) {
+    if (r.holdUntil && Date.parse(r.holdUntil) > now) return `Your place is kept until ${when(r.holdUntil)} — pay before then to confirm it.`;
+    return "The time your place was kept for has passed: pay now to confirm it while places remain.";
+  }
+  return "Pay to confirm your place: only paid entries hold a place, and yours is confirmed when your payment goes through.";
+}
+
+/** One online payment as the lists show it (an organiser's, or the registrant's own). */
+export interface PaymentLineInput {
+  status: string;
+  amount: number;
+  refundAmount?: number | null;
+  refundedAt?: string | null;
+}
+
+/**
+ * The online money of one entry, a line per payment that took money: paid, held for
+ * review (bought nothing: "payment to refund"), refund on its way, or "refunded in
+ * full · <date>". Before any payment: what is due online. `audience` words a
+ * held-for-review payment for the organiser (who refunds it) or the registrant.
+ */
+export function onlinePaymentLines(
+  amountOnline: number,
+  payments: readonly PaymentLineInput[],
+  when: (iso: string) => string,
+  audience: "organiser" | "player" = "organiser",
+): string[] {
+  const taken = payments.filter((p) => p.status === "paid" || p.status === "needs_review" || p.status === "refund_pending" || p.status === "refunded");
+  if (!taken.length) return amountOnline > 0 ? [`${moneyLabel(amountOnline)} online`] : [];
+  return taken.map((p) => {
+    if (p.status === "refunded") return `${moneyLabel(p.refundAmount ?? p.amount)} refunded in full${p.refundedAt ? ` · ${when(p.refundedAt)}` : ""}`;
+    if (p.status === "refund_pending") return `${moneyLabel(p.refundAmount ?? p.amount)} online — refund on its way`;
+    if (p.status === "needs_review") return `${moneyLabel(p.amount)} online — ${audience === "organiser" ? "payment to refund" : "paid, to be refunded in full"}`;
+    return `${moneyLabel(p.amount)} online — paid`;
+  });
+}
+
 /** The last moment a refund is allowed: 24 h before the start. Null when the start time is not set. */
 export function refundCutoff(startsAt: string | null | undefined): number | null {
   if (!startsAt) return null;

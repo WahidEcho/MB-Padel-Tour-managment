@@ -21,6 +21,8 @@
  *   npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts links
  *       # the demo events' registrations: each one's signed status link, and the email
  *       # confirmation link of a web guest (emails are not sent with MESSAGING_DRY_RUN=1)
+ *   npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts session
+ *       # a fresh sign-in cookie line for the demo admin, without reseeding
  *   npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts remove
  */
 import { createHmac } from "node:crypto";
@@ -157,7 +159,8 @@ async function links() {
     const regs = (data ?? []) as { id: string; status: string; entry_type: string; people: { name: string }[]; hold_until: string | null }[];
     console.log(`\n${e.name} (${regs.length} registration${regs.length === 1 ? "" : "s"})`);
     for (const r of regs) {
-      const held = r.hold_until && Date.parse(r.hold_until) > Date.now() ? ` · place kept until ${new Date(r.hold_until).toLocaleTimeString()}` : "";
+      // Only an entry still waiting for its payment keeps a place by its hold (a confirmed entry's hold_until is left over).
+      const held = r.status === "awaiting_payment" && r.hold_until && Date.parse(r.hold_until) > Date.now() ? ` · place kept until ${new Date(r.hold_until).toLocaleTimeString()}` : "";
       console.log(`  ${r.people.map((p) => p.name).join(" / ")} — ${r.entry_type}, ${r.status}${held}`);
       if (r.status === "unconfirmed") console.log(`    confirm: ${SITE}/register/confirm?r=${r.id}&c=${signed("mb-registration-confirm", r.id)}`);
       console.log(`    status:  ${SITE}/register/status?r=${r.id}&s=${signed("mb-registration-status", r.id)}`);
@@ -165,8 +168,14 @@ async function links() {
   }
 }
 
+/** A fresh sign-in for the demo admin (the seed prints one too, but reseeding clears the demo events). */
+async function session(): Promise<void> {
+  const token = await demoAdmin(await moveBeyond());
+  console.log(`Open ${SITE}, then in the browser's DevTools console run (valid 24 hours):\n\n   document.cookie = "mb_session=${token}; path=/";\n`);
+}
+
 const mode = process.argv[2] ?? "seed";
-(mode === "links" ? links() : mode === "remove" ? removeEvents().then(() => console.log("Demo events removed.")) : seed()).catch((err) => {
+(mode === "links" ? links() : mode === "session" ? session() : mode === "remove" ? removeEvents().then(() => console.log("Demo events removed.")) : seed()).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

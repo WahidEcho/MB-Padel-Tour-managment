@@ -187,6 +187,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   web guests confirm by an emailed link (`unconfirmed`, `/register/confirm`), app registration needs a confirmed email, messages
   only to `registrations.notify_email` (verified), one open checkout per registration, refunds by payment id, status page Pay
   button (`/api/register/pay`). Move Tick partner branch: one open session per reference (`409 PAYMENT_SESSION_OPEN`).
+- Admin refusals: an expected, user-facing refusal in a server action throws `Refusal` (`src/lib/refusal.ts`) and the action
+  returns `formResult(...)` to a `StateForm` (inline message next to the button); guards and genuine failures still throw.
+  Registrations, leagues, night publish and Discover flags use it; E2E calls such actions as `[null, form]` and treats
+  `"ok":false` as refused.
   Owner's final decisions (DECISIONS.md § 8; migration `0030_registration_first_paid.sql`, not yet on the live project; apply
   after 0029): default `approval_mode = on_payment` ("first paid, first in"; `automatic` is gone, `organiser` stays): registering
   holds no place and opens no checkout; Pay takes a 15-min checkout hold (`CHECKOUT_HOLD_MS` = Move Tick's

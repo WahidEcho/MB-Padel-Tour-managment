@@ -1,3 +1,4 @@
+import StateForm from "@/components/StateForm";
 import Link from "next/link";
 import { db } from "@/lib/supabase";
 import { requireEntityPage } from "@/lib/guard";
@@ -147,7 +148,7 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
       </div>
 
       <Section title="Settings" testId="league-settings">
-        <form action={saveLeagueSettings} className="grid gap-3 sm:grid-cols-2">
+        <StateForm action={saveLeagueSettings} className="grid gap-3 sm:grid-cols-2">
           <input type="hidden" name="league_id" value={league.id} />
           <div className="sm:col-span-2">
             <label className="label" htmlFor="l-name">Name</label>
@@ -209,7 +210,7 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
           <div className="flex items-end sm:col-span-2">
             <button className="btn-primary">Save settings</button>
           </div>
-        </form>
+        </StateForm>
       </Section>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -318,26 +319,26 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
         <ul className="space-y-2">
           {divisions.map((d) => (
             <li key={d.id} className="flex flex-wrap items-center gap-2">
-              <form action={renameDivisionAction} className="flex gap-2">
+              <StateForm action={renameDivisionAction} className="flex flex-wrap gap-2">
                 <input type="hidden" name="division_id" value={d.id} />
                 <input name="name" className="input" defaultValue={d.name} maxLength={80} />
                 <button className="btn-secondary text-xs">Rename</button>
-              </form>
+              </StateForm>
               <span className="text-xs text-muted">{active.filter((m) => m.division_id === d.id).length} members</span>
               {divisions.length > 1 && (
-                <form action={deleteDivisionAction}>
+                <StateForm action={deleteDivisionAction}>
                   <input type="hidden" name="division_id" value={d.id} />
                   <ConfirmSubmit message="Remove this division? Its members stay in the league without a division." className="btn-secondary text-xs text-danger">Remove</ConfirmSubmit>
-                </form>
+                </StateForm>
               )}
             </li>
           ))}
         </ul>
-        <form action={addDivisionAction} className="flex gap-2">
+        <StateForm action={addDivisionAction} className="flex flex-wrap gap-2">
           <input type="hidden" name="league_id" value={league.id} />
           <input name="name" className="input" placeholder="Division 2" maxLength={80} required />
           <button className="btn-secondary">Add division</button>
-        </form>
+        </StateForm>
       </Section>
 
       <Section title={`Members · ${active.length} active${pending.length ? ` · ${pending.length} waiting` : ""}`} testId="league-members">
@@ -512,13 +513,13 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
 
       {league.kind === "nights" ? (
         <Section title="Nights" testId="league-nights">
-          <form action={createNightAction} className="flex flex-wrap gap-2">
+          <StateForm action={createNightAction} className="flex flex-wrap gap-2">
             <select name="division_id" className="input" defaultValue={divisions[0]?.id ?? ""}>
               {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
             <input name="date" type="date" className="input" defaultValue={today} required />
             <button className="btn-primary">Create night</button>
-          </form>
+          </StateForm>
           <p className="text-xs text-muted">A night is a session made from the template, with the division&apos;s members entered. Build its table on the session&apos;s page.</p>
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-muted">
@@ -532,21 +533,21 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
                 return (
                   <tr key={f.id} className="border-t border-border">
                     <td className="py-1">
-                      <form action={setFixtureDateAction} className="flex gap-1">
+                      <StateForm action={setFixtureDateAction} className="flex flex-wrap gap-1">
                         <input type="hidden" name="fixture_id" value={f.id} />
                         <input name="date" type="date" className="input text-xs" defaultValue={f.date} />
                         <button className="btn-secondary text-xs">Move</button>
-                      </form>
+                      </StateForm>
                     </td>
                     <td className="text-xs">{divName.get(f.division_id)}</td>
                     <td>{s ? <Link className="text-accent hover:underline" href={`/admin/friendly-sessions/${s.id}`}>{s.name}</Link> : "—"}</td>
                     <td className="text-xs">{played}/{ms.length}</td>
                     <td className="text-right">
                       {played === 0 && (
-                        <form action={deleteNightAction} className="inline">
+                        <StateForm action={deleteNightAction} className="inline">
                           <input type="hidden" name="fixture_id" value={f.id} />
                           <ConfirmSubmit message="Remove this night and its session?" className="btn-secondary text-xs text-danger">Remove</ConfirmSubmit>
-                        </form>
+                        </StateForm>
                       )}
                     </td>
                   </tr>
@@ -563,14 +564,14 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
             return (
               <div key={d.id} className="space-y-2">
                 <h3 className="text-sm font-semibold">{d.name} · {own.length} fixtures</h3>
-                <form action={generateFixturesAction} className="flex flex-wrap items-end gap-2">
+                <StateForm action={generateFixturesAction} className="flex flex-wrap items-end gap-2">
                   <input type="hidden" name="division_id" value={d.id} />
                   <div>
                     <label className="label" htmlFor={`dates-${d.id}`}>Round dates (one per line; later rounds follow weekly)</label>
                     <textarea id={`dates-${d.id}`} name="dates" className="input" rows={2} defaultValue={today} />
                   </div>
                   <button className="btn-primary">{own.length ? "Regenerate unplayed fixtures" : "Generate fixtures"}</button>
-                </form>
+                </StateForm>
                 {own.length > 0 && (
                   <table className="w-full text-sm">
                     <thead className="text-left text-xs uppercase tracking-wide text-muted">
@@ -581,11 +582,11 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
                         <tr key={f.id} className="border-t border-border">
                           <td className="py-1">{f.round ?? "—"}</td>
                           <td>
-                            <form action={setFixtureDateAction} className="flex gap-1">
+                            <StateForm action={setFixtureDateAction} className="flex flex-wrap gap-1">
                               <input type="hidden" name="fixture_id" value={f.id} />
                               <input name="date" type="date" className="input text-xs" defaultValue={f.date} />
                               <button className="btn-secondary text-xs">Move</button>
-                            </form>
+                            </StateForm>
                           </td>
                           <td>{entrantName(f.home_member_id)} v {entrantName(f.away_member_id)}</td>
                           <td className="text-xs">{fStatus.get(f.match_id ?? "") ?? "—"}</td>

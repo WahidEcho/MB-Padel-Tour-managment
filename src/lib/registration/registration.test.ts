@@ -3,8 +3,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CHECKOUT_HOLD_MS,
+  CLOSED_MESSAGES,
   DEFAULT_REGISTRATION_SETTINGS,
+  HELD_FULL_MESSAGE,
+  PAYMENT_FAILED_MESSAGE,
   archiveAt,
+  awaitingPaymentNote,
+  countSeats,
+  fullMessage,
+  latestPaymentFailed,
+  onlinePaymentLines,
   canMove,
   capacitySeats,
   charges,
@@ -324,5 +332,69 @@ describe("security review of Phase 9 (0029, 0030)", () => {
     expect(server).toMatch(/payment\.amount < reg\.amount_online/);
     expect(server).toMatch(/isFull\(confErr\)/);
     expect(server).toMatch(/const amount = refundAmount\(payment\.amount\);/);
+  });
+});
+
+describe("walkthrough fixes: seats, full, failed payments, place notes, payment lines", () => {
+  const NOW = Date.parse("2026-10-14T12:00:00Z");
+  const later = new Date(NOW + 10 * 60_000).toISOString();
+  const earlier = new Date(NOW - 60_000).toISOString();
+  const solo = { entryType: "individual" as const, teamSize: 1, capacity: 2 };
+
+  it("counts each entry once, by its status: a confirmed entry's leftover hold is never a second place", () => {
+    const regs = [
+      { status: "confirmed" as const, hold_until: later, hold_kind: "checkout", people: [{}] },
+      { status: "awaiting_payment" as const, hold_until: later, hold_kind: "checkout", people: [{}] },
+      { status: "awaiting_payment" as const, hold_until: later, hold_kind: "approval", people: [{}, {}] },
+      { status: "awaiting_payment" as const, hold_until: earlier, hold_kind: "checkout", people: [{}] },
+      { status: "awaiting_payment" as const, hold_until: null, hold_kind: null, people: [{}] },
+      { status: "pending_approval" as const, hold_until: later, hold_kind: "approval", people: [{}] },
+      { status: "refunded" as const, hold_until: later, hold_kind: "checkout", people: [{}] },
+    ];
+    expect(countSeats(regs, NOW)).toEqual({ firm: 3, checkout: 1 });
+    // The same rows through holdsPlace: three entries hold places (four players).
+    expect(regs.filter((r) => holdsPlace(r, NOW)).length).toBe(3);
+  });
+
+  it("says a place may free up only when open checkouts are what fill the event", () => {
+    expect(fullMessage(solo, { firm: 1, checkout: 1 })).toBe(HELD_FULL_MESSAGE);
+    expect(fullMessage(solo, { firm: 2, checkout: 0 })).toBe(CLOSED_MESSAGES.full);
+    expect(fullMessage(solo, { firm: 2, checkout: 1 })).toBe(CLOSED_MESSAGES.full);
+    expect(fullMessage(solo, { firm: 0, checkout: 0 })).toBe(CLOSED_MESSAGES.full);
+    // A team of 2 in a "both" event of 2 teams (4 player places): 3 firm → no team fits even after checkouts end.
+    const both = { entryType: "both" as const, teamSize: 2, capacity: 2 };
+    expect(fullMessage(both, { firm: 3, checkout: 1 }, 2, "team")).toBe("team");
+    expect(fullMessage(both, { firm: 2, checkout: 2 }, 2, "team")).toBe(HELD_FULL_MESSAGE);
+    expect(HELD_FULL_MESSAGE).toBe(`All places are taken or being paid for right now. A place frees up if a payment isn't completed within ${CHECKOUT_HOLD_MS / 60_000} minutes — try again then.`);
+  });
+
+  it("tells a failed or expired latest checkout only while the entry awaits payment", () => {
+    const pays = (...st: string[]) => st.map((status, i) => ({ status, created_at: new Date(NOW + i * 1000).toISOString() }));
+    expect(latestPaymentFailed("awaiting_payment", pays("failed"))).toBe(true);
+    expect(latestPaymentFailed("awaiting_payment", pays("open", "expired"))).toBe(true);
+    expect(latestPaymentFailed("awaiting_payment", pays("failed", "open"))).toBe(false);
+    expect(latestPaymentFailed("confirmed", pays("failed", "paid"))).toBe(false);
+    expect(latestPaymentFailed("cancelled", pays("failed"))).toBe(false);
+    expect(latestPaymentFailed("awaiting_payment", [])).toBe(false);
+    expect(PAYMENT_FAILED_MESSAGE).toBe("Your payment didn't go through — nothing was charged. You can try again.");
+  });
+
+  it("words an awaiting entry's place by approval mode", () => {
+    const when = (iso: string) => iso.slice(11, 16);
+    expect(awaitingPaymentNote({ approved: true, holdUntil: later }, when, NOW)).toBe("Your place is kept until 12:10 — pay before then to confirm it.");
+    expect(awaitingPaymentNote({ approved: true, holdUntil: earlier }, when, NOW)).toMatch(/has passed: pay now/);
+    expect(awaitingPaymentNote({ approved: false, holdUntil: later }, when, NOW)).toMatch(/only paid entries hold a place/);
+  });
+
+  it("shows a refunded payment as refunded in full with its date, a flagged one as a payment to refund", () => {
+    const when = (iso: string) => iso.slice(0, 10);
+    expect(onlinePaymentLines(100_000, [], when)).toEqual(["EGP 1,000 online"]);
+    expect(onlinePaymentLines(100_000, [{ status: "paid", amount: 100_000 }], when)).toEqual(["EGP 1,000 online — paid"]);
+    expect(onlinePaymentLines(100_000, [{ status: "refunded", amount: 100_000, refundAmount: 100_000, refundedAt: "2026-10-14T10:00:00Z" }], when)).toEqual(["EGP 1,000 refunded in full · 2026-10-14"]);
+    expect(onlinePaymentLines(100_000, [{ status: "paid", amount: 100_000 }, { status: "needs_review", amount: 100_000 }], when)).toEqual(["EGP 1,000 online — paid", "EGP 1,000 online — payment to refund"]);
+    expect(onlinePaymentLines(100_000, [{ status: "needs_review", amount: 100_000 }], when, "player")).toEqual(["EGP 1,000 online — paid, to be refunded in full"]);
+    expect(onlinePaymentLines(100_000, [{ status: "refund_pending", amount: 100_000 }], when)).toEqual(["EGP 1,000 online — refund on its way"]);
+    // Failed and expired checkouts took nothing.
+    expect(onlinePaymentLines(100_000, [{ status: "failed", amount: 100_000 }, { status: "expired", amount: 100_000 }], when)).toEqual(["EGP 1,000 online"]);
   });
 });

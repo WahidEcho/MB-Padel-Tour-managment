@@ -50,7 +50,9 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
         <p>
           <span className="font-semibold">Places:</span>{" "}
           {info.approval === "organiser"
-            ? "the organiser confirms each entry (you pay only after that)"
+            ? info.paymentOptions.includes("online")
+              ? "the organiser confirms each entry; you pay only after that, and an approved entry keeps its place for 24 hours while it is paid."
+              : "the organiser confirms each entry."
             : info.paymentOptions.includes("online")
               ? "first paid, first in. Only paid entries hold a place: your place is confirmed when your payment goes through."
               : "first come, first in while places remain."}
@@ -72,6 +74,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
           options={info.paymentOptions}
           partnerPhoneRequired={info.event.kind === "session"}
           feePerPlayer={info.feePerPlayer}
+          approval={info.approval}
         />
       ) : (
         <div className="card space-y-2 text-center">

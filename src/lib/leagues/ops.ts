@@ -13,6 +13,7 @@
 import { randomBytes } from "node:crypto";
 import { db } from "../supabase";
 import { audit } from "../audit";
+import { Refusal } from "../refusal";
 import { createFriendlySession } from "../friendly/ops";
 import { orgDisplayNames } from "../orgs/personFields";
 import { ensureOrgPlayer } from "../orgs/scope";
@@ -47,7 +48,7 @@ export async function createLeague(input: {
   actorRole: string;
 }): Promise<LeagueRow> {
   const name = input.name.trim().slice(0, 120);
-  if (!name) throw new Error("Give the league a name.");
+  if (!name) throw new Refusal("Give the league a name.");
   const { data, error } = await db()
     .from("leagues")
     .insert({
@@ -109,9 +110,9 @@ export async function addDivision(leagueId: string, name: string, actorRole: str
   const league = await getLeague(leagueId);
   if (!league) throw new Error("League not found.");
   const clean = name.trim().slice(0, 80);
-  if (!clean) throw new Error("Name the division.");
+  if (!clean) throw new Refusal("Name the division.");
   const divisions = await getDivisions(leagueId);
-  if (divisions.some((d) => d.name.toLowerCase() === clean.toLowerCase())) throw new Error("A division already has that name.");
+  if (divisions.some((d) => d.name.toLowerCase() === clean.toLowerCase())) throw new Refusal("A division already has that name.");
   const { error } = await db().from("league_divisions").insert({ league_id: leagueId, name: clean, sort_order: divisions.length + 1 });
   if (error) throw new Error(error.message);
   await audit({ organization_id: league.organization_id, actor_role: actorRole, action: "LEAGUE_DIVISION_ADDED", entity_type: "league", entity_id: leagueId, new_value: { name: clean } });
@@ -119,11 +120,12 @@ export async function addDivision(leagueId: string, name: string, actorRole: str
 
 export async function renameDivision(divisionId: string, name: string, actorRole: string): Promise<void> {
   const clean = name.trim().slice(0, 80);
-  if (!clean) throw new Error("Name the division.");
+  if (!clean) throw new Refusal("Name the division.");
   const { data } = await db().from("league_divisions").select("league_id").eq("id", divisionId).maybeSingle();
   if (!data) throw new Error("Division not found.");
   const { error } = await db().from("league_divisions").update({ name: clean }).eq("id", divisionId);
-  if (error) throw new Error(/duplicate|unique/i.test(error.message) ? "A division already has that name." : error.message);
+  if (error && /duplicate|unique/i.test(error.message)) throw new Refusal("A division already has that name.");
+  if (error) throw new Error(error.message);
   await audit({ actor_role: actorRole, action: "LEAGUE_DIVISION_RENAMED", entity_type: "league", entity_id: (data as { league_id: string }).league_id, new_value: { name: clean } });
 }
 
@@ -133,9 +135,9 @@ export async function deleteDivision(divisionId: string, actorRole: string): Pro
   if (!data) throw new Error("Division not found.");
   const leagueId = (data as { league_id: string }).league_id;
   const { count } = await db().from("league_fixtures").select("id", { count: "exact", head: true }).eq("division_id", divisionId);
-  if ((count ?? 0) > 0) throw new Error("This division has nights or fixtures. Remove those first.");
+  if ((count ?? 0) > 0) throw new Refusal("This division has nights or fixtures. Remove those first.");
   const divisions = await getDivisions(leagueId);
-  if (divisions.length <= 1) throw new Error("A league keeps at least one division.");
+  if (divisions.length <= 1) throw new Refusal("A league keeps at least one division.");
   await db().from("league_divisions").delete().eq("id", divisionId);
   await audit({ actor_role: actorRole, action: "LEAGUE_DIVISION_REMOVED", entity_type: "league", entity_id: leagueId });
 }
@@ -237,13 +239,13 @@ async function dressSessionTournament(tournamentId: string, league: LeagueRow, n
  * the organiser can build the night's table straight away.
  */
 export async function createNight(divisionId: string, date: string, actorRole: string): Promise<{ sessionId: string; slug: string }> {
-  if (!isIsoDate(date)) throw new Error("Pick the night's date.");
+  if (!isIsoDate(date)) throw new Refusal("Pick the night's date.");
   const { data: d } = await db().from("league_divisions").select("id, league_id, name").eq("id", divisionId).maybeSingle();
   const division = d as DivisionRow | null;
   if (!division) throw new Error("Division not found.");
   const league = (await getLeague(division.league_id))!;
   const fixtures = await getFixtures(league.id);
-  if (fixtures.some((f) => f.kind === "night" && f.division_id === divisionId && f.date === date)) throw new Error("This division already has a night on that date.");
+  if (fixtures.some((f) => f.kind === "night" && f.division_id === divisionId && f.date === date)) throw new Refusal("This division already has a night on that date.");
   const tpl = nightTemplate(league.night_template);
   const divisions = await getDivisions(league.id);
   const name = `${league.name}${divisions.length > 1 ? ` · ${division.name}` : ""} · ${dayLabel(date)}`;
@@ -286,7 +288,7 @@ export async function createNight(divisionId: string, date: string, actorRole: s
 
 /** Moves a night or fixture to another date (its results then count in that date's month). */
 export async function setFixtureDate(fixtureId: string, date: string, actorRole: string): Promise<void> {
-  if (!isIsoDate(date)) throw new Error("Pick a date.");
+  if (!isIsoDate(date)) throw new Refusal("Pick a date.");
   const { data } = await db().from("league_fixtures").select("id, league_id, kind, session_id, match_id").eq("id", fixtureId).maybeSingle();
   const f = data as { id: string; league_id: string; kind: string; session_id: string | null; match_id: string | null } | null;
   if (!f) throw new Error("Fixture not found.");
@@ -394,10 +396,10 @@ export async function generateSeasonFixtures(divisionId: string, dates: string[]
   const division = d as DivisionRow | null;
   if (!division) throw new Error("Division not found.");
   const league = (await getLeague(division.league_id))!;
-  if (league.kind !== "season") throw new Error("Fixtures are for season leagues. Nights leagues add nights instead.");
+  if (league.kind !== "season") throw new Refusal("Fixtures are for season leagues. Nights leagues add nights instead.");
   const members = (await getMembers(league.id)).filter((m) => m.status === "active" && m.division_id === divisionId);
   const entrants = seasonEntrants(members.map((m) => ({ id: m.id, profileId: m.player_profile_id, partnerProfileId: m.partner_profile_id })));
-  if (entrants.length < 2) throw new Error("A division needs at least two active members (or pairs) for fixtures.");
+  if (entrants.length < 2) throw new Refusal("A division needs at least two active members (or pairs) for fixtures.");
 
   const { sessionId, tournamentId } = await ensureSeasonSession(league, division, actorRole);
   const fixtures = (await getFixtures(league.id)).filter((f) => f.division_id === divisionId && f.kind === "match");
@@ -523,7 +525,7 @@ export async function deleteNight(fixtureId: string, actorRole: string): Promise
   const tid = (s as { tournament_id: string } | null)?.tournament_id;
   if (tid) {
     const { count } = await db().from("matches").select("id", { count: "exact", head: true }).eq("tournament_id", tid).not("status", "in", "(scheduled,ready)");
-    if ((count ?? 0) > 0) throw new Error("This night has matches played. It stays in the league's history.");
+    if ((count ?? 0) > 0) throw new Refusal("This night has matches played. It stays in the league's history.");
   }
   await db().from("league_fixtures").delete().eq("id", fixtureId);
   if (tid) await db().from("tournaments").delete().eq("id", tid);

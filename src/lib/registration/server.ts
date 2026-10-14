@@ -33,9 +33,10 @@ import { toE164 } from "../players/phone";
 import { sportOf } from "../sports/registry";
 import { PLAYER_COLUMNS, claimedRows, type PlayerRow } from "../players/claims";
 import { accountProfile, ensureAccountProfile, linkAccount } from "../players/link";
-import type { MPaymentChoice, MRegistration, MRegistrationEvent, MRegistrationInfo } from "../mobile/contract";
+import type { MPaymentChoice, MRegistration, MRegistrationEvent, MRegistrationInfo, MRegistrationPayment } from "../mobile/contract";
 import {
   CLOSED_MESSAGES,
+  PAYMENT_FAILED_MESSAGE,
   GUEST_CONFIRM_MS,
   CHECKOUT_HOLD_MS,
   CHECKOUTS_PER_DAY,
@@ -43,9 +44,14 @@ import {
   REFUND_MESSAGES,
   STATUS_LABELS,
   archiveAt,
+  awaitingPaymentNote,
   canMove,
   charges,
   capacitySeats,
+  countSeats,
+  fullMessage,
+  latestPaymentFailed,
+  onlinePaymentLines,
   holdsPlace,
   entryFits,
   entryKindFor,
@@ -64,7 +70,9 @@ import {
   type PaymentChoice,
   type RegistrationSettings,
   type RegistrationStatus,
+  type SeatCount,
 } from "./rules";
+import { Refusal } from "../refusal";
 import { MoveTickError, createPaymentSession, getPaymentSession, moveTickConfig, refundPaymentSession, type WebhookEvent } from "./moveTick";
 
 /* ---------------- rows ---------------- */
@@ -235,8 +243,8 @@ export async function getSettings(tournamentId: string): Promise<RegistrationSet
 }
 
 export async function saveSettings(event: EventRow, settings: RegistrationSettings, actor: { role: string; label: string | null }): Promise<RegistrationSettings> {
-  const refusal = eventRefusal(event);
-  if (refusal) throw new Error(refusal);
+  const refused = eventRefusal(event);
+  if (refused) throw new Refusal(refused);
   const before = await getSettings(event.id);
   const row = { tournament_id: event.id, organization_id: event.organization_id, ...storedRegistrationSettings(settings), updated_by: actor.label, updated_at: now() };
   const { error } = await db().from("registration_settings").upsert(row, { onConflict: "tournament_id" });
@@ -252,14 +260,27 @@ export async function saveSettings(event: EventRow, settings: RegistrationSettin
  * unconfirmed guests and lapsed holds take none. Shown and checked up front; the
  * database trigger is what makes the limit atomic.
  */
-export async function seatsTaken(tournamentId: string): Promise<number> {
+export async function seatCount(tournamentId: string): Promise<SeatCount> {
+  // Each entry is read once, by its status (a confirmed entry's leftover hold_until is never read as a hold).
   const [confirmed, held] = await Promise.all([
-    db().from("registrations").select("people").eq("tournament_id", tournamentId).eq("status", "confirmed").limit(4000),
-    db().from("registrations").select("people").eq("tournament_id", tournamentId).eq("status", "awaiting_payment").gt("hold_until", now()).limit(4000),
+    db().from("registrations").select("status, people, hold_until, hold_kind").eq("tournament_id", tournamentId).eq("status", "confirmed").limit(4000),
+    db().from("registrations").select("status, people, hold_until, hold_kind").eq("tournament_id", tournamentId).eq("status", "awaiting_payment").gt("hold_until", now()).limit(4000),
   ]);
-  const seats = (rows: unknown) => ((rows ?? []) as { people: unknown[] | null }[]).reduce((n, r) => n + Math.max(1, Array.isArray(r.people) ? r.people.length : 1), 0);
-  return seats(confirmed.data) + seats(held.data);
+  type Row = { status: RegistrationStatus; people: unknown[] | null; hold_until: string | null; hold_kind: string | null };
+  return countSeats([...((confirmed.data ?? []) as Row[]), ...((held.data ?? []) as Row[])]);
 }
+
+export async function seatsTaken(tournamentId: string): Promise<number> {
+  const c = await seatCount(tournamentId);
+  return c.firm + c.checkout;
+}
+
+const NO_SEATS: SeatCount = { firm: 0, checkout: 0 };
+/** Organiser mode, for an entry with something to pay online: what approval gives it. */
+const APPROVED_HOLD_NOTE = (r: Pick<RegistrationRow, "amount_online">) => (r.amount_online > 0 ? ` Once approved, your place is kept for ${PAYMENT_HOLD_MS / 3600_000} hours while you pay.` : "");
+/** The closed reason's message: a full event says whether places may free up within minutes (fullMessage). */
+const closedMessage = (reason: NonNullable<ReturnType<typeof registrationClosedReason>>, s: RegistrationSettings, seats: SeatCount) =>
+  reason === "full" ? fullMessage(s, seats) : CLOSED_MESSAGES[reason];
 
 function eventStatusFor(event: EventRow, session: SessionRow | null): string | null {
   if (session) return session.finalized_at || session.status === "finalized" || session.status === "cancelled" ? "completed" : "active";
@@ -284,14 +305,15 @@ export async function registrationInfo(slug: string): Promise<MRegistrationInfo 
   const { event, org, session } = found;
   const s = await getSettings(event.id);
   const startsAt = startsAtOf(event, session);
-  const taken = s.capacity === null ? 0 : await seatsTaken(event.id);
+  const seats = s.capacity === null ? NO_SEATS : await seatCount(event.id);
+  const taken = seats.firm + seats.checkout;
   const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, taken);
   const cutoff = refundCutoff(startsAt);
   const cap = capacitySeats(s);
   return {
     event: publicEvent(event, org, session),
     open: reason === null,
-    closedMessage: reason ? CLOSED_MESSAGES[reason] : null,
+    closedMessage: reason ? closedMessage(reason, s, seats) : null,
     entryType: s.entryType,
     // A team entry's players (for "both" too); a solo entry is one.
     people: peoplePerEntry(s),
@@ -387,12 +409,14 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
   const { event, org, session } = found;
   const s = await getSettings(event.id);
   const startsAt = startsAtOf(event, session);
-  const taken = s.capacity === null ? 0 : await seatsTaken(event.id);
+  const seats = s.capacity === null ? NO_SEATS : await seatCount(event.id);
+  const taken = seats.firm + seats.checkout;
   const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt }, taken);
-  if (reason) return fail(409, reason, CLOSED_MESSAGES[reason]);
+  if (reason) return fail(409, reason, closedMessage(reason, s, seats));
   const kind = entryKindFor(s, input.entryType, Array.isArray(input.people) ? input.people.length : 0);
   if (!kind) return fail(400, "invalid", s.entryType === "both" ? "Pick a solo or a team entry." : s.entryType === "team" ? "This event takes teams." : "This event takes individual players.");
-  if (!entryFits(s, taken, peoplePerEntry(s, kind))) return fail(409, "full", kind === "team" ? "There is no place left for a team: register on your own, or ask the organiser." : CLOSED_MESSAGES.full);
+  if (!entryFits(s, taken, peoplePerEntry(s, kind)))
+    return fail(409, "full", fullMessage(s, seats, peoplePerEntry(s, kind), kind === "team" && s.entryType === "both" ? "There is no place left for a team: register on your own, or ask the organiser." : undefined));
 
   const read = readPeople(input.people, peoplePerEntry(s, kind), {
     registrantContact: input.source === "web" ? "phone_and_email" : "phone",
@@ -435,7 +459,7 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
     .select(REG_COLUMNS)
     .single();
   if (error) {
-    if (isFull(error)) return fail(409, "full", CLOSED_MESSAGES.full);
+    if (isFull(error)) return fail(409, "full", fullMessage(s, await seatCount(event.id), people.length));
     // The unique indexes: this account (or its verified email) already holds a live entry for the event.
     if (input.userId && isUnique(error)) return fail(409, "already_registered", "You're already registered for this event. See My registrations.");
     return fail(409, "conflict", "Could not register right now. Try again.");
@@ -465,7 +489,7 @@ export async function register(input: RegisterInput): Promise<Outcome<RegisterRe
     message = `Registered. Pay ${moneyLabel(money.online)} to confirm your place: only paid entries hold a place, and yours is confirmed when your payment goes through.`;
     await notify(reg, event, "awaiting_payment");
   } else {
-    message = "Registration received. The organiser confirms each entry.";
+    message = `Registration received. The organiser confirms each entry.${APPROVED_HOLD_NOTE(reg)}`;
     await notify(reg, event, "received");
   }
   return { ok: true, value: { registration: reg, event, org, session, checkoutUrl, message } };
@@ -527,10 +551,11 @@ export async function confirmGuest(registrationId: string, token: unknown): Prom
   if (!email) return NOT_FOUND;
   const session = await sessionOf(event);
   const s = await getSettings(event.id);
-  const taken = s.capacity === null ? 0 : await seatsTaken(event.id);
+  const seats = s.capacity === null ? NO_SEATS : await seatCount(event.id);
+  const taken = seats.firm + seats.checkout;
   const reason = registrationClosedReason(s, { status: eventStatusFor(event, session), startsAt: startsAtOf(event, session) }, taken);
-  if (reason) return fail(409, reason, CLOSED_MESSAGES[reason]);
-  if (!entryFits(s, taken, reg.people.length)) return fail(409, "full", CLOSED_MESSAGES.full);
+  if (reason) return fail(409, reason, closedMessage(reason, s, seats));
+  if (!entryFits(s, taken, reg.people.length)) return fail(409, "full", fullMessage(s, seats, reg.people.length));
   const to = initialStatus(s, reg.amount_online);
   const { data, error } = await db()
     .from("registrations")
@@ -539,7 +564,7 @@ export async function confirmGuest(registrationId: string, token: unknown): Prom
     .eq("status", "unconfirmed")
     .select(REG_COLUMNS);
   if (error) {
-    if (isFull(error)) return fail(409, "full", CLOSED_MESSAGES.full);
+    if (isFull(error)) return fail(409, "full", fullMessage(s, await seatCount(event.id), reg.people.length));
     if (isUnique(error)) return fail(409, "already_registered", "This email address is already registered for this event.");
     return fail(409, "conflict", "Could not confirm right now. Try again.");
   }
@@ -558,7 +583,7 @@ export async function confirmGuest(registrationId: string, token: unknown): Prom
     message = `Email confirmed. Pay ${moneyLabel(moved.amount_online)} to confirm your place: only paid entries hold a place.`;
   } else {
     await notify(moved, event, "received");
-    message = "Confirmed. The organiser confirms each entry; we'll email you when they do.";
+    message = `Confirmed. The organiser confirms each entry; we'll email you when they do.${APPROVED_HOLD_NOTE(moved)}`;
   }
   return { ok: true, value: { registration: moved, message } };
 }
@@ -635,7 +660,11 @@ async function ensureHold(reg: RegistrationRow): Promise<Outcome<{ until: string
   let q = db().from("registrations").update({ hold_until: hold, hold_started_at: new Date(nowMs).toISOString(), hold_kind: "checkout", updated_at: now() }).eq("id", reg.id).eq("status", "awaiting_payment");
   q = reg.hold_until ? q.eq("hold_until", reg.hold_until) : q.is("hold_until", null);
   const { data, error } = await q.select("id");
-  if (error) return isFull(error) ? fail(409, "full", CLOSED_MESSAGES.full) : fail(409, "conflict", "Could not start the payment. Try again.");
+  if (error) {
+    if (!isFull(error)) return fail(409, "conflict", "Could not start the payment. Try again.");
+    // Full for good, or only while other players' checkouts are open (those free up within minutes).
+    return fail(409, "full", fullMessage(await getSettings(reg.tournament_id), await seatCount(reg.tournament_id), Math.max(1, reg.people.length)));
+  }
   if (!data?.length) return fail(409, "conflict", "This entry changed meanwhile. Try again.");
   return { ok: true, value: { until: hold, kind: "checkout" } };
 }
@@ -1143,7 +1172,7 @@ async function loadReg(id: string): Promise<{ reg: RegistrationRow; event: Event
   return event ? { reg, event } : null;
 }
 
-class EventFullError extends Error {
+class EventFullError extends Refusal {
   constructor() {
     super("The event is full: refuse or cancel an entry, or raise the capacity, first.");
   }
@@ -1170,17 +1199,17 @@ export async function decide(registrationId: string, decision: "approve" | "refu
   if (!found) throw new Error("Not found");
   const { reg, event } = found;
   if (decision === "refuse") {
-    if (reg.paid_at) throw new Error("This entry is paid: refund it instead.");
+    if (reg.paid_at) throw new Refusal("This entry is paid: refund it instead.");
     const moved = await move(reg, "refused", { decided_at: now(), decided_by: actor.label, decision_note: note });
-    if (!moved) throw new Error("This entry can't be refused now. Reload the page.");
+    if (!moved) throw new Refusal("This entry can't be refused now. Reload the page.");
     await audit({ tournament_id: event.id, actor_role: actor.role, action: "REGISTRATION_REFUSED", entity_type: "registration", entity_id: reg.id, old_value: { status: reg.status }, new_value: { status: "refused", note } });
     await notify(moved, event, "refused");
     return "Refused.";
   }
-  if (reg.status !== "pending_approval") throw new Error("Only an entry waiting for approval can be approved. Reload the page.");
+  if (reg.status !== "pending_approval") throw new Refusal("Only an entry waiting for approval can be approved. Reload the page.");
   const to = statusAfterApproval(reg.amount_online, Boolean(reg.paid_at));
   const moved = await move(reg, to, { decided_at: now(), decided_by: actor.label, decision_note: note });
-  if (!moved) throw new Error("This entry changed meanwhile. Reload the page.");
+  if (!moved) throw new Refusal("This entry changed meanwhile. Reload the page.");
   await audit({ tournament_id: event.id, actor_role: actor.role, action: "REGISTRATION_APPROVED", entity_type: "registration", entity_id: reg.id, old_value: { status: reg.status }, new_value: { status: to } });
   if (to === "confirmed") {
     await confirmEntry(moved, event, "approved");
@@ -1195,9 +1224,9 @@ export async function markVenuePaid(registrationId: string, actor: Actor): Promi
   const found = await loadReg(registrationId);
   if (!found) throw new Error("Not found");
   const { reg, event } = found;
-  if (reg.amount_venue <= 0) throw new Error("Nothing is due at the venue for this entry.");
+  if (reg.amount_venue <= 0) throw new Refusal("Nothing is due at the venue for this entry.");
   if (reg.venue_paid_at) return "Already recorded.";
-  if (reg.status !== "confirmed") throw new Error("Confirm the entry first.");
+  if (reg.status !== "confirmed") throw new Refusal("Confirm the entry first.");
   const { data } = await db().from("registrations").update({ venue_paid_at: now(), venue_paid_by: actor.label, updated_at: now() }).eq("id", reg.id).is("venue_paid_at", null).eq("status", "confirmed").select("id");
   if (!data?.length) return "Already recorded.";
   await db().from("registration_payments").insert({ registration_id: reg.id, organization_id: reg.organization_id, method: "venue", provider: "venue", amount: reg.amount_venue, currency: "EGP", status: "paid", paid_at: now(), recorded_by: actor.label });
@@ -1211,11 +1240,11 @@ export async function pairRegistrations(ids: [string, string], tournamentId: str
   const b = await loadReg(ids[1]);
   if (!a || !b || a.reg.id === b.reg.id || a.reg.tournament_id !== tournamentId || b.reg.tournament_id !== tournamentId) throw new Error("Not found");
   const event = a.event;
-  if (event.kind !== "tournament") throw new Error("Sessions pair their players on the session's own page.");
+  if (event.kind !== "tournament") throw new Refusal("Sessions pair their players on the session's own page.");
   for (const r of [a.reg, b.reg]) {
-    if (r.entry_type !== "individual" || r.status !== "confirmed" || r.materialized_at) throw new Error("Pick two confirmed individual entries that are not in a team yet.");
+    if (r.entry_type !== "individual" || r.status !== "confirmed" || r.materialized_at) throw new Refusal("Pick two confirmed individual entries that are not in a team yet.");
   }
-  if (!(await claimMaterialize([a.reg.id, b.reg.id]))) throw new Error("One of them was paired meanwhile. Reload the page.");
+  if (!(await claimMaterialize([a.reg.id, b.reg.id]))) throw new Refusal("One of them was paired meanwhile. Reload the page.");
   try {
     await tournamentTeam([a.reg, b.reg], event);
   } catch (err) {
@@ -1240,19 +1269,19 @@ export async function refund(registrationId: string, paymentId: string, actor: A
   const { reg, event } = found;
   const { data } = await db().from("registration_payments").select(PAY_COLUMNS).eq("id", paymentId).eq("registration_id", reg.id).eq("method", "online").maybeSingle();
   const payment = data as PaymentRow | null;
-  if (!payment || !payment.session_id) throw new Error(REFUND_MESSAGES.not_paid);
-  if (payment.status === "refunded") throw new Error(REFUND_MESSAGES.already_refunded);
-  if (payment.status === "refund_pending") throw new Error("A refund is already on its way.");
+  if (!payment || !payment.session_id) throw new Refusal(REFUND_MESSAGES.not_paid);
+  if (payment.status === "refunded") throw new Refusal(REFUND_MESSAGES.already_refunded);
+  if (payment.status === "refund_pending") throw new Refusal("A refund is already on its way.");
   if (payment.status === "needs_review" && payment.paid_at) return refundPayment(reg, event, payment, actor, reasonText, { skipCutoff: true });
-  if (payment.status !== "paid") throw new Error(REFUND_MESSAGES.not_paid);
+  if (payment.status !== "paid") throw new Refusal(REFUND_MESSAGES.not_paid);
   const allowed = refundAllowed(startsAtOf(event, await sessionOf(event)));
-  if (!allowed.ok) throw new Error(REFUND_MESSAGES[allowed.reason]);
+  if (!allowed.ok) throw new Refusal(REFUND_MESSAGES[allowed.reason]);
   return refundPayment(reg, event, payment, actor, reasonText, { skipCutoff: false });
 }
 
 async function refundPayment(reg: RegistrationRow, event: EventRow, payment: PaymentRow, actor: Actor, reasonText: string | null, opts: { skipCutoff: boolean }): Promise<string> {
   const cfg = moveTickConfig();
-  if (!cfg) throw new Error("Move Tick is not configured on this server.");
+  if (!cfg) throw new Refusal("Move Tick is not configured on this server.");
   const amount = refundAmount(payment.amount);
   const { data: claimed } = await db()
     .from("registration_payments")
@@ -1260,7 +1289,7 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
     .eq("id", payment.id)
     .eq("status", payment.status)
     .select("id");
-  if (!claimed?.length) throw new Error("This payment changed meanwhile. Reload the page.");
+  if (!claimed?.length) throw new Refusal("This payment changed meanwhile. Reload the page.");
   await audit({
     tournament_id: event.id,
     actor_role: actor.role,
@@ -1287,7 +1316,7 @@ async function refundPayment(reg: RegistrationRow, event: EventRow, payment: Pay
     await db().from("registration_payments").update({ status: payment.status, updated_at: now() }).eq("id", payment.id).eq("status", "refund_pending");
     const code = e instanceof MoveTickError ? e.code : "error";
     await audit({ tournament_id: event.id, actor_role: actor.role, action: "REGISTRATION_REFUND_FAILED", entity_type: "registration", entity_id: reg.id, new_value: { payment_id: payment.id, code } });
-    throw new Error("Move Tick did not take the refund. Try again in a moment.");
+    throw new Refusal("Move Tick did not take the refund. Try again in a moment.");
   }
 }
 
@@ -1401,9 +1430,28 @@ export async function myRegistrations(userId: string): Promise<MRegistration[]> 
   return out;
 }
 
+/** An entry's online payments, oldest first: what took money, and whether the latest checkout failed. */
+async function paymentSummary(r: Pick<RegistrationRow, "id" | "status">): Promise<{ payments: MRegistrationPayment[]; failed: boolean }> {
+  const { data } = await db().from("registration_payments").select("status, amount, refund_amount, refunded_at, created_at").eq("registration_id", r.id).eq("method", "online").order("created_at", { ascending: true }).limit(50);
+  const rows = (data ?? []) as { status: PaymentRow["status"]; amount: number; refund_amount: number | null; refunded_at: string | null; created_at: string }[];
+  const taken = rows.filter((p): p is typeof p & { status: MRegistrationPayment["status"] } => ["paid", "needs_review", "refund_pending", "refunded"].includes(p.status));
+  return {
+    payments: taken.map((p) => ({ status: p.status, amount: p.amount, refundAmount: p.refund_amount, refundedAt: p.refunded_at })),
+    failed: latestPaymentFailed(r.status, rows),
+  };
+}
+
+/** Until when an entry waiting for its payment keeps its place (a live hold), or null. */
+const placeKeptUntil = (r: Pick<RegistrationRow, "status" | "hold_until">) => (r.status === "awaiting_payment" && r.hold_until && Date.parse(r.hold_until) > Date.now() ? r.hold_until : null);
+
+/** A time as the event's players read it ("14 Oct, 21:30"), in the event's time zone. */
+const eventTime = (e: Pick<EventRow, "timezone">) => (iso: string) =>
+  new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: e.timezone || "Africa/Cairo" });
+
 /** What the registrant sees of their own entry: names only, never a phone or email. */
 export async function toPublicRegistration(r: RegistrationRow, e: EventRow, org: { slug: string; name: string } | null, session: SessionRow | null, userId: string | null): Promise<MRegistration> {
   const start = startsAtOf(e, session);
+  const money = await paymentSummary(r);
   const cutoff = refundCutoff(start);
   const cfgOk = onlinePaymentAvailable(org?.slug);
   let linked = false;
@@ -1432,6 +1480,10 @@ export async function toPublicRegistration(r: RegistrationRow, e: EventRow, org:
     refundsUntil: cutoff === null ? null : new Date(cutoff).toISOString(),
     linked,
     createdAt: r.created_at,
+    payments: money.payments,
+    paymentFailed: money.failed,
+    approved: Boolean(r.decided_at),
+    placeKeptUntil: placeKeptUntil(r),
   };
 }
 
@@ -1443,6 +1495,12 @@ export interface StatusView {
   /** What can be paid online now from the status page (a guest's way to pay once approved). */
   canPay: boolean;
   amountOnline: number;
+  /** While awaiting payment: what the entry's place is (kept until a time in organiser mode; first paid, first in otherwise). */
+  placeNote: string | null;
+  /** PAYMENT_FAILED_MESSAGE while the latest checkout failed or expired and the entry still awaits payment. */
+  paymentFailed: string | null;
+  /** The online money, a line per payment that took money (onlinePaymentLines, worded for the registrant). */
+  paymentLines: string[];
 }
 
 /**
@@ -1457,6 +1515,8 @@ export async function statusView(registrationId: string, token: string | null): 
   if (!found) return null;
   const org = await orgOf(found.event.organization_id);
   const r = found.reg;
+  const money = await paymentSummary(r);
+  const when = eventTime(found.event);
   return {
     event: publicEvent(found.event, org, await sessionOf(found.event)),
     status: r.status,
@@ -1464,6 +1524,9 @@ export async function statusView(registrationId: string, token: string | null): 
     paid: Boolean(r.paid_at),
     canPay: r.status === "awaiting_payment" && r.amount_online > 0 && onlinePaymentAvailable(org?.slug),
     amountOnline: r.amount_online,
+    placeNote: r.status === "awaiting_payment" ? awaitingPaymentNote({ approved: Boolean(r.decided_at), holdUntil: placeKeptUntil(r) }, when) : null,
+    paymentFailed: money.failed ? PAYMENT_FAILED_MESSAGE : null,
+    paymentLines: onlinePaymentLines(r.amount_online, money.payments, when, "player"),
   };
 }
 
@@ -1514,9 +1577,13 @@ async function notify(reg: RegistrationRow, event: EventRow, kind: Notice, why?:
   const venue = reg.amount_venue > 0 && !reg.venue_paid_at ? ` Pay ${moneyLabel(reg.amount_venue)} at the venue.` : "";
   const app = reg.auth_user_id ? " It is also in your Move Score app (My profile → Registrations)." : "";
   const text: Record<Notice, [string, string, string]> = {
-    received: [`${event.name}: registration received`, `We received your registration for ${event.name}. The organiser confirms each entry; you'll hear from us when they do.`, "See your registration"],
+    received: [`${event.name}: registration received`, `We received your registration for ${event.name}. The organiser confirms each entry; you'll hear from us when they do.${APPROVED_HOLD_NOTE(reg)}`, "See your registration"],
     awaiting_payment: reg.decided_at
-      ? [`${event.name}: pay to finish registering`, `Your entry for ${event.name} is approved. Pay ${moneyLabel(reg.amount_online)} with the button below to confirm your place: it is kept for you for 24 hours.${app}`, `Pay ${moneyLabel(reg.amount_online)}`]
+      ? [
+          `${event.name}: pay to finish registering`,
+          `Your entry for ${event.name} is approved. ${reg.hold_until ? awaitingPaymentNote({ approved: true, holdUntil: reg.hold_until }, eventTime(event)) : "Pay to confirm your place: it is kept for you for 24 hours."} Use the button below.${app}`,
+          `Pay ${moneyLabel(reg.amount_online)}`,
+        ]
       : [`${event.name}: pay to confirm your place`, `Pay ${moneyLabel(reg.amount_online)} with the button below to enter ${event.name}. Only paid entries hold a place: yours is confirmed when your payment goes through, while places remain.${app}`, `Pay ${moneyLabel(reg.amount_online)}`],
     confirmed: [`${event.name}: you're in`, `Your place in ${event.name} is confirmed.${venue}${app}`, "See your registration"],
     refused: [`${event.name}: registration not accepted`, `The organiser could not accept your registration for ${event.name}.`, "See your registration"],

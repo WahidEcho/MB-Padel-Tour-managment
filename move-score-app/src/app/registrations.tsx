@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { moneyLabel, type MRegistration } from "@core";
+import { awaitingPaymentNote, moneyLabel, onlinePaymentLines, PAYMENT_FAILED_MESSAGE, type MRegistration } from "@core";
 import { errorMessage } from "../api/client";
 import { registrationAction, useMyRegistrations } from "../api/queries";
 import { session } from "../state/session";
@@ -34,10 +34,13 @@ function Row({ r }: { r: MRegistration }) {
       setBusy(null);
     }
   };
-  const money = [
-    r.amountOnline ? `${moneyLabel(r.amountOnline)} online${r.paid ? " · paid" : ""}` : null,
-    r.amountVenue ? `${moneyLabel(r.amountVenue)} at the venue${r.venuePaid ? " · paid" : ""}` : null,
-  ].filter(Boolean);
+  // Older servers send no payments: fall back to "online · paid".
+  const online = r.payments
+    ? onlinePaymentLines(r.amountOnline, r.payments, (iso) => day(iso) ?? "", "player")
+    : r.amountOnline
+      ? [`${moneyLabel(r.amountOnline)} online${r.paid ? " · paid" : ""}`]
+      : [];
+  const money = [...online, r.amountVenue ? `${moneyLabel(r.amountVenue)} at the venue${r.venuePaid ? " · paid" : ""}` : null].filter(Boolean);
   return (
     <Card style={{ gap: 6, borderColor: r.status === "confirmed" ? t.ball : t.line, borderWidth: r.status === "confirmed" ? 1.5 : 1 }} onPress={() => openTournament(r.event.slug)} accessibilityLabel={`${r.event.name}. ${r.statusLabel}`}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -47,7 +50,14 @@ function Row({ r }: { r: MRegistration }) {
       <Body weight="bold" size={16}>{r.event.name}</Body>
       <Body tone="ink2" size={13}>{[r.teamName, r.people.map((p) => p.name).join(" / ")].filter(Boolean).join(" · ")}</Body>
       {money.length ? <Body tone="ink2" size={13}>{money.join(" · ")}</Body> : <Body tone="ink2" size={13}>Free</Body>}
-      {r.status === "awaiting_payment" && r.canPay ? <Body tone="ink3" size={12}>Only paid entries hold a place: your place is confirmed when your payment goes through.</Body> : null}
+      {r.status === "awaiting_payment" && r.paymentFailed ? (
+        <Body tone="live" size={13} weight="bold" accessibilityLiveRegion="polite">
+          {PAYMENT_FAILED_MESSAGE}
+        </Body>
+      ) : null}
+      {r.status === "awaiting_payment" && r.canPay ? (
+        <Body tone="ink3" size={12}>{awaitingPaymentNote({ approved: Boolean(r.approved), holdUntil: r.placeKeptUntil ?? null }, (iso) => day(iso) ?? "")}</Body>
+      ) : null}
       {r.linked ? <Body tone="ink3" size={12}>Linked to your account: your matches show up in the app.</Body> : null}
       {r.refundRequested ? <Body tone="ink3" size={12}>Refund asked for: the organiser decides.</Body> : null}
       {r.paid && r.refundsUntil && !r.refundRequested && r.status === "confirmed" ? <Body tone="ink3" size={12}>{`Full refunds until ${day(r.refundsUntil)}.`}</Body> : null}

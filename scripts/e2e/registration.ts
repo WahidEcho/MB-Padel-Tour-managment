@@ -33,6 +33,13 @@
  *   7. Archive job: links of an event that ended over a day ago are archived; a
  *      running event's are not.
  *
+ * Walkthrough fixes: every admin action answers a refusal inline (StateForm; "Type
+ * REFUND to confirm." leaves the page rendering); a refunded payment reads "refunded
+ * in full · <date>" (admin, status page, app) and a flagged one "payment to refund";
+ * a failed or expired checkout says nothing was charged; organiser mode says until
+ * when an approved entry's place is kept; "full" only because of open checkouts says
+ * a place may free up within 15 minutes; a confirmed entry's leftover hold counts once.
+ *
  * Stand-in only; creates and deletes its own data.
  *
  *   npm run localdb                                          # terminal 1
@@ -52,6 +59,9 @@ import { appUser, assertStandIn, BASE_URL, bearer, check, cookie, finish, http a
 assertStandIn("registration.ts");
 
 const tag = randomUUID().slice(0, 6);
+/** rules.ts HELD_FULL_MESSAGE / PAYMENT_FAILED_MESSAGE, as players read them. */
+const HELD_FULL = "All places are taken or being paid for right now. A place frees up if a payment isn't completed within 15 minutes — try again then.";
+const PAYMENT_FAILED = "Your payment didn't go through — nothing was charged. You can try again.";
 const ACTIONS = "src/app/admin/tournaments/[id]/registrations/actions.ts";
 const MT_URL = process.env.MOVE_TICK_API_URL ?? "";
 const MT_KEY = process.env.MOVE_TICK_PARTNER_KEY ?? "";
@@ -160,8 +170,17 @@ const xff = (ip: string): Who => ({ "X-Forwarded-For": ip });
 const act = (name: string, fields: Record<string, string | string[]>, who: Who, tournamentId: string) => {
   const f = form({});
   for (const [k, v] of Object.entries(fields)) for (const x of Array.isArray(v) ? v : [v]) f.append(k, x);
-  return callAction(ACTIONS, name, [f], who, { id: tournamentId });
+  // (state, form) actions (StateForm): a refusal for the organiser comes back as { ok: false, message }, not an error page.
+  return callAction(ACTIONS, name, [null, f], who, { id: tournamentId });
 };
+/** The action went through: no error, and not answered { ok: false }. */
+const done = (r: { status: number; text: string }) => actionOk(r) && !/"ok":false/.test(r.text);
+/** Refused with a message for the organiser, inline (the page is not replaced by an error page). */
+const inlineRefusal = (r: { status: number; text: string }, words: RegExp) => r.status === 200 && !/"digest"/.test(r.text) && /"ok":false/.test(r.text) && words.test(r.text);
+/** A signed status page's text, React's text separators removed. */
+const statusPage = async (id: string) => htmlText(await (await fetch(`${BASE_URL}/register/status?r=${id}&s=${statusTok(id)}`)).text());
+/** A page's HTML with React's text separators removed and the escaped characters back. */
+const htmlText = (html: string) => html.replace(/<!-- -->/g, "").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 
 async function webhook(evt: Record<string, unknown>, opts: { secret?: string; at?: number; header?: string | null } = {}) {
   const raw = JSON.stringify(evt);
@@ -185,7 +204,7 @@ const payNow = (id: string, who: Who) => call("POST", `/api/mobile/v1/me/registr
 
 async function settings(tournamentId: string, fields: Record<string, string>, who: Who) {
   const r = await act("saveRegistrationSettings", { tournament_id: tournamentId, open: "on", entry_type: "team", team_size: "2", approval_mode: "organiser", fee: "250", payment: "online_or_venue", team_payer: "registrant", capacity: "", closes_at: "", note: "", ...fields }, who, tournamentId);
-  if (!actionOk(r)) throw new Error(`settings: ${r.status} ${r.text.slice(0, 300)}`);
+  if (!done(r)) throw new Error(`settings: ${r.status} ${r.text.slice(0, 300)}`);
 }
 
 const created = { tournaments: [] as string[], orgs: [] as string[], users: [] as string[], members: [] as string[], phones: [] as string[] };
@@ -291,7 +310,7 @@ async function main() {
 
     const approve = await act("decideRegistrationAction", { registration_id: R1, decision: "approve" }, mbAdmin, T1.id);
     const approved = await reg(R1);
-    check(actionOk(approve) && approved.status === "awaiting_payment" && approved.hold_kind === "approval" && Math.abs(Date.parse(String(approved.hold_until)) - (Date.now() + 24 * 3600_000)) < 120_000, "organiser mode: the approval keeps the place for 24 hours while it is paid", { status: approved.status, kind: approved.hold_kind, until: approved.hold_until });
+    check(done(approve) && approved.status === "awaiting_payment" && approved.hold_kind === "approval" && Math.abs(Date.parse(String(approved.hold_until)) - (Date.now() + 24 * 3600_000)) < 120_000, "organiser mode: the approval keeps the place for 24 hours while it is paid", { status: approved.status, kind: approved.hold_kind, until: approved.hold_until });
     const pay = await call("POST", `/api/mobile/v1/me/registrations/${R1}/pay`, U1.who, {});
     const s1 = [...mt.sessions.values()].find((s) => s.reference === R1)!;
     check(pay.status === 200 && String(pay.json?.checkoutUrl).startsWith(`${MT_URL}/checkout/`) && s1?.amount === 50000, "a Move Tick checkout for the server's amount (the registrant pays for the team: EGP 500)", { status: pay.status, amount: s1?.amount });
@@ -300,7 +319,18 @@ async function main() {
     const pay2 = await call("POST", `/api/mobile/v1/me/registrations/${R1}/pay`, U1.who, {});
     check(pay2.json?.checkoutUrl === pay.json?.checkoutUrl && [...mt.sessions.values()].filter((s) => s.reference === R1).length === 1, "paying again reuses the open checkout");
     const status = await fetch(s1.returnUrl);
-    check(status.status === 200 && /waiting for payment/i.test(await status.text()), "the return page shows the status with the signed link");
+    const statusText = htmlText(await status.text());
+    check(status.status === 200 && /waiting for payment/i.test(statusText), "the return page shows the status with the signed link");
+    check(
+      /Your place is kept until \d{1,2} [A-Z][a-z]{2,3}, \d{2}:\d{2} — pay before then to confirm it\./.test(statusText) && !/only paid entries hold a place/i.test(statusText),
+      "organiser mode: the status page says the approved entry's place is kept until a time (not \"only paid entries hold a place\")",
+      statusText.match(/place[^<]{0,120}/i)?.[0],
+    );
+    const mineApproved = await call("GET", "/api/mobile/v1/me/registrations", U1.who);
+    const r1App = (mineApproved.json?.registrations as { id: string; approved?: boolean; placeKeptUntil?: string | null }[] | undefined)?.find((x) => x.id === R1);
+    check(r1App?.approved === true && r1App.placeKeptUntil === approved.hold_until, "the app gets the approval and when the place is kept until", r1App);
+    const approvedMail = (await deliveriesOf(R1)).find((d) => d.idempotency_key.endsWith(":awaiting_payment"));
+    check(/Your place is kept until .+ — pay before then to confirm it\./.test(String(approvedMail?.vars?.message)), "and so does the approval email", approvedMail?.vars?.message);
     const forged = await fetch(s1.returnUrl.replace(/s=[^&]+/, "s=forged"));
     check(/Registration not found/.test(await forged.text()), "a forged status link shows nothing");
 
@@ -376,14 +406,18 @@ async function main() {
     const winner = aWon ? { id: RA, who: FA.who } : { id: RB2, who: FB.who };
     const loser = aWon ? { id: RB2, who: FB.who, res: pb } : { id: RA, who: FA.who, res: pa };
     check(
-      [pa.status, pb.status].sort().join(",") === "200,409" && loser.res.json?.code === "full" && /full/i.test(String(loser.res.json?.error)) && sessionsFor(loser.id).length === 0 && sessionsFor(winner.id).length === 1,
-      "two players press Pay at once for the last place: one checkout; the other is told the event is full before any checkout",
+      [pa.status, pb.status].sort().join(",") === "200,409" && loser.res.json?.code === "full" && loser.res.json?.error === HELD_FULL && sessionsFor(loser.id).length === 0 && sessionsFor(winner.id).length === 1,
+      "two players press Pay at once for the last place: one checkout; the other is told, before any checkout, that the places are taken or being paid for (try again in 15 minutes)",
       { a: pa.status, b: pb.status, loser: loser.res.json },
     );
     const wr = await reg(winner.id);
     check(wr.hold_kind === "checkout" && Math.abs(Date.parse(String(wr.hold_until)) - (Date.now() + 15 * 60_000)) < 60_000, "the open checkout keeps the place for 15 minutes (the Move Tick checkout's lifetime)", { kind: wr.hold_kind, until: wr.hold_until });
     const infoHeld = await call("GET", `/api/mobile/v1/t/${TF1.slug}/registration`);
-    check(infoHeld.json?.open === false && infoHeld.json?.closedMessage === "This event is full." && infoHeld.json?.placesLeft === 0, "while it is open the event shows as full", infoHeld.json);
+    check(infoHeld.json?.open === false && infoHeld.json?.closedMessage === HELD_FULL && infoHeld.json?.placesLeft === 0, "while the checkout is open the event is closed, but says a place may free up (not a final \"full\")", infoHeld.json);
+    const loserStatus = await fetch(`${BASE_URL}/api/register/pay`, { method: "POST", body: new URLSearchParams({ r: loser.id, s: statusTok(loser.id) }), redirect: "manual", headers: xff(freshIp()) });
+    const loserLanding = loserStatus.headers.get("location") ?? "";
+    const loserPage = loserLanding ? htmlText(await (await fetch(loserLanding)).text()) : "";
+    check(loserStatus.status === 303 && /[?&]e=full_held/.test(loserLanding) && loserPage.includes("All places are taken or being paid for right now"), "the web status page's Pay says the same (e=full_held)", loserLanding);
     const repay = await payNow(winner.id, winner.who);
     check(repay.status === 200 && sessionsFor(winner.id).length === 1 && (await reg(winner.id)).hold_until === wr.hold_until, "pressing Pay again reuses the checkout and never stretches the hold");
     const sw = sessionsFor(winner.id)[0]!;
@@ -397,7 +431,12 @@ async function main() {
     );
     const loserAgain = await payNow(loser.id, loser.who);
     const third = await solo(TF1.slug, FC.who, "Flo Third");
-    check(loserAgain.status === 409 && loserAgain.json?.code === "full" && third.status === 409 && third.json?.code === "full", "the other player still cannot pay, and nobody else can register: the event is full", { pay: loserAgain.status, third: third.status });
+    const infoFull = await call("GET", `/api/mobile/v1/t/${TF1.slug}/registration`);
+    check(
+      loserAgain.status === 409 && loserAgain.json?.code === "full" && loserAgain.json?.error === "This event is full." && third.status === 409 && third.json?.code === "full" && third.json?.error === "This event is full." && infoFull.json?.closedMessage === "This event is full.",
+      "once a confirmed entry fills it: the other player still cannot pay, nobody else can register, and the message is the plain \"This event is full.\"",
+      { pay: loserAgain.json, third: third.json, info: infoFull.json?.closedMessage },
+    );
 
     // A checkout that expires (or fails) gives its place back; so does a hold that ran out on its own.
     const TF2 = await event("Hold Expiry Cup", MB);
@@ -410,12 +449,17 @@ async function main() {
     await payNow(RHA, HA.who);
     const sHA = sessionsFor(RHA)[0]!;
     const blocked = await payNow(RHB, HB.who);
-    check(blocked.status === 409 && blocked.json?.code === "full", "while the first player's checkout is open, the place is theirs", blocked.json);
+    check(blocked.status === 409 && blocked.json?.code === "full" && blocked.json?.error === HELD_FULL, "while the first player's checkout is open, the place is theirs (\"being paid for right now… try again\")", blocked.json);
     const exp = await webhook({ id: `evt_${randomUUID().slice(0, 12)}`, type: "payment.expired", createdAt: new Date().toISOString(), data: { sessionId: sHA.sessionId, reference: RHA, amount: sHA.amount, currency: "EGP", refundedAmount: null, testMode: true } });
     sHA.status = "expired";
     const ha = await reg(RHA);
     const infoFreed = await call("GET", `/api/mobile/v1/t/${TF2.slug}/registration`);
     check(exp.status === 200 && Date.parse(String(ha.hold_until)) <= Date.now() && ha.status === "awaiting_payment" && infoFreed.json?.open === true && infoFreed.json?.placesLeft === 1, "Move Tick reports the checkout expired: its place is free again", { hold: ha.hold_until, info: infoFreed.json });
+    const haPage = await statusPage(RHA);
+    const haApp = (await call("GET", "/api/mobile/v1/me/registrations", HA.who)).json?.registrations as { id: string; paymentFailed?: boolean }[] | undefined;
+    check(haPage.includes(PAYMENT_FAILED) && haApp?.find((x) => x.id === RHA)?.paymentFailed === true, "after an expired checkout the status page and the app say the payment didn't go through (nothing charged, try again)", haApp?.find((x) => x.id === RHA));
+    const fbPage = await statusPage(RHB);
+    check(!fbPage.includes(PAYMENT_FAILED) && /only paid entries hold a place/i.test(fbPage), "an entry that never had a failed checkout says nothing of the kind (first paid, first in wording)");
     const pHB = await payNow(RHB, HB.who);
     check(pHB.status === 200 && sessionsFor(RHB).length === 1, "…and the next player can pay", pHB.json);
     await db().from("registrations").update({ hold_until: new Date(Date.now() - 1000).toISOString() }).eq("id", RHB);
@@ -437,7 +481,7 @@ async function main() {
     );
     const refHB = await act("refundRegistrationAction", { registration_id: RHB, payment_id: hbPay?.id ?? "", confirm: "REFUND", reason: "event full" }, mbAdmin, TF2.id);
     const callHB = mt.calls.find((c) => /\/refund$/.test(c.path) && (c.body as { reference?: string })?.reference === RHB);
-    check(actionOk(refHB) && (callHB?.body as { amount?: number } | undefined)?.amount === 25000 && (await onlinePayments(RHB)).find((p) => p.id === hbPay?.id)?.status === "refunded", "one click refunds the flagged payment in full", { ok: actionOk(refHB), call: callHB?.body });
+    check(done(refHB) && (callHB?.body as { amount?: number } | undefined)?.amount === 25000 && (await onlinePayments(RHB)).find((p) => p.id === hbPay?.id)?.status === "refunded", "one click refunds the flagged payment in full", { ok: done(refHB), call: callHB?.body });
     const sHC = sessionsFor(RHC)[0]!;
     await webhook(paidEvent(sHC));
     sHC.status = "paid";
@@ -448,7 +492,38 @@ async function main() {
     await settings(TF3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment", capacity: "1" }, mbAdmin);
     const fr1 = await solo(TF3.slug, (await player("fr1")).who, "Fran Free", { payment: "free" });
     const fr2 = await solo(TF3.slug, (await player("fr2")).who, "Finn Free", { payment: "free" });
-    check(fr1.status === 201 && (await reg(idOf(fr1))).status === "confirmed" && fr2.status === 409 && fr2.json?.code === "full", "a free event confirms on registration while places remain, then is full", { fr1: fr1.status, fr2: fr2.status });
+    check(fr1.status === 201 && (await reg(idOf(fr1))).status === "confirmed" && fr2.status === 409 && fr2.json?.code === "full" && fr2.json?.error === "This event is full.", "a free event confirms on registration while places remain, then is full (the plain message)", { fr1: fr1.status, fr2: fr2.json });
+    // A confirmed entry whose hold_until was left behind (a checkout hold that outlived the payment) counts once, by its status.
+    await db().from("registrations").update({ hold_until: new Date(Date.now() + 10 * 60_000).toISOString(), hold_kind: "checkout" }).eq("id", idOf(fr1));
+    await settings(TF3.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment", capacity: "2" }, mbAdmin);
+    const infoLeftover = await call("GET", `/api/mobile/v1/t/${TF3.slug}/registration`);
+    const fr3 = await solo(TF3.slug, (await player("fr3")).who, "Faye Free", { payment: "free" });
+    const { count: free3 } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", TF3.id).eq("status", "confirmed");
+    check(
+      infoLeftover.json?.placesLeft === 1 && infoLeftover.json?.open === true && fr3.status === 201 && free3 === 2,
+      "a confirmed entry's leftover hold is never counted twice: 1 of 2 places left, and the database lets the second entry in",
+      { left: infoLeftover.json?.placesLeft, fr3: fr3.status, confirmed: free3 },
+    );
+
+    // Move Tick reports payment.failed: the player is told nothing was charged, until a new checkout opens.
+    const TF4 = await event("Failed Card Cup", MB);
+    await settings(TF4.id, { entry_type: "individual", fee: "250", payment: "online", approval_mode: "on_payment" }, mbAdmin);
+    const FX = await player("fx");
+    const RFX = idOf(await solo(TF4.slug, FX.who, "Fiona Fail"));
+    await payNow(RFX, FX.who);
+    const sFX = sessionsFor(RFX)[0]!;
+    const failed = await webhook({ id: `evt_${randomUUID().slice(0, 12)}`, type: "payment.failed", createdAt: new Date().toISOString(), data: { sessionId: sFX.sessionId, reference: RFX, amount: sFX.amount, currency: "EGP", refundedAmount: null, testMode: true } });
+    sFX.status = "failed";
+    const fxPage = await statusPage(RFX);
+    const fxApp = ((await call("GET", "/api/mobile/v1/me/registrations", FX.who)).json?.registrations as { id: string; paymentFailed?: boolean; status: string }[] | undefined)?.find((x) => x.id === RFX);
+    check(failed.status === 200 && fxPage.includes(PAYMENT_FAILED) && fxApp?.paymentFailed === true && fxApp.status === "awaiting_payment", "payment.failed: the status page and the app say the payment didn't go through — nothing was charged", fxApp);
+    const retry = await payNow(RFX, FX.who);
+    const fxApp2 = ((await call("GET", "/api/mobile/v1/me/registrations", FX.who)).json?.registrations as { id: string; paymentFailed?: boolean }[] | undefined)?.find((x) => x.id === RFX);
+    check(retry.status === 200 && sessionsFor(RFX).length === 2 && fxApp2?.paymentFailed === false && !(await statusPage(RFX)).includes(PAYMENT_FAILED), "trying again opens a new checkout, and the message goes", { retry: retry.status, app: fxApp2 });
+    const sFX2 = sessionsFor(RFX)[1]!;
+    await webhook(paidEvent(sFX2));
+    sFX2.status = "paid";
+    check((await reg(RFX)).status === "confirmed" && !(await statusPage(RFX)).includes(PAYMENT_FAILED), "paid at the second attempt: confirmed, no failure message");
 
     /* ---------------- 2c ---------------- */
     section("entry type both: solo players and teams in one event");
@@ -489,7 +564,7 @@ async function main() {
     check(gg?.status === "confirmed" && gg.entry_type === "individual" && gg.amount_venue === 25000 && infoBoFull.json?.open === false, "a web guest enters solo too (confirmed by the emailed link); now the event is full", { status: gg?.status, open: infoBoFull.json?.open });
     const pairBo = await act("pairRegistrationsAction", { tournament_id: TBo.id, registration_ids: [RS, gB.id ?? ""] }, mbAdmin, TBo.id);
     const { count: teamsBo } = await db().from("teams").select("id", { count: "exact", head: true }).eq("tournament_id", TBo.id);
-    check(actionOk(pairBo) && teamsBo === 2 && Boolean((await reg(RS)).team_id), "the organiser pairs the two solo players: two teams fill the two places", { teamsBo });
+    check(done(pairBo) && teamsBo === 2 && Boolean((await reg(RS)).team_id), "the organiser pairs the two solo players: two teams fill the two places", { teamsBo });
 
     /* ---------------- 3 ---------------- */
     section("individual entries");
@@ -533,14 +608,14 @@ async function main() {
     const gl = (guests ?? []) as { id: string; status: string; materialized_at: string | null; auth_user_id: string | null }[];
     check(gl.length === 2 && gl.every((x) => x.status === "confirmed" && !x.materialized_at && !x.auth_user_id), "web guests register as individuals; padel singles wait to be paired", gl);
     const pairB = await act("pairRegistrationsAction", { tournament_id: T3.id, registration_ids: gl.map((x) => x.id) }, bAdmin, T3.id);
-    check(!actionOk(pairB), "another organisation cannot pair them");
+    check(!done(pairB), "another organisation cannot pair them");
     const pairMixed = await act("pairRegistrationsAction", { tournament_id: T3.id, registration_ids: [gl[0]!.id, R1] }, mbAdmin, T3.id);
-    check(!actionOk(pairMixed), "an entry of another event cannot be paired in");
+    check(!done(pairMixed), "an entry of another event cannot be paired in");
     const pair = await act("pairRegistrationsAction", { tournament_id: T3.id, registration_ids: gl.map((x) => x.id) }, mbAdmin, T3.id);
     const paired = await reg(gl[0]!.id);
     const { data: pairPlayers } = await db().from("players").select("id").eq("team_id", paired.team_id ?? randomUUID());
     const { count: guestClaims } = await db().from("player_claims").select("player_id", { count: "exact", head: true }).in("player_id", ((pairPlayers ?? []) as { id: string }[]).map((p) => p.id));
-    check(actionOk(pair) && Boolean(paired.team_id) && (pairPlayers ?? []).length === 2 && guestClaims === 0, "the organiser pairs them into one team; guests' rows are linked to nobody", pair.text.slice(0, 200));
+    check(done(pair) && Boolean(paired.team_id) && (pairPlayers ?? []).length === 2 && guestClaims === 0, "the organiser pairs them into one team; guests' rows are linked to nobody", pair.text.slice(0, 200));
     const honey = await fetch(`${BASE_URL}/api/register/${T3.slug}`, { method: "POST", headers: { "Content-Type": "application/json", ...xff("10.8.0.9") }, body: JSON.stringify({ people: [{ name: "Bot Bot", phone: phone(), email: `bot.${tag}@example.com` }], website: "http://spam" }) });
     const { count: afterHoney } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", T3.id);
     check(honey.status === 200 && afterHoney === 2, "the honeypot answers like a success and writes nothing");
@@ -559,11 +634,11 @@ async function main() {
     const v1 = await reg(R5);
     check(v1.status === "confirmed" && v1.amount_venue === 50000 && v1.amount_online === 0 && Boolean(v1.team_id), "approved: confirmed with EGP 500 due at the venue", v1);
     const vB = await act("markVenuePaidAction", { registration_id: R5 }, bAdmin, T4.id);
-    check(!actionOk(vB) && !(await reg(R5)).venue_paid_at, "another organisation cannot record it paid");
+    check(!done(vB) && !(await reg(R5)).venue_paid_at, "another organisation cannot record it paid");
     const vPaid = await act("markVenuePaidAction", { registration_id: R5 }, mbManager, T4.id);
     const v2 = await reg(R5);
     const { data: vrow } = await db().from("registration_payments").select("method, amount, status").eq("registration_id", R5);
-    check(actionOk(vPaid) && Boolean(v2.venue_paid_at) && JSON.stringify(vrow) === JSON.stringify([{ method: "venue", amount: 50000, status: "paid" }]), "a manager records the payment at the venue", vrow);
+    check(done(vPaid) && Boolean(v2.venue_paid_at) && JSON.stringify(vrow) === JSON.stringify([{ method: "venue", amount: 50000, status: "paid" }]), "a manager records the payment at the venue", vrow);
 
     /* ---------------- 5 ---------------- */
     section("refunds");
@@ -572,7 +647,21 @@ async function main() {
     const refManager = await act("refundRegistrationAction", { registration_id: R1, payment_id: P1, confirm: "REFUND", reason: "e2e" }, mbManager, T1.id);
     const refB = await act("refundRegistrationAction", { registration_id: R1, payment_id: P1, confirm: "REFUND", reason: "e2e" }, bAdmin, T1.id);
     const refNoConfirm = await act("refundRegistrationAction", { registration_id: R1, payment_id: P1, confirm: "", reason: "e2e" }, mbAdmin, T1.id);
-    check(!actionOk(refShared) && !actionOk(refManager) && !actionOk(refB) && !actionOk(refNoConfirm) && (await reg(R1)).status === "confirmed", "refunds: not the shared password, not a manager, not another organisation, not without typing REFUND");
+    check(!done(refShared) && !done(refManager) && !done(refB) && !done(refNoConfirm) && (await reg(R1)).status === "confirmed", "refunds: not the shared password, not a manager, not another organisation, not without typing REFUND");
+    const refLower = await act("refundRegistrationAction", { registration_id: R1, payment_id: P1, confirm: "refnd", reason: "e2e" }, mbAdmin, T1.id);
+    check(
+      inlineRefusal(refNoConfirm, /Type REFUND to confirm\./) && inlineRefusal(refLower, /Type REFUND to confirm\./) && mt.calls.every((c) => !(/\/refund$/.test(c.path) && (c.body as { reference?: string })?.reference === R1)),
+      "without REFUND typed, the action answers \"Type REFUND to confirm.\" inline (no error page) and Move Tick is never asked",
+      refNoConfirm.text.slice(0, 200),
+    );
+    const pageAfterRefusal = await fetch(`${BASE_URL}/admin/tournaments/${T1.id}/registrations`, { headers: mbAdmin, redirect: "manual" });
+    const pageAfterText = (await pageAfterRefusal.text()).replace(/<!-- -->/g, "");
+    const confirmInput = pageAfterText.match(/<input[^>]*name="confirm"[^>]*>/)?.[0] ?? "";
+    check(
+      pageAfterRefusal.status === 200 && pageAfterText.includes("Una One") && !/couldn.t load|A server error occurred/i.test(pageAfterText) && /\brequired=""/.test(confirmInput) && /\bpattern="REFUND"/.test(confirmInput),
+      "the registrations page still renders after the refusal, and the confirm field is required with pattern REFUND",
+      { status: pageAfterRefusal.status, una: pageAfterText.includes("Una One"), error: pageAfterText.match(/.{60}(couldn.t load|A server error occurred).{60}/)?.[0], confirm: confirmInput },
+    );
     const askRefund = await call("POST", `/api/mobile/v1/me/registrations/${R1}/refund-request`, U1.who, {});
     check(askRefund.status === 200 && (askRefund.json?.registration as { refundRequested: boolean }).refundRequested, "the player asks for a refund (nothing is refunded by that)");
     const refund = await act("refundRegistrationAction", { registration_id: R1, payment_id: P1, confirm: "REFUND", reason: "e2e" }, mbAdmin, T1.id);
@@ -580,9 +669,25 @@ async function main() {
     const { data: team1 } = await db().from("teams").select("id").eq("id", after.team_id!).maybeSingle();
     const { count: refundAudits } = await db().from("audit_logs").select("id", { count: "exact", head: true }).eq("entity_id", R1).in("action", ["REGISTRATION_REFUND_REQUESTED", "REGISTRATION_REFUNDED"]);
     const mtRefund = mt.calls.find((c) => /\/refund$/.test(c.path) && (c.body as { reference?: string })?.reference === R1);
-    check(actionOk(refund) && refunded.status === "refunded" && !team1 && refundAudits === 2 && (mtRefund?.body as { amount: number }).amount === 50000, "before the cut-off the admin refunds in full through Move Tick: audited, the team leaves the event", { status: refunded.status, refundAudits });
+    check(done(refund) && refunded.status === "refunded" && !team1 && refundAudits === 2 && (mtRefund?.body as { amount: number }).amount === 50000, "before the cut-off the admin refunds in full through Move Tick: audited, the team leaves the event", { status: refunded.status, refundAudits });
+    check(done(refund) && /"ok":true/.test(refund.text) && /Refunded EGP 500/.test(refund.text), "the refund answers with what it did, next to the button", refund.text.slice(0, 200));
     const refundTwice = await act("refundRegistrationAction", { registration_id: R1, payment_id: P1, confirm: "REFUND", reason: "e2e" }, mbAdmin, T1.id);
-    check(!actionOk(refundTwice), "a refunded entry cannot be refunded twice");
+    check(!done(refundTwice) && inlineRefusal(refundTwice, /already|refund/i), "a refunded entry cannot be refunded twice (said inline)", refundTwice.text.slice(0, 200));
+    const adminAfterRefund = (await (await fetch(`${BASE_URL}/admin/tournaments/${T1.id}/registrations`, { headers: mbAdmin })).text()).replace(/<!-- -->/g, "");
+    const r1Row = adminAfterRefund.slice(adminAfterRefund.indexOf("Una &amp; Pat"), adminAfterRefund.indexOf("Una &amp; Pat") + 3000);
+    check(
+      /EGP 500 refunded in full · \d{1,2} [A-Z][a-z]{2,3}, \d{2}:\d{2}/.test(r1Row) && !/EGP 500 online — paid/.test(r1Row),
+      "the admin list shows the refunded entry as \"EGP 500 refunded in full · <date>\", not \"online — paid\"",
+      r1Row.match(/EGP 500[^<]{0,60}/)?.[0],
+    );
+    check(/EGP 500 online — payment to refund/.test(adminAfterRefund), "a payment held for review reads \"EGP 500 online — payment to refund\"");
+    const r1Status = await statusPage(R1);
+    const r1Mine = ((await call("GET", "/api/mobile/v1/me/registrations", U1.who)).json?.registrations as { id: string; payments?: { status: string; amount: number; refundedAt: string | null }[] }[] | undefined)?.find((x) => x.id === R1);
+    check(
+      /EGP 500 refunded in full · /.test(r1Status) && r1Mine?.payments?.length === 1 && r1Mine.payments[0]!.status === "refunded" && Boolean(r1Mine.payments[0]!.refundedAt),
+      "the player's status page and the app show it refunded in full, with the date",
+      r1Mine?.payments,
+    );
 
     // After the cut-off: the event starts in 10 hours.
     const T5 = await event("Late Cup", MB, { startsInHours: 10 });
@@ -597,7 +702,7 @@ async function main() {
     const P6 = (await onlinePayments(R6)).find((p) => p.status === "paid")?.id ?? "";
     const late = await act("refundRegistrationAction", { registration_id: R6, payment_id: P6, confirm: "REFUND", reason: "e2e" }, mbAdmin, T5.id);
     const lateCalls = mt.calls.filter((c) => /\/refund$/.test(c.path) && (c.body as { reference?: string })?.reference === R6).length;
-    check(!actionOk(late) && lateCalls === 0 && (await reg(R6)).status === "confirmed", "after the cut-off the refund is refused (Move Tick is never asked)", late.status);
+    check(!done(late) && lateCalls === 0 && (await reg(R6)).status === "confirmed", "after the cut-off the refund is refused (Move Tick is never asked)", late.status);
     const askLate = await call("POST", `/api/mobile/v1/me/registrations/${R6}/refund-request`, U2.who, {});
     check(askLate.status === 409, "and the player cannot ask for one");
 
@@ -617,7 +722,7 @@ async function main() {
     const refundEvt = { id: `evt_${randomUUID().slice(0, 12)}`, type: "payment.refunded", createdAt: new Date().toISOString(), data: { sessionId: s7.sessionId, reference: R7, amount: s7.amount, currency: "EGP", refundedAmount: s7.amount, testMode: true } };
     const w7 = await webhook(refundEvt);
     const w7b = await webhook(refundEvt);
-    check(actionOk(ref7) && mid.status === "confirmed" && w7.status === 200 && w7b.json?.duplicate === true && (await reg(R7)).status === "refunded", "a refund Move Tick confirms by webhook lands once", { mid: mid.status });
+    check(done(ref7) && mid.status === "confirmed" && w7.status === 200 && w7b.json?.duplicate === true && (await reg(R7)).status === "refunded", "a refund Move Tick confirms by webhook lands once", { mid: mid.status });
     mt.refundMode = "refunded";
 
     // A webhook that never arrived: My registrations asks Move Tick and catches up (once).
@@ -638,14 +743,14 @@ async function main() {
     /* ---------------- 6 ---------------- */
     section("other organisations and other accounts");
     const bApprove = await act("decideRegistrationAction", { registration_id: R5, decision: "refuse" }, bAdmin, T4.id);
-    check(!actionOk(bApprove) && (await reg(R5)).status === "confirmed", "another organisation's admin cannot refuse Move Beyond's entry");
+    check(!done(bApprove) && (await reg(R5)).status === "confirmed", "another organisation's admin cannot refuse Move Beyond's entry");
     const bSettings = await act("saveRegistrationSettings", { tournament_id: T1.id, open: "", entry_type: "team", team_size: "2", approval_mode: "on_payment", fee: "1", payment: "venue", team_payer: "registrant" }, bAdmin, T1.id);
-    check(!actionOk(bSettings), "nor change its settings");
+    check(!done(bSettings), "nor change its settings");
     const bPage = await fetch(`${BASE_URL}/admin/tournaments/${T1.id}/registrations`, { headers: bAdmin, redirect: "manual" });
     const bPageText = await bPage.text();
     check(bPage.status === 404 && !bPageText.includes("Una One"), "nor open its registrations page", bPage.status);
     const mbOnB = await act("decideRegistrationAction", { registration_id: RB, decision: "approve" }, mbAdmin, TB.id);
-    check(!actionOk(mbOnB) && (await reg(RB)).status === "pending_approval", "and Move Beyond's admin cannot approve the other organisation's entry");
+    check(!done(mbOnB) && (await reg(RB)).status === "pending_approval", "and Move Beyond's admin cannot approve the other organisation's entry");
     const mbPage = await fetch(`${BASE_URL}/admin/tournaments/${T1.id}/registrations`, { headers: mbAdmin, redirect: "manual" });
     check(mbPage.status === 200 && (await mbPage.text()).includes("Una One"), "Move Beyond's admin sees its own registrations");
     const other = await call("POST", `/api/mobile/v1/me/registrations/${R5}/cancel`, U2.who, {});
@@ -742,12 +847,12 @@ async function main() {
       const after = await reg(RD);
       const { count: teamsM } = await db().from("teams").select("id", { count: "exact", head: true }).eq("tournament_id", TM.id);
       check(
-        actionOk(refB) && calls.length === 1 && calls[0]!.path.includes(sB.sessionId) && after.status === "confirmed" && (await onlinePayments(RD)).find((p) => p.id === payA?.id)?.status === "paid" && teamsM === 1,
+        done(refB) && calls.length === 1 && calls[0]!.path.includes(sB.sessionId) && after.status === "confirmed" && (await onlinePayments(RD)).find((p) => p.id === payA?.id)?.status === "paid" && teamsM === 1,
         "M1/L4: the duplicate is refunded by its own id (after the 24 h cut-off too: it bought nothing); the entry and its first payment stay",
-        { ok: actionOk(refB), calls: calls.map((c) => c.path), status: after.status, teamsM },
+        { ok: done(refB), calls: calls.map((c) => c.path), status: after.status, teamsM },
       );
       const bWithA = await act("refundRegistrationAction", { registration_id: RB, payment_id: payA?.id ?? "", confirm: "REFUND", reason: "x" }, bAdmin, TB.id);
-      check(!actionOk(bWithA) && (await onlinePayments(RD)).find((p) => p.id === payA?.id)?.status === "paid", "M1: another organisation cannot refund Move Beyond's payment by naming its id on its own registration");
+      check(!done(bWithA) && (await onlinePayments(RD)).find((p) => p.id === payA?.id)?.status === "paid", "M1: another organisation cannot refund Move Beyond's payment by naming its id on its own registration");
     });
 
     await attack("M2", async () => {
@@ -765,7 +870,7 @@ async function main() {
       const { data: cl } = await db().from("player_claims").select("user_id, player_id").in("user_id", [U10.userId, U11.userId]);
       const claims = new Map(((cl ?? []) as { user_id: string; player_id: string }[]).map((x) => [x.user_id, x.player_id]));
       check(
-        actionOk(pairSame) && ra.player_id !== rb.player_id && order.get(ra.player_id ?? "") === 1 && order.get(rb.player_id ?? "") === 2 && claims.get(U10.userId) === ra.player_id && claims.get(U11.userId) === rb.player_id,
+        done(pairSame) && ra.player_id !== rb.player_id && order.get(ra.player_id ?? "") === 1 && order.get(rb.player_id ?? "") === 2 && claims.get(U10.userId) === ra.player_id && claims.get(U11.userId) === rb.player_id,
         "M2: two players with the same name, paired: each registration (and account) gets its own row, by place, never by name",
         { a: ra.player_id, b: rb.player_id, claims: Object.fromEntries(claims) },
       );
@@ -808,7 +913,11 @@ async function main() {
       check(a.status === 201 && b.status === 201 && infoC.json?.open === true, "M4: requests waiting for the organiser never fill the event", { a: a.status, b: b.status, open: infoC.json?.open });
       await act("decideRegistrationAction", { registration_id: regId(a), decision: "approve" }, mbAdmin, TC.id);
       const second = await act("decideRegistrationAction", { registration_id: regId(b), decision: "approve" }, mbAdmin, TC.id);
-      check((await reg(regId(a))).status === "confirmed" && !actionOk(second) && (await reg(regId(b))).status === "pending_approval", "M4: once full, approving one more is refused", second.status);
+      check(
+        (await reg(regId(a))).status === "confirmed" && inlineRefusal(second, /The event is full/) && (await reg(regId(b))).status === "pending_approval",
+        "M4: once full, approving one more is refused, said next to the button (no error page)",
+        second.text.slice(0, 200),
+      );
       const TC2 = await event("Race Cup", MB);
       await settings(TC2.id, { entry_type: "individual", fee: "0", payment: "free", approval_mode: "on_payment", capacity: "1" }, mbAdmin);
       const racers = [await player("u15"), await player("u16"), await player("u17")];
@@ -847,7 +956,7 @@ async function main() {
       const other = regId(await call("POST", `/api/mobile/v1/t/${TH.slug}/registration`, U24.who, { people: [{ name: "Otto Other", phone: phone() }], payment: "online" }));
       const approveOther = await act("decideRegistrationAction", { registration_id: other, decision: "approve" }, mbAdmin, TH.id);
       const lapsedPay = await payNow(RH, U23.who);
-      check(actionOk(approveOther) && lapsedPay.status === 409 && lapsedPay.json?.code === "full", "M4: once its hold ran out and the place was taken, the entry cannot pay (not even on its still-open checkout)", { approve: actionOk(approveOther), pay: lapsedPay.status, code: lapsedPay.json?.code });
+      check(done(approveOther) && lapsedPay.status === 409 && lapsedPay.json?.code === "full", "M4: once its hold ran out and the place was taken, the entry cannot pay (not even on its still-open checkout)", { approve: done(approveOther), pay: lapsedPay.status, code: lapsedPay.json?.code });
       await webhook(paidEvent(sH));
       const ph = (await onlinePayments(RH)).find((p) => p.session_id === sH.sessionId);
       const { count: inH } = await db().from("registrations").select("id", { count: "exact", head: true }).eq("tournament_id", TH.id).eq("status", "confirmed");

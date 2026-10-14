@@ -13,6 +13,7 @@ export default function RegisterForm({
   options,
   partnerPhoneRequired,
   feePerPlayer,
+  approval = "on_payment",
 }: {
   slug: string;
   /** Players in a team entry. */
@@ -22,6 +23,8 @@ export default function RegisterForm({
   options: Choice[];
   partnerPhoneRequired: boolean;
   feePerPlayer: number;
+  /** "organiser": the organiser approves first, and an approved entry keeps its place for 24 hours while it is paid. */
+  approval?: "on_payment" | "organiser";
 }) {
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -152,7 +155,11 @@ export default function RegisterForm({
       </div>
 
       {choice === "online" && (
-        <p className="text-xs text-muted">Only paid entries hold a place: after confirming your email you pay online, and your place is confirmed when your payment goes through.</p>
+        <p className="text-xs text-muted">
+          {approval === "organiser"
+            ? "After confirming your email, the organiser reviews your entry. Once approved, your place is kept for 24 hours: pay online before then to confirm it."
+            : "Only paid entries hold a place: after confirming your email you pay online, and your place is confirmed when your payment goes through."}
+        </p>
       )}
 
       {status === "error" && <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-semibold text-danger">{message}</p>}

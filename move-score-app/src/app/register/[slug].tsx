@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { charges, moneyLabel, type MPaymentChoice, type MRegistrationInfo } from "@core";
+import { charges, moneyLabel, PAYMENT_FAILED_MESSAGE, type MPaymentChoice, type MRegistrationInfo } from "@core";
 import { ApiError, errorMessage } from "../../api/client";
 import { registerFor, registrationAction, useMyRegistrations, useRegistrationInfo } from "../../api/queries";
 import { session } from "../../state/session";
@@ -113,7 +113,7 @@ function RegisterForm({ info }: { info: MRegistrationInfo }) {
       {cost.total > 0 ? (
         <Body tone="ink2" size={13}>
           {[cost.online ? `${moneyLabel(cost.online)} now` : null, cost.venue ? `${moneyLabel(cost.venue)} at the venue` : null].filter(Boolean).join(" + ")}
-          {info.approval === "organiser" && cost.online ? " (you pay after the organiser approves)" : ""}
+          {info.approval === "organiser" && cost.online ? " (you pay after the organiser approves; an approved entry keeps its place for 24 hours while it is paid)" : ""}
           {info.approval === "on_payment" && cost.online ? ". Only paid entries hold a place: yours is confirmed when your payment goes through." : ""}
         </Body>
       ) : null}
@@ -149,7 +149,9 @@ function RegisterPage({ slug }: { slug: string }) {
         <Body size={14}>{info.feeLabel ?? "Free"}{info.feeLabel && info.entryType !== "individual" ? (info.teamPayer === "registrant" ? " · a team's registrant pays for the team" : " · each pays their share") : ""}</Body>
         <Body tone="ink2" size={13}>
           {info.approval === "organiser"
-            ? "The organiser approves each entry."
+            ? info.paymentOptions.includes("online")
+              ? "The organiser approves each entry; an approved entry keeps its place for 24 hours while it is paid."
+              : "The organiser approves each entry."
             : info.paymentOptions.includes("online")
               ? "First paid, first in: your place is confirmed when your payment goes through."
               : "First come, first in while places remain."}
@@ -171,6 +173,11 @@ function RegisterPage({ slug }: { slug: string }) {
         ) : existing ? (
           <Card style={{ gap: 10 }}>
             <Body weight="bold">{existing.statusLabel}</Body>
+            {existing.status === "awaiting_payment" && existing.paymentFailed ? (
+              <Body tone="live" size={13} weight="bold" accessibilityLiveRegion="polite">
+                {PAYMENT_FAILED_MESSAGE}
+              </Body>
+            ) : null}
             <Button label="My registrations" onPress={openRegistrations} />
           </Card>
         ) : (

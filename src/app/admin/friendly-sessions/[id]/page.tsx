@@ -1,3 +1,4 @@
+import StateForm from "@/components/StateForm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
@@ -379,7 +380,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
       )}
 
       {canPublish && (
-        <form action={publishNightTableAction} className="card space-y-3 border-accent/40" data-testid="publish-night-table">
+        <StateForm action={publishNightTableAction} className="card space-y-3 border-accent/40" testId="publish-night-table">
           <input type="hidden" name="session_id" value={session.id} />
           <input type="hidden" name="confirm_players" value="1" />
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -421,7 +422,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               {publishedAt ? "Publish again" : "Confirm players and publish table"}
             </ConfirmSubmit>
           </div>
-        </form>
+        </StateForm>
       )}
 
       <div className="card space-y-3">

@@ -39,6 +39,7 @@ import {
   type MemberDecision,
 } from "@/lib/leagues/ops";
 import { recomputeLeague } from "@/lib/leagues/server";
+import { formResult, refusal, type FormState } from "@/lib/refusal";
 
 const page = (id: string) => `/admin/leagues/${id}`;
 const text = (v: FormDataEntryValue | null, max: number) => String(v ?? "").trim().slice(0, max);
@@ -49,14 +50,20 @@ const num = (v: FormDataEntryValue | null) => {
 const TIME_ZONES = new Set(["Africa/Cairo", "Asia/Dubai", "Asia/Riyadh", "Europe/London", "Europe/Paris", "UTC"]);
 const sportOk = (s: string) => Object.keys(SPORTS).includes(s);
 
+/*
+ * Forms whose refusal is a message for the organiser ("A division already has that
+ * name.") answer it inline (StateForm, src/lib/refusal.ts) instead of an error page.
+ * Guards refusing another organisation's row still throw.
+ */
+
 /** A new league in the caller's own organisation, with one division. */
-export async function createLeagueAction(formData: FormData) {
+export async function createLeagueAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const staff = await requireStaffPermission("manage_leagues");
   const name = text(formData.get("name"), 120);
   const kind = String(formData.get("kind") ?? "nights");
   const sport = String(formData.get("sport") ?? "padel");
-  if (!name) throw new Error("Give the league a name.");
-  if (!isLeagueKind(kind)) throw new Error("Pick nights or a season.");
+  if (!name) return { ok: false, message: "Give the league a name." };
+  if (!isLeagueKind(kind)) return { ok: false, message: "Pick nights or a season." };
   const league = await createLeague({
     organizationId: staff.orgId,
     name,
@@ -69,36 +76,39 @@ export async function createLeagueAction(formData: FormData) {
   redirect(page(league.id));
 }
 
-export async function saveLeagueSettings(formData: FormData) {
+export async function saveLeagueSettings(_prev: FormState, formData: FormData): Promise<FormState> {
   const leagueId = String(formData.get("league_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { league: leagueId });
-  const name = text(formData.get("name"), 120);
-  if (!name) throw new Error("Give the league a name.");
-  const status = String(formData.get("status") ?? "");
-  if (!isLeagueStatus(status)) throw new Error("Pick a status.");
-  const sport = String(formData.get("sport") ?? "padel");
-  const tz = String(formData.get("timezone") ?? "Africa/Cairo");
-  const modes = normalizeJoinModes(formData.getAll("join_modes").map(String).filter((m) => (JOIN_MODES as readonly string[]).includes(m)));
-  const currency = text(formData.get("currency"), 3).toUpperCase() || "EGP";
-  const fee = storedLeagueFee({
-    membership: (num(formData.get("fee_membership")) ?? 0) > 0 ? { amount: Math.round(num(formData.get("fee_membership"))!), currency } : null,
-    perNight: (num(formData.get("fee_per_night")) ?? 0) > 0 ? { amount: Math.round(num(formData.get("fee_per_night"))!), currency } : null,
+  return formResult(async () => {
+    const name = text(formData.get("name"), 120);
+    if (!name) refusal("Give the league a name.");
+    const status = String(formData.get("status") ?? "");
+    if (!isLeagueStatus(status)) refusal("Pick a status.");
+    const sport = String(formData.get("sport") ?? "padel");
+    const tz = String(formData.get("timezone") ?? "Africa/Cairo");
+    const modes = normalizeJoinModes(formData.getAll("join_modes").map(String).filter((m) => (JOIN_MODES as readonly string[]).includes(m)));
+    const currency = text(formData.get("currency"), 3).toUpperCase() || "EGP";
+    const fee = storedLeagueFee({
+      membership: (num(formData.get("fee_membership")) ?? 0) > 0 ? { amount: Math.round(num(formData.get("fee_membership"))!), currency } : null,
+      perNight: (num(formData.get("fee_per_night")) ?? 0) > 0 ? { amount: Math.round(num(formData.get("fee_per_night"))!), currency } : null,
+    });
+    await updateLeague(
+      leagueId,
+      {
+        name,
+        about: text(formData.get("about"), 4000) || null,
+        status,
+        sport: sportOk(sport) ? sport : "padel",
+        timezone: TIME_ZONES.has(tz) ? tz : "Africa/Cairo",
+        join_modes: modes.length ? modes : ["open"],
+        fee,
+        counts_toward_top_of_all: formData.get("counts_toward_top_of_all") === "on",
+      },
+      staff.role,
+    );
+    revalidatePath(page(leagueId));
+    return "Saved.";
   });
-  await updateLeague(
-    leagueId,
-    {
-      name,
-      about: text(formData.get("about"), 4000) || null,
-      status,
-      sport: sportOk(sport) ? sport : "padel",
-      timezone: TIME_ZONES.has(tz) ? tz : "Africa/Cairo",
-      join_modes: modes.length ? modes : ["open"],
-      fee,
-      counts_toward_top_of_all: formData.get("counts_toward_top_of_all") === "on",
-    },
-    staff.role,
-  );
-  revalidatePath(page(leagueId));
 }
 
 export async function savePointsRules(formData: FormData) {
@@ -165,25 +175,34 @@ export async function clearInviteCodeAction(formData: FormData) {
   revalidatePath(page(leagueId));
 }
 
-export async function addDivisionAction(formData: FormData) {
+export async function addDivisionAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const leagueId = String(formData.get("league_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { league: leagueId });
-  await addDivision(leagueId, text(formData.get("name"), 80), staff.role);
-  revalidatePath(page(leagueId));
+  return formResult(async () => {
+    await addDivision(leagueId, text(formData.get("name"), 80), staff.role);
+    revalidatePath(page(leagueId));
+    return "Division added.";
+  });
 }
 
-export async function renameDivisionAction(formData: FormData) {
+export async function renameDivisionAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const divisionId = String(formData.get("division_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { division: divisionId });
-  await renameDivision(divisionId, text(formData.get("name"), 80), staff.role);
-  revalidatePath("/admin/leagues", "layout");
+  return formResult(async () => {
+    await renameDivision(divisionId, text(formData.get("name"), 80), staff.role);
+    revalidatePath("/admin/leagues", "layout");
+    return "Renamed.";
+  });
 }
 
-export async function deleteDivisionAction(formData: FormData) {
+export async function deleteDivisionAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const divisionId = String(formData.get("division_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { division: divisionId });
-  await deleteDivision(divisionId, staff.role);
-  revalidatePath("/admin/leagues", "layout");
+  return formResult(async () => {
+    await deleteDivision(divisionId, staff.role);
+    revalidatePath("/admin/leagues", "layout");
+    return "Removed.";
+  });
 }
 
 export async function decideMemberAction(formData: FormData) {
@@ -232,42 +251,54 @@ export async function addMemberAction(formData: FormData) {
 }
 
 /** A night from the league's template, on a date, in a division. */
-export async function createNightAction(formData: FormData) {
+export async function createNightAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const divisionId = String(formData.get("division_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { division: divisionId });
-  const date = String(formData.get("date") ?? "");
-  if (!isIsoDate(date)) throw new Error("Pick the night's date.");
-  await createNight(divisionId, date, staff.role);
-  revalidatePath("/admin/leagues", "layout");
+  return formResult(async () => {
+    const date = String(formData.get("date") ?? "");
+    if (!isIsoDate(date)) refusal("Pick the night's date.");
+    await createNight(divisionId, date, staff.role);
+    revalidatePath("/admin/leagues", "layout");
+    return "Night added.";
+  });
 }
 
-export async function deleteNightAction(formData: FormData) {
+export async function deleteNightAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const fixtureId = String(formData.get("fixture_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { fixture: fixtureId });
-  await deleteNight(fixtureId, staff.role);
-  revalidatePath("/admin/leagues", "layout");
+  return formResult(async () => {
+    await deleteNight(fixtureId, staff.role);
+    revalidatePath("/admin/leagues", "layout");
+    return "Removed.";
+  });
 }
 
-export async function setFixtureDateAction(formData: FormData) {
+export async function setFixtureDateAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const fixtureId = String(formData.get("fixture_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { fixture: fixtureId });
-  const date = String(formData.get("date") ?? "");
-  if (!isIsoDate(date)) throw new Error("Pick a date.");
-  await setFixtureDate(fixtureId, date, staff.role);
-  revalidatePath("/admin/leagues", "layout");
+  return formResult(async () => {
+    const date = String(formData.get("date") ?? "");
+    if (!isIsoDate(date)) refusal("Pick a date.");
+    await setFixtureDate(fixtureId, date, staff.role);
+    revalidatePath("/admin/leagues", "layout");
+    return "Moved.";
+  });
 }
 
 /** Generates (or regenerates the unplayed part of) a season division's fixtures. Dates: one per line or comma-separated. */
-export async function generateFixturesAction(formData: FormData) {
+export async function generateFixturesAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const divisionId = String(formData.get("division_id") ?? "");
   const { staff } = await requireScopedPermission("manage_leagues", { division: divisionId });
-  const dates = String(formData.get("dates") ?? "")
-    .split(/[\s,;]+/)
-    .map((d) => d.trim())
-    .filter(isIsoDate)
-    .slice(0, 200);
-  await generateSeasonFixtures(divisionId, dates, staff.role);
-  revalidatePath("/admin/leagues", "layout");
+  return formResult(async () => {
+    const dates = String(formData.get("dates") ?? "")
+      .split(/[\s,;]+/)
+      .map((d) => d.trim())
+      .filter(isIsoDate)
+      .slice(0, 200);
+    await generateSeasonFixtures(divisionId, dates, staff.role);
+    revalidatePath("/admin/leagues", "layout");
+    return "Fixtures generated.";
+  });
 }
 
 /**

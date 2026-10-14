@@ -1,3 +1,4 @@
+import StateForm from "@/components/StateForm";
 import Link from "next/link";
 import { db } from "@/lib/supabase";
 import { requirePlatformPage } from "@/lib/guard";
@@ -154,7 +155,7 @@ export default async function DiscoverSettingsPage() {
           Switch app features on or off for every phone. A flag the app does not know is ignored by it. Tournament details live on each
           tournament&apos;s <Link className="text-accent underline" href="/admin/tournaments">App tab</Link>.
         </p>
-        <form action={saveFlags} className="space-y-2">
+        <StateForm action={saveFlags} className="space-y-2">
           <div className="grid gap-1 sm:grid-cols-2">
             {flagNames.map((k) => (
               <label key={k} className="flex items-center gap-2 text-sm">
@@ -172,7 +173,7 @@ export default async function DiscoverSettingsPage() {
             <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" name="new_flag_on" /> On</label>
           </div>
           <button className="btn-primary">Save flags</button>
-        </form>
+        </StateForm>
       </section>
     </div>
   );

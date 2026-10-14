@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { moneyLabel } from "@/lib/registration/rules";
+import { HELD_FULL_MESSAGE, moneyLabel } from "@/lib/registration/rules";
 import { statusView } from "@/lib/registration/server";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Registration · Move Score", robots: { index: false } };
 
 const ERRORS: Record<string, string> = {
-  full: "Sorry: this event is full. Only paid entries hold a place, and the last ones were taken.",
+  full: "Sorry: this event is full. Every place is taken.",
+  full_held: HELD_FULL_MESSAGE,
   too_many_checkouts: "Too many payment attempts for this entry today. Try again tomorrow, or ask the organiser.",
   conflict: "This entry changed meanwhile. Try again.",
   checkout_open: "A checkout for this entry is still open. Try again in a few minutes.",
@@ -33,17 +34,29 @@ export default async function RegistrationStatus({ searchParams }: { searchParam
           {confirmed && <p className="text-sm text-success">Thanks: your email address is confirmed.</p>}
           <p className="font-semibold">{view.label}</p>
           {e && <p className="text-sm text-danger">{ERRORS[e] ?? "Something went wrong. Try again."}</p>}
-          <p className="text-sm text-muted">
+          {view.paymentFailed && !e && (
+            <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-semibold text-danger" data-testid="payment-failed">
+              {view.paymentFailed}
+            </p>
+          )}
+          <p className="text-sm text-muted" data-testid="status-note">
             {view.status === "awaiting_payment"
-              ? "Pay to confirm your place: only paid entries hold a place, and yours is confirmed when your payment goes through. If you just paid, this page updates within a minute."
+              ? `${view.placeNote ?? ""} If you just paid, this page updates within a minute.`
               : view.status === "confirmed"
                 ? "You're in. The confirmation is on its way."
                 : view.status === "unconfirmed"
                   ? "Open the link we emailed you to confirm your registration."
                   : view.status === "pending_approval"
-                    ? "The organiser confirms each entry; we'll email you when they do."
+                    ? `The organiser confirms each entry; we'll email you when they do.${view.amountOnline > 0 ? " Once approved, your place is kept for 24 hours while you pay." : ""}`
                     : "Questions? Ask the organiser."}
           </p>
+          {view.paymentLines.length > 0 && (
+            <ul className="text-sm" data-testid="payment-lines">
+              {view.paymentLines.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          )}
           {view.canPay && (
             <form method="post" action="/api/register/pay">
               <input type="hidden" name="r" value={r} />

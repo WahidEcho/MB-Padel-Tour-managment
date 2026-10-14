@@ -941,6 +941,24 @@ export interface MRegistration {
   /** The entry exists in the event and the registrant's own player is linked to this account. */
   linked: boolean;
   createdAt: string;
+  /**
+   * Online payments that took money (paid, held for review, refund on its way,
+   * refunded), oldest first: onlinePaymentLines words them. Absent from older servers.
+   */
+  payments?: MRegistrationPayment[];
+  /** Still awaiting payment and the latest checkout failed or expired (PAYMENT_FAILED_MESSAGE). */
+  paymentFailed?: boolean;
+  /** The organiser approved the entry (organiser mode): its place is kept until placeKeptUntil. */
+  approved?: boolean;
+  /** While awaiting payment: when the place kept for it ends (null: none kept). */
+  placeKeptUntil?: string | null;
+}
+
+export interface MRegistrationPayment {
+  status: "paid" | "needs_review" | "refund_pending" | "refunded";
+  amount: number;
+  refundAmount: number | null;
+  refundedAt: string | null;
 }
 
 /** POST /t/{slug}/registration and the /me/registrations/{id}/* actions. */

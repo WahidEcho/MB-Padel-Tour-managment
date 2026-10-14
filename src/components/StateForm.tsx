@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState } from "react";
+import type { FormState } from "@/lib/refusal";
 
-export type FormState = { ok: boolean; message: string } | null;
+export type { FormState };
 
 /**
  * A form whose server action answers with a message (`{ ok, message }`) instead

@@ -56,6 +56,18 @@ interface ManifestEntry {
 }
 const manifest = JSON.parse(readFileSync(join(process.cwd(), ".next/server/server-reference-manifest.json"), "utf8")) as { node: Record<string, ManifestEntry> };
 const ACTIONS = "src/app/admin/leagues/actions.ts";
+/** (state, form) actions: StateForm forms whose refusals come back as { ok: false, message }. */
+const STATE_ACTIONS = new Set([
+  "createLeagueAction",
+  "saveLeagueSettings",
+  "addDivisionAction",
+  "renameDivisionAction",
+  "deleteDivisionAction",
+  "createNightAction",
+  "deleteNightAction",
+  "setFixtureDateAction",
+  "generateFixturesAction",
+]);
 
 async function action(name: string, form: Record<string, string>, who: Who, pagePath = "/admin/leagues") {
   const sameFile = (f: string) => f === ACTIONS || f.endsWith(`/${ACTIONS}`) || `src/${f}` === ACTIONS;
@@ -63,11 +75,12 @@ async function action(name: string, form: Record<string, string>, who: Who, page
   if (!hit) throw new Error(`no server action ${name} in the build manifest (rebuild?)`);
   const fd = new FormData();
   for (const [k, v] of Object.entries(form)) fd.append(`_1_${k}`, v);
-  fd.set("0", JSON.stringify(["$K1"]));
+  fd.set("0", JSON.stringify(STATE_ACTIONS.has(name) ? [null, "$K1"] : ["$K1"]));
   const res = await fetch(`${BASE_URL}${pagePath}`, { method: "POST", headers: { "Next-Action": hit[0], Accept: "text/x-component", Origin: BASE_URL, ...who }, body: fd, redirect: "manual" });
   return { status: res.status, text: await res.text() };
 }
-const actionOk = (r: { status: number; text: string }) => (r.status === 200 || r.status === 303) && !/"digest"|Not found|Not allowed/.test(r.text);
+/** Went through: no error, and not a (state, form) action answering { ok: false }. */
+const actionOk = (r: { status: number; text: string }) => (r.status === 200 || r.status === 303) && !/"digest"|Not found|Not allowed|"ok":false/.test(r.text);
 
 /* ---------------- scoring through the events route ---------------- */
 

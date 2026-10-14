@@ -1,5 +1,6 @@
 "use server";
 
+import { formResult, type FormState } from "@/lib/refusal";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
@@ -179,22 +180,26 @@ export async function nextRoundAction(formData: FormData) {
  * tonight, the table is generated with its order of play per court and "about"
  * times, and the players are told. The organisation comes from the session.
  */
-export async function publishNightTableAction(formData: FormData) {
+export async function publishNightTableAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const sessionId = String(formData.get("session_id") ?? "");
   if (!sessionId) throw new Error("Session is required");
   const { staff } = await requireScopedPermission("manage_sessions", { session: sessionId });
   const playing = formData.getAll("playing").map(String).filter(Boolean);
   await requireOwnPlayers(staff.orgId, playing);
-  await publishNightTable(
-    sessionId,
-    {
-      playing: formData.get("confirm_players") === "1" ? playing : null,
-      matchMinutes: Number(formData.get("match_minutes") ?? "") || null,
-      changeoverMinutes: formData.get("changeover_minutes") === null || formData.get("changeover_minutes") === "" ? null : Number(formData.get("changeover_minutes")),
-    },
-    { role: staff.role, userId: staff.userId ?? null },
-  );
-  revalidatePath(`/admin/friendly-sessions/${sessionId}`);
+  // "Confirm at least 4 players…", "The night has started…": answered next to the button (StateForm), not as an error page.
+  return formResult(async () => {
+    await publishNightTable(
+      sessionId,
+      {
+        playing: formData.get("confirm_players") === "1" ? playing : null,
+        matchMinutes: Number(formData.get("match_minutes") ?? "") || null,
+        changeoverMinutes: formData.get("changeover_minutes") === null || formData.get("changeover_minutes") === "" ? null : Number(formData.get("changeover_minutes")),
+      },
+      { role: staff.role, userId: staff.userId ?? null },
+    );
+    revalidatePath(`/admin/friendly-sessions/${sessionId}`);
+    return "Table published.";
+  });
 }
 
 /**

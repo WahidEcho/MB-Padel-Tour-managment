@@ -16,6 +16,7 @@
  *
  * Server-only.
  */
+import { Refusal } from "../refusal";
 import { db } from "../supabase";
 import { audit } from "../audit";
 import { getCourts } from "../data";
@@ -176,10 +177,10 @@ export async function publishNightTable(sessionId: string, input: PublishInput, 
   const { data: s } = await db().from("friendly_sessions").select(SESSION_COLUMNS).eq("id", sessionId).maybeSingle();
   const session = s as SessionRow | null;
   if (!session) throw new Error("Session not found");
-  if (session.status === "finalized") throw new Error("This night is finalized. Reopen it before changing its table.");
+  if (session.status === "finalized") throw new Refusal("This night is finalized. Reopen it before changing its table.");
   const before = await friendlyMatches(session.tournament_id);
   if (before.some((m) => !WAITING.includes(m.status))) {
-    throw new Error("The night has started: its table is out. Results (and Mexicano's next round) change it from here.");
+    throw new Refusal("The night has started: its table is out. Results (and Mexicano's next round) change it from here.");
   }
 
   // 1. Who plays tonight.
@@ -189,16 +190,16 @@ export async function publishNightTable(sessionId: string, input: PublishInput, 
   if (input.playing) {
     const confirmed = new Set(input.playing);
     const strangers = [...confirmed].filter((id) => !approved.some((e) => e.player_profile_id === id));
-    if (strangers.length) throw new Error("Only players entered for this night can be confirmed.");
+    if (strangers.length) throw new Refusal("Only players entered for this night can be confirmed.");
     const out = approved.filter((e) => !confirmed.has(e.player_profile_id));
-    if (approved.length - out.length < 4) throw new Error("Confirm at least 4 players to build the table.");
+    if (approved.length - out.length < 4) throw new Refusal("Confirm at least 4 players to build the table.");
     if (out.length) {
       const at = new Date().toISOString();
       await db().from("friendly_entries").update({ approval: "withdrawn", updated_at: at }).in("id", out.map((e) => e.id));
       withdrawn = out.length;
     }
   } else if (approved.length < 4) {
-    throw new Error("At least 4 approved players are needed to build the table.");
+    throw new Refusal("At least 4 approved players are needed to build the table.");
   }
 
   // 2. How long a match takes, for the estimates.

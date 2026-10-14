@@ -2,9 +2,23 @@ import { notFound } from "next/navigation";
 import { requireTournamentPage } from "@/lib/guard";
 import { staffCan } from "@/lib/auth";
 import { isoToZonedInput } from "@/lib/tennis/ties";
-import { CHECKOUT_HOLD_MS, STATUS_LABELS, capacitySeats, holdsPlace, moneyLabel, refundAllowed, refundAmount, REFUND_MESSAGES, seatsPerPlace, type RegistrationStatus } from "@/lib/registration/rules";
+import {
+  CHECKOUT_HOLD_MS,
+  STATUS_LABELS,
+  capacitySeats,
+  countSeats,
+  holdsPlace,
+  moneyLabel,
+  onlinePaymentLines,
+  refundAllowed,
+  refundAmount,
+  REFUND_MESSAGES,
+  seatsPerPlace,
+  type RegistrationStatus,
+} from "@/lib/registration/rules";
 import { eventById, eventRefusal, eventRegistrations, getSettings, onlinePaymentAvailable, startsAtOf, waitsForPairing } from "@/lib/registration/server";
 import { siteUrl } from "@/lib/messaging/links";
+import StateForm from "@/components/StateForm";
 import { db } from "@/lib/supabase";
 import { decideRegistrationAction, markVenuePaidAction, pairRegistrationsAction, refundRegistrationAction, saveRegistrationSettings } from "./actions";
 
@@ -48,8 +62,9 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
   const mayRefund = staffCan(staff, "refund_registrations");
   const unpaired = regs.filter((r) => r.status === "confirmed" && !r.materialized_at && waitsForPairing(event, r.entry_type));
   const tz = event.timezone ?? "Africa/Cairo";
-  // Places are counted in players: a team takes its players' places, a solo entry one.
-  const seatsHeld = regs.filter((r) => holdsPlace(r)).reduce((n, r) => n + Math.max(1, r.people.length), 0);
+  // Places are counted in players: a team takes its players' places, a solo entry one (each entry once, by its status).
+  const seats = countSeats(regs);
+  const seatsHeld = seats.firm + seats.checkout;
   const seatsCap = capacitySeats(settings);
   const perPlace = seatsPerPlace(settings);
   const flagged = regs.filter((r) => r.payments.some((p) => p.status === "needs_review"));
@@ -83,7 +98,9 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
         {seatsCap !== null && (
           <p className="text-sm">
             <span className="font-semibold">Places:</span> {seatsHeld} of {seatsCap} player places taken
-            {perPlace > 1 ? ` (${seatsCap / perPlace} teams of ${perPlace}; a solo player takes one place)` : ""}, counting confirmed entries and open checkouts.
+            {perPlace > 1 ? ` (${seatsCap / perPlace} teams of ${perPlace}; a solo player takes one place)` : ""}, counting confirmed entries
+            {settings.approvalMode === "organiser" ? ", approved entries inside their 24 hours" : ""} and open checkouts
+            {seats.checkout > 0 ? ` (${seats.checkout} being paid for right now)` : ""}.
           </p>
         )}
         {flagged.length > 0 && (
@@ -94,7 +111,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
       </section>
 
       {!refusal && (
-        <form action={saveRegistrationSettings} className="card grid gap-3 sm:grid-cols-2">
+        <StateForm action={saveRegistrationSettings} className="card grid gap-3 sm:grid-cols-2" testId="registration-settings">
           <input type="hidden" name="tournament_id" value={id} />
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input type="checkbox" name="open" defaultChecked={settings.open} /> <span className="font-semibold">Taking registrations</span>
@@ -153,11 +170,11 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
           <div className="sm:col-span-2">
             <button className="btn-primary">Save</button>
           </div>
-        </form>
+        </StateForm>
       )}
 
       {unpaired.length >= 2 && (
-        <form action={pairRegistrationsAction} className="card space-y-2">
+        <StateForm action={pairRegistrationsAction} className="card space-y-2">
           <input type="hidden" name="tournament_id" value={id} />
           <h3 className="font-bold">Pair solo players into teams</h3>
           <div className="grid gap-1 sm:grid-cols-2">
@@ -168,7 +185,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
             ))}
           </div>
           <button className="btn-secondary text-sm">Pair the two ticked</button>
-        </form>
+        </StateForm>
       )}
 
       <section className="space-y-3">
@@ -184,7 +201,6 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                 {list.map((r) => {
                   // Each payment that was taken can be refunded on its own (a duplicate, or one paid after a cancellation).
                   const refundable = r.payments.filter((p) => p.method === "online" && (p.status === "paid" || p.status === "needs_review") && p.paid_at);
-                  const paidOnline = refundable.find((p) => p.status === "paid") ?? refundable[0];
                   const pending = r.payments.find((p) => p.method === "online" && p.status === "refund_pending");
                   return (
                     <li key={r.id} className="space-y-1 py-2 text-sm">
@@ -196,7 +212,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                         </span>
                         {r.refund_requested_at && r.status === "confirmed" && <span className="rounded bg-warning/15 px-2 py-0.5 text-xs text-warning">refund asked</span>}
                         {r.payments.some((p) => p.status === "needs_review") && (
-                          <span className="rounded bg-danger/10 px-2 py-0.5 text-xs text-danger">payment needs review</span>
+                          <span className="rounded bg-danger/10 px-2 py-0.5 text-xs text-danger">payment to refund</span>
                         )}
                       </div>
                       <ul className="text-xs text-muted">
@@ -208,11 +224,15 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                           </li>
                         ))}
                       </ul>
-                      <p className="text-xs">
+                      <p className="text-xs" data-testid="registration-money">
                         {r.payment_choice === "free"
                           ? "Free"
                           : [
-                              r.amount_online ? `${moneyLabel(r.amount_online)} online${r.paid_at ? " — paid" : ""}${paidOnline?.status === "needs_review" ? " (review)" : ""}` : null,
+                              ...onlinePaymentLines(
+                                r.amount_online,
+                                r.payments.filter((p) => p.method === "online").map((p) => ({ status: p.status, amount: p.amount, refundAmount: p.refund_amount, refundedAt: p.refunded_at })),
+                                when,
+                              ),
                               r.amount_venue ? `${moneyLabel(r.amount_venue)} at the venue${r.venue_paid_at ? " — paid" : ""}` : null,
                             ]
                               .filter(Boolean)
@@ -225,43 +245,54 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                       <div className="flex flex-wrap gap-2">
                         {r.status === "pending_approval" && (
                           <>
-                            <form action={decideRegistrationAction}>
+                            <StateForm action={decideRegistrationAction}>
                               <input type="hidden" name="registration_id" value={r.id} />
                               <button className="btn-primary text-xs" name="decision" value="approve">Approve</button>
-                            </form>
-                            <form action={decideRegistrationAction} className="flex gap-1">
+                            </StateForm>
+                            <StateForm action={decideRegistrationAction} className="flex flex-wrap gap-1">
                               <input type="hidden" name="registration_id" value={r.id} />
                               <input name="note" placeholder="reason (optional)" maxLength={500} className="input py-1 text-xs" />
                               <button className="btn-secondary text-xs" name="decision" value="refuse">Refuse</button>
-                            </form>
+                            </StateForm>
                           </>
                         )}
                         {r.status === "awaiting_payment" && !r.paid_at && (
-                          <form action={decideRegistrationAction}>
+                          <StateForm action={decideRegistrationAction}>
                             <input type="hidden" name="registration_id" value={r.id} />
                             <button className="btn-secondary text-xs" name="decision" value="refuse">Refuse</button>
-                          </form>
+                          </StateForm>
                         )}
                         {r.status === "confirmed" && r.amount_venue > 0 && !r.venue_paid_at && (
-                          <form action={markVenuePaidAction}>
+                          <StateForm action={markVenuePaidAction}>
                             <input type="hidden" name="registration_id" value={r.id} />
                             <button className="btn-secondary text-xs">Paid at the venue ({moneyLabel(r.amount_venue)})</button>
-                          </form>
+                          </StateForm>
                         )}
                         {mayRefund &&
                           refundable.map((p) => (
-                            <form key={p.id} action={refundRegistrationAction} className="flex flex-wrap gap-1">
+                            <StateForm key={p.id} action={refundRegistrationAction} className="flex flex-wrap items-center gap-1" testId="refund-form">
                               <input type="hidden" name="registration_id" value={r.id} />
                               <input type="hidden" name="payment_id" value={p.id} />
                               <input name="reason" placeholder="reason" maxLength={200} className="input py-1 text-xs" />
-                              <input name="confirm" placeholder="type REFUND" maxLength={10} className="input w-28 py-1 text-xs" />
+                              {/* The server checks it too, whatever the browser does with required + pattern. */}
+                              <input
+                                name="confirm"
+                                placeholder="type REFUND"
+                                maxLength={10}
+                                required
+                                pattern="REFUND"
+                                title="Type REFUND in capitals to confirm."
+                                autoComplete="off"
+                                aria-label="Type REFUND to confirm"
+                                className="input w-28 py-1 text-xs"
+                              />
                               <button className="btn-secondary text-xs" disabled={!refundWindow.ok && p.status !== "needs_review"}>
                                 Refund {moneyLabel(refundAmount(p.amount))} in full
                                 {p.status === "needs_review" ? " (held for review)" : ""}
                               </button>
                               {p.review_reason && <span className="text-xs text-danger">{p.review_reason}</span>}
                               {!refundWindow.ok && p.status !== "needs_review" && <span className="text-xs text-muted">{REFUND_MESSAGES[refundWindow.reason]}</span>}
-                            </form>
+                            </StateForm>
                           ))}
                         {pending && <span className="text-xs text-muted">Refund on its way from Move Tick.</span>}
                       </div>
