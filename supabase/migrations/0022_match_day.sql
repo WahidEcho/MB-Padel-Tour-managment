@@ -24,9 +24,11 @@
 --    a new friendly session defaults to it, so a session can defer to the
 --    tournament's rules.
 --
--- Additive and idempotent: safe to run more than once. Every new table gets the
--- same server_full_access policy as every other table today (see 0015);
--- supabase/gate/close_open_access.sql removes them all together.
+-- Additive and idempotent: safe to run more than once. The new tables have
+-- row-level security on, NO policy and no grant to anon or authenticated (as on
+-- the live project since 14 Oct 2026): the server's secret key bypasses RLS, the
+-- public keys read nothing. They are on the never-reopen list in
+-- supabase/gate/reopen_open_access.sql.
 
 alter table tournaments add column if not exists match_day_rules jsonb not null default '{}'::jsonb;
 alter table tournaments add column if not exists starts_at timestamptz;
@@ -79,15 +81,15 @@ alter table matches drop constraint if exists matches_scoring_mode_override_chec
 alter table matches add constraint matches_scoring_mode_override_check
   check (scoring_mode_override is null or scoring_mode_override in ('point_by_point', 'final_score', 'either'));
 
--- Same posture as every existing table until the gate closes (see header).
+-- Row-level security on, no policy, no grant (see header). A policy an earlier run
+-- of this file created is dropped.
 alter table match_calls enable row level security;
 drop policy if exists server_full_access on match_calls;
-create policy server_full_access on match_calls for all to anon, authenticated using (true) with check (true);
 
 alter table live_activity_start_tokens enable row level security;
 drop policy if exists server_full_access on live_activity_start_tokens;
-create policy server_full_access on live_activity_start_tokens for all to anon, authenticated using (true) with check (true);
 
 alter table live_activity_starts enable row level security;
 drop policy if exists server_full_access on live_activity_starts;
-create policy server_full_access on live_activity_starts for all to anon, authenticated using (true) with check (true);
+
+revoke all on match_calls, live_activity_start_tokens, live_activity_starts from anon, authenticated;

@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Every table created from migration 0022 on ships with row-level security on and
- * no policy but server_full_access (the one supabase/gate/close_open_access.sql
- * drops). A table left without RLS would be readable with the public anon key.
+ * Every table created from migration 0022 on ships with row-level security on, no
+ * policy at all and no grant to the public keys (the live project's posture since
+ * the gate closed on 14 Oct 2026): the server's secret key bypasses RLS, anon and
+ * authenticated read nothing. A table left without RLS, or a policy or grant to
+ * anon / authenticated, would be readable with the public anon key.
  */
 const DIR = join(__dirname, "..", "..", "supabase", "migrations");
 const FIRST_CHECKED = 22;
@@ -26,6 +28,12 @@ function hasRls(sql: string, table: string): boolean {
 }
 
 describe("new tables ship with row-level security", () => {
+  it("0022's tables are closed like live: no policy, grants revoked", () => {
+    const sql = readFileSync(join(DIR, files.find((f) => f.startsWith("0022_"))!), "utf8").replace(/--.*$/gm, "");
+    expect(sql).not.toMatch(/to\s+anon/i);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+match_calls,\s*live_activity_start_tokens,\s*live_activity_starts\s+from\s+anon,\s*authenticated/i);
+  });
+
   it("finds migration 0022", () => {
     expect(files.some((f) => f.startsWith("0022_"))).toBe(true);
   });
@@ -37,9 +45,13 @@ describe("new tables ship with row-level security", () => {
         expect(hasRls(sql, table), `${table} in ${f} has no "enable row level security"`).toBe(true);
       });
     }
-    it(`${f} creates no policy but server_full_access`, () => {
+    it(`${f} creates no policy`, () => {
       const names = [...sql.matchAll(/create\s+policy\s+"?([a-z_][a-z0-9_]*)"?/gi)].map((m) => m[1]);
-      expect(names.filter((n) => n !== "server_full_access")).toEqual([]);
+      expect(names).toEqual([]);
+    });
+    it(`${f} grants nothing to anon or authenticated`, () => {
+      const grants = [...sql.matchAll(/\bgrant\s+[^;]*\bto\s+[^;]*\b(anon|authenticated|public)\b/gi)].map((m) => m[0]);
+      expect(grants).toEqual([]);
     });
   }
 });
