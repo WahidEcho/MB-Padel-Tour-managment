@@ -19,6 +19,7 @@ import {
   isIsoDate,
 } from "@/lib/leagues/settings";
 import { SPORTS } from "@/lib/sports/registry";
+import { isLeagueVisibility } from "@/lib/leagues/visibility";
 import {
   addDivision,
   addMember,
@@ -86,6 +87,9 @@ export async function saveLeagueSettings(_prev: FormState, formData: FormData): 
     if (!isLeagueStatus(status)) refusal("Pick a status.");
     const sport = String(formData.get("sport") ?? "padel");
     const tz = String(formData.get("timezone") ?? "Africa/Cairo");
+    // Who can see it (migration 0031); a form without the field leaves it as it is.
+    const visibility = formData.get("visibility");
+    if (visibility !== null && !isLeagueVisibility(String(visibility))) refusal("Pick who can see the league.");
     const modes = normalizeJoinModes(formData.getAll("join_modes").map(String).filter((m) => (JOIN_MODES as readonly string[]).includes(m)));
     const currency = text(formData.get("currency"), 3).toUpperCase() || "EGP";
     const fee = storedLeagueFee({
@@ -103,6 +107,7 @@ export async function saveLeagueSettings(_prev: FormState, formData: FormData): 
         join_modes: modes.length ? modes : ["open"],
         fee,
         counts_toward_top_of_all: formData.get("counts_toward_top_of_all") === "on",
+        ...(visibility !== null ? { visibility: String(visibility) } : {}),
       },
       staff.role,
     );

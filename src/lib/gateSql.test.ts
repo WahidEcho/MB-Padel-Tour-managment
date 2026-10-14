@@ -44,6 +44,8 @@ const MUST_STAY_CLOSED = [
   "league_members",
   "league_fixtures",
   "league_points",
+  // 0031: which accounts entered a league's invite code.
+  "league_code_holders",
   // 0022 (match day): referee devices and presence, phones' push-to-start tokens.
   "match_calls",
   "live_activity_start_tokens",

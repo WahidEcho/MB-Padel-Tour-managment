@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Platform, Pressable, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { BOARD_LABELS, dayLabel, monthLabel, shiftMonth, type BoardLength, type MLeague, type MLeagueFixture, type MMyLeague } from "@core";
+import { BOARD_LABELS, dayLabel, LEAGUE_VISIBILITY_BADGE, leagueVisibility, monthLabel, shiftMonth, type BoardLength, type MLeague, type MLeagueFixture, type MMyLeague } from "@core";
 import { ApiError } from "../../api/client";
 import { joinLeague, useLeague, useMyLeagues } from "../../api/queries";
 import { session } from "../../state/session";
@@ -12,7 +12,7 @@ import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, LinkChip, LivePill, SectionHeader } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
 import { Segments } from "../../ui/Segments";
-import { BoardTable } from "../../ui/Board";
+import { BoardTable, VisibilityBadge } from "../../ui/Board";
 import { openMatch, openOrg, openTournament } from "../../nav/links";
 import { NightTable } from "../../ui/NightTable";
 
@@ -165,7 +165,7 @@ function LeaguePage({ slug }: { slug: string }) {
     return (
       <Screen tabs={false} onRefresh={() => q.refetch()}>
         <BackHeader label="Back" />
-        <LoadState queries={[q]} what="this league" notFound={<Empty title="League not found" body="It may have closed or not be public yet." />} />
+        <LoadState queries={[q]} what="this league" notFound={<Empty title="League not found" body={user ? "It may have closed, not be public yet, or be for its members only. Have an invite code? Enter it in Leagues." : "It may have closed, not be public yet, or be for its members only: sign in to see the leagues you belong to."} />} />
       </Screen>
     );
   }
@@ -185,6 +185,11 @@ function LeaguePage({ slug }: { slug: string }) {
         </Pressable>
       ) : null}
       <Display size={26} style={{ marginTop: 4 }}>{l.name}</Display>
+      {LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)] ? (
+        <View style={{ marginTop: 6 }}>
+          <VisibilityBadge label={LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)]!} />
+        </View>
+      ) : null}
       <Body tone="ink2" size={13} style={{ marginTop: 4 }}>
         {[l.kind === "season" ? "Season fixtures" : "League nights", l.sport, l.status === "closed" ? "Closed" : null].filter(Boolean).join(" · ")}
       </Body>

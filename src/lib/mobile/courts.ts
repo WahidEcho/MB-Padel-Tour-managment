@@ -72,7 +72,7 @@ async function openCalls(ids: string[]): Promise<(CallRow & { tournament_id: str
 
 /**
  * League nights on now (Phase 8): the hidden session of a public league's night
- * with a match on court. They follow the tournaments on the hero; each still
+ * (visibility 'everyone': this feed is shared by every phone) with a match on court. They follow the tournaments on the hero; each still
  * needs its own showcase switch (the league's match-day rules) to be shown.
  */
 export async function liveLeagueNights(): Promise<MTournamentCard[]> {

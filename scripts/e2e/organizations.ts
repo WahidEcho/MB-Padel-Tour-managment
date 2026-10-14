@@ -1616,6 +1616,7 @@ async function main() {
       const S = "src/app/admin/friendly-sessions/actions.ts";
       const leagueAttacks: { label: string; file: string; name: string; args: () => unknown[] }[] = [
         { label: "rename B's league", file: L, name: "saveLeagueSettings", args: () => [null, form({ league_id: LB.id, name: "PWNED", status: "archived", sport: "padel", timezone: "Africa/Cairo" })] },
+        { label: "hide B's league (visibility)", file: L, name: "saveLeagueSettings", args: () => [null, form({ league_id: LB.id, name: `${SECRET_B} League`, status: "active", sport: "padel", timezone: "Africa/Cairo", visibility: "invite_only" })] },
         { label: "change B's league points", file: L, name: "savePointsRules", args: () => [form({ league_id: LB.id, win: "100", loss: "0" })] },
         { label: "change B's league boards", file: L, name: "savePeriods", args: () => [form({ league_id: LB.id, boards: "12", year_start_month: "5" })] },
         { label: "change B's night template", file: L, name: "saveNightTemplate", args: () => [form({ league_id: LB.id, courts: "9", pairing_mode: "mexicano" })] },
@@ -1646,7 +1647,7 @@ async function main() {
       ];
       const leagueSnapshot = async () => {
         const [l, d, m, f, nm, nt, ta, ev, entries] = await Promise.all([
-          db().from("leagues").select("name, status, points_rules, periods, night_template, invite_code_hash, join_modes").eq("id", LB.id).maybeSingle(),
+          db().from("leagues").select("name, status, visibility, points_rules, periods, night_template, invite_code_hash, join_modes").eq("id", LB.id).maybeSingle(),
           db().from("league_divisions").select("id, name").eq("league_id", LB.id).order("id"),
           db().from("league_members").select("id, status, division_id, partner_profile_id").in("league_id", [LB.id, LA.id]).order("id"),
           db().from("league_fixtures").select("id, date, kind").eq("league_id", LB.id).order("id"),
@@ -1736,6 +1737,50 @@ async function main() {
         check(susLeague.status === 404 && susNight.status === 404, "L3: a suspended organisation's league and its night are not public (league page, night bundle)", [susLeague.status, susNight.status]);
       } finally {
         await db().from("organizations").update({ status: "approved" }).eq("id", B);
+      }
+
+      // League visibility (migration 0031): B's league for B's players only, then invite only. A's people (its
+      // admin's own app account, A's player) are outsiders to it; B's owner is its staff (the positive control).
+      {
+        const { updateLeague: setLeague, resetInviteCode } = await import("../../src/lib/leagues/ops");
+        const asAAdmin = bearer(aAdminUser.accessToken);
+        const asBOwner = bearer(bOwnerUser.accessToken);
+        const pause = () => new Promise((r) => setTimeout(r, 5100)); // per-user night reads keep an answer 5 s
+        for (const v of ["org_players", "invite_only"] as const) {
+          await setLeague(LB.id, { visibility: v }, "e2e");
+          await pause();
+          const pubPage = await http("GET", `/api/mobile/v1/leagues/${LB.slug}`, asBOwner);
+          const pubNight = await http("GET", `/api/mobile/v1/t/${nightB.slug}/live`, asBOwner);
+          check(pubPage.status === 404 && pubNight.status === 404, `${v}: B's league and night are off the shared routes for everyone`, [pubPage.status, pubNight.status]);
+          for (const [label, h] of [["A's admin (app)", asAAdmin], ["A's player (app)", asPlayer]] as const) {
+            const page = await http("GET", `/api/mobile/v1/me/leagues/${LB.slug}`, h);
+            const night = await http("GET", `/api/mobile/v1/me/t/${nightB.slug}/bundle`, h);
+            const join = await http("POST", `/api/mobile/v1/leagues/${LB.slug}/join`, h, {});
+            const mine = await http("GET", "/api/mobile/v1/me/leagues", h);
+            check(
+              page.status === 404 && night.status === 404 && join.status === 404 && !leakedL(page.text + night.text + join.text) && !mine.text.includes(LB.slug) && !leakedL(mine.text),
+              `${v}: ${label} cannot see B's league (page, night, join: the missing-league 404; not in its lists)`,
+              [page.status, night.status, join.status],
+            );
+          }
+          w = await widget();
+          check(!w.includes(NIGHT_B_M), `${v}: B's night match leaves A's player's widget`);
+          const ownerPage = await http("GET", `/api/mobile/v1/me/leagues/${LB.slug}`, asBOwner);
+          const ownerNight = await http("GET", `/api/mobile/v1/me/t/${nightB.slug}/bundle`, asBOwner);
+          check(ownerPage.status === 200 && ownerNight.status === 200, `${v}: B's own staff see it (the harness is real)`, [ownerPage.status, ownerNight.status]);
+        }
+        // A's own invite code opens A's league only, never B's; B's code does open B's (that is what a code is for).
+        const { data: aCodeLeague } = await db().from("leagues").select("slug").eq("id", LA.id).single();
+        const aCode = await resetInviteCode(LA.id, "e2e");
+        const bCode = await resetInviteCode(LB.id, "e2e");
+        const withA = await http("POST", "/api/mobile/v1/leagues/code", asAAdmin, { code: aCode });
+        const still = await http("GET", `/api/mobile/v1/me/leagues/${LB.slug}`, asAAdmin);
+        check(withA.status === 200 && (withA.json as { slug?: string } | null)?.slug === (aCodeLeague as { slug: string }).slug && still.status === 404, "A's own code opens A's league, and B's stays closed to A's admin", [withA.status, still.status]);
+        const withB = await http("POST", "/api/mobile/v1/leagues/code", asAAdmin, { code: bCode });
+        const now = await http("GET", `/api/mobile/v1/me/leagues/${LB.slug}`, asAAdmin);
+        check(withB.status === 200 && now.status === 200 && !now.text.includes("invite_code_hash"), "B's code (given out by B) opens B's invite-only league to whoever holds it", [withB.status, now.status]);
+        await setLeague(LB.id, { visibility: "everyone" }, "e2e");
+        await db().from("league_code_holders").delete().eq("auth_user_id", aAdminUser.id);
       }
       await db().from("follows").delete().eq("owner_id", aPlayerUser.id);
 

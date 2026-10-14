@@ -19,6 +19,15 @@
  *   8. Another organisation's admin: cannot read or change the league, its
  *      members or points, nor count its tournament toward it (nor ours toward its).
  *   9. No private fields on boards and league pages (masked names stay masked).
+ *  10. Visibility (migration 0031): everyone / org_players / invite_only against a
+ *      signed-out caller, an outsider (another organisation's player), a 'matched'
+ *      player, an organisation player, a member, a removed member, an invite-code
+ *      holder, the organisation's own staff and another organisation's admin, on
+ *      the public and per-user league pages, joining, the organisation page and
+ *      top boards, /me/leagues, the night's bundle / live / standings (public and
+ *      per-user), the live courts hero, the referee list, the widget and the night
+ *      alerts' league; CDN headers (a restricted league's public 404 is the same as
+ *      a missing league's; every per-user answer is private, no-store).
  *
  * Stand-in only; creates and deletes its own data.
  *
@@ -41,6 +50,8 @@ import { storedLeaguePointsRules, leaguePointsRules } from "../../src/lib/league
 import { storedNightTemplate, nightTemplate, storedLeaguePeriods, leaguePeriods } from "../../src/lib/leagues/settings";
 import { addMember, createLeague, createNight, generateSeasonFixtures, resetInviteCode, setFixtureDate, updateLeague } from "../../src/lib/leagues/ops";
 import { recomputeLeague } from "../../src/lib/leagues/server";
+import { liveLeagueNights } from "../../src/lib/mobile/courts";
+import { appLeagueOfSession } from "../../src/lib/friendly/nights";
 import { DEFAULT_SCORING_CONFIG, type Match, type Tournament } from "../../src/lib/types";
 import { staffToken } from "./lib/session";
 import { appUser, assertStandIn, BASE_URL, bearer, check, cookie, eventually, finish, http, section, sleep, type Who } from "./lib/fixtures";
@@ -194,8 +205,12 @@ async function main() {
     };
     const A = await org("a");
     const B = await org("b");
+    // Each admin's own app account too (the app's staff: section 10, league visibility).
+    const adminApp: Record<string, Who> = {};
     const admin = async (o: { id: string }, key: string) => {
       const u = await appUser(`e2e.lg.${key}.${tag}@example.com`);
+      created.users.push(u.userId);
+      adminApp[key] = bearer(u.token);
       await db().from("organization_members").insert({ organization_id: o.id, auth_user_id: u.userId, invited_email: `e2e.lg.${key}.${tag}@example.com`, role: "admin", status: "active" });
       return cookie(staffToken({ kind: "member", userId: u.userId, orgId: o.id, role: "admin" }));
     };
@@ -600,6 +615,207 @@ async function main() {
     check(lsPage.board.some((l) => l.name === `Typed Name ${tag}`) && lsPage.fixtures.some((f) => f.home.includes(`Typed Name ${tag}`) || f.away.includes(`Typed Name ${tag}`)), "a player the organisation only matched shows under the name typed on its form", lsPage.board.map((l) => l.name));
     const lines = (pages[0].json as { board: Record<string, unknown>[] }).board;
     check(lines.every((l) => JSON.stringify(Object.keys(l).sort()) === JSON.stringify(["gameDiff", "losses", "name", "played", "points", "rank", "wins"])), "a board line has exactly the public fields", Object.keys(lines[0] ?? {}));
+
+    section("10. visibility: everyone, the organisation's players only, invite only");
+    // A nights league of A with four members (one of them an account that is a member only), a night with points.
+    const LV = await createLeague({ organizationId: A.id, name: `E2E Visible ${tag}`, kind: "nights", sport: "padel", actorRole: "admin" });
+    await updateLeague(LV.id, { status: "active", night_template: storedNightTemplate({ ...nightTemplate({}), courts: 1, gamesToWinSet: 2, setsToWinMatch: 1, pairingMode: "americano" }) }, "admin");
+    const { data: lvd } = await db().from("league_divisions").select("id").eq("league_id", LV.id);
+    const LVD = (lvd as { id: string }[])[0].id;
+    const PMem = await profile("LvMem", null);
+    const lvOthers = await Promise.all(["Lv2", "Lv3", "Lv4"].map((n) => profile(n, A.id)));
+    for (const p of [PMem, ...lvOthers]) await addMember(LV.id, p, LVD, "admin");
+    const NV = await createNight(LVD, "2026-11-02", "admin");
+    await generateSchedule(NV.sessionId, "admin");
+    const { data: nvs } = await db().from("friendly_sessions").select("tournament_id").eq("id", NV.sessionId).single();
+    const NVT = (nvs as { tournament_id: string }).tournament_id;
+    const { data: nvm } = await db().from("matches").select("id").eq("tournament_id", NVT).order("match_order");
+    const nvMatches = (nvm as { id: string }[]).map((m) => m.id);
+    await play(nvMatches[0], "A", aAdmin);
+    check((await pointsOf({ league: LV.id })).length === 4, "the league has a night with points (four players)");
+
+    // The viewers. Every account has its own player profile (the join probe needs one).
+    const viewer = async (key: string, orgId: string | null, source = "admin") => {
+      const pid = await profile(`Viewer ${key}`, orgId, {}, source);
+      return (await user(`v${key}`, pid)).who;
+    };
+    const PMatched = await profile("Viewer matched", null);
+    await db().from("organization_players").insert({ organization_id: A.id, player_profile_id: PMatched, source: "matched", approval_status: "approved", typed_name: `Viewer matched ${tag}` });
+    const V: Record<string, Who> = {
+      signedOut: {},
+      outsider: await viewer("outsider", B.id),
+      matched: (await user("vmatched", PMatched)).who,
+      orgPlayer: await viewer("orgplayer", A.id),
+      member: (await user("vmember", PMem)).who,
+      codeHolder: await viewer("codeholder", B.id),
+      aStaff: adminApp.a,
+      bAdmin: adminApp.b,
+    };
+    const SEES: Record<string, Set<string>> = {
+      everyone: new Set(Object.keys(V)),
+      org_players: new Set(["orgPlayer", "member", "aStaff"]),
+      invite_only: new Set(["member", "codeHolder", "aStaff"]),
+    };
+
+    // The invite code: entered once (no slug needed), held while it is the league's current code.
+    const lvCode = await resetInviteCode(LV.id, "admin");
+    let rv = await http("POST", "/api/mobile/v1/leagues/code", V.codeHolder, { code: "ZZZZ-ZZZZ" });
+    check(rv.status === 404 && (rv.json as { code: string }).code === "invite_code_wrong" && rv.cache === "private, no-store", "a wrong invite code: 404 invite_code_wrong, private", { s: rv.status, c: rv.cache });
+    rv = await http("POST", "/api/mobile/v1/leagues/code", {}, { code: lvCode });
+    check(rv.status === 401, "signed out: entering a code needs an account", rv.status);
+    rv = await http("POST", "/api/mobile/v1/leagues/code", V.codeHolder, { code: lvCode.toLowerCase() });
+    check(rv.status === 200 && (rv.json as { slug: string }).slug === LV.slug && rv.cache === "private, no-store", "the right code (any case) opens the league for this account", rv.text.slice(0, 200));
+    const { data: holderRows } = await db().from("league_code_holders").select("*").eq("league_id", LV.id);
+    check(
+      (holderRows ?? []).length === 1 && !JSON.stringify(holderRows).includes(lvCode.replace("-", "")),
+      "one holder row, no code in it",
+      holderRows,
+    );
+
+    const missing = await http("GET", `/api/mobile/v1/leagues/e2e-no-such-league-${tag}`);
+    const missingMine = await http("GET", `/api/mobile/v1/me/leagues/e2e-no-such-league-${tag}`, V.member);
+    check(missing.status === 404 && missingMine.status === 404 && missingMine.cache === "private, no-store", "(a missing league: public 404, private 404)", { p: missing.cache, m: missingMine.cache });
+    const JOIN_PROBE = { divisionId: "00000000-0000-0000-0000-000000000000" };
+    const lvName = `Lv2 ${tag}`;
+    // (The league sessions list is kept 3 s per instance.)
+    const nightRef = await eventually(async () => ((await http("GET", "/api/mobile/v1/referee/tournaments", aReferee)).json as { tournaments: { id: string }[] }).tournaments.some((t) => t.id === NVT), 8000);
+    check(nightRef, "the organisation's referee list has the night");
+    // The widget: each viewer stars the night's next match.
+    for (const who of Object.values(V)) if (who.Authorization) await http("POST", "/api/mobile/v1/me/follows", who, { add: [{ kind: "match", key: nvMatches[1], tournamentId: null }] });
+
+    const setVisibility = async (v: string) => {
+      if (v === "org_players") {
+        // Through the organiser's own form (Admin → League → Settings).
+        const r = await action("saveLeagueSettings", { league_id: LV.id, name: `E2E Visible ${tag}`, status: "active", sport: "padel", timezone: "Africa/Cairo", join_modes: "open", counts_toward_top_of_all: "on", visibility: v }, aAdmin);
+        check(actionOk(r), "the organiser sets 'Your players only' in the settings form", r.text.slice(0, 200));
+      } else await updateLeague(LV.id, { visibility: v }, "admin");
+      const { data } = await db().from("leagues").select("visibility").eq("id", LV.id).single();
+      check((data as { visibility: string }).visibility === v, `visibility is now ${v}`);
+    };
+
+    for (const v of ["everyone", "org_players", "invite_only"] as const) {
+      await setVisibility(v);
+      // The per-user night reads keep an account's answer for 5 s (the live feed polls).
+      await sleep(5100);
+      const pub = v === "everyone";
+      const label = (who: string, sees: boolean) => `${v} · ${who}: ${sees ? "sees it" : "404"}`;
+
+      // Public league page: the same for everyone (CDN-shareable); a restricted league is the missing-league 404.
+      const pubPage = await http("GET", `/api/mobile/v1/leagues/${LV.slug}`, V.member);
+      check(
+        pub ? pubPage.status === 200 && /s-maxage=15/.test(pubPage.cache ?? "") : pubPage.status === 404 && pubPage.cache === missing.cache && pubPage.text === missing.text.replace(/League not found/, "League not found"),
+        `${v} · public league page: ${pub ? "200, CDN-cached" : "the same 404 and cache header as a missing league, even for a member"}`,
+        { s: pubPage.status, c: pubPage.cache },
+      );
+
+      for (const [who, h] of Object.entries(V)) {
+        const sees = SEES[v].has(who);
+        const mine = await http("GET", `/api/mobile/v1/me/leagues/${LV.slug}?period=1&month=2026-11`, h);
+        if (who === "signedOut") check(mine.status === 401, `${v} · signed out: the per-user page asks to sign in (401)`, mine.status);
+        else {
+          const lj = mine.json as { league?: { visibility: string }; board?: { name: string }[] } | null;
+          check(
+            mine.cache === "private, no-store" && (sees ? mine.status === 200 && lj?.league?.visibility === v && Boolean(lj.board?.some((l) => l.name === lvName)) : mine.status === 404 && mine.text === missingMine.text),
+            `${label(who, sees)} (per-user league page${sees ? ", board and visibility" : ", same body as a missing league"}; private, no-store)`,
+            { s: mine.status, c: mine.cache },
+          );
+        }
+        // Joining: a visible league gets as far as the division check (400); one it may not see is not there (404).
+        const j = await http("POST", `/api/mobile/v1/leagues/${LV.slug}/join`, h, JOIN_PROBE);
+        if (who === "signedOut") check(j.status === 401, `${v} · signed out: join 401`);
+        else if (who === "aStaff" || who === "bAdmin") check(j.status === (sees ? 409 : 404), `${label(who, sees)} (join: ${sees ? "409 link a profile" : "404"})`, j.text.slice(0, 120));
+        else if (who === "member") check(j.status === 400 || j.status === 409, `${v} · member: join reaches the league (not a 404)`, j.status);
+        else check(j.status === (sees ? 400 : 404), `${label(who, sees)} (join)`, j.text.slice(0, 120));
+
+        // /me/leagues: the account's leagues and the restricted ones it may see.
+        if (who !== "signedOut") {
+          const my = (await http("GET", "/api/mobile/v1/me/leagues", h)).json as { leagues: { slug: string; visibility?: string }[]; visible?: { slug: string; visibility?: string }[] };
+          const listed = (my.visible ?? []).some((l) => l.slug === LV.slug && l.visibility === v);
+          check(pub ? !listed : listed === sees, `${v} · ${who}: /me/leagues ${pub ? "lists no restricted league (it is public)" : sees ? "lists it with its badge" : "does not list it"}`, my.visible?.map((l) => l.slug));
+          if (who === "member") check(my.leagues.some((l) => l.slug === LV.slug && l.visibility === v), `${v} · member: in My leagues, with its visibility`);
+        }
+
+        // The night: shared reads only for a public league; the per-user reads by the same rule.
+        const nb = await http("GET", `/api/mobile/v1/me/t/${NV.slug}/bundle`, h);
+        if (who === "signedOut") check(nb.status === 401, `${v} · signed out: per-user night bundle 401`);
+        else check(nb.status === (sees ? 200 : 404) && nb.cache === "private, no-store", `${label(who, sees)} (night bundle, per-user)`, { s: nb.status, c: nb.cache });
+        if (who !== "signedOut") {
+          const nl = await http("GET", `/api/mobile/v1/me/t/${NV.slug}/live`, h);
+          const ns = await http("GET", `/api/mobile/v1/me/t/${NV.slug}/standings`, h);
+          check(nl.status === (sees ? 200 : 404) && ns.status === (sees ? 200 : 404) && nl.cache === "private, no-store" && ns.cache === "private, no-store", `${label(who, sees)} (night live + standings, per-user)`, { l: nl.status, s: ns.status });
+          const w = (await http("GET", "/api/mobile/v1/me/widget", h)).json as { items: { id: string }[] };
+          check(w.items.some((i) => i.id === nvMatches[1]) === sees, `${label(who, sees)} (a starred night match on the widget)`, w.items.length);
+        }
+      }
+
+      // (A bundle is kept 10 s per instance, like every tournament's: a change of visibility reaches it after that.)
+      const shared = await eventually(async () => {
+        const pb = await http("GET", `/api/mobile/v1/t/${NV.slug}/bundle`, V.member);
+        const pl = await http("GET", `/api/mobile/v1/t/${NV.slug}/live`);
+        const ok = pub ? pb.status === 200 && pl.status === 200 && /s-maxage/.test(pb.cache ?? "") : pb.status === 404 && pl.status === 404;
+        return ok ? { b: pb.status, l: pl.status } : null;
+      }, 12000, 500);
+      check(Boolean(shared), `${v} · the night's shared bundle and live: ${pub ? "200" : "404 for everyone (members use the per-user reads)"}`, shared);
+
+      // The organisation page and the top boards (public, CDN-cached): a restricted league and its points stay off.
+      const orgOk = await eventually(async () => {
+        const o = (await http("GET", `/api/mobile/v1/orgs/${A.slug}?month=2026-11`)).json as { leagues: { slug: string }[]; topBoard: { lines: { name: string }[] } | null } | null;
+        const listed = Boolean(o?.leagues.some((l) => l.slug === LV.slug));
+        const onBoard = Boolean(o?.topBoard?.lines.some((l) => l.name === lvName));
+        return listed === pub && onBoard === pub ? o : null;
+      }, 25000);
+      check(Boolean(orgOk), `${v} · organisation page: ${pub ? "lists the league; its players on the top board" : "no card, no points on its top board"}`);
+      const platOk = await eventually(async () => {
+        const p = (await http("GET", "/api/mobile/v1/leagues/top?month=2026-11")).json as { lines: { name: string }[] };
+        return p.lines.some((l) => l.name === lvName) === pub;
+      }, 10000);
+      check(platOk, `${v} · platform top board: ${pub ? "its players are on it" : "its points are left out"}`);
+
+      // Live courts hero (shared), referee list (staff), night alerts (the players are its members).
+      await db().from("matches").update({ status: "live" }).eq("id", nvMatches[1]);
+      await sleep(3100);
+      const hero = await liveLeagueNights();
+      check(hero.some((c) => c.id === NVT) === pub, `${v} · live courts hero: ${pub ? "the night on now is a candidate" : "never (shared feed)"}`, hero.map((c) => c.id));
+      await db().from("matches").update({ status: "scheduled" }).eq("id", nvMatches[1]);
+      const ref = (await http("GET", "/api/mobile/v1/referee/tournaments", aReferee)).json as { tournaments: { id: string }[] };
+      check(ref.tournaments.some((t) => t.id === NVT), `${v} · the organisation's referee list still has the night (staff)`);
+      check((await appLeagueOfSession(NV.sessionId))?.id === LV.id, `${v} · the night's players are still linked and alerted (its league is in the app)`);
+    }
+
+    // Still invite only. A new code ends the holder's view; members and staff keep theirs.
+    await resetInviteCode(LV.id, "admin");
+    let after = await http("GET", `/api/mobile/v1/me/leagues/${LV.slug}`, V.codeHolder);
+    check(after.status === 404, "invite only: a new code closes the league to the old code's holder", after.status);
+    rv = await http("POST", "/api/mobile/v1/leagues/code", V.outsider, { code: lvCode });
+    check(rv.status === 404, "…and the old code opens nothing", rv.status);
+    // A removed member: no longer sees an invite-only league, nor its night, unless it is their own night.
+    const { data: memRow } = await db().from("league_members").select("id").eq("league_id", LV.id).eq("player_profile_id", PMem).single();
+    await db().from("league_members").update({ status: "removed" }).eq("id", (memRow as { id: string }).id);
+    after = await http("GET", `/api/mobile/v1/me/leagues/${LV.slug}`, V.member);
+    const myAfter = (await http("GET", "/api/mobile/v1/me/leagues", V.member)).json as { leagues: { slug: string }[] };
+    check(after.status === 404 && !myAfter.leagues.some((l) => l.slug === LV.slug), "a removed member no longer sees it (nor in My leagues)", after.status);
+    await sleep(5100);
+    const { data: ownRow } = await db().from("players").select("id").eq("tournament_id", NVT).eq("player_profile_id", PMem).limit(1);
+    const ownId = ((ownRow ?? []) as { id: string }[])[0]?.id;
+    if (ownId) {
+      const memUser = (await db().from("player_profiles").select("auth_user_id").eq("id", PMem).single()).data as { auth_user_id: string };
+      await db().from("player_claims").insert({ user_id: memUser.auth_user_id, player_id: ownId, via_player_id: ownId, proof: "code" });
+      const own = await http("GET", `/api/mobile/v1/me/t/${NV.slug}/bundle`, V.member);
+      check(own.status === 200, "…but a night they play in themselves (their own claimed row) still opens for them", own.status);
+    } else check(false, "the night has a player row for the removed member", NVT);
+    // Back to everyone: public again everywhere, the holder table stays private.
+    await updateLeague(LV.id, { visibility: "everyone" }, "admin");
+    const back = await http("GET", `/api/mobile/v1/leagues/${LV.slug}`);
+    check(back.status === 200 && !back.text.includes("league_code_holders") && (back.json as { league: { visibility: string } }).league.visibility === "everyone", "back to everyone: public again", back.status);
+
+    // The organiser's form: junk is refused inline; another organisation cannot change it.
+    const junk = await action("saveLeagueSettings", { league_id: LV.id, name: `E2E Visible ${tag}`, status: "active", sport: "padel", timezone: "Africa/Cairo", visibility: "secret" }, aAdmin);
+    check(!actionOk(junk) && /Pick who can see the league/.test(junk.text), "a visibility that is not one of the three is refused inline", junk.text.slice(0, 200));
+    const hijack = await action("saveLeagueSettings", { league_id: LV.id, name: `E2E Visible ${tag}`, status: "active", sport: "padel", timezone: "Africa/Cairo", visibility: "invite_only" }, bAdmin);
+    const { data: lvNow } = await db().from("leagues").select("visibility").eq("id", LV.id).single();
+    check(!actionOk(hijack) && (lvNow as { visibility: string }).visibility === "everyone", "another organisation's admin cannot change who sees it", hijack.text.slice(0, 200));
+    const adminPage = await http("GET", `/admin/leagues/${LV.id}`, aAdmin);
+    check(adminPage.status === 200 && /Who can see this league/.test(adminPage.text) && /Your players only/.test(adminPage.text) && /Invite only/.test(adminPage.text), "the settings show the selector with each option explained");
   } finally {
     const orgs = created.orgs;
     if (orgs.length) {
@@ -608,7 +824,11 @@ async function main() {
       await db().from("audit_logs").delete().in("organization_id", orgs);
       await db().from("organization_codes").delete().in("organization_id", orgs);
     }
-    if (created.users.length) await db().from("player_claims").delete().in("user_id", created.users);
+    if (created.users.length) {
+      await db().from("player_claims").delete().in("user_id", created.users);
+      await db().from("follows").delete().eq("owner_kind", "user").in("owner_id", created.users);
+      await db().from("league_code_holders").delete().in("auth_user_id", created.users);
+    }
     if (created.profiles.length) {
       await db().from("player_score_ledger").delete().in("player_profile_id", created.profiles);
       await db().from("player_profiles").delete().in("id", created.profiles);

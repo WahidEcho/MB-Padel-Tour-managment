@@ -11,7 +11,7 @@
  *
  * Alerts go to the players only, through their own accounts (player_claims),
  * filtered by each phone's "scheduled" switch, and only for nights the app shows
- * (a public league's nights): a stand-alone session's table is published on its
+ * (a league's nights, whatever its visibility: the players are its members): a stand-alone session's table is published on its
  * web page, not pushed. PUSH_DRY_RUN=1 keeps everything on the server.
  *
  * Server-only.
@@ -127,8 +127,14 @@ export async function linkNightPlayers(tournamentId: string, leagueId: string | 
 
 /* ---------------- which league a night belongs to ---------------- */
 
-/** The public league (of an approved organisation) a session is a night of, or null (a stand-alone session, or a league that is not public). */
-export async function publicLeagueOfSession(sessionId: string): Promise<{ id: string; slug: string } | null> {
+/**
+ * The league (active or closed, of an approved organisation) a session is a night
+ * of, or null (a stand-alone session, or a league the app does not show). Any
+ * visibility: a 'Members only' or 'Invite only' league's night is in the app too,
+ * for the accounts that may see it (per-user reads), and its players are the
+ * league's members (createNight enters them), so they are linked and alerted the same.
+ */
+export async function appLeagueOfSession(sessionId: string): Promise<{ id: string; slug: string } | null> {
   const { data: f } = await db().from("league_fixtures").select("league_id").eq("session_id", sessionId).eq("kind", "night").limit(1);
   const leagueId = ((f ?? []) as { league_id: string }[])[0]?.league_id;
   if (!leagueId) return null;
@@ -228,8 +234,8 @@ export async function publishNightTable(sessionId: string, input: PublishInput, 
     .update({ format_config: { ...(tr?.format_config ?? {}), nightTable: { publishedAt, publishedBy: actor.role } } })
     .eq("id", session.tournament_id);
 
-  // 5. The players' accounts and their alerts (a public league's nights only: the app shows those).
-  const league = await publicLeagueOfSession(sessionId);
+  // 5. The players' accounts and their alerts (a league's nights only: the app shows those).
+  const league = await appLeagueOfSession(sessionId);
   let linked = 0;
   let alerts = 0;
   if (league) {
@@ -270,7 +276,7 @@ export async function afterNightRoundAdded(sessionId: string): Promise<number> {
   const { data: t } = await db().from("tournaments").select("format_config, match_day_rules, sport").eq("id", tournamentId).maybeSingle();
   const tr = t as { format_config: FormatConfig | null; match_day_rules: unknown; sport: string | null } | null;
   if (!tr?.format_config?.nightTable?.publishedAt) return 0;
-  const league = await publicLeagueOfSession(sessionId);
+  const league = await appLeagueOfSession(sessionId);
   if (!league) return 0;
   await linkNightPlayers(tournamentId, league.id);
   return matchDayRules(tr.match_day_rules, tr.sport ?? null).alerts.on ? alertNightPlayers(tournamentId) : 0;

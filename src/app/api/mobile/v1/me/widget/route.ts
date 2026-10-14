@@ -14,10 +14,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * The tournaments among `ids` whose matches anyone may follow in the app: public
  * (public_access_enabled), not a draft, of an approved organisation; a friendly
- * session's hidden tournament only as a public league's night or season
- * (isPublicLeagueSession). Everything else is left out.
+ * session's hidden tournament only as a league's night or season this account may
+ * see (leagueSessionVisibleTo: a public league's to anyone, a 'Members only' or
+ * 'Invite only' league's to those it lets in). Everything else is left out.
  */
-async function publicTournaments(ids: string[]): Promise<Set<string>> {
+async function publicTournaments(ids: string[], userId: string | null): Promise<Set<string>> {
   const out = new Set<string>();
   if (!ids.length) return out;
   const { data } = await db().from("tournaments").select("id, kind, status, public_access_enabled, organization_id").in("id", ids);
@@ -25,10 +26,10 @@ async function publicTournaments(ids: string[]): Promise<Set<string>> {
   const orgIds = [...new Set(rows.map((t) => t.organization_id).filter((x): x is string => Boolean(x)))];
   const { data: orgs } = orgIds.length ? await db().from("organizations").select("id, status").in("id", orgIds) : { data: [] };
   const approved = new Set(((orgs ?? []) as { id: string; status: string }[]).filter((o) => o.status === "approved").map((o) => o.id));
-  const { isPublicLeagueSession } = await import("@/lib/leagues/server");
+  const { leagueSessionVisibleTo } = await import("@/lib/leagues/server");
   for (const t of rows) {
     if (!t.public_access_enabled || t.status === "draft" || !t.organization_id || !approved.has(t.organization_id)) continue;
-    if (t.kind === "tournament" || (t.kind === "friendly_session" && (await isPublicLeagueSession(t.id)))) out.add(t.id);
+    if (t.kind === "tournament" || (t.kind === "friendly_session" && (await leagueSessionVisibleTo(t.id, userId)))) out.add(t.id);
   }
   return out;
 }
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
     // A starred match shows only while the app could show it anyway: a public event
     // of an approved organisation (a draft, a hidden session or a suspended
     // organisation's event drops out). The account's own matches always show.
-    const shown = await publicTournaments([...new Set(((ms ?? []) as Match[]).map((m) => m.tournament_id))]);
+    const shown = await publicTournaments([...new Set(((ms ?? []) as Match[]).map((m) => m.tournament_id))], owner.kind === "user" ? owner.id : null);
     for (const m of (ms ?? []) as Match[]) if (shown.has(m.tournament_id)) matches.set(m.id, m);
   }
 

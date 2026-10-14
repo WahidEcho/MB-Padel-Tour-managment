@@ -5,6 +5,7 @@ import { db } from "@/lib/supabase";
 import { requireStaff } from "@/lib/guard";
 import { can } from "@/lib/auth";
 import { LEAGUE_STATUS_LABELS, type LeagueStatus } from "@/lib/leagues/settings";
+import { LEAGUE_VISIBILITY_BADGE, leagueVisibility } from "@/lib/leagues/visibility";
 import { createLeagueAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +23,11 @@ export default async function LeaguesPage() {
   if (!can(staff.role, "manage_leagues")) notFound();
   const { data } = await db()
     .from("leagues")
-    .select("id, slug, name, kind, sport, status, created_at")
+    .select("id, slug, name, kind, sport, status, visibility, created_at")
     .eq("organization_id", staff.orgId)
     .order("created_at", { ascending: false })
     .limit(200);
-  const leagues = (data ?? []) as { id: string; slug: string; name: string; kind: string; sport: string; status: LeagueStatus }[];
+  const leagues = (data ?? []) as { id: string; slug: string; name: string; kind: string; sport: string; status: LeagueStatus; visibility: string }[];
   const ids = leagues.map((l) => l.id);
   const { data: memberRows } = ids.length
     ? await db().from("league_members").select("league_id, status").in("league_id", ids).limit(10000)
@@ -93,6 +94,9 @@ export default async function LeaguesPage() {
                 <td className="px-3 py-2 text-xs">{members.filter((m) => m.league_id === l.id && (m.status === "pending" || m.status === "awaiting_payment")).length || "—"}</td>
                 <td className="px-3 py-2">
                   <span className={`badge ${STATUS_BADGE[l.status] ?? ""}`}>{LEAGUE_STATUS_LABELS[l.status] ?? l.status}</span>
+                  {LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)] && (
+                    <span className="badge ml-1 bg-border text-muted">{LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)]}</span>
+                  )}
                 </td>
               </tr>
             ))}

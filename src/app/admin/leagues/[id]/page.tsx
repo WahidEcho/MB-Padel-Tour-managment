@@ -18,6 +18,7 @@ import {
   shiftMonth,
 } from "@/lib/leagues/settings";
 import { BOARD_LENGTHS } from "@/lib/leagues/boards";
+import { LEAGUE_VISIBILITY_OPTIONS, leagueVisibility } from "@/lib/leagues/visibility";
 import { boardPeriod, getDivisions, getFixtures, getLeague, getMembers, leagueBoards, todayIn } from "@/lib/leagues/server";
 import { isPlayedStatus } from "@/lib/leagues/fixtures";
 import InviteCodeForm from "./InviteCodeForm";
@@ -124,6 +125,7 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
   const fee = leagueFee(league.fee);
   const tpl = nightTemplate(league.night_template);
   const modes = normalizeJoinModes(league.join_modes);
+  const visibility = leagueVisibility(league.visibility);
   const period = boardPeriod(league, sp.period, sp.month);
   const boards = await leagueBoards(league, period);
   const today = todayIn(league.timezone);
@@ -184,8 +186,20 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" name="counts_toward_top_of_all" defaultChecked={league.counts_toward_top_of_all} />
-            Counts toward the top boards
+            Counts toward the top boards{visibility !== "everyone" ? " (only while everyone can see the league)" : ""}
           </label>
+          <fieldset className="sm:col-span-2" data-testid="league-visibility">
+            <legend className="label">Who can see this league</legend>
+            {LEAGUE_VISIBILITY_OPTIONS.map((o) => (
+              <label key={o.value} className="flex items-start gap-2 py-1 text-sm">
+                <input type="radio" name="visibility" value={o.value} defaultChecked={visibility === o.value} className="mt-1" />
+                <span>
+                  <span className="font-semibold">{o.label}</span>
+                  <span className="block text-xs text-muted">{o.help}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <fieldset className="sm:col-span-2">
             <legend className="label">Joining (combine as you like: code first, then approval, then payment)</legend>
             {Object.entries(MODE_LABELS).map(([m, label]) => (
@@ -445,6 +459,7 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
         <p className="text-xs text-muted">
           {league.invite_code_set_at ? `A code is set (since ${dayLabel(league.invite_code_set_at.slice(0, 10))}).` : "No code set."}{" "}
           {modes.includes("invite_code") ? "Players need it to join." : "Add “Invite code” to the joining modes for players to need it."}
+          {visibility === "invite_only" ? " This league is invite only: people who enter the code in the app (Leagues → Enter an invite code) can see it. A new or removed code closes it to them again (members stay)." : ""}
         </p>
         <InviteCodeForm leagueId={league.id} hasCode={Boolean(league.invite_code_set_at)} />
         {league.invite_code_set_at && (

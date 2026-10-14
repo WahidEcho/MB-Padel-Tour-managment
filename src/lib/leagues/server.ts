@@ -14,6 +14,13 @@
  * organisation is allowed to show (src/lib/orgs/personFields.ts): never a
  * profile id, phone, email or photo.
  *
+ * Visibility (migration 0031, src/lib/leagues/visibility.ts): only an 'everyone'
+ * league is public (the shared, CDN-cached routes, the organisation's page, the
+ * top boards, the live courts hero). An 'org_players' or 'invite_only' league,
+ * and its nights, are served only on per-user, never-cached paths to the people
+ * canSeeLeague lets in (viewerFacts → viewerOf); everyone else gets the same 404
+ * as a league that does not exist. Its points never reach a public top board.
+ *
  * Server-only.
  */
 import { db } from "../supabase";
@@ -29,6 +36,7 @@ import type {
   MNightTable,
   MMyLeague,
   MMyLeagues,
+  MLeagueReveal,
   MOrgRef,
   MTopBoard,
 } from "../mobile/contract";
@@ -40,14 +48,16 @@ import { boardMonths, rankBoard, topOfAllLeagues, type BoardEntry, type BoardLen
 import { joinDecision, normalizeJoinModes, type JoinMode, type MembershipStatus } from "./join";
 import { leagueResultsOfMatch, type LeagueSnapshotInput } from "./results";
 import { addDays, BOARD_LABELS, isMonth, leagueFee, leaguePeriods, leagueTakesMembers, moneyLabel, PUBLIC_LEAGUE_STATUSES } from "./settings";
-import { leagueInviteCodeMatches } from "./inviteCode";
+import { hashLeagueInviteCode, leagueInviteCodeMatches } from "./inviteCode";
+import { canSeeLeague, codeStillHeld, isPublicVisibility, leagueVisibility, NOBODY, type LeagueViewer, type LeagueVisibility } from "./visibility";
+import { sourceVouches } from "../orgs/personFields";
 import { eventDay } from "../matchday/eventDay";
 
 /* ---------------- rows ---------------- */
 
 /** Every league column but the invite-code hash. */
 export const LEAGUE_COLUMNS =
-  "id, organization_id, slug, name, about, sport, kind, status, join_modes, fee, points_rules, periods, counts_toward_top_of_all, match_day_rules, night_template, timezone, invite_code_set_at, created_at, updated_at";
+  "id, organization_id, slug, name, about, sport, kind, status, visibility, join_modes, fee, points_rules, periods, counts_toward_top_of_all, match_day_rules, night_template, timezone, invite_code_set_at, created_at, updated_at";
 
 export interface LeagueRow {
   id: string;
@@ -58,6 +68,8 @@ export interface LeagueRow {
   sport: string;
   kind: "nights" | "season";
   status: "draft" | "active" | "closed" | "archived";
+  /** Who can see it (migration 0031): read through leagueVisibility(). */
+  visibility: LeagueVisibility | string;
   join_modes: string[];
   fee: unknown;
   points_rules: unknown;
@@ -221,24 +233,162 @@ export function leagueSessionTournamentIds(): Promise<Set<string>> {
   });
 }
 
-/** Whether a hidden session tournament belongs to a public league of an approved organisation. Uncached: for single lookups. */
-export async function isPublicLeagueSession(tournamentId: string): Promise<boolean> {
-  if (!isUuid(tournamentId)) return false;
+/** The league a hidden session tournament is a night or the season of: active or closed, of an approved organisation. */
+async function leagueOfSessionTournament(tournamentId: string): Promise<LeagueRow | null> {
+  if (!isUuid(tournamentId)) return null;
   const { data: s } = await db().from("friendly_sessions").select("id").eq("tournament_id", tournamentId).maybeSingle();
-  if (!s) return false;
+  if (!s) return null;
   const sid = (s as { id: string }).id;
   const [{ data: f }, { data: d }] = await Promise.all([
     db().from("league_fixtures").select("league_id").eq("session_id", sid).limit(1),
     db().from("league_divisions").select("league_id").eq("season_session_id", sid).limit(1),
   ]);
   const leagueId = ((f ?? []) as { league_id: string }[])[0]?.league_id ?? ((d ?? []) as { league_id: string }[])[0]?.league_id;
-  if (!leagueId) return false;
-  const { data: l } = await db().from("leagues").select("status, organization_id").eq("id", leagueId).maybeSingle();
-  const league = l as { status: string; organization_id: string } | null;
-  if (!league || !(PUBLIC_LEAGUE_STATUSES as readonly string[]).includes(league.status)) return false;
-  // Only an approved organisation's leagues are public (a suspended or pending one's are not).
+  if (!leagueId) return null;
+  const league = await getLeague(leagueId);
+  if (!league || !(PUBLIC_LEAGUE_STATUSES as readonly string[]).includes(league.status)) return null;
+  // Only an approved organisation's leagues are shown (a suspended or pending one's are not).
   const { data: o } = await db().from("organizations").select("status").eq("id", league.organization_id).maybeSingle();
-  return (o as { status: string } | null)?.status === "approved";
+  return (o as { status: string } | null)?.status === "approved" ? league : null;
+}
+
+/** Whether a hidden session tournament belongs to a league the app shows at all, whatever its visibility (per-user reads, after their own check). */
+export async function leagueSessionShown(tournamentId: string): Promise<boolean> {
+  return Boolean(await leagueOfSessionTournament(tournamentId));
+}
+
+/**
+ * Whether a hidden session tournament belongs to a public league ('everyone') of
+ * an approved organisation: the shared, CDN-cached surfaces (bundle, live, the
+ * live courts hero) show only these. Uncached: for single lookups.
+ */
+export async function isPublicLeagueSession(tournamentId: string): Promise<boolean> {
+  const league = await leagueOfSessionTournament(tournamentId);
+  return Boolean(league) && isPublicVisibility(league!.visibility);
+}
+
+/**
+ * Whether this account may follow a league session (per-user paths only): a
+ * public league's session, or one of a league it can see (canSeeLeague), or a
+ * night it plays in itself (a claimed player row on that night's table).
+ */
+export async function leagueSessionVisibleTo(tournamentId: string, userId: string | null | undefined): Promise<boolean> {
+  const league = await leagueOfSessionTournament(tournamentId);
+  if (!league) return false;
+  if (isPublicVisibility(league.visibility)) return true;
+  if (!userId || !isUuid(userId)) return false;
+  if (canSeeLeague(league.visibility, viewerOf(await viewerFacts(userId), league))) return true;
+  const { data: claims } = await db().from("player_claims").select("player_id").eq("user_id", userId).limit(500);
+  const rows = ((claims ?? []) as { player_id: string }[]).map((c) => c.player_id);
+  if (!rows.length) return false;
+  const { data: own } = await db().from("players").select("id").in("id", rows).eq("tournament_id", tournamentId).limit(1);
+  return ((own ?? []) as unknown[]).length > 0;
+}
+
+/**
+ * For the per-user tournament paths (GET /me/t/<slug>/…): whether this account may
+ * read the tournament behind `slug`. A tournament is decided by the public rules
+ * (getBundle); a league session by leagueSessionVisibleTo. Cached briefly per
+ * account and slug (the live feed polls).
+ */
+export function tournamentVisibleTo(slug: string, userId: string): Promise<boolean> {
+  return memo(`t-visible:${slug}:${userId}`, 5_000, async () => {
+    if (typeof slug !== "string" || slug.length > 120) return false;
+    const { data } = await db().from("tournaments").select("id, kind").eq("slug", slug).maybeSingle();
+    const t = data as { id: string; kind: string } | null;
+    if (!t) return false;
+    if (t.kind !== "friendly_session") return true;
+    return leagueSessionVisibleTo(t.id, userId);
+  });
+}
+
+/* ---------------- who is asking (visibility, migration 0031) ---------------- */
+
+/** What a signed-in account is to leagues in general; viewerOf narrows it to one league. */
+export interface ViewerFacts {
+  userId: string | null;
+  profileId: string | null;
+  /** Organisations the account is an active staff member of (any role). */
+  staffOrgs: Set<string>;
+  /** Organisations that have the account's own profile with a vouching source (not rejected). */
+  vouchedOrgs: Set<string>;
+  /** Leagues the account's own profile is in (any status but removed). */
+  memberOf: Set<string>;
+  /** League id → the invite_code_set_at of the code this account entered. */
+  codeHeld: Map<string, string>;
+}
+
+const NO_FACTS = (): ViewerFacts => ({ userId: null, profileId: null, staffOrgs: new Set(), vouchedOrgs: new Set(), memberOf: new Set(), codeHeld: new Map() });
+
+/**
+ * Reads what an account is to leagues: its staff organisations, its own profile
+ * (profileForUser: player_profiles.auth_user_id, nothing else), the organisations
+ * that vouch for that profile, its league memberships, and the invite codes it
+ * entered. A signed-out caller is nobody.
+ */
+export async function viewerFacts(userId: string | null | undefined): Promise<ViewerFacts> {
+  const facts = NO_FACTS();
+  if (!userId || !isUuid(userId)) return facts;
+  facts.userId = userId;
+  const [me, staffRes, holderRes] = await Promise.all([
+    profileForUser(userId),
+    db().from("organization_members").select("organization_id").eq("auth_user_id", userId).eq("status", "active").limit(200),
+    db().from("league_code_holders").select("league_id, code_set_at").eq("auth_user_id", userId).limit(1000),
+  ]);
+  for (const r of (staffRes.data ?? []) as { organization_id: string }[]) facts.staffOrgs.add(r.organization_id);
+  for (const r of (holderRes.data ?? []) as { league_id: string; code_set_at: string }[]) facts.codeHeld.set(r.league_id, r.code_set_at);
+  if (me) {
+    facts.profileId = me.profileId;
+    const [orgRes, memberRes] = await Promise.all([
+      db().from("organization_players").select("organization_id, source, approval_status").eq("player_profile_id", me.profileId).limit(1000),
+      db().from("league_members").select("league_id, status").eq("player_profile_id", me.profileId).limit(1000),
+    ]);
+    for (const r of (orgRes.data ?? []) as { organization_id: string; source: string; approval_status: string }[]) {
+      if (sourceVouches(r.source) && r.approval_status !== "rejected") facts.vouchedOrgs.add(r.organization_id);
+    }
+    for (const r of (memberRes.data ?? []) as { league_id: string; status: string }[]) if (r.status !== "removed") facts.memberOf.add(r.league_id);
+  }
+  return facts;
+}
+
+/** What the account is to this one league. */
+export function viewerOf(facts: ViewerFacts, league: Pick<LeagueRow, "id" | "organization_id" | "invite_code_set_at">): LeagueViewer {
+  if (!facts.userId) return NOBODY;
+  return {
+    staff: facts.staffOrgs.has(league.organization_id),
+    member: facts.memberOf.has(league.id),
+    orgPlayer: facts.vouchedOrgs.has(league.organization_id),
+    codeHolder: codeStillHeld(facts.codeHeld.get(league.id), league.invite_code_set_at),
+  };
+}
+
+/** Whether this account may see this league (an 'everyone' league: anybody). */
+export async function userCanSeeLeague(league: LeagueRow, userId: string | null | undefined, facts?: ViewerFacts): Promise<boolean> {
+  if (isPublicVisibility(league.visibility)) return true;
+  return canSeeLeague(league.visibility, viewerOf(facts ?? (await viewerFacts(userId)), league));
+}
+
+/**
+ * The leagues that are not public which this account can see (active or closed,
+ * approved organisation): through its staff or vouching organisations, its
+ * memberships and the codes it entered.
+ */
+async function restrictedLeaguesFor(facts: ViewerFacts): Promise<LeagueRow[]> {
+  if (!facts.userId) return [];
+  const orgIds = [...new Set([...facts.staffOrgs, ...facts.vouchedOrgs])];
+  const leagueIds = [...new Set([...facts.memberOf, ...facts.codeHeld.keys()])];
+  const found = new Map<string, LeagueRow>();
+  const read = (part: { org?: string[]; ids?: string[] }) => {
+    let q = db().from("leagues").select(LEAGUE_COLUMNS).neq("visibility", "everyone").in("status", [...PUBLIC_LEAGUE_STATUSES]);
+    if (part.org) q = q.in("organization_id", part.org);
+    if (part.ids) q = q.in("id", part.ids);
+    return q.limit(200);
+  };
+  for (let i = 0; i < orgIds.length; i += 100) for (const l of ((await read({ org: orgIds.slice(i, i + 100) })).data ?? []) as LeagueRow[]) found.set(l.id, l);
+  for (let i = 0; i < leagueIds.length; i += 100) for (const l of ((await read({ ids: leagueIds.slice(i, i + 100) })).data ?? []) as LeagueRow[]) found.set(l.id, l);
+  const leagues = [...found.values()].filter((l) => canSeeLeague(l.visibility, viewerOf(facts, l)));
+  const approved = await approvedOrgs([...new Set(leagues.map((l) => l.organization_id))]);
+  return leagues.filter((l) => approved.has(l.organization_id));
 }
 
 /* ---------------- recomputing a league's points ---------------- */
@@ -569,9 +719,19 @@ interface TopLeague {
   counts_toward_top_of_all: boolean;
 }
 
-/** Leagues whose points can reach a top board: not drafts. */
+/**
+ * Leagues whose points can reach a top board: not drafts, and public ('everyone').
+ * The top boards are public and CDN-cached, so a league only its players, members
+ * or code holders may see adds nothing to them, not even to a player's total
+ * (a name with points would tell where that player plays).
+ */
 async function topLeagues(orgId: string | null): Promise<TopLeague[]> {
-  let q = db().from("leagues").select("id, organization_id, counts_toward_top_of_all").in("status", ["active", "closed", "archived"]).eq("counts_toward_top_of_all", true);
+  let q = db()
+    .from("leagues")
+    .select("id, organization_id, counts_toward_top_of_all")
+    .in("status", ["active", "closed", "archived"])
+    .eq("counts_toward_top_of_all", true)
+    .eq("visibility", "everyone");
   if (orgId) q = q.eq("organization_id", orgId);
   const { data } = await q.limit(5000);
   return (data ?? []) as TopLeague[];
@@ -639,8 +799,12 @@ async function orgRef(orgId: string): Promise<(MOrgRef & { approved: boolean }) 
   return o ? { slug: o.slug, name: o.name, approved: o.status === "approved" } : null;
 }
 
-/** A public league by slug: active or closed, of an approved organisation. */
-export async function publicLeagueBySlug(slug: string): Promise<{ league: LeagueRow; org: MOrgRef } | null> {
+/**
+ * A league the app may show by slug, whatever its visibility: active or closed, of
+ * an approved organisation. Callers decide who sees it (getPublicLeague: everyone
+ * leagues only; getLeagueForUser and joinLeague: canSeeLeague).
+ */
+export async function appLeagueBySlug(slug: string): Promise<{ league: LeagueRow; org: MOrgRef } | null> {
   if (typeof slug !== "string" || !/^[a-z0-9][a-z0-9-]{0,78}[a-z0-9]$/.test(slug)) return null;
   const { data } = await db().from("leagues").select(LEAGUE_COLUMNS).eq("slug", slug).maybeSingle();
   const league = data as LeagueRow | null;
@@ -650,9 +814,14 @@ export async function publicLeagueBySlug(slug: string): Promise<{ league: League
   return { league, org: { slug: org.slug, name: org.name } };
 }
 
-/** Cards for an organisation's public leagues (or a list of leagues). */
-export async function leagueCards(filter: { organizationId?: string; leagueIds?: string[] }, orgs?: Map<string, MOrgRef>): Promise<MLeagueCard[]> {
+/**
+ * Cards for an organisation's public leagues (or a list of leagues). Public
+ * ('everyone') leagues only, unless `restricted`: the caller has already decided
+ * the account may see each of `leagueIds` (myLeagues, never a shared response).
+ */
+export async function leagueCards(filter: { organizationId?: string; leagueIds?: string[]; restricted?: boolean }, orgs?: Map<string, MOrgRef>): Promise<MLeagueCard[]> {
   let q = db().from("leagues").select(LEAGUE_COLUMNS).in("status", [...PUBLIC_LEAGUE_STATUSES]);
+  if (!filter.restricted) q = q.eq("visibility", "everyone");
   if (filter.organizationId) q = q.eq("organization_id", filter.organizationId);
   if (filter.leagueIds) q = q.in("id", filter.leagueIds.length ? filter.leagueIds : ["00000000-0000-0000-0000-000000000000"]);
   const { data } = await q.order("created_at", { ascending: false }).limit(100);
@@ -686,6 +855,7 @@ export async function leagueCards(filter: { organizationId?: string; leagueIds?:
         members: count(members, l.id),
         nextDate: next,
         joinModes: publicModes(l.join_modes),
+        visibility: leagueVisibility(l.visibility),
       };
     });
 }
@@ -695,10 +865,29 @@ function scoreLine(snap: { completed_sets?: { teamAGames?: number; teamBGames?: 
   return sets.length ? sets.map((s) => `${s.teamAGames ?? 0}-${s.teamBGames ?? 0}`).join(" ") : null;
 }
 
-/** A league's public page: settings people need, boards for the period, nights and fixtures. */
+/**
+ * A public ('everyone') league's page, for the shared, CDN-cached route. Any other
+ * league is null here, the same as a league that does not exist, for everyone:
+ * its page is GET /me/leagues/<slug> (getLeagueForUser).
+ */
 export async function getPublicLeague(slug: string, lengthRaw?: unknown, monthRaw?: unknown): Promise<MLeague | null> {
-  const found = await publicLeagueBySlug(slug);
-  if (!found) return null;
+  const found = await appLeagueBySlug(slug);
+  if (!found || !isPublicVisibility(found.league.visibility)) return null;
+  return leagueView(found, lengthRaw, monthRaw);
+}
+
+/**
+ * A league's page for one signed-in account (never cached): any league it may see
+ * (canSeeLeague), public ones included. Null (a 404) for everything else.
+ */
+export async function getLeagueForUser(slug: string, userId: string, lengthRaw?: unknown, monthRaw?: unknown): Promise<MLeague | null> {
+  const found = await appLeagueBySlug(slug);
+  if (!found || !(await userCanSeeLeague(found.league, userId))) return null;
+  return leagueView(found, lengthRaw, monthRaw);
+}
+
+/** A league's page: settings people need, boards for the period, nights and fixtures. The same for everyone who may see it. */
+function leagueView(found: { league: LeagueRow; org: MOrgRef }, lengthRaw?: unknown, monthRaw?: unknown): Promise<MLeague> {
   const { league, org } = found;
   const period = boardPeriod(league, lengthRaw, monthRaw);
   return memo(`league:${league.id}:${league.updated_at}:${period.length}:${period.month}`, 2_000, async () => {
@@ -818,6 +1007,7 @@ export async function getPublicLeague(slug: string, lengthRaw?: unknown, monthRa
         sport: league.sport,
         kind: league.kind,
         status: league.status as "active" | "closed",
+        visibility: leagueVisibility(league.visibility),
         timezone: league.timezone,
         organization: org,
         joinModes: modes,
@@ -838,14 +1028,30 @@ export async function getPublicLeague(slug: string, lengthRaw?: unknown, monthRa
 
 /* ---------------- the signed-in account ---------------- */
 
-/** The account's leagues, with this month's rank in each (never cached). `onlySlug` narrows to one league. */
+/**
+ * The account's leagues, with this month's rank in each (never cached), and the
+ * leagues that are not public which it can see (`visible`, cards with their
+ * visibility for the app's badge). `onlySlug` narrows to one league (no `visible`).
+ * A league it was removed from and may no longer see drops out.
+ */
 export async function myLeagues(userId: string, onlySlug?: string): Promise<MMyLeagues> {
+  const facts = await viewerFacts(userId);
+  const restrictedCards = async (): Promise<MLeagueCard[]> => {
+    if (onlySlug) return [];
+    const ids = (await restrictedLeaguesFor(facts)).map((l) => l.id);
+    return ids.length ? leagueCards({ leagueIds: ids, restricted: true }) : [];
+  };
   const me = await profileForUser(userId);
-  if (!me) return { generatedAt: new Date().toISOString(), profileLinked: false, leagues: [] };
+  if (!me) return { generatedAt: new Date().toISOString(), profileLinked: false, leagues: [], visible: await restrictedCards() };
   const { data } = await db().from("league_members").select(MEMBER_COLUMNS).eq("player_profile_id", me.profileId).limit(200);
   const rows = (data ?? []) as MemberRow[];
   const leagues = await chunked<LeagueRow>(rows.map((r) => r.league_id), (part) => db().from("leagues").select(LEAGUE_COLUMNS).in("id", part));
-  const visible = leagues.filter((l) => (PUBLIC_LEAGUE_STATUSES as readonly string[]).includes(l.status) && (!onlySlug || l.slug === onlySlug));
+  const visible = leagues.filter(
+    (l) =>
+      (PUBLIC_LEAGUE_STATUSES as readonly string[]).includes(l.status) &&
+      (!onlySlug || l.slug === onlySlug) &&
+      (isPublicVisibility(l.visibility) || canSeeLeague(l.visibility, viewerOf(facts, l))),
+  );
   const orgs = await approvedOrgs([...new Set(visible.map((l) => l.organization_id))]);
   const divisions = await chunked<{ id: string; name: string }>(rows.map((r) => r.division_id ?? ""), (part) => db().from("league_divisions").select("id, name").in("id", part));
   const out: MMyLeague[] = [];
@@ -867,6 +1073,7 @@ export async function myLeagues(userId: string, onlySlug?: string): Promise<MMyL
       name: l.name,
       organization: { slug: o.slug, name: o.name },
       status: m.status,
+      visibility: leagueVisibility(l.visibility),
       division: divisions.find((d) => d.id === m.division_id)?.name ?? null,
       payAtVenue: m.pay_at_venue,
       month,
@@ -874,7 +1081,7 @@ export async function myLeagues(userId: string, onlySlug?: string): Promise<MMyL
       points,
     });
   }
-  return { generatedAt: new Date().toISOString(), profileLinked: true, leagues: out };
+  return { generatedAt: new Date().toISOString(), profileLinked: true, leagues: out, visible: await restrictedCards() };
 }
 
 /* ---------------- joining ---------------- */
@@ -900,8 +1107,9 @@ const JOIN_REFUSALS: Record<string, [number, string]> = {
  * one of the organisation's players as 'matched' (addAsOrgPlayer: it vouches for nothing).
  */
 export async function joinLeague(input: { slug: string; userId: string; code?: unknown; divisionId?: unknown }): Promise<JoinOutcome> {
-  const found = await publicLeagueBySlug(input.slug);
-  if (!found) return { ok: false, status: 404, code: "not_found", error: "League not found" };
+  const found = await appLeagueBySlug(input.slug);
+  // A league this account may not see is not there (the same 404 as a missing one).
+  if (!found || !(await userCanSeeLeague(found.league, input.userId))) return { ok: false, status: 404, code: "not_found", error: "League not found" };
   const { league, org } = found;
   const me = await profileForUser(input.userId);
   if (!me) {
@@ -977,6 +1185,44 @@ export async function joinLeague(input: { slug: string; userId: string; code?: u
         ? "Request sent. The organiser approves new members."
         : "Approved — pay the membership to finish joining.";
   return { ok: true, outcome, status, payAtVenue, message };
+}
+
+/* ---------------- revealing a league by its invite code ---------------- */
+
+export type RevealOutcome = { ok: true; league: MLeagueReveal } | { ok: false; status: number; code: string; error: string };
+
+/**
+ * A signed-in account enters a league's invite code (no slug needed): the league
+ * whose current code it is (active or closed, approved organisation) becomes
+ * visible to this account (league_code_holders) until the organiser sets a new
+ * code or clears it. Guesses share joining's rate limit (8 per 15 minutes per
+ * account), counted before the compare; the code is never stored, logged or
+ * audited. A wrong code and a code of a league that is not shown answer the same.
+ */
+export async function revealLeagueByCode(userId: string, code: unknown): Promise<RevealOutcome> {
+  if (!isUuid(userId)) return { ok: false, status: 401, code: "sign_in", error: "Sign in to enter an invite code." };
+  const { takeRateLimit } = await import("../ratelimit");
+  const limit = await takeRateLimit({ key: `league-code:${userId}`, limit: 8, windowSeconds: 900 });
+  if (!limit.allowed) return { ok: false, status: 429, code: "too_many", error: "Too many tries. Wait a few minutes and try again." };
+  const wrong: RevealOutcome = { ok: false, status: 404, code: "invite_code_wrong", error: "That invite code doesn't match a league. Check it with the organiser." };
+  const hash = hashLeagueInviteCode(code);
+  if (!hash) return wrong;
+  const { data } = await db().from("leagues").select(LEAGUE_COLUMNS).eq("invite_code_hash", hash).in("status", [...PUBLIC_LEAGUE_STATUSES]).limit(5);
+  const leagues = ((data ?? []) as LeagueRow[]).filter((l) => l.invite_code_set_at);
+  const orgs = await approvedOrgs([...new Set(leagues.map((l) => l.organization_id))]);
+  const shown = leagues.filter((l) => orgs.has(l.organization_id));
+  if (!shown.length) return wrong;
+  const { audit } = await import("../audit");
+  for (const l of shown) {
+    const { error } = await db()
+      .from("league_code_holders")
+      .upsert({ league_id: l.id, auth_user_id: userId, code_set_at: l.invite_code_set_at }, { onConflict: "league_id,auth_user_id" });
+    if (error) return { ok: false, status: 409, code: "conflict", error: "Could not open the league right now. Try again." };
+    await audit({ organization_id: l.organization_id, actor_role: "user", action: "LEAGUE_INVITE_CODE_ENTERED", entity_type: "league", entity_id: l.id });
+  }
+  const l = shown[0];
+  const o = orgs.get(l.organization_id)!;
+  return { ok: true, league: { slug: l.slug, name: l.name, organization: { slug: o.slug, name: o.name }, visibility: leagueVisibility(l.visibility) } };
 }
 
 /**

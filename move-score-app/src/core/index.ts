@@ -51,6 +51,8 @@ export { JOIN_MODES, joinDecision, normalizeJoinModes, normalizeInviteCode } fro
 export { BOARD_LABELS, monthLabel, dayLabel, shiftMonth, isMonth, leaguePeriods } from "../../../src/lib/leagues/settings";
 export type { LeaguePeriods, LeagueKind } from "../../../src/lib/leagues/settings";
 export type { JoinMode, JoinDecision, JoinRefusal, JoinLeague, JoinApplicant, MembershipStatus } from "../../../src/lib/leagues/join";
+export { LEAGUE_VISIBILITIES, LEAGUE_VISIBILITY_BADGE, leagueVisibility, canSeeLeague } from "../../../src/lib/leagues/visibility";
+export type { LeagueVisibility, LeagueViewer } from "../../../src/lib/leagues/visibility";
 export { orderOfPlay, estimateTimes, aboutTime } from "../../../src/lib/friendly/scheduler";
 export type { ScheduledRound, ScheduledMatch, CourtOrder, CourtOrderEntry, MatchEstimate } from "../../../src/lib/friendly/scheduler";
 export { buildNightTable, reestimateNight, isNightMatchDone, NIGHT_TABLE_LAYOUT } from "../../../src/lib/friendly/nightTable";

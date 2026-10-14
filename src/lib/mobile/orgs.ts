@@ -4,7 +4,10 @@
  * show anyway (public, of kind "tournament", active or completed, and not demos
  * unless placed in an event group), its public leagues and its top board (names
  * and points only): never member emails, codes, the application, the plan or
- * billing, or whether it opted out of the platform board.
+ * billing, or whether it opted out of the platform board. Public and CDN-cached:
+ * only 'everyone' leagues (a 'Members only' or 'Invite only' league reaches the
+ * accounts that may see it through GET /me/leagues `visible`), and the top board
+ * counts only those leagues' points (src/lib/leagues/server.ts topLeagues).
  */
 import { db } from "../supabase";
 import type { MOrgProfile, MTournamentCard } from "./contract";
@@ -62,7 +65,8 @@ export async function getOrgProfile(slug: string, boardMonth?: string): Promise<
       .select("id", { count: "exact", head: true })
       .eq("organization_id", org.id)
       .in("status", ["active", "closed"])
-      .eq("counts_toward_top_of_all", true);
+      .eq("counts_toward_top_of_all", true)
+      .eq("visibility", "everyone");
     return {
       generatedAt: new Date().toISOString(),
       organization: toPublicOrg(org),

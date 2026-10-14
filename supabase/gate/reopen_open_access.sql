@@ -7,11 +7,12 @@
 --   organization_players, organization_invites, phone_verifications,
 --   player_link_offers, rls_canary,
 --   leagues, league_divisions, league_members, league_fixtures, league_points,
+--   league_code_holders,
 --   match_calls, live_activity_start_tokens, live_activity_starts,
 --   registration_settings, registrations, registration_payments, move_tick_events
 -- They hold event-code hashes, member emails, platform admins, organisations'
 -- private player notes, invite and one-time-code hashes and their status, league
--- invite-code hashes and the organisers' membership decisions, referee devices and
+-- invite-code hashes, the organisers' membership decisions and who holds a code, referee devices and
 -- presence on court calls, phones' push-to-start tokens and installation ids, and
 -- registrations (people's contact details, payment references, refunds).
 -- The anon and authenticated keys must
@@ -37,6 +38,7 @@ declare
     'league_members',
     'league_fixtures',
     'league_points',
+    'league_code_holders',
     'match_calls',
     'live_activity_start_tokens',
     'live_activity_starts',

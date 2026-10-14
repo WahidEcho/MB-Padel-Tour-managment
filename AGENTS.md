@@ -22,6 +22,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (PGlite + a PostgREST-compatible server on :54321, schema from `supabase/schema.sql` plus
   migrations ≥ 0014). Point `SUPABASE_URL=http://localhost:54321` at it and every E2E script runs.
   New migrations must also be applied to the live project (Supabase MCP `apply_migration`).
+- Live database state (14 Oct 2026): migrations 0022–0030, the open-access gate (`supabase/gate/close_open_access.sql`)
+  and the `gen_player_access_code()` search_path fix (0032) are applied on the live project; the repo matches it (0022 creates
+  no policy, revokes anon/authenticated). Pending on live: `0031_league_visibility` (apply before deploying a build that reads
+  `leagues.visibility`) and `0032_function_search_path` (already in effect there; recording it is harmless). The "not yet on the
+  live project" notes below for 0018–0030 predate this. The owner applies live SQL (Claude never writes to the live database).
 - Tennis team competitions (nations, ties of S2/S1/D rubbers, ITF ranking, placement draws for every
   place): `src/lib/tennis/`, admin pages `nations` and `ties`, gate `scripts/e2e/tennis-ties.ts`.
 - Tennis court TVs (`src/components/tennis/`, scenes decided by `src/lib/tennis/tvScene.ts`): a tie-format
@@ -67,10 +72,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   own number goes to `players.self_reported_phone`, never `players.phone`; offers reach one organisation
   (`owner_scope_org`); no code to a team contact; deploy runs `hash-player-codes.ts` (checks the pepper against a
   sealed row) and `scrub-delivery-codes.ts`. Exploits are gated in `identityHardening` (mobile-api E2E).
-- Database gate (still open): production's `SUPABASE_KEY` is already the secret key (13 Oct 2026; `/api/health/db`
-  reports `"key":"secret"` via the `rls_canary` table). Next: run `supabase/gate/close_open_access.sql` (rollback
-  `reopen_open_access.sql`). It must be on the live project before migration 0023 (organisations) is applied there.
-  After it, `.env.local`'s anon key can no longer read the live project; use the stand-in or the secret key.
+- Database gate (closed on live, 14 Oct 2026): production's `SUPABASE_KEY` is the secret key (`/api/health/db` reports
+  `"key":"secret"` via the `rls_canary` table) and `supabase/gate/close_open_access.sql` has run (rollback
+  `reopen_open_access.sql`). `.env.local`'s anon key can no longer read the live project; use the stand-in or the secret key.
+  Every migration from 0022 on creates no policy and grants nothing to anon/authenticated (`src/lib/migrations.test.ts`).
 - Messaging (Admin → Announcements): email via Resend and WhatsApp Cloud API, one `message_deliveries` row per
   recipient per channel, chunked drain (`api/internal/messages/drain`, cron `supabase/ops/messaging_cron.sql`),
   webhooks `api/webhooks/resend|whatsapp`, `sendTransactional` in `src/lib/messaging/queue.ts`. Docs, env vars and
@@ -167,6 +172,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `matched` (vouches for nothing; `league` is non-vouching too, `sourceVouches`). Boards, league pages and admin league pages name players
   through `orgDisplayNames`; the platform "Top of all" board scores results on the default scale (`onPlatformScale`). League sessions
   (nights, season fixtures) of approved organisations are the only friendly sessions the app shows. Gate: `npm run e2e:leagues` (stand-in).
+  Visibility (migration `0031_league_visibility`, pure `src/lib/leagues/visibility.ts`): `everyone` (default) | `org_players` (the org's
+  players with a vouching source, the league's members, the org's active staff) | `invite_only` (members, accounts that entered the
+  current invite code — `POST leagues/code`, table `league_code_holders`, rate limit shared with joining — and staff). Platform admins
+  are not staff here. Only `everyone` leagues reach shared/CDN routes (`leagues/[slug]`, `orgs/[slug]`, `leagues/top`, `t/[slug]/*`,
+  courts hero via `isPublicLeagueSession`); restricted ones are served on per-user `private, no-store` routes (`me/leagues/[slug]`,
+  `me/leagues` `visible`, `me/t/[slug]/{bundle,live,standings}` gated by `tournamentVisibleTo`, which also lets a player into a night
+  they play in), and anyone else gets the missing-league 404. Their points never count on the public top boards. The app reads the
+  public URL first and falls back to the `me/` path on a 404 when signed in (`publicOrMine` in `move-score-app/src/api/queries.ts`).
 - Americano / Mexicano nights (Phase 8, no migration): pure `src/lib/friendly/nightTable.ts` (`buildNightTable` view model every surface
   draws, `reestimateNight`; `NIGHT_TABLE_LAYOUT` is the one switch for the owner's pending reference layout), server
   `src/lib/friendly/nights.ts` (`publishNightTable` = "Confirm players and publish table", `reestimateSessionTable` from the

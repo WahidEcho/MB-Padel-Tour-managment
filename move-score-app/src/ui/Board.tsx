@@ -1,5 +1,5 @@
 import { View } from "react-native";
-import type { MBoardLine, MLeagueCard } from "@core";
+import { LEAGUE_VISIBILITY_BADGE, leagueVisibility, type MBoardLine, type MLeagueCard } from "@core";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Eyebrow, Num } from "./Text";
 import { Card, Chip } from "./Bits";
@@ -44,10 +44,14 @@ const KIND_LABEL = { nights: "League nights", season: "Season" } as const;
 
 /** A league in a list: what it is, who runs it, members and the next date. */
 export function LeagueLine({ l, showOrg = false }: { l: MLeagueCard; showOrg?: boolean }) {
+  const badge = LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)];
   return (
-    <Card onPress={() => openLeague(l.slug)} accessibilityLabel={[l.name, KIND_LABEL[l.kind], showOrg ? l.organization?.name : null, `${l.members} members`].filter(Boolean).join(". ")} style={{ gap: 4 }}>
+    <Card onPress={() => openLeague(l.slug)} accessibilityLabel={[l.name, badge, KIND_LABEL[l.kind], showOrg ? l.organization?.name : null, `${l.members} members`].filter(Boolean).join(". ")} style={{ gap: 4 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Chip label={l.status === "closed" ? "Closed" : l.nextDate ? `Next ${dateRange(l.nextDate, null)}` : KIND_LABEL[l.kind]} />
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <Chip label={l.status === "closed" ? "Closed" : l.nextDate ? `Next ${dateRange(l.nextDate, null)}` : KIND_LABEL[l.kind]} />
+          {badge ? <VisibilityBadge label={badge} /> : null}
+        </View>
         <Eyebrow size={10}>{l.sport}</Eyebrow>
       </View>
       <Body weight="bold" size={16}>{l.name}</Body>
@@ -56,4 +60,10 @@ export function LeagueLine({ l, showOrg = false }: { l: MLeagueCard; showOrg?: b
       </Body>
     </Card>
   );
+}
+
+/** "Members only" / "Invite only": shown only to people who can see such a league (a public one has none). */
+export function VisibilityBadge({ label }: { label: string }) {
+  const { t } = useTheme();
+  return <Chip label={label} style={{ backgroundColor: "transparent", borderWidth: 1, borderColor: t.line }} />;
 }

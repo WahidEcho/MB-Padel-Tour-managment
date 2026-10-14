@@ -43,6 +43,8 @@ export async function DELETE(request: Request) {
   await db().from("push_devices").update({ user_id: null }).eq("user_id", owner.id);
   await db().from("player_profiles").update({ auth_user_id: null, claim_status: "unclaimed", phone_verified_at: null }).eq("auth_user_id", owner.id);
   await db().from("phone_verifications").delete().eq("auth_user_id", owner.id);
+  // Invite codes this account entered (migration 0031): the leagues they opened close again.
+  await db().from("league_code_holders").delete().eq("auth_user_id", owner.id);
   // Registrations stay with the organiser (an entry, its payments and refunds), no longer tied to this account.
   await db().from("registrations").update({ auth_user_id: null, updated_at: new Date().toISOString() }).eq("auth_user_id", owner.id);
   // Lets go of the linked player; a photo the player uploaded is deleted with it.

@@ -3,7 +3,8 @@ import { Linking, Platform, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { monthLabel, type MTournamentCard } from "@core";
-import { useOrg } from "../../api/queries";
+import { useMyLeagues, useOrg } from "../../api/queries";
+import { session } from "../../state/session";
 import { dateRange } from "../../api/model";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
@@ -44,6 +45,9 @@ function OrgPage({ slug }: { slug: string }) {
   const q = useOrg(slug);
   const following = useFollowing("organization", slug);
   const [busy, setBusy] = useState(false);
+  // Its 'Members only' / 'Invite only' leagues this account may see come with the account's leagues (never the shared page).
+  const user = session.use((s) => s.user);
+  const my = useMyLeagues(Boolean(user));
   if (!q.data) {
     return (
       <Screen tabs={false} onRefresh={() => q.refetch()}>
@@ -54,7 +58,11 @@ function OrgPage({ slug }: { slug: string }) {
   }
   // An older server may still answer without leagues (Phase 7): nothing to show then.
   const { organization: o, tournaments } = q.data;
-  const leagues = q.data.leagues ?? [];
+  const publicLeagues = q.data.leagues ?? [];
+  const leagues = [
+    ...publicLeagues,
+    ...(user ? (my.data?.visible ?? []) : []).filter((l) => l.organization?.slug === slug && !publicLeagues.some((p) => p.slug === l.slug)),
+  ];
   const topBoard = q.data.topBoard ?? null;
   const any = tournaments.live.length + tournaments.upcoming.length + tournaments.past.length > 0;
   const follow = async () => {

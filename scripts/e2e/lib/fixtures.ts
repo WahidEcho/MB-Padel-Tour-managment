@@ -77,7 +77,7 @@ export async function http(method: string, path: string, who: Who = {}, body?: u
   } catch {
     /* not json */
   }
-  return { status: res.status, text, json };
+  return { status: res.status, text, json, cache: res.headers.get("cache-control") };
 }
 
 /* ---------------- app users (the stand-in's Supabase Auth) ---------------- */

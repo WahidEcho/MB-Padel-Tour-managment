@@ -445,6 +445,12 @@ export interface MOrgProfile {
 export type MLeagueKind = "nights" | "season";
 export type MJoinMode = "open" | "approval" | "paid" | "invite_code";
 export type MMembershipStatus = "pending" | "awaiting_payment" | "active" | "removed";
+/**
+ * Who can see a league (src/lib/leagues/visibility.ts): 'everyone' is public; an
+ * 'org_players' ("Members only") or 'invite_only' league reaches the app only on
+ * per-user paths (GET /me/leagues, /me/leagues/<slug>, /me/t/<slug>/…).
+ */
+export type MLeagueVisibility = "everyone" | "org_players" | "invite_only";
 
 /** A league in a list (an organisation's page, Leagues). */
 export interface MLeagueCard {
@@ -459,6 +465,8 @@ export interface MLeagueCard {
   /** The next night or fixture date ("YYYY-MM-DD", the league's own day), if any. */
   nextDate: string | null;
   joinModes: MJoinMode[];
+  /** Absent from older servers (= everyone). */
+  visibility?: MLeagueVisibility;
 }
 
 /**
@@ -543,6 +551,8 @@ export interface MLeague {
     sport: string;
     kind: MLeagueKind;
     status: "active" | "closed";
+    /** Absent from older servers (= everyone). */
+    visibility?: MLeagueVisibility;
     timezone: string;
     organization: MOrgRef | null;
     joinModes: MJoinMode[];
@@ -575,6 +585,8 @@ export interface MMyLeague {
   name: string;
   organization: MOrgRef | null;
   status: MMembershipStatus;
+  /** Absent from older servers (= everyone). */
+  visibility?: MLeagueVisibility;
   division: string | null;
   payAtVenue: boolean;
   /** This month's board in the league. */
@@ -588,6 +600,20 @@ export interface MMyLeagues {
   /** False when the account is not linked to a player profile yet (joining needs one). */
   profileLinked: boolean;
   leagues: MMyLeague[];
+  /**
+   * Leagues that are not public which this account can see (as the organisation's
+   * player or staff, a member, or by an invite code it entered), for the league
+   * lists and the organisation page. Absent from older servers and with ?league=.
+   */
+  visible?: MLeagueCard[];
+}
+
+/** POST /leagues/code: the league an invite code opens for this account. */
+export interface MLeagueReveal {
+  slug: string;
+  name: string;
+  organization: MOrgRef | null;
+  visibility: MLeagueVisibility;
 }
 
 /** POST /leagues/<slug>/join. */

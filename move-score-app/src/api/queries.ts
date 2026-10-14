@@ -7,10 +7,11 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
+import type { MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
+import { session } from "../state/session";
 
 /** A 404 will not fix itself by asking again; network failures and 5xx might. */
 function shouldRetry(failures: number, e: unknown): boolean {
@@ -64,6 +65,26 @@ function cached<T>(key: string, fetcher: () => Promise<T>): () => Promise<T> {
   };
 }
 
+/**
+ * A public read first (the shared, CDN-cached URL). When that is a 404 and someone
+ * is signed in, the same read on the account's own path (GET /api/mobile/v1/me/…,
+ * never cached), which also serves a 'Members only' or 'Invite only' league and
+ * its nights to the people who may see them. Only a public answer is kept on the
+ * phone: a per-account one is not left behind for whoever uses the phone next.
+ */
+function publicOrMine<T>(key: string | null, publicPath: string, minePath: string): () => Promise<T> {
+  return async () => {
+    try {
+      const v = await api<T>(publicPath);
+      if (key) setJson(`q:${key}`, v);
+      return v;
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404) || !session.get().user) throw e;
+      return api<T>(minePath, { who: "me" });
+    }
+  };
+}
+
 function initial<T>(key: string): T | undefined {
   return getJson<T | undefined>(`q:${key}`, undefined);
 }
@@ -109,7 +130,7 @@ export function useCourtsLive(enabled: boolean, intervalMs = 5_000) {
 export function useBundle(slug: string | undefined, opts: Opts<MBundle> = {}) {
   return useQuery<MBundle>({
     queryKey: ["bundle", slug],
-    queryFn: cached(`bundle:${slug}`, () => api<MBundle>(`/api/mobile/v1/t/${slug}/bundle`)),
+    queryFn: publicOrMine<MBundle>(`bundle:${slug}`, `/api/mobile/v1/t/${slug}/bundle`, `/api/mobile/v1/me/t/${slug}/bundle`),
     initialData: () => (slug ? initial<MBundle>(`bundle:${slug}`) : undefined),
     ...SAVED_IS_OLD,
     enabled: Boolean(slug),
@@ -139,7 +160,7 @@ export function useLeague(slug: string | undefined, period = 1, month?: string) 
   const key = `league:${slug}:${period}:${month ?? "now"}`;
   return useQuery<MLeague>({
     queryKey: ["league", slug, period, month ?? null],
-    queryFn: cached(key, () => api<MLeague>(`/api/mobile/v1/leagues/${encodeURIComponent(slug ?? "")}${qs}`)),
+    queryFn: publicOrMine<MLeague>(key, `/api/mobile/v1/leagues/${encodeURIComponent(slug ?? "")}${qs}`, `/api/mobile/v1/me/leagues/${encodeURIComponent(slug ?? "")}${qs}`),
     initialData: () => (slug ? initial<MLeague>(key) : undefined),
     ...SAVED_IS_OLD,
     enabled: Boolean(slug),
@@ -178,6 +199,18 @@ export async function joinLeague(slug: string, body: { code?: string; divisionId
   const out = await api<MJoinResult>(`/api/mobile/v1/leagues/${encodeURIComponent(slug)}/join`, { method: "POST", body, who: "me" });
   await queryClient.invalidateQueries({ queryKey: ["my-leagues"] });
   await queryClient.invalidateQueries({ queryKey: ["league", slug] });
+  return out;
+}
+
+/**
+ * Enters a league's invite code: the league it belongs to opens for this account
+ * (an 'Invite only' one included). Throws ApiError (404 code "invite_code_wrong",
+ * 429 "too_many") with the server's words.
+ */
+export async function revealLeague(code: string): Promise<MLeagueReveal> {
+  const out = await api<MLeagueReveal>("/api/mobile/v1/leagues/code", { method: "POST", body: { code }, who: "me" });
+  await queryClient.invalidateQueries({ queryKey: ["my-leagues"] });
+  await queryClient.invalidateQueries({ queryKey: ["league", out.slug] });
   return out;
 }
 
@@ -223,7 +256,7 @@ export function useLive(slug: string | undefined, intervalMs = 5_000) {
   const focused = useScreenFocused();
   return useQuery<MLive>({
     queryKey: ["live", slug],
-    queryFn: cached(`live:${slug}`, () => api<MLive>(`/api/mobile/v1/t/${slug}/live`)),
+    queryFn: publicOrMine<MLive>(`live:${slug}`, `/api/mobile/v1/t/${slug}/live`, `/api/mobile/v1/me/t/${slug}/live`),
     initialData: () => (slug ? initial<MLive>(`live:${slug}`) : undefined),
     ...SAVED_IS_OLD,
     enabled: Boolean(slug),
@@ -235,7 +268,7 @@ export function useStandings(slug: string | undefined) {
   const focused = useScreenFocused();
   return useQuery<MStandings>({
     queryKey: ["standings", slug],
-    queryFn: () => api<MStandings>(`/api/mobile/v1/t/${slug}/standings`),
+    queryFn: publicOrMine<MStandings>(null, `/api/mobile/v1/t/${slug}/standings`, `/api/mobile/v1/me/t/${slug}/standings`),
     enabled: Boolean(slug),
     refetchInterval: focused ? 30_000 : false,
   });

@@ -151,11 +151,23 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
 }
 
 /**
- * A public tournament by slug. A friendly session's hidden tournament is shown
- * only when the session is a night or the season of a public league (Phase 7):
- * every other session stays out of the app, as before.
+ * Reads for one account (GET /me/t/<slug>/…, src/app/api/mobile/v1/me/t): the
+ * route has already decided the account may read the tournament
+ * (tournamentVisibleTo), so a league session that is not public is let through.
+ * Kept in this instance's memo apart from the public reads.
  */
-async function tournamentBySlug(slug: string, withMatchDay = false): Promise<TournamentRow | null> {
+export interface ReadScope {
+  restricted?: boolean;
+}
+
+/**
+ * A public tournament by slug. A friendly session's hidden tournament is shown
+ * only when the session is a night or the season of a public league (Phase 7,
+ * visibility 'everyone'): every other session stays out of the shared app reads,
+ * as before. With `restricted` (the per-user reads), a night or season of a league
+ * that is not public is let through too: the caller checked who is asking.
+ */
+async function tournamentBySlug(slug: string, withMatchDay = false, scope: ReadScope = {}): Promise<TournamentRow | null> {
   const query = (columns: string) =>
     db().from("tournaments").select(columns).eq("slug", slug).in("kind", ["tournament", "friendly_session"]).eq("public_access_enabled", true).maybeSingle();
   // match_day_rules arrives with migration 0022. Until it is applied, the bundle
@@ -169,15 +181,17 @@ async function tournamentBySlug(slug: string, withMatchDay = false): Promise<Tou
     row = (data as unknown as TournamentRow | null) ?? null;
   }
   if (row && row.kind === "friendly_session") {
-    const { isPublicLeagueSession } = await import("../leagues/server");
-    if (!(await isPublicLeagueSession(row.id))) return null;
+    const { isPublicLeagueSession, leagueSessionShown } = await import("../leagues/server");
+    if (!(await (scope.restricted ? leagueSessionShown(row.id) : isPublicLeagueSession(row.id)))) return null;
   }
   return row;
 }
 
-export function getBundle(slug: string): Promise<MBundle | null> {
-  return memo(`bundle:${slug}`, 10_000, async () => {
-    const t = await tournamentBySlug(slug, true);
+const scopeKey = (scope: ReadScope) => (scope.restricted ? "r:" : "");
+
+export function getBundle(slug: string, scope: ReadScope = {}): Promise<MBundle | null> {
+  return memo(`bundle:${scopeKey(scope)}${slug}`, 10_000, async () => {
+    const t = await tournamentBySlug(slug, true, scope);
     if (!t) return null;
     const [teams, courts, groups, groupTeams, live, plate, orgs] = await Promise.all([
       getTeams(t.id),
@@ -216,16 +230,16 @@ export const MATCH_COLUMNS =
 export const SNAPSHOT_COLUMNS =
   "match_id, current_set_number, team_a_point_label, team_b_point_label, team_a_games, team_b_games, team_a_sets, team_b_sets, is_tiebreak, tiebreak_team_a_points, tiebreak_team_b_points, serving_team_id, last_event_number, last_undo_event_number, completed_sets, snapshot_json, updated_at";
 
-export function getLive(slug: string): Promise<MLive | null> {
-  return memo(`live:${slug}`, 1_500, async () => {
-    const t = await tournamentBySlug(slug);
+export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | null> {
+  return memo(`live:${scopeKey(scope)}${slug}`, 1_500, async () => {
+    const t = await tournamentBySlug(slug, false, scope);
     if (!t) return null;
     const [matches, snaps, ties, ann, bundle] = await Promise.all([
       db().from("matches").select(MATCH_COLUMNS).eq("tournament_id", t.id).order("match_order"),
       db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).eq("tournament_id", t.id),
       t.format_config?.ties ? db().from("ties").select("*").eq("tournament_id", t.id).order("tie_order") : Promise.resolve({ data: [] }),
       latestAnnouncements(t.id, t.event_group_id ?? null),
-      getBundle(slug),
+      getBundle(slug, scope),
     ]);
     const snapOf = new Map(((snaps.data ?? []) as unknown as MatchSnapshot[]).map((s) => [s.match_id, s]));
     return {
@@ -260,9 +274,9 @@ async function latestAnnouncements(tournamentId: string, groupId: string | null)
   }));
 }
 
-export function getStandings(slug: string): Promise<MStandings | null> {
-  return memo(`standings:${slug}`, 5_000, async () => {
-    const t = await tournamentBySlug(slug);
+export function getStandings(slug: string, scope: ReadScope = {}): Promise<MStandings | null> {
+  return memo(`standings:${scopeKey(scope)}${slug}`, 5_000, async () => {
+    const t = await tournamentBySlug(slug, false, scope);
     if (!t) return null;
     const [groups, rows] = await Promise.all([
       db().from("groups").select("id, group_name, group_order").eq("tournament_id", t.id).order("group_order"),
