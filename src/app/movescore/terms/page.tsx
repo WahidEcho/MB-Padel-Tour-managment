@@ -83,7 +83,7 @@ export default function Terms() {
         </p>
         <Bullets
           items={[
-            "Registering asks for a place; the organiser may approve or turn it down (by default each entry is approved by the organiser). You only pay online after your entry is approved.",
+            "By default places go to whoever pays first: registering holds no place, and your entry is confirmed when your payment goes through. Some events ask the organiser to approve each entry first; you then pay after it is approved, and your place is kept for 24 hours while you do.",
             "When you register a team, you confirm the other players agreed to be registered and to their details being shared with the organiser. Their entries are not linked to your account.",
             "Online payments are processed by XPay, our payment provider, and only for Move Beyond's own events. Move Score never sees your card. Other events are free or paid at the venue.",
             "Refunds of an online payment are made by the organiser until 24 hours before the event's start time; after that, entries are not refunded except where the law requires it. You can ask for a refund in the app (My profile → Registrations).",
