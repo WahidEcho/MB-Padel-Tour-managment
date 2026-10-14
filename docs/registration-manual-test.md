@@ -120,8 +120,10 @@ then another player's **Pay** works.
 2. Type `REFUND` in the box, press **Refund … in full**.
    → The entry moves to **Refunded** with the full amount; the places count goes down.
 3. A player that was turned away as "full" can now Pay and be **Confirmed**.
-4. Cut-off: in Admin → the Cup → **Settings**, move the start time to less than 24 hours from now, then try a
-   refund → refused: *Refunds closed 24 hours before the event's start time.*
+4. Cut-off: in Admin → the Cup → **App** tab → **First match (start time)**, move it to less than 24 hours from
+   now and press **Save**; the public form's "Full refunds until …" line moves with it. Then try a refund →
+   refused inline: *Refunds closed 24 hours before the event's start time.* (Put it back afterwards.)
+   For your own real tournaments: set this start time before opening registration, or no refund can be made.
 
 ## G. Organiser approval event
 
