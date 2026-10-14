@@ -221,3 +221,6 @@ This version has breaking changes — APIs, conventions, and file structure may 
   24 h approval hold), trigger `registration_capacity_guard` (0030). Entry type `individual|team|both` (both: the player picks;
   a solo fills one of a team's places; solos paired by `pairRegistrations`). Refunds always 100 % (no card-fee setting).
   Local walkthrough: `npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts` + `scripts/demo/fake-move-tick.ts`.
+- Old-app compatibility: Move Score 1.0.1 (built from `0159033`) is in people's hands. `npm run e2e:old-app` (stand-in)
+  replays its calls as it builds them (headers, bodies, referee queue batches) and checks every response against
+  0159033's contract types. Keep it green before every deploy; never remove a response field or tighten a body 1.0.1 sends.
