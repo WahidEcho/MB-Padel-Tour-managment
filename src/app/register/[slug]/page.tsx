@@ -41,9 +41,9 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
           <p>
             <span className="font-semibold">Payment:</span>{" "}
             {info.paymentOptions.includes("online") && info.paymentOptions.includes("venue")
-              ? "online through Move Tick, or at the venue"
+              ? "online by card, or at the venue"
               : info.paymentOptions.includes("online")
-                ? "online through Move Tick"
+                ? "online by card"
                 : "at the venue"}
           </p>
         )}

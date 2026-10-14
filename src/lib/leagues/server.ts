@@ -16,6 +16,7 @@
  *
  * Server-only.
  */
+import { paymentProvider } from "../payments/provider";
 import { db } from "../supabase";
 import { memo } from "../mobile/http";
 import type {
@@ -628,9 +629,9 @@ function publicModes(raw: unknown): MJoinMode[] {
   return normalizeJoinModes(raw) as MJoinMode[];
 }
 
-/** Online payment runs through Move Tick for the Move Beyond organisation only, once Move Tick is configured. */
+/** Online payment for the Move Beyond organisation only, once a payment provider is configured (src/lib/payments/provider.ts). */
 export function leaguePaymentsEnabled(orgSlug: string | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
-  return orgSlug === MOVE_BEYOND_SLUG && Boolean(env.MOVE_TICK_API_URL);
+  return orgSlug === MOVE_BEYOND_SLUG && paymentProvider(env) !== null;
 }
 
 async function orgRef(orgId: string): Promise<(MOrgRef & { approved: boolean }) | null> {

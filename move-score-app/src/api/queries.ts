@@ -212,7 +212,7 @@ export async function registerFor(
   return out;
 }
 
-/** pay (a Move Tick checkout), cancel, or ask the organiser for a refund. */
+/** pay (an online checkout), cancel, or ask the organiser for a refund. */
 export async function registrationAction(id: string, kind: "pay" | "cancel" | "refund-request"): Promise<MRegistrationResult> {
   const out = await api<MRegistrationResult>(`/api/mobile/v1/me/registrations/${encodeURIComponent(id)}/${kind}`, { method: "POST", body: {}, who: "me" });
   await queryClient.invalidateQueries({ queryKey: ["my-registrations"] });

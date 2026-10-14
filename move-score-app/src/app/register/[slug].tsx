@@ -16,14 +16,14 @@ import { Segments } from "../../ui/Segments";
 import { openRegistrations } from "../../nav/links";
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "to be confirmed");
-const CHOICE_LABEL: Record<MPaymentChoice, string> = { online: "Pay now (Move Tick)", venue: "Pay at the venue", free: "Free" };
+const CHOICE_LABEL: Record<MPaymentChoice, string> = { online: "Pay now (card)", venue: "Pay at the venue", free: "Free" };
 
 /**
  * Register for an event (Phase 9): announce → register → pay → confirmation.
  * The registrant is always the signed-in account's own player (the server uses
  * the linked player's name); partners are typed here and are never linked to
  * this account. First paid, first in (the default): registering holds no place;
- * Pay opens Move Tick's checkout in the browser (which keeps a place for a few
+ * Pay opens the online checkout in the browser (which keeps a place for a few
  * minutes) and the entry is confirmed when the payment goes through. An event
  * that takes both lets the player enter on their own (the organiser pairs solo
  * players) or as a team. The entry shows under My registrations.

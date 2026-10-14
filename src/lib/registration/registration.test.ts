@@ -127,6 +127,9 @@ describe("payment options and charges", () => {
     expect(paymentOptions({ feeAmount: 25000, payment: "online" }, false)).toEqual(["venue"]);
     expect(paymentOptions({ feeAmount: 25000, payment: "online" }, true)).toEqual(["online"]);
     expect(paymentOptions({ feeAmount: 0, payment: "online" }, true)).toEqual(["free"]);
+    // Below the card minimum (EGP 50) a fee is paid at the venue.
+    expect(paymentOptions({ feeAmount: 4999, payment: "online" }, true)).toEqual(["venue"]);
+    expect(paymentOptions({ feeAmount: 5000, payment: "online" }, true)).toEqual(["online"]);
   });
   it("the registrant pays for the team by default; each player's share otherwise", () => {
     const team = { feeAmount: 25000, entryType: "team" as const, teamSize: 2 };
@@ -245,7 +248,10 @@ describe("registration code never trusts a client amount", () => {
     expect(server).toMatch(/amount: payment\.amount,\s*\n\s*currency: "EGP"/);
   });
   it("a paid webhook must match the stored amount and currency", () => {
-    expect(server).toMatch(/e\.data\.amount !== payment\.amount \|\| e\.data\.currency !== payment\.currency/);
+    expect(server).toMatch(/e\.amount !== payment\.amount \|\| \(e\.currency \?\? ""\)\.toUpperCase\(\) !== payment\.currency/);
+    // Both providers' events go through that one check (Move Tick's webhook, XPay's, and reconciliation).
+    expect(server).toMatch(/export async function applyWebhook\(e: WebhookEvent\): Promise<WebhookOutcome> \{\s*return applyPaymentEvent\(moveTickPaymentEvent\(e\)\);/);
+    expect(server).toMatch(/const e = xpayPaymentEvent\(s, outcome, id, payment\);[\s\S]{0,120}return applyPaymentEvent\(e\);/);
   });
   it("public registration views never carry a phone or email", () => {
     const fn = server.slice(server.indexOf("export async function toPublicRegistration"), server.indexOf("export async function statusView"));

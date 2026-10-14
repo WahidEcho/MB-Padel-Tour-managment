@@ -10,13 +10,15 @@
  *     of 2, EGP 500 per player online, capacity 2.
  * and a demo Move Beyond admin account (its own account, so it may refund), then
  * prints the admin and public URLs, the admin's sign-in cookie, and how to pay
- * with the fake Move Tick. Running it again replaces both events.
+ * with the fake payment provider (XPay, or Move Tick with PAYMENT_PROVIDER=move_tick).
+ * Running it again replaces both events.
  *
  *   npm run localdb                                                        # terminal 1
  *   npm run build   (no `next dev` running; delete .next/cache first if disk is tight)
  *   (set -a; . ./.env.localdb; set +a; PUBLIC_SITE_URL=http://localhost:3077 \
  *     PUSH_DRY_RUN=1 MESSAGING_DRY_RUN=1 npx next start -p 3077)            # terminal 2
- *   npx tsx --env-file=.env.localdb scripts/demo/fake-move-tick.ts         # terminal 3
+ *   npx tsx --env-file=.env.localdb scripts/demo/fake-xpay.ts              # terminal 3 (XPay, the default
+ *       # once XPAY_SECRET_KEY is in .env.localdb; with PAYMENT_PROVIDER=move_tick on the server: fake-move-tick.ts)
  *   npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts      # seed + instructions
  *   npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts links
  *       # the demo events' registrations: each one's signed status link, and the email
@@ -28,6 +30,7 @@
 import { createHmac } from "node:crypto";
 import { db } from "../../src/lib/supabase";
 import { staffToken } from "../e2e/lib/session";
+import { paymentProvider } from "../../src/lib/payments/provider";
 import { appUser } from "../e2e/lib/fixtures";
 
 const SUPA = process.env.SUPABASE_URL ?? "";
@@ -110,7 +113,9 @@ async function seed() {
     capacity: 2,
   });
   const token = await demoAdmin(org);
+  const provider = paymentProvider(process.env);
   const mt = process.env.MOVE_TICK_API_URL ?? "(MOVE_TICK_API_URL is not set in .env.localdb)";
+  const xp = process.env.XPAY_API_BASE ?? "(XPAY_API_BASE is not set in .env.localdb)";
   console.log(`
 Registration demo seeded on the stand-in (starts ${cup.starts.toISOString()}; refunds until 24 h before).
 
@@ -130,19 +135,28 @@ the browser's DevTools console run (valid 24 hours; run this script again for a 
 
 (The shared ADMIN_PASSWORD at ${SITE}/admin also works for approving and pairing, but never for refunds.)
 
-Paying: the fake Move Tick must be running (terminal 3):
+${
+    provider === "xpay"
+      ? `Paying (XPay, the server's provider when XPAY_SECRET_KEY is set): the fake XPay must be running (terminal 3):
+   npx tsx --env-file=.env.localdb scripts/demo/fake-xpay.ts
+It listens on ${xp} and sends signed webhooks to ${SITE}/api/webhooks/xpay. Its checkout page has
+"Pay by card (test)", "Card declined (test)" (the page stays open, as XPay's) and "Pay later: get a reference
+(test)" (Fawry-style: then "Reference paid" or "Reference expired"). A checkout keeps your place 15 minutes;
+Move Score then closes the page at XPay (Pay again, or the cron); XPay's own page lives 30 minutes.`
+      : `Paying (Move Tick): the fake Move Tick must be running (terminal 3):
    npx tsx --env-file=.env.localdb scripts/demo/fake-move-tick.ts
 It listens on ${mt} and sends signed webhooks to ${SITE}/api/webhooks/move-tick. Its checkout page has
 "Pay (test)" and "Fail (test)"; a checkout keeps your place 15 minutes, after which the page offers
 "Pay late (test)" for 5 more minutes (a late payment into a full event is flagged for a full refund).
-Shorter clock for the demo: FAKE_MT_TTL_MINUTES=2 FAKE_MT_CLOSE_AFTER_MINUTES=2.
+Shorter clock for the demo: FAKE_MT_TTL_MINUTES=2 FAKE_MT_CLOSE_AFTER_MINUTES=2.`
+  }
 
 Walkthrough (web guests; emails are not sent with MESSAGING_DRY_RUN=1, so use the links command):
   a. Open the public form of the Cup, register "On my own" with any email → "we emailed you a link".
   b. npx tsx --env-file=.env.localdb scripts/demo/registration-demo.ts links → open the "confirm" link,
      press "Confirm my registration" → the status page shows "Waiting for payment" and a Pay button.
      No place is held yet (Admin shows "holds no place until paid").
-  c. Press Pay → fake checkout → "Pay (test)" → back on the status page: Confirmed (no organiser step).
+  c. Press Pay → fake checkout → "Pay (test)" / "Pay by card (test)" → back on the status page: Confirmed (no organiser step).
   d. Register a team and a second solo player the same way: the event fills at 4 player places; Pay for
      an entry that no longer fits answers "This event is full" before any checkout. Pair the two solo
      players in Admin. Refund a payment (type REFUND): always the full amount.

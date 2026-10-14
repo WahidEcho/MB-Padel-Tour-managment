@@ -18,7 +18,7 @@ export const maxDuration = 60;
  * and phone verifications older than a day are deleted. Registration (Phase 9):
  * the player links of events that ended more than 24 hours ago are archived
  * (player_claims.archived_at), Move Tick checkouts that expired unanswered
- * are marked expired, and web guests who never opened their emailed link within
+ * are marked expired, XPay checkouts whose 15-minute hold ended are closed at XPay, and web guests who never opened their emailed link within
  * 24 hours are cancelled.
  */
 async function run(request: Request) {

@@ -41,7 +41,7 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB"
 /**
  * Registrations (Phase 9): settings for this event, and the entries — approve or
  * refuse (organiser mode), record a payment at the venue, pair solo players, refund
- * an online payment through Move Tick in full (admins with their own account, until
+ * an online payment in full (admins with their own account, until
  * 24 h before the start; a flagged payment at any time). By default an entry is
  * confirmed the moment its online payment goes through ("first paid, first in").
  * People's contact details are the ones they typed on their registration.
@@ -93,7 +93,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
         )}
         {!online && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
-            Online payment (Move Tick) is available only for Move Beyond&apos;s events, once Move Tick is configured. Fees here are paid at the venue.
+            Online payment (XPay) is available only for Move Beyond&apos;s events, once a payment provider is configured. Fees here are paid at the venue.
           </p>
         )}
         {!refusal && (
@@ -152,7 +152,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
             <span className="label">Payment</span>
             <select name="payment" defaultValue={settings.payment} className="input">
               <option value="venue">At the venue</option>
-              <option value="online" disabled={!online}>Online (Move Tick)</option>
+              <option value="online" disabled={!online}>Online (card)</option>
               <option value="online_or_venue" disabled={!online}>Online or at the venue (player picks)</option>
               <option value="free">Free</option>
             </select>
@@ -303,7 +303,7 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
                               {!refundWindow.ok && p.status !== "needs_review" && <span className="text-xs text-muted">{REFUND_MESSAGES[refundWindow.reason]}</span>}
                             </StateForm>
                           ))}
-                        {pending && <span className="text-xs text-muted">Refund on its way from Move Tick.</span>}
+                        {pending && <span className="text-xs text-muted">Refund on its way.</span>}
                       </div>
                     </li>
                   );

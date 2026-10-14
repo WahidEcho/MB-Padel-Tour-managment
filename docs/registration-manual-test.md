@@ -1,13 +1,14 @@
 # Registration — manual test guide
 
 A step-by-step walkthrough of registration and payment on your Mac, against the local test database and a
-fake Move Tick checkout. No real money, no real emails, nothing touches the live site.
+fake payment checkout (a fake XPay, the default since Move Score takes payments directly through XPay; or a fake
+Move Tick with `PAYMENT_PROVIDER=move_tick`). No real money, no real emails, nothing touches the live site.
 
 Rules being tested (your decisions):
 
 | Rule | What you should see |
 |---|---|
-| Register in Move Score, pay through Move Tick | Pay opens a (fake) Move Tick checkout |
+| Register in Move Score, pay online through XPay | Pay opens a (fake) XPay checkout |
 | First paid, first in (default) | Registering holds nothing; the entry is **confirmed automatically** the moment payment succeeds |
 | Organiser approval (per-event option) | "Waiting for the organiser" — no Pay button until you approve |
 | Who pays for a team | Per event: registering player pays for all, or each player their share |
@@ -35,11 +36,17 @@ npm run build
 (set -a; . ./.env.localdb; set +a; PUBLIC_SITE_URL=http://localhost:3077 PUSH_DRY_RUN=1 MESSAGING_DRY_RUN=1 npx next start -p 3077)
 ```
 
-Terminal 3 — the fake Move Tick checkout:
+Terminal 3 — the fake XPay checkout (needs `XPAY_SECRET_KEY=sk_test_…`, `XPAY_WEBHOOK_SECRET` and
+`XPAY_API_BASE=http://localhost:<free port>` in `.env.localdb`; see `docs/xpay-direct.md`):
 
 ```bash
-npx tsx --env-file=.env.localdb scripts/demo/fake-move-tick.ts
+npx tsx --env-file=.env.localdb scripts/demo/fake-xpay.ts
 ```
+
+Its page has **Pay by card (test)**, **Card declined (test)** and **Pay later: get a reference (test)** (Fawry-style;
+then **Reference paid** / **Reference expired**). To walk through the Move Tick path instead, start terminal 2 with
+`PAYMENT_PROVIDER=move_tick` in front of `npx next start` and run `scripts/demo/fake-move-tick.ts` here; its buttons
+are **Pay (test)** and **Fail (test)**.
 
 Then, in any spare terminal, create the two demo events:
 
@@ -76,7 +83,7 @@ in the first one.
    → *Thank you — we emailed you a link.*
 3. Run the `links` command, open the **confirm** link, press **Confirm my registration**.
    → *Waiting for payment* and a **Pay EGP 500** button. Admin shows the entry as "holds no place until paid".
-4. Press **Pay EGP 500** → fake checkout (*FAKE MOVE TICK · TEST MODE*, a 15:00 countdown) → **Pay (test)**.
+4. Press **Pay EGP 500** → fake checkout (*FAKE XPAY · TEST MODE*) → **Pay by card (test)**.
    → Back on the status page: **Confirmed** — no organiser step.
 5. Public form now says **3 player places left**.
 
@@ -84,7 +91,7 @@ in the first one.
 
 1. Public form → **As a team of 2**. Team name `Team Alpha`, your details, partner name and mobile.
    → The button reads **Register · EGP 1,000** (2 × 500, registering player pays for both).
-2. Confirm via `links`, Pay, **Pay (test)** → **Confirmed**.
+2. Confirm via `links`, Pay, **Pay by card (test)** → **Confirmed**.
 3. Public form now says **1 player place left** and only offers **On my own** (a team no longer fits).
 
 ## C. Two players racing for the last place
@@ -94,18 +101,20 @@ in the first one.
 3. In window 2, Solo Three presses **Pay**.
    → **No checkout**; a message that the event is full / places are being paid for. Admin shows
    *4 of 4 player places taken … counting confirmed entries and open checkouts*.
-4. Solo Two presses **Pay (test)** → **Confirmed**.
+4. Solo Two presses **Pay by card (test)** → **Confirmed**.
 
-Optional — a checkout that's abandoned frees the place: restart the fake Move Tick with
-`FAKE_MT_TTL_MINUTES=2 FAKE_MT_CLOSE_AFTER_MINUTES=2` in front of the command, let a checkout sit for 2 minutes,
-then another player's **Pay** works.
+Optional — a checkout that's abandoned frees the place after its 15 minutes (Move Score then closes the XPay page
+itself). With the fake Move Tick the clock can be shortened: `FAKE_MT_TTL_MINUTES=2 FAKE_MT_CLOSE_AFTER_MINUTES=2` in
+front of its command, let a checkout sit for 2 minutes, then another player's **Pay** works.
 
 ## D. Failed payment
 
-1. As a player waiting for payment, press **Pay** → on the checkout press **Fail (test)**.
+1. As a player waiting for payment, press **Pay** → on the checkout press **Pay later: get a reference (test)**, then
+   **Reference expired (test)** (fake XPay; with the fake Move Tick: **Fail (test)**). A declined card on XPay's page
+   just stays on the page, as the real one does.
    → Back to *Waiting for payment* with a message that the payment didn't go through and nothing was charged;
    **Pay** works again.
-2. **Pay** → **Pay (test)** → **Confirmed**.
+2. **Pay** → **Pay by card (test)** → **Confirmed**.
 
 ## E. Admin: pairing solo players
 
@@ -132,7 +141,7 @@ then another player's **Pay** works.
 2. Admin → approval event → **Registrations** → **Approve**.
 3. Reopen the player's **status** link → **Pay EGP 1,000** appears, with the time the place is kept until
    (24 h).
-4. Pay → **Pay (test)** → **Confirmed**. Try **Refuse** on another entry → it shows as refused, no Pay.
+4. Pay → **Pay by card (test)** → **Confirmed**. Try **Refuse** on another entry → it shows as refused, no Pay.
 
 ## H. Settings per event
 
@@ -162,6 +171,6 @@ Stop the three terminals with Ctrl-C (the test database lives in memory and disa
 
 ## What was verified automatically
 
-`npm run e2e:registration` (stand-in) covers all of the above plus attacks: forged or replayed Move Tick
-webhooks, double payments, someone else's payment id, another organisation's admin, capacity races, and late
+`npm run e2e:registration` (stand-in) covers all of the above (once per provider: `PAYMENT_PROVIDER=xpay`, then `move_tick`)
+plus attacks: forged or replayed XPay / Move Tick webhooks, other apps' XPay sessions, double payments, someone else's payment id, another organisation's admin, capacity races, and late
 payments into a full event (flagged and refundable in full).

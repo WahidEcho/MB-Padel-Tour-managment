@@ -900,7 +900,7 @@ export interface MRegistrationInfo {
   currency: "EGP";
   /** "EGP 250 per player", or null when free. */
   feeLabel: string | null;
-  /** "online" (Move Tick) only for Move Beyond's events while it is configured. */
+  /** "online" (XPay) only for Move Beyond's events while a payment provider is configured. */
   paymentOptions: MPaymentChoice[];
   teamPayer: "registrant" | "each_player";
   /**
@@ -932,7 +932,7 @@ export interface MRegistration {
   currency: "EGP";
   paid: boolean;
   venuePaid: boolean;
-  /** A Move Tick checkout can be opened now. */
+  /** An online checkout can be opened now. */
   canPay: boolean;
   canCancel: boolean;
   canRequestRefund: boolean;
@@ -964,7 +964,7 @@ export interface MRegistrationPayment {
 /** POST /t/{slug}/registration and the /me/registrations/{id}/* actions. */
 export interface MRegistrationResult {
   registration: MRegistration;
-  /** Move Tick's hosted checkout (the pay action); registering never opens one: Pay does. */
+  /** The payment provider's hosted checkout (the pay action); registering never opens one: Pay does. */
   checkoutUrl: string | null;
   message: string;
 }

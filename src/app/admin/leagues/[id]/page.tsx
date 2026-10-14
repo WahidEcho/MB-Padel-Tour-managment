@@ -1,3 +1,4 @@
+import { paymentProvider } from "@/lib/payments/provider";
 import StateForm from "@/components/StateForm";
 import Link from "next/link";
 import { db } from "@/lib/supabase";
@@ -128,7 +129,7 @@ export default async function LeaguePage({ params, searchParams }: { params: Pro
   const boards = await leagueBoards(league, period);
   const today = todayIn(league.timezone);
   const { data: o } = await db().from("organizations").select("slug").eq("id", staff.orgId).maybeSingle();
-  const payOnline = (o as { slug: string } | null)?.slug === "move-beyond" && Boolean(process.env.MOVE_TICK_API_URL);
+  const payOnline = (o as { slug: string } | null)?.slug === "move-beyond" && paymentProvider() !== null;
 
   const pending = members.filter((m) => m.status === "pending" || m.status === "awaiting_payment");
   const active = members.filter((m) => m.status === "active");

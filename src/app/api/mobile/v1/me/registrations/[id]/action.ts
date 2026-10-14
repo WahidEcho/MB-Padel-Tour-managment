@@ -7,7 +7,7 @@ import { cancelOwn, ownPublicRegistration, payOwn, requestRefundOwn } from "@/li
 import type { MRegistrationResult } from "@/lib/mobile/contract";
 
 /**
- * The account's own registration actions: pay (a Move Tick checkout), cancel,
+ * The account's own registration actions: pay (an online checkout), cancel,
  * ask for a refund. Another account's registration and a missing one get the same
  * 404. Bodies must be empty objects (or absent).
  */
@@ -24,7 +24,7 @@ export async function ownAction(request: Request, id: string, kind: "pay" | "can
     const r = await payOwn(owner.id, id);
     if (!r.ok) return privateJson({ error: r.error, code: r.code }, r.status);
     checkoutUrl = r.value.checkoutUrl;
-    message = "Opening Move Tick to pay.";
+    message = "Opening the payment page.";
   } else {
     const r = kind === "cancel" ? await cancelOwn(owner.id, id) : await requestRefundOwn(owner.id, id);
     if (!r.ok) return privateJson({ error: r.error, code: r.code }, r.status);

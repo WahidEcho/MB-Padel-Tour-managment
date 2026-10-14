@@ -84,7 +84,7 @@ export async function markVenuePaidAction(_prev: FormState, formData: FormData):
 }
 
 /**
- * Refunds one online payment through Move Tick, named by its id (a registration can
+ * Refunds one online payment through its provider (XPay, or Move Tick for its own), named by its id (a registration can
  * hold a second payment to refund). Until 24 h before the start for the payment
  * that confirmed the entry; any time for one held for review. Needs a typed confirmation.
  */
