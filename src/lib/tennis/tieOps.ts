@@ -312,6 +312,9 @@ export async function setLineup(
       accepted: warnings.map((w) => ({ code: w.code, reg: w.reg, key: w.key, message: w.message })),
     },
   });
+  // National team coaches (migration 0037): this side's coaches hear their own line-up (only theirs).
+  const { notifyCoachLineup } = await import("../notify/hooks");
+  await notifyCoachLineup(tieId, side, lateChange);
   return { ok: true, changed, accepted: warnings, lateChange };
 }
 

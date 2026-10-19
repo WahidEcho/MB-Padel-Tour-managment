@@ -14,8 +14,15 @@ const APP_ID = "33C2U7Q76F.org.mbeg.movescore";
 // /r: a court's referee QR (https://tour.mbeg.org/r#<code>, migration 0034; the code is in
 // the #fragment). Added after 1.0.1, which has no /r screen: on a phone still running
 // 1.0.1 the court QR opens 1.0.1 on its "page not found" screen (go back, type the code).
-// /register/… and every other path still open the browser: "/r" matches that path only.
-const PATHS = ["/v/*", "/m/*", "/r"];
+// /c: a team coach card's QR (https://tour.mbeg.org/c#<code>, migration 0037), same shape:
+// on 1.0.1 (no coach screens) it opens 1.0.1's "page not found"; nothing 1.0.1 already
+// handles changes. /register/…, /coach/… and every other path still open the browser:
+// "/r" and "/c" match those paths only.
+const PATHS = ["/v/*", "/m/*", "/r", "/c"];
+const COMMENTS: Record<string, string> = {
+  "/r": "Court referee QR: open the referee console",
+  "/c": "Team coach QR: open the coach sign-in",
+};
 
 const AASA = {
   applinks: {
@@ -25,7 +32,7 @@ const AASA = {
       {
         // iOS 13 and later.
         appIDs: [APP_ID],
-        components: PATHS.map((p) => ({ "/": p, comment: p === "/r" ? "Court referee QR: open the referee console" : "Venue and match codes: open the event pass" })),
+        components: PATHS.map((p) => ({ "/": p, comment: COMMENTS[p] ?? "Venue and match codes: open the event pass" })),
         // iOS 12 and earlier.
         appID: APP_ID,
         paths: PATHS,

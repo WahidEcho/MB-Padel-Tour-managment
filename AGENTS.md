@@ -258,3 +258,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Web picker `src/components/lineups/LineupPicker.tsx`, sheet `LineupSheet.tsx` (admin Ties page, master desk); app
   `move-score-app/src/referee/LineupPicker.tsx`. Referee screens follow the device/app theme (`.theme-auto`; "☀ Sunlight" =
   `.theme-sunlight` / app `SUNLIGHT`). Gate `npm run e2e:lineups` (stand-in, server with `PUSH_DRY_RUN=1`).
+- National team coaches (migration `0037_coach_access.sql`, not yet on the live project; docs `docs/coaches.md`): one code per
+  team (`coach_codes`, hashed + sealed like court codes), shared by every coach of the team; sign-ins in `coach_sessions`
+  (phones for alerts). Coach tokens `mbc1.` (`src/lib/coaches/token.ts`) are never staff tokens. Server `src/lib/coaches/server.ts`
+  (explicit columns only, another team's rows = 404), pure rules `rules.ts` (via `@core`), alerts `alerts.ts` (target
+  `coach_team`). Admin `admin/org/coaches` (admins only, `manage_coaches`), cards `/qr/coaches`, web `/coach/*`, QR `/c`,
+  app `move-score-app/src/app/coach/*` + `c.tsx`. Gate: `npm run e2e:coaches` (stand-in, `PUSH_DRY_RUN=1`).

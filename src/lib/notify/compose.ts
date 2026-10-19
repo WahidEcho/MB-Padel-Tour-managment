@@ -20,7 +20,14 @@ export type AlertKind =
   /** Match day: your match is called to its court. */
   | "called_to_court"
   /** Match day: the deadline to reach the court is close. */
-  | "call_reminder";
+  | "call_reminder"
+  /** National team coaches (migration 0037): their own team only, to the phones signed in with its code. */
+  | "coach_soon"
+  | "coach_called"
+  | "coach_started"
+  | "coach_finished"
+  | "coach_tie_result"
+  | "coach_lineup";
 
 /** Which alert switch on the phone governs each kind. */
 export const CATEGORY: Record<AlertKind, keyof MAlertPrefs> = {
@@ -36,11 +43,20 @@ export const CATEGORY: Record<AlertKind, keyof MAlertPrefs> = {
   match_soon: "court",
   called_to_court: "court",
   call_reminder: "court",
+  coach_soon: "starting",
+  coach_called: "court",
+  coach_started: "live",
+  coach_finished: "finished",
+  coach_tie_result: "tie",
+  coach_lineup: "scheduled",
 };
 
 export interface Target {
-  /** "all" (key "all") is every phone with alerts on: a console announcement to all app users. */
-  kind: "player" | "nation" | "tie" | "match" | "tournament" | "event_group" | "all";
+  /**
+   * "all" (key "all") is every phone with alerts on: a console announcement to all app users.
+   * "coach_team" (key: teams.id, migration 0037): the phones signed in with that team's coach code.
+   */
+  kind: "player" | "nation" | "tie" | "match" | "tournament" | "event_group" | "all" | "coach_team";
   key: string;
 }
 

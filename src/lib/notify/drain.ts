@@ -88,6 +88,12 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
   const owners = { install: new Set<string>(), user: new Set<string>() };
   const byKind = new Map<string, string[]>();
   for (const t of targets) byKind.set(t.kind, [...(byKind.get(t.kind) ?? []), t.key]);
+  // National team coaches (migration 0037): the phones signed in with the team's working
+  // code. They get their own team's alerts whatever the phone's switches say (signing out
+  // stops them), so they are added after the switch filter below.
+  const coachTeams = byKind.get("coach_team") ?? [];
+  byKind.delete("coach_team");
+  const coachInstalls = coachTeams.length ? await (await import("../coaches/server")).coachInstallations(coachTeams) : [];
   for (const [kind, keys] of byKind) {
     const { data } = await db().from("follows").select("owner_kind, owner_id").eq("target_kind", kind).in("target_key", keys);
     for (const f of (data ?? []) as { owner_kind: "install" | "user"; owner_id: string }[]) owners[f.owner_kind].add(f.owner_id);
@@ -115,7 +121,17 @@ export async function recipientsFor(targets: Target[], category: keyof MAlertPre
     const { data } = await db().from("push_devices").select(cols).in("user_id", users.slice(i, i + 200)).is("disabled_at", null);
     for (const d of (data ?? []) as DeviceRow[]) devices.set(d.id, d);
   }
-  return [...devices.values()].filter(wants).map((d) => ({ ...d, self: Boolean(d.user_id && selfUsers.has(d.user_id)) }));
+  const out: Recipient[] = [...devices.values()].filter(wants).map((d) => ({ ...d, self: Boolean(d.user_id && selfUsers.has(d.user_id)) }));
+  const seen = new Set(out.map((d) => d.id));
+  for (let i = 0; i < coachInstalls.length; i += 200) {
+    const { data } = await db().from("push_devices").select(cols).in("installation_id", coachInstalls.slice(i, i + 200)).is("disabled_at", null);
+    for (const d of (data ?? []) as DeviceRow[]) {
+      if (!d.expo_push_token || seen.has(d.id)) continue;
+      seen.add(d.id);
+      out.push({ ...d, self: false });
+    }
+  }
+  return out;
 }
 
 /**

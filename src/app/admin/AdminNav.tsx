@@ -27,6 +27,8 @@ const ORG_SECTIONS = [
   { href: "/admin/org/codes", label: "Event codes" },
   { href: "/admin/org/referees", label: "Referees" },
 ];
+/** National team coaches' codes (migration 0037): admins only, next to Referees. */
+const COACH_SECTIONS = [{ href: "/admin/org/coaches", label: "Team coaches" }];
 
 /** Move Beyond's own settings for the whole app: platform admins only. */
 const PLATFORM_SECTIONS = [
@@ -34,12 +36,13 @@ const PLATFORM_SECTIONS = [
   { href: "/admin/platform/discover", label: "Discover" },
 ];
 
-export default function AdminNav({ canManageCodes, canManageOrg, platformAdmin }: { canManageCodes?: boolean; canManageOrg?: boolean; platformAdmin?: boolean }) {
+export default function AdminNav({ canManageCodes, canManageCoaches, canManageOrg, platformAdmin }: { canManageCodes?: boolean; canManageCoaches?: boolean; canManageOrg?: boolean; platformAdmin?: boolean }) {
   const pathname = usePathname();
   const sections = [
     ...SECTIONS,
     ...(canManageOrg ? ORG_ADMIN_SECTIONS : []),
     ...(canManageCodes ? ORG_SECTIONS : []),
+    ...(canManageCoaches ? COACH_SECTIONS : []),
     ...(platformAdmin ? PLATFORM_SECTIONS : []),
   ];
   return (

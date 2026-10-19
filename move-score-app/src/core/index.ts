@@ -86,3 +86,4 @@ export { pushesHistory, LOG_ONLY_EVENTS } from "../../../src/lib/scoring/eventGu
 export { SCORING_FEATURES_ON, SCORING_FEATURES_OFF } from "../../../src/lib/matchday/rules";
 export type { ScoringFeatures } from "../../../src/lib/matchday/rules";
 export { ITF_RULES_PDF as ITF_RULES_OF_TENNIS_PDF, rulePath, ruleSummary, ITF_TENNIS_RULES } from "../../../src/lib/tennis/rulesOfTennis";
+export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coaches/rules";
