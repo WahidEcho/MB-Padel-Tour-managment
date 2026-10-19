@@ -12,6 +12,7 @@ import {
 } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
+import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessLiveCard from "@/components/ChessLiveCard";
 import StandingsTable from "@/components/StandingsTable";
 
@@ -35,6 +36,7 @@ export default async function PublicOverview({ params }: { params: Promise<{ slu
   const tm = teamMap(teams);
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
+  const videos = activeLiveVideos(tournament.branding_config, courts.map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active })));
   const live = matches.filter((m) => ["live", "paused"].includes(m.status));
   const upcoming = matches.filter((m) => ["scheduled", "ready"].includes(m.status)).slice(0, 8);
   const isChess = tournament.sport === "chess";
@@ -59,7 +61,7 @@ export default async function PublicOverview({ params }: { params: Promise<{ slu
                   {isChess ? (
                     <ChessLiveCard {...common} boardName={m.court_id ? courtName.get(m.court_id) : undefined} />
                   ) : (
-                    <LiveMatchCard {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} />
+                    <LiveMatchCard {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} liveVideo={Boolean(liveVideoForMatch(m, videos))} />
                   )}
                 </Link>
               );

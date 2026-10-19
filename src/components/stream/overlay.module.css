@@ -1,0 +1,343 @@
+/*
+ * The broadcast overlay: a score bug in the top-left corner and a sponsor loop
+ * along the bottom, over a transparent 1920×1080 frame (an OBS browser source).
+ * Everything moves with transform and opacity only, composited on the GPU, so
+ * the loop stays smooth on a 50 or 60 fps encode.
+ */
+.frame {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+.stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: 0 0;
+  overflow: hidden;
+  background: transparent;
+  --navy: #0b1630;
+  --navy-2: #13224a;
+  --line: rgba(255, 255, 255, 0.14);
+  --ink: #ffffff;
+  --mute: rgba(255, 255, 255, 0.62);
+  --optic: #ffe14a;
+  --strip: #ffffff;
+  --strip-ink: #0b1630;
+  --alert: #e5133a;
+  color: var(--ink);
+  font-family: var(--ov-display), "Arial Narrow", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ---------- the score bug ---------- */
+.bugWrap {
+  position: absolute;
+  left: 72px;
+  top: 54px;
+  transform-origin: 0 0;
+}
+.bug {
+  position: relative;
+  display: inline-block;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+  animation: ov-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes ov-in {
+  from { opacity: 0; transform: translate3d(-28px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 16px;
+  background: var(--strip);
+  color: var(--strip-ink);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: 8px 8px 0 0;
+}
+.strip i {
+  font-style: normal;
+  opacity: 0.4;
+}
+.stripOnly {
+  border-radius: 8px;
+}
+.liveDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--alert);
+  animation: ov-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ov-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.grid {
+  display: grid;
+  background: linear-gradient(180deg, var(--navy-2), var(--navy));
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+.cell {
+  display: flex;
+  align-items: center;
+  height: 60px;
+  white-space: nowrap;
+}
+.rowB {
+  border-top: 1px solid var(--line);
+}
+.serve {
+  justify-content: center;
+  padding-left: 6px;
+}
+.ball {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--optic);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25), 0 0 12px rgba(255, 225, 74, 0.6);
+  animation: ov-ball 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes ov-ball {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: scale(1); }
+}
+.flag {
+  justify-content: center;
+}
+.flag img {
+  width: 40px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.code {
+  padding: 0 4px 0 10px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.names {
+  padding: 0 22px 0 8px;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  gap: 12px;
+}
+.names .other {
+  opacity: 0.78;
+  font-weight: 600;
+}
+.winnerMark {
+  color: var(--optic);
+  font-size: 26px;
+}
+.set {
+  justify-content: center;
+  position: relative;
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--mute);
+  border-left: 1px solid var(--line);
+}
+.setWon {
+  color: var(--ink);
+}
+.set sup {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--mute);
+}
+.games {
+  justify-content: center;
+  font-size: 38px;
+  font-weight: 800;
+  color: var(--ink);
+  border-left: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+}
+.points {
+  justify-content: center;
+  font-size: 40px;
+  font-weight: 800;
+  background: var(--optic);
+  color: var(--navy);
+  overflow: hidden;
+}
+.pointsRowB {
+  border-top: 1px solid rgba(11, 22, 48, 0.18);
+}
+.pointsFinal {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  font-size: 22px;
+  letter-spacing: 0.1em;
+}
+.flip {
+  display: inline-block;
+  animation: ov-flip 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes ov-flip {
+  from { opacity: 0; transform: translate3d(0, -55%, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.pop {
+  display: inline-block;
+  animation: ov-pop 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes ov-pop {
+  0% { transform: scale(1.35); color: var(--optic); }
+  100% { transform: scale(1); }
+}
+.labelCell {
+  justify-content: center;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--mute);
+  text-transform: uppercase;
+}
+
+/* The tab beside the rows: ACE, a running timer, match point… */
+.tab {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  height: 60px;
+  padding: 0 22px;
+  margin-left: 8px;
+  border-radius: 8px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: ov-tab 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes ov-tab {
+  from { clip-path: inset(0 100% 0 0); opacity: 0.4; }
+  to { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+.tabAce {
+  background: var(--optic);
+  color: var(--navy);
+  font-size: 46px;
+  letter-spacing: 0.14em;
+}
+.tabClock {
+  background: var(--navy);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--line);
+}
+.tabClock small {
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  margin-right: 14px;
+  color: var(--mute);
+}
+.tabOver {
+  background: var(--alert);
+  box-shadow: none;
+}
+.tabOver small {
+  color: rgba(255, 255, 255, 0.85);
+}
+.tabCall {
+  background: var(--strip);
+  color: var(--navy);
+  font-size: 26px;
+}
+.tabPaused {
+  background: var(--alert);
+  color: #fff;
+  font-size: 24px;
+}
+
+/* ---------- the sponsor loop ---------- */
+.footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 104px;
+  transform-origin: 50% 100%;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(11, 22, 48, 0) 0%, rgba(11, 22, 48, 0.82) 28%, rgba(11, 22, 48, 0.9) 100%);
+}
+.viewport {
+  position: relative;
+  width: 100%;
+  height: 76px;
+  margin-top: 14px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+.track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
+  animation-name: ov-ticker;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes ov-ticker {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--ov-shift), 0, 0); }
+}
+.group {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.chip {
+  background: #ffffff;
+  border-radius: 10px;
+}
+.logo img {
+  object-fit: contain;
+}

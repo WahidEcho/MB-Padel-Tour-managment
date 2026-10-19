@@ -181,7 +181,8 @@ export interface MBundle {
     night?: MNightInfo;
   };
   teams: MTeam[];
-  courts: { id: string; name: string; order: number }[];
+  /** `liveVideo`: the court's live video while the organiser streams it (absent otherwise and from older servers). */
+  courts: { id: string; name: string; order: number; liveVideo?: MLiveVideo }[];
   groups: { id: string; name: string; order: number }[];
   sponsors: { main: MSponsor | null; footer: MSponsor[] };
   /** Scoring rules per stage. Absent from older servers. */
@@ -232,6 +233,22 @@ export interface MMatch {
   score: MScore | null;
   /** The knockout bracket, so the stage rules can tell the Plate from the Cup. Absent from older servers. */
   bracketId?: string | null;
+  /**
+   * The court's live video, only while this match is in play on a court the
+   * organiser streams (Live stream tab). Absent otherwise and from older servers.
+   */
+  liveVideo?: MLiveVideo;
+}
+
+/** A court's YouTube live video, as viewers get it (src/lib/stream/liveVideo.ts). */
+export interface MLiveVideo {
+  /** The 11-character YouTube video id; players build their own URLs from it. */
+  youtubeId: string;
+  /** The court's name. */
+  court: string;
+  courtId: string;
+  /** About how far the video runs behind the live score, when the organiser says. */
+  delaySeconds?: number;
 }
 
 /** What the next point could decide, from the engine and the match's own rules. */
@@ -392,8 +409,8 @@ export interface MCourtsEvent {
   };
   rules: MStageRules;
   sides: MSides;
-  /** Active courts, in court order. */
-  courts: { id: string; name: string; order: number }[];
+  /** Active courts, in court order. `liveVideo` while the organiser streams the court (absent otherwise). */
+  courts: { id: string; name: string; order: number; liveVideo?: MLiveVideo }[];
   /** Only the teams the matches and ties below name. */
   teams: MCourtTeam[];
   /** Ties on these courts (team competitions). */

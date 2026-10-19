@@ -3,6 +3,7 @@ import { RUBBER_SHORT, isDoneStatus, isLiveStatus, type MMatch, type MTie } from
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Eyebrow, Num } from "./Text";
 import { Card, Chip, Flag, LivePill } from "./Bits";
+import { LiveVideoBadge } from "./LiveVideo";
 import type { View as Model } from "../api/model";
 import { dayIn, isAwaitingResult, matchA11y, timeIn, whenIn } from "../api/model";
 import { isNation, openMatch, openTeam, openTie } from "../nav/links";
@@ -55,7 +56,10 @@ export function MatchMini({ m, v, width, withDay = false }: { m: MMatch; v: Mode
     <Card onPress={() => openMatch(m.id)} style={{ width, gap: 9 }} accessibilityLabel={matchA11y(m, v)}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         {live ? (
-          <LivePill label={m.status === "paused" ? "PAUSED" : "LIVE"} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <LivePill label={m.status === "paused" ? "PAUSED" : "LIVE"} />
+            {m.liveVideo ? <LiveVideoBadge compact /> : null}
+          </View>
         ) : done ? (
           <Chip label="Final" />
         ) : awaiting ? (
@@ -193,7 +197,12 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
               </Body>
             </View>
             <View style={{ alignItems: "flex-end", gap: 3 }}>
-              {live ? <LivePill /> : awaiting ? <Chip label="Match over" /> : r.status === "cancelled" ? <Chip label="Not needed" /> : !done ? <Chip label={timeIn(r.scheduledTime, tz)} /> : null}
+              {live ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  {r.liveVideo ? <LiveVideoBadge compact /> : null}
+                  <LivePill />
+                </View>
+              ) : awaiting ? <Chip label="Match over" /> : r.status === "cancelled" ? <Chip label="Not needed" /> : !done ? <Chip label={timeIn(r.scheduledTime, tz)} /> : null}
               <Num size={15} tone={done ? "ink" : "ink2"}>{live && r.score?.games ? `${sets ? `${sets} ` : ""}${r.score.games.a}–${r.score.games.b}` : sets}</Num>
             </View>
           </Card>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCourts, getMatches, getSnapshots, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
+import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessLiveCard from "@/components/ChessLiveCard";
 
 // Rendered at most every 3s and shared by every visitor: at the venue a crowd
@@ -23,6 +24,7 @@ export default async function PublicLive({ params }: { params: Promise<{ slug: s
   const tm = teamMap(teams);
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
+  const videos = activeLiveVideos(tournament.branding_config, courts.map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active })));
   const live = matches.filter((m) => ["live", "paused"].includes(m.status));
   const recent = matches
     .filter((m) => ["completed", "walkover", "retired", "disqualified"].includes(m.status))
@@ -40,7 +42,7 @@ export default async function PublicLive({ params }: { params: Promise<{ slug: s
     return isChess ? (
       <ChessLiveCard {...common} boardName={m.court_id ? courtName.get(m.court_id) : undefined} />
     ) : (
-      <LiveMatchCard {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} />
+      <LiveMatchCard {...common} courtName={m.court_id ? courtName.get(m.court_id) : undefined} liveVideo={Boolean(liveVideoForMatch(m, videos))} />
     );
   };
 

@@ -304,6 +304,30 @@ export interface BrandingConfig {
    * organiser wants one uniform band whatever the shapes.
    */
   sponsorUniformSize?: boolean;
+  /**
+   * Live video (YouTube Live) per court, set on the admin Live stream tab. Read
+   * through src/lib/stream/liveVideo.ts; never sent to public pages as it is
+   * (toPublicTournament drops it), only as the active courts' `liveVideo`.
+   */
+  liveVideo?: LiveVideoConfig;
+}
+
+/** One court's live video. */
+export interface LiveVideoCourtConfig {
+  /** The 11-character YouTube video id (src/lib/stream/youtube.ts). */
+  youtubeId: string;
+  /** Shown to viewers only while on. */
+  on: boolean;
+  /** About how far the video runs behind the live score, for the viewers' note. */
+  delaySeconds?: number;
+  updatedAt?: string;
+}
+
+export interface LiveVideoConfig {
+  /** By court id. */
+  courts?: Record<string, LiveVideoCourtConfig>;
+  /** The overlay's header strip; the tournament's name when empty. */
+  overlayTitle?: string;
 }
 
 export interface Tournament {
