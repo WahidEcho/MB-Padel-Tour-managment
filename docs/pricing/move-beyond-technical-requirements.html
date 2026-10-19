@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Move Beyond Tournament System &amp; Move Score — Technical Requirements</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root { --ink:#141821; --muted:#5b6474; --line:#d9dee7; --accent:#1e6bff; --soft:#f3f6fb; --warn:#b45309; --plan:#7c3aed; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); font-size: 10.2pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 24pt; margin: 0 0 6pt; letter-spacing: -0.3px; }
+  h2 { font-size: 15pt; margin: 20pt 0 6pt; padding-bottom: 4pt; border-bottom: 2px solid var(--accent); page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 4pt; page-break-after: avoid; }
+  h4 { font-size: 10.2pt; margin: 8pt 0 2pt; color: var(--accent); page-break-after: avoid; }
+  p { margin: 4pt 0; }
+  ul { margin: 3pt 0 6pt; padding-left: 16pt; }
+  li { margin: 1.5pt 0; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9.2pt; page-break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  th { background: var(--soft); font-weight: 600; }
+  tr { page-break-inside: avoid; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .kicker { color: var(--accent); font-weight: 700; letter-spacing: 2px; text-transform: uppercase; font-size: 9pt; }
+  .cover .sub { font-size: 13pt; color: var(--muted); margin-top: 6pt; }
+  .cover .meta { margin-top: 30pt; font-size: 9.5pt; color: var(--muted); }
+  .box { background: var(--soft); border-left: 3px solid var(--accent); padding: 6pt 9pt; margin: 6pt 0; page-break-inside: avoid; }
+  .plan { border-left-color: var(--plan); }
+  .tag { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 0.5pt 5pt; border-radius: 8pt; vertical-align: 1px; }
+  .built { background: #e7f6ec; color: #13703a; }
+  .planned { background: #f1eafe; color: var(--plan); }
+  .toc li { margin: 1pt 0; }
+  .muted { color: var(--muted); }
+  .pb { page-break-before: always; }
+  code { font-family: Menlo, monospace; font-size: 8.6pt; background: var(--soft); padding: 0 2pt; }
+  footer { margin-top: 20pt; color: var(--muted); font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="kicker">Request for quotation · Technical requirements</div>
+  <h1>Move Beyond Tournament System<br>&amp; Move Score</h1>
+  <div class="sub">Multi-sport tournament management, live scoring, venue screens and companion mobile app — full functional and technical specification for an equivalent build.</div>
+  <div class="meta">
+    Issued by Move Beyond (Cairo, Egypt) · Version 1.0 · October 2026<br>
+    Purpose: obtain development quotes for a functionally equivalent system.<br>
+    Each feature is marked <span class="tag built">BUILT</span> (exists today and must be replicated) or <span class="tag planned">PLANNED</span> (roadmap, quote separately).
+  </div>
+</section>
+
+<h2>Contents</h2>
+<ol class="toc">
+  <li>Product overview and scope</li>
+  <li>Users, roles and organisations</li>
+  <li>Tournament management (web admin)</li>
+  <li>Sports, formats and scoring engines</li>
+  <li>Live scoring — referee and umpire consoles</li>
+  <li>Match day operations (court calls, no-shows, alerts)</li>
+  <li>Public web platform</li>
+  <li>Venue screens (TVs) and screen control</li>
+  <li>Voice umpire</li>
+  <li>Move Score mobile app (iOS &amp; Android)</li>
+  <li>Players: identity, profiles and history</li>
+  <li>Leagues, rankings and boards</li>
+  <li>Americano / Mexicano social nights</li>
+  <li>Registration and online payments</li>
+  <li>Messaging: push, email and WhatsApp</li>
+  <li>Event pass, venue check-in and wallet passes</li>
+  <li>Planned: live video feed of selected courts</li>
+  <li>Planned: professional referee system to international sport-code level</li>
+  <li>Security, privacy and compliance</li>
+  <li>Architecture, infrastructure and integrations</li>
+  <li>Quality, testing and operations</li>
+  <li>Deliverables and quotation format</li>
+</ol>
+
+<h2>1. Product overview and scope</h2>
+<p>Move Beyond runs padel, tennis (including nations team events), chess and other racket/game-sport competitions. The system has three surfaces that share one backend:</p>
+<table>
+  <tr><th style="width:24%">Surface</th><th>Purpose</th></tr>
+  <tr><td><b>Tournament System (web)</b></td><td>Admin console for organisers: create events, teams, draws, schedules, courts, results, rankings, leagues, registration, messaging, screens. Public pages for fans. Referee web console.</td></tr>
+  <tr><td><b>Move Score (mobile app)</b></td><td>Fan and player companion: live scores, order of play, draws, alerts, following, event pass, lock-screen live scores, widgets, registration and payment, player profile. Also the referee/umpire scoring console for officials.</td></tr>
+  <tr><td><b>Venue screens</b></td><td>Court-side TVs and big screens: live score, walk-on, line-ups, results, rankings, sponsor loops, QR codes — remotely controlled by an operator.</td></tr>
+</table>
+<p>Scope: <b>inside the court</b> (scoring, rules, umpiring, voice calls, court calls, no-shows) and <b>outside the court</b> (registration, payment, schedules, fans, alerts, screens, sponsors, rankings, leagues, organisations, messaging). Languages: English UI today; Arabic/RTL should be quoted as an option. Time zone default Africa/Cairo, per-event time zone supported.</p>
+
+<h2>2. Users, roles and organisations</h2>
+<h3>2.1 Multi-tenant organisations <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Clubs, academies and organisers <b>apply</b> online; the platform owner approves, rejects, suspends or creates organisations directly.</li>
+  <li>Each organisation owns its tournaments, sessions, leagues, seasons, ranking categories, announcements and players; <b>strict data isolation</b> between organisations (one organisation can never read or change another's data).</li>
+  <li>Organisation profile: name (renames approved by the platform), logo (validated upload), colours, about, city, country, venues; branding feeds the app skin of its events.</li>
+  <li>Billing fields per organisation: plan tier, commission %, subscription status (recorded; billing engine optional in quote).</li>
+  <li>Public organisation page in the app; fans can follow an organisation.</li>
+</ul>
+<h3>2.2 Roles and access</h3>
+<table>
+  <tr><th>Role</th><th>Can do</th></tr>
+  <tr><td>Platform super-admin</td><td>Approve organisations, global app flags, Discover ordering, player merges, all-organisation view.</td></tr>
+  <tr><td>Organisation owner / admin</td><td>Everything inside the organisation; members and invites; refunds; branding.</td></tr>
+  <tr><td>Manager / organiser</td><td>Run tournaments, schedules, results, corrections, registrations, leagues, messaging.</td></tr>
+  <tr><td>Referee / umpire</td><td>Score assigned matches (point by point or final result), court calls, no-show decisions.</td></tr>
+  <tr><td>Screen operator</td><td>Control venue screens.</td></tr>
+  <tr><td>Player</td><td>Own profile, history, registrations, "I'm at court", alerts.</td></tr>
+  <tr><td>Fan / guest</td><td>Follow, alerts, live scores, event pass — no account required.</td></tr>
+</table>
+<h3>2.3 Staff authentication <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Personal staff accounts (Google sign-in or email + password) with a server-signed session cookie; membership re-checked on every request so removal/suspension is immediate.</li>
+  <li><b>Event access codes</b> for referees and operators: random, stored hashed, optional scope to one tournament, expiry, instant revocation, shown once.</li>
+  <li>Signed, single-use, email-bound <b>invite links</b> (7 days) with an explicit "Join … as …?" confirmation.</li>
+  <li>Members page with role rules (only owners create owners/admins; last owner protected at database level).</li>
+  <li>Legacy shared role passwords for the platform owner's organisation (transitional).</li>
+  <li>Rate limiting on every login path (atomic counters, per address and per code prefix, failures only).</li>
+</ul>
+
+<h2>3. Tournament management (web admin)</h2>
+<h3>3.1 Events <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Create, edit, clone (copy structure, rules and branding), archive tournaments; status draft / active / completed; public or private.</li>
+  <li>Event groups (several tournaments under one event, e.g. boys' and girls' finals) with featured ranking.</li>
+  <li>Venue, city, country, first/last day, <b>first-match start time</b>, time zone, artwork, app skin colours, light/dark preference, player photos on/off.</li>
+  <li>Courts per event with order and names.</li>
+  <li>Sponsors and branding configuration (logos shown on public pages and screens).</li>
+  <li>Excel export of the whole event (teams, matches, results, audit).</li>
+</ul>
+<h3>3.2 Teams and players <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Teams (pairs or squads), players, photos with focal point, nations (ISO flags), captains.</li>
+  <li><b>CSV import</b> of teams/players with downloadable template.</li>
+  <li>Private player data (phone, email, access code) never exposed on public pages, screens or referee phones.</li>
+  <li>Per-tournament <b>player access codes</b> (send via WhatsApp/email, reset, CSV) for players to link their app account.</li>
+  <li>Global player database with approval, notes, level, categories (private per organisation), merge of duplicates (platform-admin only).</li>
+</ul>
+<h3>3.3 Draws, groups, brackets and schedule <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Group stage with round-robin generation, manual/locked group assignment, standings with configurable tie-breakers.</li>
+  <li>Knockout brackets: slots, seeding, byes, automatic advancement and retraction when results change; main draw and <b>Plate</b> / consolation brackets, bracket tiers; placement draws for every place (1–16).</li>
+  <li>Leaderboard / standings snapshots; winner page.</li>
+  <li>Order of play: court + time per match, manual matches, "delay the order of play" for rain/overruns (shifts everything after a time).</li>
+  <li>Check-in of teams; QR check-in per match.</li>
+</ul>
+<h3>3.4 Tennis nations team competitions <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Ties between nations made of rubbers (Singles 2, Singles 1, Doubles); tie score; per-tie court and not-before time.</li>
+  <li><b>2026 ITF team regulations</b>: singles nominated before play with order-of-merit check (No. 1 above No. 2); doubles "to be named" until after the singles; late changes need an audited reason; locking needs only the singles; dead rubbers still played; ITF group ranking (head-to-head of two; then matches won, sets %, games %); placement lots entered by the desk; short-format singles below the main draw (two sets + 10-point match tie-break) per match; warning when a retired player is named again.</li>
+  <li>Real event loading script (32 nations, 96 players, 32 captains) as drafts.</li>
+  <li>Finals replay tool for demo events (turn a real score line into engine-verified points).</li>
+</ul>
+<h3>3.5 Admin quality-of-life <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Every expected refusal shown inline next to the button (no error pages); every state change written to a per-organisation <b>audit log</b> (actor, organisation, role, before/after).</li>
+  <li>Admin <b>Match day</b> tab, <b>App</b> tab, <b>Screens</b> tab, <b>Registrations</b> tab, <b>Players / Player codes</b> tab per tournament.</li>
+  <li>Platform <b>Discover</b> page: order of featured events and live tournaments in the app, global feature flags.</li>
+</ul>
+
+<h2>4. Sports, formats and scoring engines</h2>
+<h3>4.1 Sports registry <span class="tag built">BUILT</span></h3>
+<table>
+  <tr><th>Sport</th><th>Engine</th><th>Supports</th></tr>
+  <tr><td>Padel</td><td>Games &amp; sets</td><td>Showcase, final-result entry, "match soon", Live Activities, voice umpire</td></tr>
+  <tr><td>Tennis</td><td>Games &amp; sets</td><td>All of the above + nations team ties, doubles rules</td></tr>
+  <tr><td>Chess</td><td>Win / draw / loss per game</td><td>Final-result entry, knockout with arbiter decision, chess moves on web console</td></tr>
+  <tr><td>Any other games sport</td><td>Generic games &amp; sets</td><td>Conservative feature set (one configuration entry per new sport)</td></tr>
+</table>
+<h3>4.2 Rules engine <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Configurable per tournament, per stage, per match: sets to win, games per set, tie-break at N-N, tie-break length, <b>golden point / no-ad</b>, advantage sets, short sets, Fast4, pro sets, <b>super / match tie-break</b> instead of a deciding set, sudden death.</li>
+  <li>Serve rotation, change of ends, tie-break serve order; disqualification, retirement, walkover endings.</li>
+  <li>Pure, framework-free engine shared by server, web console and mobile app; property-tested against thousands of random matches.</li>
+</ul>
+<h3>4.3 Scoring modes <span class="tag built">BUILT</span></h3>
+<ul>
+  <li><b>Point by point</b> (live), <b>final result only</b>, or <b>either</b> (referee picks) — set per tournament, session or match.</li>
+  <li>Final-result entry: side-by-side set entry, tie-break points required for 7-6, summary with winner highlighted, "Confirm / Keep editing", second confirmation; server rebuilds and verifies the result.</li>
+  <li>Corrections of finished matches by organisers only, audited, with automatic update of standings, brackets, league points.</li>
+</ul>
+
+<h2>5. Live scoring — referee and umpire consoles</h2>
+<h3>5.1 Consoles <span class="tag built">BUILT</span></h3>
+<ul>
+  <li>Web referee console and native mobile console (same rules, same engine).</li>
+  <li>Large-target point buttons, undo, pause/resume, first server selection, retirement/walkover/DQ, red/blue team identity, sunlight (high-contrast) mode, dark/light.</li>
+  <li><b>Offline-first</b>: points queue on the device and sync in order when the signal returns; conflict handling (409) with "load the server's score".</li>
+  <li><b>Scoring lease / device lock</b>: one device controls a match; request and hand over control between referees; lease renewal and release.</li>
+  <li>Referee access by event code; list of assigned tournaments and matches.</li>
+</ul>
+<h3>5.2 Per-court referee access <span class="tag planned">PLANNED</span></h3>
+<ul>
+  <li>One access code per court; a referee who enters it sees only that court's matches in order; sign out and enter another court's code on handover.</li>
+  <li>QR code printed on each court's referee table: scanning with the app (or phone camera, which opens the app) switches the referee to that court instantly.</li>
+</ul>
+
+<h2>6. Match day operations <span class="tag built">BUILT</span></h2>
+<ul>
+  <li><b>Match day rules</b> per tournament/session: showcase on event days, player alerts, "match soon", court calls, no-show policy, Live Activities, widgets, scoring mode, extras.</li>
+  <li><b>"Match may start in ~5 minutes"</b>: sent once when the match before on that court is one game from finishing (respecting each format's rules), to the players of the next match; never for undecided sides or players still playing on another court.</li>
+  <li><b>Court call</b>: when the referee opens the match the players are called to court with a countdown (default 5 min), reminder at −2 min, presence per side, "I'm at court" button for players, QR check-in marks presence.</li>
+  <li><b>No-show prompt</b>: keep waiting, extend +5 min (configurable maximum), walkover to the side present; both absent → organiser decides.</li>
+  <li>Abuse limits (call/extend/cancel rate limits, one alert per 10 minutes).</li>
+</ul>
+
+<h2>7. Public web platform <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Per-tournament public site: overview, live, matches, match detail, bracket, leaderboard, nations ties, winner page.</li>
+  <li>Friendly session pages with rankings and online registration.</li>
+  <li>Public rankings (lifetime / season, per organisation).</li>
+  <li>Registration pages, payment status page, email confirmation flow.</li>
+  <li>Move Score product pages: home, Android direct download (APK), support/FAQ, privacy policy, terms, account deletion.</li>
+  <li>Auto-refresh / polling live updates; CDN-cached public data (2–60 s) with private per-user routes never cached.</li>
+  <li>Universal links (app opens from links), short links for venues and matches.</li>
+</ul>
+
+<h2>8. Venue screens (TVs) and screen control <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Unlimited named screens per event (e.g. Court 1 TV, main hall wall), each with its own scene settings, both brackets option, uploads (backgrounds, sponsor images).</li>
+  <li>Automatic scene engine for tennis ties per court: <b>line-up → walk-on → live score → rubber won → tie score</b>; padel/one-match fixtures: live score, result, next on court; night tables; rankings; bracket; winner.</li>
+  <li>Nation flags, player portraits with focal point, sponsor logos, QR codes (venue pass, match check-in).</li>
+  <li><b>Operator control panel</b>: remote scene switching per screen, presence (which screens are online).</li>
+  <li>Takeover animations for results; reduced-motion support.</li>
+</ul>
+
+<h2>9. Voice umpire <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Automatic spoken score calls on the referee device / speakers: points, games, sets, deuce, advantage, deciding point, tie-break, match tie-break, change of ends, time, nation names; red/blue team naming.</li>
+  <li>Pre-rendered neural voice packs (versioned), fallback pack, per-call support detection.</li>
+</ul>
+
+<h2>10. Move Score mobile app (iOS &amp; Android) <span class="tag built">BUILT</span></h2>
+<h3>10.1 Fans</h3>
+<ul>
+  <li><b>Discover</b>: featured events and live tournaments in an admin-controlled order; <b>Live courts showcase</b> at the top on event days — swipe per court: walk-on with player photos, live score, result card, "next on court", court call countdown; the user's own match pinned first.</li>
+  <li>Tournament screens: order of play, matches, live scores, draws/brackets, standings, ties, nations, teams, players, match timeline (point history), share cards/stories.</li>
+  <li><b>Following</b> players, nations, ties, matches, tournaments, organisations — without an account; merge on sign-in.</li>
+  <li>Alerts per category (scheduled, starting, finished, court calls…), quiet outside event days.</li>
+  <li><b>iPhone Live Activities</b> (lock screen / Dynamic Island) with phases soon → called (countdown) → live → final; <b>push-to-start</b> for the player's own and starred matches.</li>
+  <li><b>Home and lock-screen widgets</b> ("My matches").</li>
+  <li>Cheering for nations in ties (cheer counters).</li>
+  <li>Accessibility (screen reader labels, large type), calm/reduced motion, dark/light themes, offline cache.</li>
+</ul>
+<h3>10.2 Accounts</h3>
+<ul>
+  <li>Guest by default; sign in with <b>Apple</b>, <b>Google</b>, <b>email + password</b> (confirmation, reset, one-time codes) or a <b>player code</b>.</li>
+  <li>Account deletion in app (Apple guideline 5.1.1(v)) incl. Apple token revocation.</li>
+</ul>
+<h3>10.3 Players</h3>
+<ul>
+  <li><b>My profile</b>: tournaments, nights, leagues, results, points, ranks; link history by player code, WhatsApp one-time code (email fallback after asking), organiser offer, email match.</li>
+  <li>"I'm at court", own-match alerts, registration and payment, my registrations, refund request.</li>
+</ul>
+<h3>10.4 Officials</h3>
+<ul>
+  <li>Referee console inside the app (see §5), call card, no-show sheet, final-score entry, offline queue.</li>
+</ul>
+<h3>10.5 Distribution</h3>
+<ul>
+  <li>App Store and Google Play builds, ad-hoc/internal builds, direct APK download page, over-the-air config flags (feature switches without a new build), minimum supported version.</li>
+</ul>
+
+<h2>11. Players: identity, profiles and history <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>One global profile per person across all organisations and events; per-organisation private data (approval, notes, level, categories).</li>
+  <li>Player codes stored only as keyed hashes (+ sealed copy for organisers to resend); one-time codes 6 digits, 10-minute expiry, attempt limits, per-phone daily guess budget.</li>
+  <li>Strict anti-takeover rules (codes never link another organisation's rows; email proofs link only rows with matching phone and email; masking of contacts and photos for organisations that only matched a number).</li>
+  <li>Archive of a player's link to an event 24 h after it ends; results kept forever.</li>
+</ul>
+
+<h2>12. Leagues, rankings and boards <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>League kinds: recurring <b>nights</b> or <b>season fixtures</b> (dated round robin per division, regenerate unplayed fixtures).</li>
+  <li>Divisions; editable points rules (default win 2 / loss 1, walkovers, optional win-streak bonus, draws for chess).</li>
+  <li>Boards: monthly, 3/6/9/12-month sums, configurable year start; per-organisation and platform-wide <b>"Top of all leagues"</b> (normalised scale, organisations can opt out).</li>
+  <li>Joining: open / organiser approval / invite code / paid (pay at venue or online); tournaments can count toward a league division.</li>
+  <li><b>Visibility</b>: everyone / organisation's players only / invite-only (code reveals the league).</li>
+  <li>Lifetime and season rankings per organisation, ranking categories, ranking models.</li>
+</ul>
+
+<h2>13. Americano / Mexicano social nights <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Friendly sessions: Americano and Mexicano rotation scheduling, entries/approvals, pairs, Mexicano next-round draw, session ranking ("fire" streak).</li>
+  <li>"Confirm players and publish table": per-court order of play with <b>"about 19:40" time estimates</b> that re-estimate as matches finish; table on web, TV, app and league pages; alerts to players.</li>
+  <li>Nights created from a league's night template with a date; public registration with photo.</li>
+</ul>
+
+<h2>14. Registration and online payments <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Per event: entry type individual / team / both, team size, approval mode (<b>first paid, first in</b> default, or organiser approval), fee per player, payment online / at venue / player's choice / free, who pays for a team, capacity, closing time, note.</li>
+  <li>Guests confirm by email link; app users need a confirmed email; capacity enforced atomically (confirmed entries + 15-minute checkout holds).</li>
+  <li><b>XPay</b> card payments (hosted checkout, signed webhooks, async/Fawry-style payments, refunds via API, 50 EGP card minimum); alternative partner integration with the Move Tick ticketing platform.</li>
+  <li>Refunds always 100 %, allowed until 24 h before the start time; overflow/duplicate payments flagged for refund at any time; audited.</li>
+  <li>Admin: registrations list, approve/refuse, pair solo players, mark paid at venue, refund by payment.</li>
+</ul>
+
+<h2>15. Messaging <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Push notifications (Expo/APNs/FCM) with categories and per-device preferences; scheduled sends (reminders) via a cron-driven drain.</li>
+  <li><b>Announcements</b> console: audiences (tournament, nation, all players, followers, pasted list), email via Resend (branded layout), WhatsApp Cloud API templates, one delivery row per recipient per channel, delivery tracking via webhooks, CSV export, test sends, dry-run mode.</li>
+  <li>Transactional messages: registration, payment, refunds, invites, player codes (codes never stored in message logs).</li>
+  <li>Branded email templates for authentication (generated, versioned).</li>
+</ul>
+
+<h2>16. Event pass, venue check-in and wallet passes <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Collectible digital event pass per user per event; stamps for each day attended by scanning a rotating venue QR code on the screens; pins and points.</li>
+  <li><b>Apple Wallet</b> pass (signed .pkpass) and Google Wallet pass.</li>
+  <li>Match QR check-in for players.</li>
+</ul>
+
+<h2 class="pb">17. Live video feed of selected courts <span class="tag planned">PLANNED</span></h2>
+<div class="box plan">Quote as a separate module. The scoring data above must be overlaid on the video.</div>
+<ul>
+  <li>Live streaming of selected courts (e.g. centre court and court 1) to the app and public web, choosable per event and per court by the organiser.</li>
+  <li>Camera ingest: RTMP/SRT from fixed IP cameras or a mobile production kit; cloud transcoding to adaptive HLS/LL-HLS (target latency ≤ 5 s); CDN delivery; Egypt and international audiences.</li>
+  <li><b>Score overlay</b> (scorebug) driven live by the referee scoring data: players, flags, sets, games, points, serve, tie-break, match point; walk-on and result graphics matching the venue screens.</li>
+  <li>Picture-in-picture in the app match screen and Live Activities deep link; multi-court switcher; "now on court" from the showcase.</li>
+  <li>Recording and replays (VOD per match), highlight clipping (manual in/out points by an operator; automatic highlights as an option), share clips to social.</li>
+  <li>Access control: free / registered users / paid pass or subscription; geo-restriction option; DRM/token-protected streams.</li>
+  <li>Admin: stream keys per court, health dashboard (bitrate, viewers, drops), start/stop, schedule from the order of play.</li>
+  <li>Analytics: concurrent viewers, watch time, per court/match.</li>
+</ul>
+
+<h2>18. Professional referee system — international sport-code level <span class="tag planned">PLANNED</span></h2>
+<div class="box plan">Goal: officiating tools that meet the standards of international federations (ITF / ATP / WTA for tennis, FIP / Premier Padel for padel, FIDE for chess) for sanctioned events.</div>
+<h3>18.1 Chair umpire console</h3>
+<ul>
+  <li>Full point-outcome capture: ace, double fault, service winner, winner (FH/BH/volley/smash), forced/unforced error, let, foot fault, net touch, hindrance.</li>
+  <li>Code of conduct: warnings and point/game penalties per the federation's point-penalty scale (time violations, ball/racket abuse, audible obscenity, coaching, unsportsmanlike conduct), default; automatic escalation.</li>
+  <li>Shot clock / serve clock (25 s), changeover and set-break timers (90/120 s), warm-up timer, medical time-out (3 min) and toilet/change-of-attire breaks with counters; rain/suspension and resumption with exact score.</li>
+  <li>Challenges / electronic line calling hooks (challenges remaining per set, overturned calls), ball changes schedule, new balls indicator.</li>
+  <li>Lucky loser / alternates, retirements and defaults with reasons; score corrections with umpire PIN and supervisor approval.</li>
+  <li>Sport-code templates: ITF Rules of Tennis, Davis Cup / Billie Jean King Cup / ITF Junior team formats, FIP padel rules (including golden point/star point variants), FIDE time controls for chess (clock integration).</li>
+</ul>
+<h3>18.2 Officiating team and supervision</h3>
+<ul>
+  <li>Roles: referee (tournament supervisor), chief umpire, chair umpires, line umpires, roving umpires; certification level (white/bronze/silver/gold badge) and assignments per court/match with conflict checks (nationality).</li>
+  <li>Referee's office dashboard: all courts live, alerts on delays, penalties, medical calls, disputes; incident reports and fines; signed scorecards (digital signature of umpire and captains).</li>
+  <li>Official match statistics (first-serve %, aces, break points, etc.) and official result submission/export to federations (e.g. ITF formats, CSV/XML/JSON API).</li>
+  <li>Audit trail suitable for appeals; offline-first with tamper-evident logs.</li>
+</ul>
+
+<h2>19. Security, privacy and compliance <span class="tag built">BUILT</span></h2>
+<ul>
+  <li>Database row-level security: public keys can read nothing; all access server-side with a secret key.</li>
+  <li>Tenant isolation enforced on every admin action, page and API (organisation resolved from the record, never from user input); automated attack test suite (~1,000 cross-organisation attacks).</li>
+  <li>Secrets and codes stored only as peppered HMAC hashes; AES-GCM sealing where a code must be re-sent; signed cookies (__Host-), CSRF/origin checks, rate limits, identical answers for "not found" and "not yours".</li>
+  <li>Signed webhooks with replay windows and idempotency (payments, email, WhatsApp).</li>
+  <li>Private player data masking; privacy policy, terms, account and data deletion; consent tracking for WhatsApp/marketing.</li>
+  <li>App Store / Google Play compliance (account deletion, privacy labels, Sign in with Apple).</li>
+</ul>
+
+<h2>20. Architecture, infrastructure and integrations</h2>
+<table>
+  <tr><th style="width:26%">Layer</th><th>Current implementation (reference; equivalent alternatives acceptable)</th></tr>
+  <tr><td>Web / API</td><td>Next.js (React, TypeScript), server actions, REST API for the app (versioned <code>/api/mobile/v1</code>), hosted on Vercel with CDN.</td></tr>
+  <tr><td>Database</td><td>PostgreSQL (Supabase) with ~70 tables, migrations, triggers for integrity (capacity, ownership), cron jobs (pg_cron).</td></tr>
+  <tr><td>Mobile</td><td>React Native / Expo (iOS &amp; Android), native widgets and Live Activities (Swift/WidgetKit/ActivityKit), offline storage.</td></tr>
+  <tr><td>Shared logic</td><td>One pure TypeScript domain library (scoring engine, draws, standings, leagues, registration rules) used by server, web and app.</td></tr>
+  <tr><td>Integrations</td><td>Apple Sign-in, Google OAuth, APNs, Expo push, Apple/Google Wallet, Resend email, WhatsApp Cloud API (Meta), XPay payments, Move Tick ticketing (partner API), Sentry (crash reporting).</td></tr>
+  <tr><td>Media</td><td>Image upload with server-side validation, compression, focal points; storage bucket; (planned) video streaming stack.</td></tr>
+  <tr><td>Scale targets</td><td>Events of 32+ nations / 100+ players, 8–16 courts live simultaneously, thousands of concurrent fans, sub-2 s score latency to apps and screens.</td></tr>
+</table>
+
+<h2>21. Quality, testing and operations</h2>
+<ul>
+  <li>Automated tests: ~1,700 unit tests and ~2,500 end-to-end checks (organisations, scoring, match day, leagues, nights, registration with both payment providers, messaging, sign-in, old-app compatibility, tennis week rehearsal).</li>
+  <li>Local database stand-in for full end-to-end runs; dry-run modes for push, email, WhatsApp and payments.</li>
+  <li>Backward compatibility with mobile app versions already installed.</li>
+  <li>Health endpoints (database, wallet), audit logs, crash reporting, deployment checklist, rollback scripts.</li>
+</ul>
+
+<h2>22. Deliverables and quotation format</h2>
+<p>Please quote per module, with timeline, team composition and maintenance/support options:</p>
+<table>
+  <tr><th>#</th><th>Module</th><th>Status</th></tr>
+  <tr><td>A</td><td>Core platform: organisations, roles, staff auth, audit, security</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>B</td><td>Tournament management: events, teams, players, CSV, draws, groups, brackets, schedule, export</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>C</td><td>Scoring engine (padel, tennis incl. ITF team rules, chess, generic) and final-result entry</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>D</td><td>Referee consoles (web + app), offline sync, device lease, voice umpire</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>E</td><td>Match day: court calls, no-shows, match-soon alerts</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>F</td><td>Public web platform and venue screens with operator control</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>G</td><td>Mobile app for fans and players incl. Live Activities, widgets, wallet passes</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>H</td><td>Players identity, leagues, boards, social nights</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>I</td><td>Registration and payments (XPay), refunds</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>J</td><td>Messaging: push, email, WhatsApp</td><td><span class="tag built">BUILT</span></td></tr>
+  <tr><td>K</td><td>Per-court referee codes and court QR switching</td><td><span class="tag planned">PLANNED</span></td></tr>
+  <tr><td>L</td><td>Live video feed of selected courts with score overlay</td><td><span class="tag planned">PLANNED</span></td></tr>
+  <tr><td>M</td><td>Professional referee system to international sport-code level</td><td><span class="tag planned">PLANNED</span></td></tr>
+  <tr><td>N</td><td>Arabic language / RTL (optional)</td><td><span class="tag planned">OPTION</span></td></tr>
+</table>
+<p class="muted">Quotes should state: technology stack, hosting and third-party running costs per month, ownership of source code, IP transfer, warranty period, SLA for live event days, and team availability during tournaments.</p>
+
+<footer>Move Beyond · info@mbeg.org · tour.mbeg.org · Confidential — for quotation purposes only.</footer>
+</body>
+</html>

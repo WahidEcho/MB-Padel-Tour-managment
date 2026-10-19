@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Move Beyond &amp; Move Score — Brief</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  :root { --ink:#141821; --muted:#5b6474; --line:#d9dee7; --accent:#1e6bff; --soft:#f3f6fb; --plan:#7c3aed; }
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.45; margin: 0; }
+  .kicker { color: var(--accent); font-weight: 700; letter-spacing: 2px; text-transform: uppercase; font-size: 8.5pt; }
+  h1 { font-size: 21pt; margin: 2pt 0 4pt; }
+  h2 { font-size: 12.5pt; margin: 14pt 0 4pt; padding-bottom: 3pt; border-bottom: 2px solid var(--accent); }
+  p { margin: 4pt 0; }
+  ul { margin: 2pt 0 4pt; padding-left: 15pt; }
+  li { margin: 1.5pt 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 4pt 0; }
+  th, td { border: 1px solid var(--line); padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  .tag { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 0.5pt 5pt; border-radius: 8pt; }
+  .built { background: #e7f6ec; color: #13703a; }
+  .planned { background: #f1eafe; color: var(--plan); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="kicker">Brief · Request for quotation · October 2026</div>
+<h1>Move Beyond Tournament System &amp; Move Score</h1>
+<p class="muted">A multi-sport tournament platform (padel, tennis incl. nations team events, chess and other games sports) with live scoring, venue screens and a companion mobile app. We are requesting quotes for a functionally equivalent build. The full technical requirements document accompanies this brief.</p>
+
+<h2>What the system does</h2>
+<table>
+  <tr><th style="width:27%">Area</th><th>Key capabilities</th></tr>
+  <tr><td>Organisations &amp; roles</td><td>Multi-tenant clubs/organisers with strict data isolation; apply/approve; owners, admins, managers, referees, operators; Google/email staff login, referee access codes, invite links, audit log.</td></tr>
+  <tr><td>Tournament management</td><td>Events and event groups, courts, teams/players (CSV import), groups and round robin, knockout brackets with Plate and placement draws, order of play with rain delay, check-in, clone, Excel export, sponsors and branding.</td></tr>
+  <tr><td>Tennis team events</td><td>Nations ties (S2, S1, Doubles) under the 2026 ITF team regulations: line-ups, order-of-merit checks, ITF ranking, placement lots, short-format singles.</td></tr>
+  <tr><td>Scoring</td><td>Configurable rules engine (golden point, tie-breaks, super tie-break, short sets, Fast4…); point-by-point or final-result entry with double confirmation; audited corrections.</td></tr>
+  <tr><td>Referee consoles</td><td>Web and mobile, offline-first with ordered sync, one device per match with hand-over, voice umpire (spoken calls), red/blue identity, sunlight mode.</td></tr>
+  <tr><td>Match day</td><td>"Match may start in ~5 min" alerts, court calls with countdown, "I'm at court", no-show prompt and walkovers.</td></tr>
+  <tr><td>Public web &amp; screens</td><td>Public tournament sites, live pages, brackets, rankings; venue TVs with automatic scenes (line-up, walk-on, live score, results), sponsor content and remote operator control.</td></tr>
+  <tr><td>Mobile app</td><td>Discover with live-courts showcase, follow players/nations/matches without an account, alerts, iPhone Live Activities with push-to-start, home/lock-screen widgets, event pass with venue QR stamps, Apple/Google Wallet, Apple/Google/email/player-code sign-in.</td></tr>
+  <tr><td>Players &amp; leagues</td><td>One global player profile and history; leagues (nights or season fixtures), divisions, editable points, monthly to yearly boards, top of all leagues, visibility options, Americano/Mexicano nights with estimated times.</td></tr>
+  <tr><td>Registration &amp; payment</td><td>Team/individual registration, first-paid-first-in capacity, XPay card payments, refunds until 24 h before start.</td></tr>
+  <tr><td>Messaging</td><td>Push, branded email and WhatsApp announcements with delivery tracking.</td></tr>
+  <tr><td>Security</td><td>Row-level security, hashed codes, signed sessions and webhooks, rate limits, automated cross-organisation attack tests, privacy and account deletion.</td></tr>
+</table>
+
+<h2>To be quoted as new modules</h2>
+<ul>
+  <li><span class="tag planned">PLANNED</span> <b>Per-court referee access</b>: one code per court, referee sees only that court's matches; QR code on each court's table switches the referee to that court.</li>
+  <li><span class="tag planned">PLANNED</span> <b>Live video feed of selected courts</b>: camera ingest, low-latency streaming to app and web, live score overlay from the scoring data, replays and highlights, access control, stream health dashboard.</li>
+  <li><span class="tag planned">PLANNED</span> <b>Professional referee system (international sport-code level)</b>: full point-outcome capture, code of conduct and point-penalty scale, shot/changeover/medical timers, challenges, officiating team assignment and certification levels, referee's office dashboard, signed scorecards, official statistics and federation export (ITF/FIP/FIDE).</li>
+  <li>Option: Arabic language and RTL layout.</li>
+</ul>
+
+<h2>Reference technology</h2>
+<p>Next.js + TypeScript web and API (Vercel), PostgreSQL (Supabase), React Native/Expo app with native iOS widgets and Live Activities, shared TypeScript domain library. Integrations: Apple, Google, APNs, Expo push, Apple/Google Wallet, Resend, WhatsApp Cloud API, XPay, Sentry. Equivalent stacks are acceptable.</p>
+
+<h2>Please include in your quote</h2>
+<ul>
+  <li>Price and timeline per module (built modules A–J and new modules K–M, see the full document §22).</li>
+  <li>Team composition, technology stack, monthly hosting and third-party costs.</li>
+  <li>Source-code and IP ownership, warranty, maintenance and live-event-day support SLA.</li>
+</ul>
+<p class="muted">Contact: Move Beyond · info@mbeg.org · tour.mbeg.org</p>
+</body>
+</html>
