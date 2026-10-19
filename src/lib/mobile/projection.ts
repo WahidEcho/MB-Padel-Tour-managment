@@ -13,6 +13,9 @@ import { matchDayRules, publicMatchDay } from "../matchday/rules";
 import { scoringConfigForMatch, type BracketTier } from "../scoring/rules";
 import { sportOf } from "../sports/registry";
 import { LOG_ONLY_EVENTS } from "../scoring/eventGuard";
+import { aceMoment } from "../scoring/serve";
+import { TIMERS, liveClock } from "../scoring/timing";
+import type { ScoreState } from "../scoring/engine";
 import { SIDES, redBlueTeams } from "../sides";
 import { toPublicPlayer } from "../public";
 import { orgSkinDefaults } from "../orgs/profile";
@@ -305,7 +308,20 @@ interface StateLike {
   servingTeam?: SideKey | null;
 }
 
-export function toScore(m: Pick<Match, "team_a_id" | "team_b_id">, snap: MatchSnapshot | null): MScore | null {
+/** Scoring v2 extras a tournament shows (Admin → Scoring features: "Show aces / timers on TV & app"). */
+export interface ScoreExtras {
+  aces: boolean;
+  timers: boolean;
+}
+
+/** The extras from a tournament's stored match-day rules. */
+export function scoreExtrasOf(t: { match_day_rules?: unknown; sport?: string | null } | null | undefined): ScoreExtras | undefined {
+  if (!t) return undefined;
+  const f = matchDayRules(t.match_day_rules, t).features;
+  return { aces: f.tvAces && f.ace, timers: f.tvTimers };
+}
+
+export function toScore(m: Pick<Match, "team_a_id" | "team_b_id">, snap: MatchSnapshot | null, extras?: ScoreExtras): MScore | null {
   if (!snap) return null;
   const st = (snap.snapshot_json ?? {}) as StateLike;
   const sets = (snap.completed_sets ?? []).map((s) => ({
@@ -338,10 +354,26 @@ export function toScore(m: Pick<Match, "team_a_id" | "team_b_id">, snap: MatchSn
     lastEventNumber: snap.last_event_number ?? 0,
     lastUndo: snap.last_undo_event_number ?? 0,
     updatedAt: snap.updated_at ?? null,
+    ...v2Extras(snap.snapshot_json as unknown as ScoreState | null, over, extras),
   };
 }
 
-export function toMatch(m: Match, snap: MatchSnapshot | null): MMatch {
+/** Scoring v2: aces and the running timer, only what the organiser shows. */
+function v2Extras(st: ScoreState | null, over: boolean, extras?: ScoreExtras): Partial<MScore> {
+  if (!extras || !st || typeof st !== "object" || !st.teamA) return {};
+  const out: Partial<MScore> = {};
+  if (extras.aces && st.stats) {
+    out.aces = { a: st.stats.aces.A ?? 0, b: st.stats.aces.B ?? 0 };
+    out.ace = !over && aceMoment(st);
+  }
+  if (extras.timers && !over) {
+    const c = liveClock(st, Date.now());
+    out.clock = c ? { kind: c.kind, label: c.kind === "changeover" ? "Changeover" : TIMERS[c.kind].label, startedAt: c.startedAt, limit: c.limit, side: c.team } : null;
+  }
+  return out;
+}
+
+export function toMatch(m: Match, snap: MatchSnapshot | null, extras?: ScoreExtras): MMatch {
   return {
     id: m.id,
     tieId: m.tie_id ?? null,
@@ -361,7 +393,7 @@ export function toMatch(m: Match, snap: MatchSnapshot | null): MMatch {
     winner: m.winner_team_id,
     startedAt: m.started_at,
     endedAt: m.ended_at,
-    score: toScore(m, snap),
+    score: toScore(m, snap, extras),
     bracketId: m.bracket_id ?? null,
   };
 }

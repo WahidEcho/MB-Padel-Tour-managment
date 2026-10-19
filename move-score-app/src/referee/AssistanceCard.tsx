@@ -24,7 +24,19 @@ interface Call {
 
 const PATH = "/api/mobile/v1/referee/assistance";
 
-export function AssistanceCard({ matchId }: { matchId?: string }) {
+/** Scoring v2's More → "Call master referee": the same call as the card's button. */
+export async function requestAssistance(matchId?: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await api(PATH, { who: "staff", body: { action: "request", matchId } });
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError && e.status !== 0 ? e.message : "No connection: call the desk." };
+  }
+}
+
+/** `statusOnly`: the call is made from More (scoring v2); the card shows only an open call. */
+export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: string; statusOnly?: boolean }) {
   const { t } = useTheme();
   const [call, setCall] = useState<Call | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,6 +81,7 @@ export function AssistanceCard({ matchId }: { matchId?: string }) {
   };
 
   const open = call && (call.status === "open" || call.status === "acknowledged");
+  if (!open && statusOnly) return null;
   if (!open) {
     return (
       <View style={{ gap: 4 }}>

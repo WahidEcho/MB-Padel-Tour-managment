@@ -4,7 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
-import { RUBBER_LABELS, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
+import { RUBBER_LABELS, clockText, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
+import { useTick } from "../../referee/V2";
 import { useBundle, useConfig, useLive, useMatch, useTimeline } from "../../api/queries";
 import { dayIn, isAwaitingResult, makeView, matchA11y, timeIn } from "../../api/model";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
@@ -155,6 +156,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const lockScreenOff = Boolean(md?.on && !md.liveActivities);
   // Fetched again whenever the match moves, so the last point lands after the match leaves "live".
   const tl = useTimeline(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
+  const now = useTick(Boolean(m?.score?.clock));
   const starred = useFollowing("match", id);
   const [moment, setMoment] = useState<TakeoverMoment | null>(null);
   const closeMoment = useCallback(() => setMoment(null), []);
@@ -257,7 +259,10 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
               : m.scheduledTime
                 ? `${dayIn(m.scheduledTime, tz)} · ${timeIn(m.scheduledTime, tz)}`
                 : "Not started";
-  const hot = !awaiting && (sit.kind === "match" || sit.kind === "set");
+  // Scoring v2 (when the organiser shows them): a running timer, the ACE moment, the aces count.
+  const clockNow = m.score?.clock ? Math.max(0, Math.floor((now - Date.parse(m.score.clock.startedAt)) / 1000)) : 0;
+  const v2Call = live && m.score?.clock ? `${m.score.clock.label} ${clockText(clockNow)}` : live && m.score?.ace && m.score.serving ? `Ace · ${m.score.serving === "A" ? aCode : bCode}` : null;
+  const hot = !awaiting && (sit.kind === "match" || sit.kind === "set" || Boolean(v2Call && m.score?.ace));
   const summary = `${matchA11y(m, v)}${hot || sit.kind === "break" ? `. ${callText}` : ""}`;
   return (
     <View style={{ flex: 1 }}>
@@ -279,9 +284,12 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
             </View>
             <Board m={m} v={v} aNames={names("A")} bNames={names("B")} scoredBy={scoredBy} />
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: 18, marginTop: 8 }}>
-              <Body tone="ink2" size={12}>{tie ? `${v.team(tie.a)?.code} ${tie.rubbersA}–${tie.rubbersB} ${v.team(tie.b)?.code} in the tie` : (m.round ?? "")}</Body>
+              <Body tone="ink2" size={12}>
+                {tie ? `${v.team(tie.a)?.code} ${tie.rubbersA}–${tie.rubbersB} ${v.team(tie.b)?.code} in the tie` : (m.round ?? "")}
+                {m.score?.aces && (m.score.aces.a || m.score.aces.b) ? ` · Aces ${aCode} ${m.score.aces.a} – ${m.score.aces.b} ${bCode}` : ""}
+              </Body>
               <View style={{ backgroundColor: hot ? t.ball : "transparent", borderRadius: 6, paddingHorizontal: hot ? 7 : 0, paddingVertical: 3 }}>
-                <Eyebrow size={11} tone={hot ? "onBall" : "ink"}>{callText}</Eyebrow>
+                <Eyebrow size={11} tone={hot ? "onBall" : "ink"} testID={v2Call ? "v2-call" : undefined}>{v2Call ?? callText}</Eyebrow>
               </View>
             </View>
           </View>

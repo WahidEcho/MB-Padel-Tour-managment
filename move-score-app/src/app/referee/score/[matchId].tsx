@@ -15,6 +15,16 @@ import {
   PENALTY_LABELS,
   currentServer,
   servingPlayer,
+  receivingPlayer,
+  aceMoment,
+  defaultServeOrder,
+  needsServeOrder,
+  nationByCode,
+  sidesSwapped,
+  TIMERS,
+  type LogEntry,
+  type TimeDecision,
+  type TimerKind,
   type ResultPayload,
   type ResultProblem,
   type ScoreState,
@@ -30,7 +40,9 @@ import { useLease } from "../../../referee/useLease";
 import type { RefereeBootstrap } from "../../../referee/types";
 import type { SyncState } from "../../../referee/sync";
 import { useCall } from "../../../referee/useCall";
-import { AssistanceCard } from "../../../referee/AssistanceCard";
+import { AssistanceCard, requestAssistance } from "../../../referee/AssistanceCard";
+import { BetweenPoints, MatchLogList, PadV2, ServeOrderForm, TimerCard, useTick, type V2Side } from "../../../referee/V2";
+import { BALL, BALL_INK } from "../../../theme/palette";
 import { LineupScreenBody } from "../../../referee/LineupScreen";
 import { signInWithCode } from "../../../referee/courtSignIn";
 import { CallCard } from "../../../referee/CallCard";
@@ -52,6 +64,12 @@ type Sheet =
   | { kind: "reopen" }
   | { kind: "code" }
   | { kind: "result" }
+  | { kind: "let" }
+  | { kind: "call" }
+  | { kind: "log" }
+  | { kind: "break-team"; timer: TimerKind }
+  | { kind: "time-team"; decision: TimeDecision }
+  | { kind: "confirm-v2"; action: "ace" | "fault"; team: TeamKey; what: string }
   | null;
 
 /** The final-result form: where it starts from, and the last refusal. */
@@ -267,6 +285,50 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
   };
   const restLeft = c.rest ?Math.max(0, Math.ceil((c.rest.endsAt - now) / 1000)) : 0;
 
+  /* ---------------- scoring v2 ---------------- */
+  const f = c.features;
+  const pairs = A.players.length >= 2 && B.players.length >= 2;
+  const nameOf = (x: typeof A) => (x.nation ? (nationByCode(x.nation)?.name ?? x.nation) : x.name);
+  const codeOf = (x: typeof A) =>
+    (x.nation ?? x.name.replace(/\(.*?\)/g, "").trim().split(/\s+|\//).filter(Boolean).map((w) => w[0]).join("").slice(0, 4) ?? "").toUpperCase() || "—";
+  const v2Sides: Record<TeamKey, V2Side> = {
+    A: { name: nameOf(A), code: codeOf(A), players: A.players.map((p) => p.name) },
+    B: { name: nameOf(B), code: codeOf(B), players: B.players.map((p) => p.name) },
+  };
+  const [manualSwap, setManualSwapState] = useState<boolean>(() => getJson(`ms.swap.${m.id}`, false));
+  const toggleSwap = () => {
+    setManualSwapState(!manualSwap);
+    setJson(`ms.swap.${m.id}`, !manualSwap);
+  };
+  const swapped = sidesSwapped(shown, { auto: f.autoSwap, manual: f.manualSwap && manualSwap });
+  const tick = useTick(Boolean(c.timer));
+  const askOrder = !readOnly && !finished && f.doublesOrder && pairs && !c.paused && c.state !== null && needsServeOrder(c.state, true);
+  const [log, setLog] = useState<{ entries: LogEntry[] | null; error: string | null }>({ entries: null, error: null });
+  const openLog = async () => {
+    setLog({ entries: null, error: null });
+    setSheet({ kind: "log" });
+    try {
+      const r = await api<{ entries: LogEntry[] }>(`/api/matches/${m.id}/log`, { who: "staff", timeoutMs: 10_000 });
+      setLog({ entries: r.entries, error: null });
+    } catch (e) {
+      setLog({ entries: null, error: e instanceof ApiError && e.status !== 0 ? e.message : "No signal: the log needs a connection." });
+    }
+  };
+  const [callNote, setCallNote] = useState<string | null>(null);
+  const callMaster = courtReferee && f.callMaster;
+  const v2Tap = (action: "ace" | "fault") => {
+    if (readOnly || !c.state || c.finished || c.paused) return;
+    guard(() => {
+      const ask = c.v2Confirm(action);
+      if (ask) setSheet({ kind: "confirm-v2", action, team: ask.team, what: ask.what });
+      else void (action === "ace" ? c.ace() : c.fault());
+    });
+  };
+  const onDecision = (d: TimeDecision) => {
+    if (d === "no_action") void c.decide("no_action", null);
+    else setSheet({ kind: "time-team", decision: d });
+  };
+
   /** Every scoring action passes here first: a stuck queue or an expired code is said before the tap, not after. */
   const guard = (fn: () => void) => {
     // Handing over or loading the server's score: a point now would land after control has gone.
@@ -406,7 +468,15 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         <Flag iso2={s.iso2} code={s.nation} size={28} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Body weight="bold" size={17} numberOfLines={1}>{s.name}</Body>
-          {c.opts.doubles && servingIdx?.team === k ? <Eyebrow size={10} tone="ink2">{`Serving: ${s.players[servingIdx.index]?.name ?? ""}`}</Eyebrow> : null}
+          {(() => {
+            // Doubles: who serves and who receives this point; aces when the organiser counts them.
+            const rcv = shown && pairs && !shown.matchOver ? receivingPlayer(shown) : null;
+            const srv = shown && pairs && !shown.matchOver ? servingPlayer(shown) : null;
+            const who =
+              srv?.team === k ? `Serving: ${s.players[srv.index]?.name ?? ""}` : rcv?.team === k ? `Receiving: ${s.players[rcv.index]?.name ?? ""}` : c.opts.doubles && servingIdx?.team === k ? `Serving: ${s.players[servingIdx.index]?.name ?? ""}` : s.players.map((p) => p.name).join(" / ");
+            const aces = f.ace && shown?.stats ? shown.stats.aces[k] : 0;
+            return <Eyebrow size={10} tone="ink2" numberOfLines={1}>{`${who}${aces ? ` · ${aces} ace${aces === 1 ? "" : "s"}` : ""}`}</Eyebrow>;
+          })()}
         </View>
         {sets.map((x, i) => (
           <Num key={i} size={24} tone="ink2" style={{ width: 26, textAlign: "center" }}>{k === "A" ? x.teamAGames : x.teamBGames}</Num>
@@ -427,6 +497,11 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         <BackHeader label={boot.courtName} />
         <SyncPill s={sync} online={online} />
       </View>
+      {c.timer && c.timer.kind === "between_points" && !readOnly && shown && !shown.matchOver ? (
+        <View style={{ marginBottom: 6 }}>
+          <BetweenPoints timer={c.timer} now={tick} onDismiss={() => void c.endTimer()} onDecision={onDecision} />
+        </View>
+      ) : null}
       <Card style={{ paddingVertical: 8 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Eyebrow size={10} numberOfLines={1} style={{ flex: 1 }}>{[m.round_name, boot.tournament.name].filter(Boolean).join(" · ")}</Eyebrow>
@@ -443,11 +518,16 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         {scoreRow("A")}
         {scoreRow("B")}
         <Body tone="ink3" size={11}>{describeMatchRules(boot.config)}</Body>
+        {f.ace && aceMoment(shown) ? (
+          <View testID="ace-moment" style={{ position: "absolute", right: 14, top: 8, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+            <Eyebrow size={11} style={{ color: BALL_INK }}>Ace</Eyebrow>
+          </View>
+        ) : null}
       </Card>
       {/* A court referee signed in with their PIN can call the master referees (migration 0035). */}
       {courtReferee && (
         <View style={{ marginTop: 8 }}>
-          <AssistanceCard matchId={m.id} />
+          <AssistanceCard matchId={m.id} statusOnly={f.callMaster} />
         </View>
       )}
 
@@ -525,7 +605,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           <Button kind="ghost" label="What now?" onPress={() => setSheet({ kind: "conflict" })} />
         </Card>
       )}
-      {c.rest && restLeft > 0 && (
+      {c.rest && restLeft > 0 && !f.timerChangeover && !f.timerSetBreak && (
         <Card style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Body weight="semi">{c.rest.kind === "set_break" ? "Set break" : c.rest.kind === "tiebreak" ? "Change ends" : c.rest.changeEnds ? "Changeover · change ends" : "Changeover"}</Body>
           <Num size={26}>{`${Math.floor(restLeft / 60)}:${String(restLeft % 60).padStart(2, "0")}`}</Num>
@@ -587,50 +667,32 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
             ) : null}
             <Button label="Back to matches" onPress={() => router.back()} />
           </Card>
-        ) : (
-          (["A", "B"] as TeamKey[]).map((k) => (
-            <Pressable
-              key={k}
-              accessibilityRole="button"
-              accessibilityLabel={`Point to ${side(k).name}`}
-              disabled={readOnly || c.paused}
-              onPress={() => tap(k)}
-              style={({ pressed }) => ({
-                flex: 1,
-                borderRadius: 26,
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                backgroundColor: k === "A" ? t.btnBg : t.surface2,
-                borderWidth: k === "B" ? 1 : 0,
-                borderColor: t.line,
-                opacity: readOnly || c.paused || sync.kind === "conflict" ? 0.4 : 1,
-                transform: [{ scale: pressed ? 0.985 : 1 }],
-              })}
-            >
-              <Display size={26} style={{ color: k === "A" ? t.btnInk : t.ink }}>{`Point ${side(k).nation ?? ""}`.trim()}</Display>
-              <Eyebrow size={12} style={{ color: k === "A" ? t.btnInk : t.ink2 }}>{`${side(k).name}${server === k ? " · serving" : ""}`}</Eyebrow>
-            </Pressable>
-          ))
-        )}
+        ) : shown ? (
+          <PadV2
+            state={shown}
+            sides={v2Sides}
+            features={f}
+            swapped={swapped}
+            readOnly={readOnly}
+            paused={c.paused}
+            blocked={sync.kind === "conflict"}
+            canUndo={c.canUndo}
+            onPoint={tap}
+            onFault={() => v2Tap("fault")}
+            onAce={() => v2Tap("ace")}
+            onLet={() => guard(() => setSheet({ kind: "let" }))}
+            onUndo={() => guard(() => void c.undo())}
+            onPause={() => guard(() => void c.pause())}
+            onServe={() => guard(() => void c.switchServer())}
+            onMore={() => setSheet({ kind: "more" })}
+          />
+        ) : null}
+        {c.timer && c.timer.kind !== "between_points" && !readOnly && shown && !shown.matchOver ? (
+          <View style={{ position: "absolute", left: 0, right: 0, top: "18%" }}>
+            <TimerCard timer={c.timer} now={tick} sides={v2Sides} onStop={() => void c.endTimer()} onDecision={onDecision} />
+          </View>
+        ) : null}
       </View>
-
-      {/* Play controls only while play is on, as on the web: a final score keeps just its own Undo. */}
-      {c.state && !finished && !shown?.matchOver && !boot.chess && !resultOnly && (
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-          {[
-            ["↶", "Undo", () => guard(() => void c.undo()), !c.canUndo],
-            ["❚❚", c.paused ? "Resume" : "Pause", () => guard(() => void c.pause()), false],
-            ["⇄", "Serve", () => guard(() => void c.switchServer()), c.paused],
-            ["⋯", "More", () => setSheet({ kind: "more" }), false],
-          ].map(([icon, label, fn, disabled]) => (
-            <Pressable key={label as string} onPress={fn as () => void} disabled={readOnly || (disabled as boolean)} accessibilityRole="button" accessibilityLabel={label as string} style={({ pressed }) => ({ flex: 1, alignItems: "center", gap: 3, paddingVertical: 12, borderRadius: 16, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, opacity: readOnly || disabled ? 0.4 : pressed ? 0.7 : 1 })}>
-              <Body size={17}>{icon as string}</Body>
-              <Body weight="bold" size={12}>{label as string}</Body>
-            </Pressable>
-          ))}
-        </View>
-      )}
 
       <Sheetish open={sheet?.kind === "confirm-point"} onClose={() => setSheet(null)} title="Check">
         {sheet?.kind === "confirm-point" && (
@@ -650,8 +712,43 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       </Sheetish>
 
       <Sheetish open={sheet?.kind === "more"} onClose={() => setSheet(null)} title="More">
-        {c.opts.doubles &&
-          (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={`Swap ${side(k).name}'s server`} onPress={() => guard(() => { void c.swapServer(k); setSheet(null); })} />)}
+        {callMaster ? (
+          <Button kind="danger" label="📣  Call master referee" onPress={() => setSheet({ kind: "call" })} />
+        ) : null}
+        {callNote ? <Body tone="ink2" size={12.5}>{callNote}</Body> : null}
+        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration ? <Eyebrow size={10} tone="ink3">Breaks</Eyebrow> : null}
+        {(
+          [
+            ["break", f.breakStopwatch, "⏱  Break", "Stopwatch"],
+            ["changeover", f.timerChangeover, "◷  Changeover", "1:30"],
+            ["set_break", f.timerSetBreak, "☕  Set break", "2:00"],
+            ["bathroom", f.bathroom, "🚻  Bathroom break", "warns 10:00"],
+            ["hydration", f.hydration, "💧  Hydration break", "10:00"],
+          ] as [TimerKind, boolean, string, string][]
+        )
+          .filter(([, on]) => on)
+          .map(([k, , label, hint]) => (
+            <Pressable
+              key={k}
+              testID={`break-${k}`}
+              accessibilityRole="button"
+              disabled={readOnly || finished}
+              onPress={() => guard(() => (k === "bathroom" ? setSheet({ kind: "break-team", timer: k }) : (void c.startBreak(k, null), setSheet(null))))}
+              style={({ pressed }) => ({ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 13, borderRadius: 14, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, opacity: readOnly || finished ? 0.4 : pressed ? 0.7 : 1 })}
+            >
+              <Body weight="bold">{label}</Body>
+              <Num size={13} tone="ink2">{hint}</Num>
+            </Pressable>
+          ))}
+        {f.manualSwap || f.matchLog ? <Eyebrow size={10} tone="ink3">Court</Eyebrow> : null}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {f.manualSwap ? <Button kind="ghost" label="Swap left / right" style={{ flex: 1 }} onPress={() => { toggleSwap(); setSheet(null); }} /> : null}
+          {f.matchLog ? <Button kind="ghost" label="Match log" style={{ flex: 1 }} onPress={() => void openLog()} /> : null}
+        </View>
+        <Eyebrow size={10} tone="ink3">Match</Eyebrow>
+        {c.opts.doubles || pairs
+          ? (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={`Swap ${v2Sides[k].name}'s server`} onPress={() => guard(() => { void c.swapServer(k); setSheet(null); })} />)
+          : null}
         {boot.tennis && <Button kind="ghost" label="Code violation" onPress={() => guard(() => setSheet({ kind: "violation", team: null }))} />}
         {resultAllowed ? <Button kind="ghost" label="Enter the final result" onPress={() => guard(() => showResultSheet(false, null))} /> : null}
         <Button kind="ghost" label="End the set" onPress={() => guard(() => setSheet({ kind: "end", event: "SET" }))} />
@@ -660,6 +757,62 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         <Button kind="ghost" label="Disqualification" onPress={() => guard(() => setSheet({ kind: "end", event: "DISQUALIFICATION" }))} />
         <Button kind="ghost" label="End the match now" onPress={() => guard(() => setSheet({ kind: "end", event: "FORCE_END" }))} />
         <Button kind="ghost" label="Hand over to another phone or the web" onPress={() => { setHandNote(null); setSheet({ kind: "handover" }); }} />
+      </Sheetish>
+
+      <Sheetish open={sheet?.kind === "call"} onClose={() => setSheet(null)} title="Call master referee">
+        <Display size={20}>{`Call the master referee to ${boot.courtName}?`}</Display>
+        <Body tone="ink2">Every master referee on duty gets an alert.</Body>
+        <Button
+          kind="danger"
+          label="Call"
+          onPress={() => {
+            setSheet(null);
+            setCallNote("Calling…");
+            void requestAssistance(m.id).then((r) => setCallNote(r.ok ? "Master referee called: their answer shows under the score." : r.message));
+          }}
+        />
+        <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+      </Sheetish>
+
+      <Sheetish open={sheet?.kind === "let"} onClose={() => setSheet(null)} title="Let">
+        <Pressable testID="let-serve" accessibilityRole="button" onPress={() => { void c.callLet("serve"); setSheet(null); }} style={{ padding: 16, borderRadius: 18, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, gap: 4 }}>
+          <Body weight="bold" size={16}>⊕  Serve let — replay this serve</Body>
+          <Body tone="ink2" size={13}>{`Serve touched the net and landed in. Same serve again${shown?.serve ? ": still the 2nd serve." : "."}`}</Body>
+        </Pressable>
+        <Pressable testID="let-point" accessibilityRole="button" onPress={() => { void c.callLet("point"); setSheet(null); }} style={{ padding: 16, borderRadius: 18, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, gap: 4 }}>
+          <Body weight="bold" size={16}>↶  Replay point — interference</Body>
+          <Body tone="ink2" size={13}>Something interfered with play. The whole point is replayed from the 1st serve.</Body>
+        </Pressable>
+        <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+      </Sheetish>
+
+      <Sheetish open={sheet?.kind === "confirm-v2"} onClose={() => setSheet(null)} title="Check">
+        {sheet?.kind === "confirm-v2" && (
+          <>
+            <Body size={17} weight="semi">{`${sheet.action === "ace" ? "Ace" : "Double fault"}: ${side(sheet.team).name} is about to win ${sheet.what}.`}</Body>
+            <Button label="Yes" onPress={() => { void (sheet.action === "ace" ? c.ace() : c.fault()); setSheet(null); }} />
+            <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+          </>
+        )}
+      </Sheetish>
+
+      <Sheetish open={sheet?.kind === "break-team"} onClose={() => setSheet(null)} title={sheet?.kind === "break-team" ? `${TIMERS[sheet.timer].label}: which side?` : ""}>
+        {sheet?.kind === "break-team" &&
+          (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={v2Sides[k].name} onPress={() => { void c.startBreak(sheet.timer, k); setSheet(null); }} />)}
+      </Sheetish>
+
+      <Sheetish open={sheet?.kind === "time-team"} onClose={() => setSheet(null)} title={sheet?.kind === "time-team" ? `${sheet.decision === "code_violation" ? "Code violation (time)" : "Warning"}: which side?` : ""}>
+        {sheet?.kind === "time-team" &&
+          (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={v2Sides[k].name} onPress={() => { void c.decide(sheet.decision, k); setSheet(null); }} />)}
+      </Sheetish>
+
+      <Sheetish tall open={sheet?.kind === "log"} onClose={() => setSheet(null)} title="Match log">
+        <Body tone="ink2" size={12.5}>Newest first · every point, call, violation and break</Body>
+        {log.error ? <Body tone="live">{log.error}</Body> : log.entries ? <MatchLogList entries={log.entries} /> : <Body tone="ink2">Loading…</Body>}
+      </Sheetish>
+
+      <Sheetish tall open={askOrder && sheet === null} onClose={() => {}} title={`Start of set ${c.state?.currentSet ?? 1}`}>
+        {askOrder && c.state ? <ServeOrderForm key={c.state.currentSet} sides={v2Sides} initial={defaultServeOrder(c.state)} onConfirm={(o) => guard(() => void c.serveOrder(o))} /> : null}
       </Sheetish>
 
       <Sheetish open={sheet?.kind === "violation"} onClose={() => setSheet(null)} title="Code violation">

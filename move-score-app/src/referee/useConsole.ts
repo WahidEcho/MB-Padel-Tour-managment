@@ -22,7 +22,11 @@ import {
   type ResultProblem,
   type ResultRejection,
   type ScoreState,
+  type ServeOrder,
   type TeamKey,
+  type TimeDecision,
+  type TimerKind,
+  SCORING_FEATURES_OFF,
 } from "@core";
 import { api, ApiError } from "../api/client";
 import type { RefereeBootstrap } from "./types";
@@ -31,6 +35,14 @@ import { createSyncer, type SyncState } from "./sync";
 
 /** Statuses the server holds as over (the console's own list adds `pending_sync`). */
 const SERVER_FINISHED = ["completed", "walkover", "disqualified", "retired", "cancelled"];
+
+/** Scoring v2: the timer running on the console (timing.ts). The 25 s is not recorded; the others are. */
+export interface RunningTimer {
+  kind: TimerKind;
+  startedAt: number;
+  team: TeamKey | null;
+  recorded: boolean;
+}
 
 export interface RestClock {
   kind: NonNullable<EndsChange["kind"]>;
@@ -82,6 +94,14 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
   const [refusal, setRefusal] = useState<ResultRefusal | null>(null);
   /** The undo stack before each queued result (a result empties it), to put back if the server refuses the result. */
   const beforeResult = useRef(new Map<string, ScoreState[]>());
+  // Scoring v2: the organiser's switches, and the timer on this console.
+  const features = boot.matchDay?.features ?? SCORING_FEATURES_OFF;
+  const [timer, setTimerState] = useState<RunningTimer | null>(null);
+  const timerRef = useRef<RunningTimer | null>(null);
+  const setTimer = (v: RunningTimer | null) => {
+    timerRef.current = v;
+    setTimerState(v);
+  };
   const stateRef = useRef<ScoreState | null>(null);
   const historyRef = useRef<ScoreState[]>([]);
   const numberRef = useRef(boot.snapshot?.last_event_number ?? 0);
@@ -112,6 +132,12 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     setBlockedState(why);
   };
   const show = () => {
+    // A recorded timer still running in the score (the phone reopened, or took the match over).
+    const running = Console.runningClock(stateRef.current);
+    const started = running ? Date.parse(running.startedAt) : NaN;
+    if (running && !stateRef.current?.matchOver && Number.isFinite(started) && Date.now() - started < 30 * 60_000) {
+      setTimer({ kind: running.kind, startedAt: started, team: running.team, recorded: true });
+    } else if (timerRef.current?.recorded) setTimer(null);
     setState(stateRef.current);
     setStatus(statusRef.current);
     setUndoDepth(historyRef.current.length);
@@ -363,6 +389,62 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
   };
 
   const cur = () => stateRef.current;
+
+  /* ---------------- scoring v2 ---------------- */
+  const opts2 = () => ({ ...opts, doubles: (boot.sideA?.players.length ?? 0) >= 2 && (boot.sideB?.players.length ?? 0) >= 2 });
+
+  /** Stops a recorded timer still running (changeover, set break, a break) before play goes on. */
+  const stopRunning = async () => {
+    const running = Console.runningClock(stateRef.current);
+    if (running && !stateRef.current?.matchOver) {
+      const started = Date.parse(running.startedAt);
+      await record(() => (cur() ? Console.timerStop(cur()!, running.kind, (Date.now() - (Number.isFinite(started) ? started : Date.now())) / 1000, running.team) : null));
+    }
+    if (timerRef.current) setTimer(null);
+  };
+
+  /** After a step that moved the score: the changeover / set break (recorded) or the 25 s (here only). */
+  const follow = async (e: Console.ConsoleEvent) => {
+    const next = Console.followingTimer(e.after, features);
+    if (!next || e.next.matchOver) return setTimer(null);
+    const at = Date.now();
+    if (next.record) await record(() => (cur() ? Console.timerStart(cur()!, next.kind, new Date(at).toISOString()) : null));
+    setTimer({ kind: next.kind, startedAt: at, team: null, recorded: next.record });
+  };
+
+  /** A scoring step: stop a running timer, record, then start what follows. */
+  const step = async (build: () => Console.ConsoleEvent | null): Promise<boolean> => {
+    await stopRunning();
+    let built: Console.ConsoleEvent | null = null;
+    const ok = await record(() => (built = build()));
+    const e = built as Console.ConsoleEvent | null;
+    if (ok && e) {
+      if (e.after?.timer) await follow(e);
+      else if (e.eventType === "FAULT" && timerRef.current && !timerRef.current.recorded) setTimer(null);
+    }
+    return ok;
+  };
+
+  /** Which side a fault or an ace would score for, and whether that point needs the "about to win" check. */
+  const v2Confirm = (action: "ace" | "fault"): { team: TeamKey; what: string } | null => {
+    const s = cur();
+    if (!s) return null;
+    const e = action === "ace" ? Console.aceEvent(s, opts2()) : Console.faultEvent(s, opts2());
+    if (!e || e.eventType !== "POINT_AWARDED" || !e.team) return null;
+    const what = Console.pointNeedsConfirm(s, e.team, opts2());
+    return what ? { team: e.team, what } : null;
+  };
+
+  const decide = async (decision: TimeDecision, team: TeamKey | null) => {
+    const t = timerRef.current;
+    if (!t) return;
+    const seconds = (Date.now() - t.startedAt) / 1000;
+    await record(() => (cur() ? Console.timeDecision(cur()!, t.kind, decision, seconds, team) : null));
+    if (t.recorded) await stopRunning();
+    else setTimer(null);
+    if (decision === "code_violation" && team) await step(() => (cur() ? Console.violation(cur()!, team, "time", opts) : null));
+  };
+
   return {
     ready,
     state,
@@ -383,15 +465,38 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     enterResult,
     sendResultNow,
     clearRest: () => setRest(null),
+    /* scoring v2 */
+    features,
+    timer,
+    v2Confirm,
+    fault: () => step(() => (cur() ? Console.faultEvent(cur()!, opts2()) : null)),
+    ace: () => step(() => (cur() ? Console.aceEvent(cur()!, opts2()) : null)),
+    callLet: (kind: "serve" | "point") => record(() => (cur() ? Console.letEvent(cur()!, kind) : null)),
+    serveOrder: (o: ServeOrder) => record(() => (cur() ? Console.serveOrderEvent(cur()!, o) : null)),
+    startBreak: async (kind: TimerKind, team: TeamKey | null) => {
+      await stopRunning();
+      const at = Date.now();
+      const ok = await record(() => (cur() ? Console.timerStart(cur()!, kind, new Date(at).toISOString(), team) : null));
+      if (ok) setTimer({ kind, startedAt: at, team, recorded: true });
+    },
+    endTimer: async () => {
+      if (timerRef.current?.recorded) await stopRunning();
+      else setTimer(null);
+    },
+    decide,
     start: (first: TeamKey) => record(() => Console.startMatch(first)),
     needsConfirm: (k: TeamKey) => (cur() ? Console.pointNeedsConfirm(cur()!, k, opts) : null),
-    point: (k: TeamKey) => record(() => (cur() ? Console.point(cur()!, k, opts) : null)),
+    point: (k: TeamKey) => step(() => (cur() ? Console.point(cur()!, k, opts) : null)),
     confirmResult: () => record(() => (cur() ? Console.confirmResult(cur()!, opts) : null)),
-    undo: () => record(() => Console.undo(historyRef.current, Console.isFinished(statusRef.current, stateRef.current, confirmFirst))),
+    undo: async () => {
+      const ok = await record(() => Console.undo(historyRef.current, Console.isFinished(statusRef.current, stateRef.current, confirmFirst)));
+      if (ok && timerRef.current && !timerRef.current.recorded) setTimer(null);
+      return ok;
+    },
     pause: () => record(() => (cur() ? Console.togglePause(cur()!, statusRef.current === "paused") : null)),
     switchServer: () => record(() => (cur() ? Console.switchServer(cur()!) : null)),
     swapServer: (k: TeamKey) => record(() => (cur() ? Console.swapServerInTeam(cur()!, k) : null)),
-    violation: (k: TeamKey, offence: Parameters<typeof Console.violation>[2]) => record(() => (cur() ? Console.violation(cur()!, k, offence, opts) : null)),
+    violation: (k: TeamKey, offence: Parameters<typeof Console.violation>[2]) => step(() => (cur() ? Console.violation(cur()!, k, offence, opts) : null)),
     penaltyFor: (k: TeamKey, offence: Parameters<typeof Console.violation>[2]) => (cur() ? Console.violationPenalty(cur()!, k, offence) : "warning"),
     endSet: (k: TeamKey) => record(() => (cur() ? Console.endSet(cur()!, k, opts) : null)),
     endWith: (kind: Console.EndKind, winner: TeamKey) => record(() => (cur() ? Console.endWith(cur()!, kind, winner, online) : null)),

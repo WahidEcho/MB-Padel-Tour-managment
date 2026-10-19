@@ -5,6 +5,7 @@ import { GUTTER, planGrid } from "@/lib/tv/layout";
 import type { PublicTeam } from "@/lib/public";
 import CourtCard from "./CourtCard";
 import { useLive } from "./LiveFeedProvider";
+import TvExtras, { type TvExtrasSwitches } from "./TvExtras";
 
 export interface CourtInfo {
   id: string;
@@ -24,6 +25,7 @@ export default function LiveCourts({
   ranks,
   pinnedCourtId,
   sides = false,
+  extras = null,
 }: {
   /** The courts this screen covers, in order. */
   courts: CourtInfo[];
@@ -34,6 +36,8 @@ export default function LiveCourts({
   pinnedCourtId: string | null;
   /** Red and blue teams: mark the first-listed team Red, the second Blue. */
   sides?: boolean;
+  /** Scoring v2: timers and aces on the wall (the organiser's switches). */
+  extras?: TvExtrasSwitches | null;
 }) {
   const { feed, now, motion, pollGapMs } = useLive();
   if (!feed) return null;
@@ -70,7 +74,7 @@ export default function LiveCourts({
           // Keyed by the court, so the cell is stable; the card inside is keyed by
           // what is on it, so a new match gets a fresh card and an unchanged one
           // keeps its animation state across every poll.
-          <div key={slot.courtId} className="min-h-0 min-w-0">
+          <div key={slot.courtId} className="relative min-h-0 min-w-0">
             <CourtCard
               key={`${slot.kind}-${match?.id ?? "none"}`}
               courtName={court.name}
@@ -91,6 +95,7 @@ export default function LiveCourts({
               entranceReplayEvent={replay && match && replay.match_id === match.id ? (replay.event_number ?? null) : null}
               sides={sides}
             />
+            {match && slot.kind === "live" && <TvExtras state={snapByMatch.get(match.id)?.state} now={now} on={extras} />}
           </div>
         );
       })}

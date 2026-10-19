@@ -46,6 +46,7 @@ import { sizedImageSrc } from "@/lib/portrait";
 import { getTies, isTieFormat } from "@/lib/tennis/tieOps";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import { sportOf } from "@/lib/sports/registry";
+import { matchDayRules } from "@/lib/matchday/rules";
 import TennisCourts, { type TvNation, type TvRubber } from "@/components/tennis/TennisCourts";
 
 const VALID_MODES: DisplayMode[] = [
@@ -226,6 +227,9 @@ export default async function TvScreen({
   // public fields — nations, their squads' public projections, and each rubber's
   // nominees and rules.
   const isTies = mode === "live" && !isChess && isTieFormat(tournament);
+  // Scoring v2: the organiser's "Show timers / aces on TV & app".
+  const v2 = matchDayRules(tournament.match_day_rules, tournament).features;
+  const tvSwitches = { aces: v2.tvAces && v2.ace, timers: v2.tvTimers };
   const tennis = isTies ? await tennisProps(tournament, teams, matches) : null;
 
   const holding = {
@@ -298,6 +302,7 @@ export default async function TvScreen({
                 ties={tennis.ties}
                 rubbers={tennis.rubbers}
                 records={tennis.records}
+                extras={tvSwitches}
               />
             )}
 
@@ -308,6 +313,7 @@ export default async function TvScreen({
                 ranks={ranks}
                 pinnedCourtId={pinnedCourtId ?? null}
                 sides={redBlueTeams(logos)}
+                extras={tvSwitches}
               />
             )}
 

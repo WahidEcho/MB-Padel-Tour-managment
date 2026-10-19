@@ -29,6 +29,7 @@ import {
   toBundle,
   toCard,
   toMatch,
+  scoreExtrasOf,
   toStandingRow,
   toTie,
   type OrgBranding,
@@ -232,7 +233,8 @@ export const SNAPSHOT_COLUMNS =
 
 export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | null> {
   return memo(`live:${scopeKey(scope)}${slug}`, 1_500, async () => {
-    const t = await tournamentBySlug(slug, false, scope);
+    // With the match-day rules: scoring v2's aces and timers are shown only when the organiser says so.
+    const t = await tournamentBySlug(slug, true, scope);
     if (!t) return null;
     const [matches, snaps, ties, ann, bundle] = await Promise.all([
       db().from("matches").select(MATCH_COLUMNS).eq("tournament_id", t.id).order("match_order"),
@@ -249,7 +251,7 @@ export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | nu
       ties: ((ties.data ?? []) as Tie[]).map(toTie),
       matches: ((matches.data ?? []) as unknown as Match[])
         .filter((m) => m.status !== "cancelled" || m.tie_id)
-        .map((m) => toMatch(m, snapOf.get(m.id) ?? null)),
+        .map((m) => toMatch(m, snapOf.get(m.id) ?? null, scoreExtrasOf(t))),
       announcements: ann,
     };
   });
@@ -312,14 +314,14 @@ export function getMatchDetail(matchId: string): Promise<MMatchDetail | null> {
     if (!m) return null;
     const { data: t } = await db()
       .from("tournaments")
-      .select("slug, kind, sport, public_access_enabled, scoring_config")
+      .select("slug, kind, sport, public_access_enabled, scoring_config, match_day_rules")
       .eq("id", m.tournament_id)
       .maybeSingle();
-    const tr = t as { slug: string; kind: string; sport: string; public_access_enabled: boolean; scoring_config: ScoringConfig | null } | null;
+    const tr = t as { slug: string; kind: string; sport: string; public_access_enabled: boolean; scoring_config: ScoringConfig | null; match_day_rules: unknown } | null;
     if (!tr || !tr.public_access_enabled || tr.kind !== "tournament") return null;
     const { data: snap } = await db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).eq("match_id", matchId).maybeSingle();
     const snapshot = snap as unknown as MatchSnapshot | null;
-    return { match: toMatch(m, snapshot), tournamentSlug: tr.slug, situation: await situationOf(m, snapshot, tr) };
+    return { match: toMatch(m, snapshot, scoreExtrasOf(tr)), tournamentSlug: tr.slug, situation: await situationOf(m, snapshot, tr) };
   });
 }
 

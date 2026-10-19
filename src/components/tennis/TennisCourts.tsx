@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Big_Shoulders } from "next/font/google";
 import { currentServer, formatSet, servingPlayer, type ScoreState, type TeamKey } from "@/lib/scoring/engine";
+import { tvExtras, type TvExtrasSwitches } from "@/components/broadcast/TvExtras";
 import type { PublicPlayer } from "@/lib/public";
 import { EVENT_TIME_ZONE, RUBBER_LABELS } from "@/lib/tennis/ties";
 import { callout, courtScene, tieScore, type CourtScene, type SceneRubber } from "@/lib/tennis/tvScene";
@@ -65,6 +66,8 @@ interface Ctx {
   motion: boolean;
   pollGapMs: number;
   timeZone: string;
+  /** Scoring v2: timers and aces on the wall (the organiser's switches). */
+  extras: TvExtrasSwitches | null;
 }
 
 const DONE = ["completed", "walkover", "retired", "disqualified"];
@@ -81,6 +84,7 @@ export default function TennisCourts({
   rubbers,
   records,
   timeZone = EVENT_TIME_ZONE,
+  extras = null,
 }: {
   courts: TvCourt[];
   pinnedCourtId: string | null;
@@ -90,6 +94,7 @@ export default function TennisCourts({
   /** Each player's won-lost in this event's finished rubbers. */
   records: Record<string, [number, number]>;
   timeZone?: string;
+  extras?: TvExtrasSwitches | null;
 }) {
   const { feed, now, motion, pollGapMs } = useLive();
   if (!feed) return null;
@@ -127,6 +132,7 @@ export default function TennisCourts({
     motion,
     pollGapMs,
     timeZone,
+    extras,
   };
   const replay = feed.screen.entrance_replay;
   const cls = `${s.scene} ${display.variable}${motion ? "" : ` ${s.still}`}`;
@@ -412,7 +418,9 @@ function LiveScene({ matchId, ctx }: { matchId: string; ctx: Ctx }) {
       ? snap.serving_team_id === m.team_a_id ? "A" : "B"
       : null;
   const doublesServer = state && r.rubber_type === "D" ? servingPlayer(state) : null;
-  const call = callout(state, r.rules);
+  // Scoring v2: a running timer, then the ACE moment, take the callout's place.
+  const extra = tvExtras(state, ctx.now, ctx.extras);
+  const call = extra.clock ? `${extra.clock.label} ${extra.clock.text}` : extra.ace ? "Ace" : callout(state, r.rules);
   const sets = snap?.completed_sets ?? [];
   const totalSets = Math.max(1, r.rules.setsToWinMatch * 2 - 1);
   const tiebreak = Boolean(snap?.tiebreak);
@@ -509,11 +517,11 @@ function LiveScene({ matchId, ctx }: { matchId: string; ctx: Ctx }) {
         {row("B")}
       </div>
       {call && (
-        <div key={`${call}:${snap?.last_event_number ?? 0}`} className={s.callout}>
+        <div key={`${extra.clock ? "clock" : call}:${snap?.last_event_number ?? 0}`} className={s.callout} data-testid={extra.clock ? "tv-clock" : extra.ace ? "tv-ace" : undefined}>
           {call}
         </div>
       )}
-      <div className={s.meta}>{r.rules.decidingPoint ? "No-ad · " : ""}{r.rules.matchTiebreak ? `Match tie-break to ${r.rules.matchTiebreakPoints ?? 10} in place of a final set` : `Best of ${totalSets} sets`}</div>
+      <div className={s.meta}>{extra.aces ? `Aces ${extra.aces.A}–${extra.aces.B} · ` : ""}{r.rules.decidingPoint ? "No-ad · " : ""}{r.rules.matchTiebreak ? `Match tie-break to ${r.rules.matchTiebreakPoints ?? 10} in place of a final set` : `Best of ${totalSets} sets`}</div>
       {m.status === "paused" && <div className={s.pausedTag}>PLAY SUSPENDED</div>}
       <CheckInQr matchId={matchId} />
     </>

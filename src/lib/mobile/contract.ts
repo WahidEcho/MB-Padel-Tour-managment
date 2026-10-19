@@ -202,6 +202,11 @@ export interface MScore {
   /** Bumps on every correction, so a screen can tell an undo from a point. */
   lastUndo: number;
   updatedAt: string | null;
+  /** Scoring v2, when the organiser shows aces: aces per side, and true right after an ace. Absent otherwise. */
+  aces?: { a: number; b: number };
+  ace?: boolean;
+  /** Scoring v2, when the organiser shows timers: the changeover, set break or break running now. */
+  clock?: { kind: string; label: string; startedAt: string; limit: number | null; side: SideKey | null } | null;
 }
 
 export interface MMatch {
