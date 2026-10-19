@@ -35,7 +35,8 @@
     "e2e:court-codes": "tsx --env-file=.env.localdb scripts/e2e/court-codes.ts",
     "e2e:referees": "tsx --env-file=.env.localdb scripts/e2e/referees.ts",
     "e2e:lineups": "tsx --env-file=.env.localdb scripts/e2e/lineups.ts",
-    "e2e:scoring-v2": "tsx --env-file=.env.localdb scripts/e2e/scoring-v2.ts"
+    "e2e:scoring-v2": "tsx --env-file=.env.localdb scripts/e2e/scoring-v2.ts",
+    "e2e:live-stream": "tsx --env-file=.env.localdb scripts/e2e/live-stream.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

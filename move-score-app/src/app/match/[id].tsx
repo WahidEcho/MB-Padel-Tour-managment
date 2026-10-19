@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, View } from "react-native";
+import { Platform, View, useWindowDimensions } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,7 +9,8 @@ import { useTick } from "../../referee/V2";
 import { useBundle, useConfig, useLive, useMatch, useTimeline } from "../../api/queries";
 import { dayIn, isAwaitingResult, makeView, matchA11y, timeIn } from "../../api/model";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
-import { Screen } from "../../ui/Screen";
+import { CONTENT_MAX_WIDTH, Screen } from "../../ui/Screen";
+import { LiveVideoBadge, LiveVideoPlayer } from "../../ui/LiveVideo";
 import { BackHeader } from "../../ui/Header";
 import { Body, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, LinkChip, LivePill, ToggleButton } from "../../ui/Bits";
@@ -168,6 +169,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const spot = useSharedValue(0);
   const spotStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${spot.value * 16}deg` }] }));
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
+  const { width: windowWidth } = useWindowDimensions();
   const aLabel = m && v ? v.sideLabel(m, "A") : "";
   const bLabel = m && v ? v.sideLabel(m, "B") : "";
   // Doubles show both players in full, one per line; everyone else gets one line.
@@ -273,13 +275,22 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           right={<ToggleButton compact on={starred} onLabel="★ Starred" offLabel="☆ Star" onPress={() => void toggleFollow("match", id, b.data!.tournament.id)} />}
         />
         <StaleBanner queries={[q, l]} live={live || m.status === "pending_sync"} />
+        {m.liveVideo ? (
+          // The court's live video (Admin → Live stream), inside the app: only while this match is on that court.
+          <View style={{ marginBottom: 14 }}>
+            <LiveVideoPlayer key={m.liveVideo.youtubeId} video={m.liveVideo} width={Math.min(windowWidth, CONTENT_MAX_WIDTH) - 36} />
+          </View>
+        ) : null}
         <View style={{ marginHorizontal: -18, paddingHorizontal: 18, paddingBottom: 18, overflow: "hidden" }}>
           <Animated.View pointerEvents="none" style={[{ position: "absolute", top: -220, left: "50%", marginLeft: -150, width: 300, height: 560, transformOrigin: "50% 0%" }, spotStyle]}>
             <LinearGradient colors={[t.glowA, "transparent"]} style={{ flex: 1, borderBottomLeftRadius: 150, borderBottomRightRadius: 150 }} />
           </Animated.View>
           <View accessible accessibilityLabel={summary} style={{ borderRadius: 26, backgroundColor: t.scheme === "dark" ? "rgba(10,16,34,0.88)" : "rgba(255,255,255,0.94)", borderWidth: 1, borderColor: t.line, paddingVertical: 14, paddingRight: 12 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: 18, marginBottom: 6 }}>
-              {live && !awaiting ? <LivePill label={m.status === "paused" ? "PAUSED" : `LIVE${m.rubberType ? ` · ${m.rubberType}` : ""}`} /> : <Chip label={isDoneStatus(m.status) ? "Final" : awaiting ? "Match over" : m.status === "cancelled" ? "Not played" : "Up next"} />}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                {live && !awaiting ? <LivePill label={m.status === "paused" ? "PAUSED" : `LIVE${m.rubberType ? ` · ${m.rubberType}` : ""}`} /> : <Chip label={isDoneStatus(m.status) ? "Final" : awaiting ? "Match over" : m.status === "cancelled" ? "Not played" : "Up next"} />}
+                {m.liveVideo ? <LiveVideoBadge compact /> : null}
+              </View>
               <Chip label={[v.court(m.courtId), m.rubberType ? RUBBER_LABELS[m.rubberType as keyof typeof RUBBER_LABELS] : m.round].filter(Boolean).join(" · ")} />
             </View>
             <Board m={m} v={v} aNames={names("A")} bNames={names("B")} scoredBy={scoredBy} />

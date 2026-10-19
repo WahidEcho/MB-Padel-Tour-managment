@@ -1,5 +1,6 @@
 import Avatar from "./Avatar";
 import MatchStatusBadge from "./MatchStatusBadge";
+import LiveVideoBadge from "./stream/LiveVideoBadge";
 import type { Match, MatchSnapshot, Team } from "@/lib/types";
 import { formatSet } from "@/lib/scoring/engine";
 import { withNominees } from "@/lib/tennis/ties";
@@ -17,6 +18,7 @@ export default function LiveMatchCard({
   teamB,
   courtName,
   big = false,
+  liveVideo = false,
 }: {
   match: Match;
   snapshot: MatchSnapshot | null;
@@ -24,6 +26,8 @@ export default function LiveMatchCard({
   teamB: Team | undefined;
   courtName?: string;
   big?: boolean;
+  /** The court is streamed and this match is on it now (src/lib/stream/liveVideo.ts). */
+  liveVideo?: boolean;
 }) {
   const live = match.status === "live";
   // A rubber of a nations tie shows its nominated players, not the whole squad.
@@ -54,7 +58,10 @@ export default function LiveMatchCard({
         <span className={big ? "text-lg font-bold" : "text-xs font-semibold"}>
           {courtName ? `${courtName} · ` : ""}{match.round_name}
         </span>
-        <MatchStatusBadge status={match.status} />
+        <span className="flex items-center gap-2">
+          {liveVideo && <LiveVideoBadge />}
+          <MatchStatusBadge status={match.status} />
+        </span>
       </div>
       {rows.map((r, i) => (
         <div

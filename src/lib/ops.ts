@@ -52,6 +52,7 @@ import { ensureMainScreen } from "./screens";
 import { NOT_A_TOURNAMENT_MESSAGE, ownershipRefusal, tournamentRowRefusal } from "./rowGuards";
 import { endLease, endLeasesForTournament } from "./scoringControl";
 import { newTournamentMatchDayRules } from "./matchday/rules";
+import { withoutLiveVideo } from "./stream/liveVideo";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -1229,7 +1230,8 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
       cloned_from_tournament_id: sourceId,
       // A clone stays in its source's organisation.
       ...(source.organization_id ? { organization_id: source.organization_id } : {}),
-      branding_config: opts.copyBranding ? source.branding_config : {},
+      // A clone's courts are new rows: the source's live videos (by court id) would point at nothing.
+      branding_config: opts.copyBranding ? withoutLiveVideo(source.branding_config) : {},
       scoring_config: opts.copyScoring
         ? source.scoring_config
         : {

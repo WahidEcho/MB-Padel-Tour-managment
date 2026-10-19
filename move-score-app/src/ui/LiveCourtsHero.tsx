@@ -51,6 +51,7 @@ import { Rolling } from "./Rolling";
 import { StageLight } from "./StageLight";
 import { Takeover, type TakeoverMoment } from "./Takeover";
 import { CONTENT_MAX_WIDTH } from "./Screen";
+import { LiveVideoBadge, LiveVideoPlayer } from "./LiveVideo";
 
 /** Every card is this tall, whatever its scene. */
 const HERO_H = 272;
@@ -143,7 +144,7 @@ function Pager({ cards }: { cards: HeroCard[] }) {
           {cards.map((c, i) => (
             <View key={c.key} style={{ width: w, height: HERO_H }}>
               <SkinScope skin={{ seedA: c.event.tournament.skin.seedA, seedB: c.event.tournament.skin.seedB }}>
-                <CourtCard card={c} active={i === index} />
+                <CourtCard card={c} active={i === index} width={w} />
               </SkinScope>
             </View>
           ))}
@@ -190,7 +191,10 @@ function sceneKey(s: ShowcaseScene): string {
   }
 }
 
-function CourtCard({ card, active }: { card: HeroCard; active: boolean }) {
+/** The tallest player a card holds under its header (16:9). */
+const PLAYER_MAX_H = 186;
+
+function CourtCard({ card, active, width }: { card: HeroCard; active: boolean; width: number }) {
   const { t, calm } = useTheme();
   const cfg = useConfig();
   const takeovers = cfg.data?.flags?.takeovers !== false;
@@ -216,6 +220,14 @@ function CourtCard({ card, active }: { card: HeroCard; active: boolean }) {
     if (resultKey) played.add(resultKey);
     setDismissed(resultKey);
   }, [resultKey]);
+  // The court's live video, while its match is in play (Admin → Live stream). Plays only on the card in view.
+  const video = (s.kind === "live" || s.kind === "walkon") && m?.liveVideo ? m.liveVideo : null;
+  const [watching, setWatching] = useState(false);
+  const showVideo = Boolean(video && watching && active);
+  useEffect(() => {
+    if (!active || !video) setWatching(false);
+  }, [active, video]);
+  const playerW = Math.max(160, Math.min(width - 32, Math.round((PLAYER_MAX_H * 16) / 9)));
 
   const open = () => {
     if (m) openMatch(m.id);
@@ -233,11 +245,31 @@ function CourtCard({ card, active }: { card: HeroCard; active: boolean }) {
     >
       {s.kind === "live" || s.kind === "walkon" ? <StageLight height={HERO_H} /> : null}
       <View style={{ flex: 1, padding: 16 }}>
-        <CardHeader card={card} />
-        <Animated.View key={sceneKey(s)} entering={calm ? undefined : FadeIn.duration(300)} style={{ flex: 1, justifyContent: "center" }}>
-          <SceneBody ev={ev} s={s} m={m} tie={tie} />
-        </Animated.View>
-        <NextLine card={card} />
+        <CardHeader card={card} video={Boolean(video)} />
+        {showVideo && video ? (
+          <View style={{ flex: 1, justifyContent: "center", alignItems: "center", marginTop: 6 }}>
+            <LiveVideoPlayer video={video} width={playerW} autoStart showNote={false} onClose={() => setWatching(false)} />
+          </View>
+        ) : (
+          <>
+            <Animated.View key={sceneKey(s)} entering={calm ? undefined : FadeIn.duration(300)} style={{ flex: 1, justifyContent: "center" }}>
+              <SceneBody ev={ev} s={s} m={m} tie={tie} />
+            </Animated.View>
+            {video ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Watch the live video of ${card.court.name}`}
+                onPress={() => setWatching(true)}
+                hitSlop={6}
+                testID="hero-watch-live"
+                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6, backgroundColor: t.live, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 4 }, pressed && { opacity: 0.8 }]}
+              >
+                <Eyebrow size={10.5} style={{ color: "#FFFFFF" }}>▶ Watch live</Eyebrow>
+              </Pressable>
+            ) : null}
+            <NextLine card={card} />
+          </>
+        )}
       </View>
       {moment ? <Takeover moment={moment} onDone={closeMoment} onShare={closeMoment} calm={calm} /> : null}
     </Pressable>
@@ -263,7 +295,7 @@ function SceneBody({ ev, s, m, tie }: { ev: MCourtsEvent; s: ShowcaseScene; m: M
   }
 }
 
-function CardHeader({ card }: { card: HeroCard }) {
+function CardHeader({ card, video = false }: { card: HeroCard; video?: boolean }) {
   const s = card.scene;
   const m = "matchId" in s ? matchOf(card.event, s.matchId) : undefined;
   const pill =
@@ -287,6 +319,7 @@ function CardHeader({ card }: { card: HeroCard }) {
       </Eyebrow>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {card.mine ? <Chip ball label="YOUR MATCH" /> : null}
+        {video ? <LiveVideoBadge compact /> : null}
         {pill}
       </View>
     </View>

@@ -7,7 +7,8 @@
  * event load these run a few times a second, and egress is the free tier's limit.
  */
 import { db } from "../supabase";
-import type { Match, MatchSnapshot, ScoringConfig, Standing, Team, Tie } from "../types";
+import type { BrandingConfig, Match, MatchSnapshot, ScoringConfig, Standing, Team, Tie } from "../types";
+import { activeLiveVideos, withLiveVideo } from "../stream/liveVideo";
 import type { ScoreState } from "../scoring/engine";
 import { getTeams } from "../data";
 import type {
@@ -204,16 +205,21 @@ export function getBundle(slug: string, scope: ReadScope = {}): Promise<MBundle 
       publicOrgBranding(),
     ]);
     const groupOf = new Map(((groupTeams.data ?? []) as { team_id: string; group_id: string }[]).map((g) => [g.team_id, g.group_id]));
-    return toBundle(
+    const courtRows = (courts.data ?? []) as { id: string; court_name: string; court_order: number; is_active: boolean }[];
+    const bundle = toBundle(
       t,
       teams as Team[],
       groupOf,
-      (courts.data ?? []) as { id: string; court_name: string; court_order: number; is_active: boolean }[],
+      courtRows,
       (groups.data ?? []) as { id: string; group_name: string; group_order: number }[],
       live.get(t.id) ?? 0,
       plate.get(t.id) ?? [],
       orgs.get(t.organization_id ?? "") ?? null,
     );
+    // Live video (Live stream tab): only on the courts streamed now. Additive: 1.0.1 ignores it.
+    const videos = activeLiveVideos(t.branding_config, courtRows.map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active })));
+    if (videos.size) bundle.courts = bundle.courts.map((c) => (videos.has(c.id) ? { ...c, liveVideo: videos.get(c.id)! } : c));
+    return bundle;
   });
 }
 
@@ -236,14 +242,19 @@ export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | nu
     // With the match-day rules: scoring v2's aces and timers are shown only when the organiser says so.
     const t = await tournamentBySlug(slug, true, scope);
     if (!t) return null;
-    const [matches, snaps, ties, ann, bundle] = await Promise.all([
+    const [matches, snaps, ties, ann, bundle, courtRows] = await Promise.all([
       db().from("matches").select(MATCH_COLUMNS).eq("tournament_id", t.id).order("match_order"),
       db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).eq("tournament_id", t.id),
       t.format_config?.ties ? db().from("ties").select("*").eq("tournament_id", t.id).order("tie_order") : Promise.resolve({ data: [] }),
       latestAnnouncements(t.id, t.event_group_id ?? null),
       getBundle(slug, scope),
+      db().from("courts").select("id, court_name, is_active").eq("tournament_id", t.id),
     ]);
     const snapOf = new Map(((snaps.data ?? []) as unknown as MatchSnapshot[]).map((s) => [s.match_id, s]));
+    const videos = activeLiveVideos(
+      t.branding_config,
+      ((courtRows.data ?? []) as { id: string; court_name: string; is_active: boolean }[]).map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active })),
+    );
     return {
       generatedAt: new Date().toISOString(),
       tournamentId: t.id,
@@ -251,7 +262,7 @@ export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | nu
       ties: ((ties.data ?? []) as Tie[]).map(toTie),
       matches: ((matches.data ?? []) as unknown as Match[])
         .filter((m) => m.status !== "cancelled" || m.tie_id)
-        .map((m) => toMatch(m, snapOf.get(m.id) ?? null, scoreExtrasOf(t))),
+        .map((m) => withLiveVideo(toMatch(m, snapOf.get(m.id) ?? null, scoreExtrasOf(t)), videos)),
       announcements: ann,
     };
   });
@@ -314,14 +325,19 @@ export function getMatchDetail(matchId: string): Promise<MMatchDetail | null> {
     if (!m) return null;
     const { data: t } = await db()
       .from("tournaments")
-      .select("slug, kind, sport, public_access_enabled, scoring_config, match_day_rules")
+      .select("slug, kind, sport, public_access_enabled, scoring_config, match_day_rules, branding_config")
       .eq("id", m.tournament_id)
       .maybeSingle();
-    const tr = t as { slug: string; kind: string; sport: string; public_access_enabled: boolean; scoring_config: ScoringConfig | null; match_day_rules: unknown } | null;
+    const tr = t as { slug: string; kind: string; sport: string; public_access_enabled: boolean; scoring_config: ScoringConfig | null; match_day_rules: unknown; branding_config: BrandingConfig | null } | null;
     if (!tr || !tr.public_access_enabled || tr.kind !== "tournament") return null;
-    const { data: snap } = await db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).eq("match_id", matchId).maybeSingle();
+    const [{ data: snap }, { data: court }] = await Promise.all([
+      db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).eq("match_id", matchId).maybeSingle(),
+      m.court_id ? db().from("courts").select("id, court_name, is_active").eq("id", m.court_id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
     const snapshot = snap as unknown as MatchSnapshot | null;
-    return { match: toMatch(m, snapshot, scoreExtrasOf(tr)), tournamentSlug: tr.slug, situation: await situationOf(m, snapshot, tr) };
+    const c = court as { id: string; court_name: string; is_active: boolean } | null;
+    const videos = activeLiveVideos(tr.branding_config, c ? [{ id: c.id, name: c.court_name, is_active: c.is_active }] : []);
+    return { match: withLiveVideo(toMatch(m, snapshot, scoreExtrasOf(tr)), videos), tournamentSlug: tr.slug, situation: await situationOf(m, snapshot, tr) };
   });
 }
 

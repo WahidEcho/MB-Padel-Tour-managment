@@ -23,6 +23,7 @@ import { profilesWithoutPhoto } from "../data";
 import { memo } from "./http";
 import { isPublicLeagueSession, leagueSessionTournamentIds } from "../leagues/server";
 import { CARD_COLUMNS, MATCH_COLUMNS, SNAPSHOT_COLUMNS, getDiscover, getFlags, plateBrackets } from "./server";
+import { activeLiveVideos, withLiveVideo } from "../stream/liveVideo";
 import { toCard, toCourtCall, toCourtTeam, toMatch, toSides, toStageRules, toTie, type CallRow, type TournamentRow } from "./projection";
 
 /** At most this many tournaments on the hero (a busy weekend has a handful). */
@@ -172,7 +173,11 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
 
     const events: MCourtsEvent[] = [];
     for (const p of plans) {
-      const matches = (matchesOf.get(p.card.id) ?? []).filter((m) => p.subset.matchIds.has(m.id)).map((m) => toMatch(m, snapOf.get(m.id) ?? null));
+      // Live video (Live stream tab): the streamed courts, and their match while it is in play.
+      const videos = activeLiveVideos(p.t.branding_config, p.courts);
+      const matches = (matchesOf.get(p.card.id) ?? [])
+        .filter((m) => p.subset.matchIds.has(m.id))
+        .map((m) => withLiveVideo(toMatch(m, snapOf.get(m.id) ?? null), videos));
       const ties = p.ties.filter((x) => p.subset.tieIds.has(x.id));
       if (!matches.length && !ties.length) continue;
       const teamIds = new Set([...matches.flatMap((m) => [m.a, m.b]), ...ties.flatMap((x) => [x.a, x.b])].filter(Boolean) as string[]);
@@ -199,7 +204,7 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
         },
         rules: toStageRules(p.t, plate.get(p.card.id) ?? []),
         sides: toSides(p.t.branding_config),
-        courts: p.courts,
+        courts: p.courts.map((c) => (videos.has(c.id) ? { ...c, liveVideo: videos.get(c.id)! } : c)),
         teams: (teamsOf.get(p.card.id) ?? []).filter((tm) => teamIds.has(tm.id)).map((tm) => toCourtTeam(withProfilePhotos(tm, noPhoto.get(p.card.id)), showPhotos)),
         ties,
         matches,

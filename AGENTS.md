@@ -258,3 +258,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Web picker `src/components/lineups/LineupPicker.tsx`, sheet `LineupSheet.tsx` (admin Ties page, master desk); app
   `move-score-app/src/referee/LineupPicker.tsx`. Referee screens follow the device/app theme (`.theme-auto`; "☀ Sunlight" =
   `.theme-sunlight` / app `SUNLIGHT`). Gate `npm run e2e:lineups` (stand-in, server with `PUSH_DRY_RUN=1`).
+- Live stream (YouTube Live per court, no migration): settings in `tournaments.branding_config.liveVideo` (per court id: video id,
+  on/off, delay; overlay title), admin tab `admin/tournaments/[id]/live-stream` (`saveLiveVideo` / `saveOverlayTitle`, CAS via
+  `updateBranding`). Pure `src/lib/stream/{youtube,liveVideo,overlay}.ts`; `toPublicTournament` drops `liveVideo`. Public payloads
+  (bundle courts, live, match detail, courts hero) carry `liveVideo` only for a streamed court and only on its match in play
+  (additive). OBS overlay `/t/[slug]/overlay/[court id|name]` (transparent 1920×1080, `?bug=0&footer=0&scale=&idle=0`), polling
+  the TV live feed. Web player `src/components/stream/YouTubeLivePlayer.tsx`; app `move-score-app/src/ui/LiveVideo.tsx`
+  (needs `react-native-webview` 13.16.1, required lazily so older binaries fall back to "Open on YouTube"). Operator guide
+  `docs/live-stream.md`. Gate `npm run e2e:live-stream` (stand-in).

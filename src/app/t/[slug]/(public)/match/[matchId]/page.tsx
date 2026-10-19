@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { getCourts, getMatch, getSnapshot, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
+import YouTubeLivePlayer from "@/components/stream/YouTubeLivePlayer";
+import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessTheater from "@/components/ChessTheater";
 // ChessLiveCard is used elsewhere (live/overview/TV); the match page uses the theater view.
 import {
@@ -40,6 +42,8 @@ export default async function PublicMatch({
   ]);
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
+  // The court's live video, while this match is on it (Admin → Live stream).
+  const video = liveVideoForMatch(match, activeLiveVideos(tournament.branding_config, courts.map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active }))));
 
   const teamA = match.team_a_id ? tm.get(match.team_a_id) : undefined;
   const teamB = match.team_b_id ? tm.get(match.team_b_id) : undefined;
@@ -84,6 +88,7 @@ export default async function PublicMatch({
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <AutoRefresh seconds={4} />
+      {video && <YouTubeLivePlayer key={video.youtubeId} video={video} />}
       <LiveMatchCard
         match={match}
         snapshot={snapshot}
@@ -91,6 +96,7 @@ export default async function PublicMatch({
         teamB={teamB}
         courtName={match.court_id ? courtName.get(match.court_id) : undefined}
         big
+        liveVideo={Boolean(video)}
       />
     </div>
   );

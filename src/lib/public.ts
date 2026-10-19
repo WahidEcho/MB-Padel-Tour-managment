@@ -17,6 +17,7 @@
  */
 import type { Player, Team, Tournament } from "./types";
 import { resolvePortrait } from "./portrait";
+import { withoutLiveVideo } from "./stream/liveVideo";
 
 export interface PublicPlayer {
   id: string;
@@ -84,7 +85,8 @@ export function toPublicTournament(t: Tournament): PublicTournament {
     sport: t.sport,
     kind: t.kind,
     status: t.status,
-    branding_config: t.branding_config,
+    // The live video settings stay on the server: a page learns of a court's video only while it is on.
+    branding_config: withoutLiveVideo(t.branding_config),
     lower_third_text: t.lower_third_text,
     public_access_enabled: t.public_access_enabled,
   };
