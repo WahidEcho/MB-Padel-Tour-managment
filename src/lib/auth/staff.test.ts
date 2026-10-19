@@ -84,12 +84,13 @@ beforeEach(() => {
   ];
   tables.platform_admins = [{ auth_user_id: OWNER }];
   tables.organization_codes = [
-    { id: CODE_ID, organization_id: ORG, role: "referee", tournament_id: T1, code_hash: hashEventCode(code), expires_at: null, revoked_at: null },
+    // An operator (TV) code: the generic code rules. Every referee code also needs a PIN (tested below and in e2e:referees).
+    { id: CODE_ID, organization_id: ORG, role: "operator", tournament_id: T1, code_hash: hashEventCode(code), expires_at: null, revoked_at: null },
   ];
 });
 
 const codeToken = (over: Partial<{ o: string; t: string | null; exp: number }> = {}) =>
-  signStaffToken({ v: 1, k: "c", c: CODE_ID, o: over.o ?? ORG, r: "referee", t: over.t === undefined ? T1 : over.t, iat: Date.now(), exp: over.exp ?? Date.now() + 3600_000 }, staffSecret());
+  signStaffToken({ v: 1, k: "c", c: CODE_ID, o: over.o ?? ORG, r: "operator", t: over.t === undefined ? T1 : over.t, iat: Date.now(), exp: over.exp ?? Date.now() + 3600_000 }, staffSecret());
 
 describe("members", () => {
   it("an active member acts with the role in the database now", async () => {
@@ -129,8 +130,13 @@ describe("event codes", () => {
   it("resolve to {org, role, scope}", async () => {
     expect(await resolveStaffToken(codeToken())).toMatchObject({
       ok: true,
-      staff: { kind: "code", orgId: ORG, role: "referee", codeId: CODE_ID, scopeTournamentId: T1, userId: null, platformAdmin: false },
+      staff: { kind: "code", orgId: ORG, role: "operator", codeId: CODE_ID, scopeTournamentId: T1, userId: null, platformAdmin: false },
     });
+  });
+  it("a referee code (whole-event) is refused without a referee: every referee code needs a PIN", async () => {
+    (tables.organization_codes[0] as Row).role = "referee";
+    expect(await resolveStaffToken(codeToken())).toEqual({ ok: false, reason: "pin_required" });
+    expect(await signInWithAccessCode(code, 24)).toMatchObject({ ok: false, reason: "pin_required", master: false });
   });
   it("a revoked code fails the next request, with its own reason", async () => {
     const token = codeToken();
@@ -151,7 +157,7 @@ describe("event codes", () => {
   });
   it("sign-in by code: the formatted, lower-case code works; the stored hash does not", async () => {
     const ok = await signInWithAccessCode(formatEventCode(code).toLowerCase(), 24);
-    expect(ok).toMatchObject({ ok: true, kind: "code", role: "referee", orgId: ORG, scopeTournamentId: T1 });
+    expect(ok).toMatchObject({ ok: true, kind: "code", role: "operator", orgId: ORG, scopeTournamentId: T1 });
     expect(ok.ok && ok.token.startsWith("mbs1.")).toBe(true);
     expect(await signInWithAccessCode(hashEventCode(code), 24)).toMatchObject({ ok: false, reason: "wrong_code" });
     expect(await signInWithAccessCode(generateEventCode(), 24)).toMatchObject({ ok: false, reason: "wrong_code" });
