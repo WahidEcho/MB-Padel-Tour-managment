@@ -44,6 +44,7 @@ function NationFields({ team, tournamentId }: { team?: Team; tournamentId: strin
         <label className="label" htmlFor={`captain-${idSuffix}`}>Captain</label>
         <input id={`captain-${idSuffix}`} name="captain_name" defaultValue={team?.captain_name ?? ""} className="input" />
       </div>
+      <p className="text-xs text-muted">Players in the nation&apos;s order of merit, No. 1 first: the No. 1 singles player must rank above the No. 2.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {SLOTS.map((n) => {
           const p = players.find((x) => x.player_order === n);

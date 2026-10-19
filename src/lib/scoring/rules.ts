@@ -91,16 +91,19 @@ function pickRules(rules: Partial<MatchRules> | undefined): Partial<MatchRules> 
  *
  * Layered, so every layer is optional and an absent layer changes nothing:
  * built-in defaults, then the tournament's own config, then the Cup override for
- * the stage, then the Plate override when the match is in the Plate, and last,
- * for a tennis doubles match, the tournament's doubles rules.
+ * the stage, then the Plate override when the match is in the Plate, then, for
+ * a tennis doubles match, the tournament's doubles rules, and last the match's
+ * own rules (`matchRules`, by id: the shortened placement singles).
  */
 export function scoringConfigForMatch(
   tournament: { scoring_config?: Partial<ScoringConfig> | null; sport?: string } | null | undefined,
-  match: { stage: Stage },
+  match: { stage: Stage; id?: string },
   tier: BracketTier | null = null,
   opts: { doubles?: boolean } = {},
 ): ScoringConfig {
-  const base: ScoringConfig = { ...DEFAULT_SCORING_CONFIG, ...(tournament?.scoring_config ?? {}) };
+  // Every match's own rules stay out of the result: a phone needs only its own.
+  const { matchRules, ...stored } = tournament?.scoring_config ?? {};
+  const base: ScoringConfig = { ...DEFAULT_SCORING_CONFIG, ...stored };
   const key = stageRuleKey(match.stage, tier);
   const overrides = base.stageOverrides ?? {};
   const parentKey = key ? inheritsFrom(key) : null;
@@ -108,8 +111,9 @@ export function scoringConfigForMatch(
     ? { ...base, ...(parentKey ? pickRules(overrides[parentKey]) : {}), ...pickRules(overrides[key]) }
     : base;
   // Padel is always doubles under its base rules; only tennis separates them.
-  if (opts.doubles && tournament?.sport === "tennis") return { ...staged, ...pickRules(base.doubles) };
-  return staged;
+  const withDoubles = opts.doubles && tournament?.sport === "tennis" ? { ...staged, ...pickRules(base.doubles) } : staged;
+  const own = match.id ? matchRules?.[match.id] : undefined;
+  return own ? { ...withDoubles, ...pickRules(own) } : withDoubles;
 }
 
 /** A tennis match is doubles when either side fields two players. */

@@ -100,6 +100,12 @@ export interface ScoringConfig extends MatchRules {
    * Ignored for padel, where every match is a doubles match under the base rules.
    */
   doubles?: Partial<MatchRules>;
+  /**
+   * Rules for one match, by match id, on top of everything above. The placement
+   * draws write these for the singles played as two sets and a match tie-break
+   * (Reg 51); nothing else sets them.
+   */
+  matchRules?: Record<string, Partial<MatchRules>>;
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
@@ -163,10 +169,17 @@ export interface TieFormatConfig {
   /** Order of play within a tie. Defaults to No. 2 singles, No. 1 singles, doubles. */
   rubbers?: RubberType[];
   /**
-   * Once a tie is decided, are its remaining rubbers played? Group ties play them
-   * (they count in the group ranking); placement ties drop them by default.
+   * Once a tie is decided, are its remaining rubbers played? Group ties always
+   * play them (they count in the group ranking); placement ties play them too
+   * unless this is false (the replay demo, whose real finals stopped at 2-0).
    */
   playDeadRubbersInPlacement?: boolean;
+  /**
+   * The lots drawn for the placement draws (Reg 36): per draw, by its first
+   * place (1, 9), whether the two runners-up drawn into the top half (positions
+   * 2 and 3) and the bottom half (6 and 7) were drawn the other way round.
+   */
+  placementLots?: Record<string, { top?: boolean; bottom?: boolean }>;
   /**
    * Demo events: a known result per rubber, by match id, from team A's side
    * ("6-2 6-1", "5-7 4-6"), which the replay console plays point by point.

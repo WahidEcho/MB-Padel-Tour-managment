@@ -33,6 +33,20 @@ export interface PlannedTie {
   b: Source;
   winnerTo: { key: string; side: "A" | "B" } | null;
   loserTo: { key: string; side: "A" | "B" } | null;
+  /**
+   * Singles best of three tie-break sets (Reg 51): the main draw (quarter-finals,
+   * semi-finals, final, third place) and the relegation play-off for the last two
+   * places. Every other play-off plays two sets and a 10-point match tie-break.
+   */
+  fullSingles: boolean;
+}
+
+/** The lots drawn at the venue for one draw (Reg 36); unset means the order below. */
+export interface DrawLots {
+  /** The two lower finishers drawn into positions 2 and 3 the other way round. */
+  top?: boolean;
+  /** The two lower finishers drawn into positions 6 and 7 the other way round. */
+  bottom?: boolean;
 }
 
 export function ordinal(n: number): string {
@@ -56,13 +70,17 @@ const LETTER = (g: number) => String.fromCharCode(65 + g);
 /**
  * First-round lines for a draw fed by two finishing positions, top to bottom.
  * No first-round tie is a group rematch, and a group's two nations start in
- * opposite halves. With four groups the pairing is the ITF's: A plays C, B
- * plays D, and group D's nation takes the bottom line.
+ * opposite halves. With four groups the lines are Reg 36's: group 1's higher
+ * finisher at the top (1), group 4's at the bottom (8), group 2's at 4 and
+ * group 3's at 5; the lower finishers of groups 3 and 4 are drawn by lot into
+ * 2 and 3, those of groups 1 and 2 into 6 and 7 (`lots` says how they fell).
  */
-export function firstRoundLines(groupCount: number, high: number, low: number): Source[] {
+export function firstRoundLines(groupCount: number, high: number, low: number, lots: DrawLots = {}): Source[] {
   const g = (group: number, position: number): Source => ({ kind: "group", group, position });
   if (groupCount === 4) {
-    return [g(0, high), g(2, low), g(3, low), g(1, high), g(2, high), g(0, low), g(1, low), g(3, high)];
+    const [p2, p3] = lots.top ? [g(3, low), g(2, low)] : [g(2, low), g(3, low)];
+    const [p6, p7] = lots.bottom ? [g(1, low), g(0, low)] : [g(0, low), g(1, low)];
+    return [g(0, high), p2, p3, g(1, high), g(2, high), p6, p7, g(3, high)];
   }
   if (groupCount === 2) return [g(0, high), g(1, low), g(1, high), g(0, low)];
   // Any other even count: pair each group's higher finisher with the group half
@@ -75,9 +93,10 @@ export function firstRoundLines(groupCount: number, high: number, low: number): 
 
 /**
  * The full placement plan for `groupCount` groups of `groupSize`. Group sizes
- * must be even and `2 × groupCount` a power of two (2, 4 or 8 groups).
+ * must be even and `2 × groupCount` a power of two (2, 4 or 8 groups). `lots`
+ * is by draw, keyed by its first place ("1", "9").
  */
-export function placementPlan(groupCount: number, groupSize: number): PlannedTie[] {
+export function placementPlan(groupCount: number, groupSize: number, lots: Record<string, DrawLots> = {}): PlannedTie[] {
   const drawSize = groupCount * 2;
   if (groupSize % 2 !== 0) throw new Error("Placement draws need an even number of nations per group.");
   if ((drawSize & (drawSize - 1)) !== 0) throw new Error("Placement draws need 1, 2, 4 or 8 groups.");
@@ -103,6 +122,7 @@ export function placementPlan(groupCount: number, groupSize: number): PlannedTie
         b: entrants[2 * i + 1],
         winnerTo: null,
         loserTo: null,
+        fullSingles: (drawFrom === 1 && (roundNo === 1 || hi <= 4)) || (size === 2 && hi === groupCount * groupSize),
       });
     }
     ties.push(...here);
@@ -116,7 +136,7 @@ export function placementPlan(groupCount: number, groupSize: number): PlannedTie
     const high = 2 * d + 1;
     const from = 2 * d * groupCount + 1;
     const to = from + drawSize - 1;
-    block(from, to, firstRoundLines(groupCount, high, high + 1), 1, from, to);
+    block(from, to, firstRoundLines(groupCount, high, high + 1, lots[String(from)]), 1, from, to);
   }
 
   // Point every tie at where its winner and loser go next.

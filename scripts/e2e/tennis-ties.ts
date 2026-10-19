@@ -4,9 +4,11 @@
  * Sixteen nations in four groups of four; every tie three rubbers under real
  * tennis rules (singles best of three, doubles no-ad with a match tie-break);
  * captains' line-ups, locked, with a refused and an audited late change; the
- * ITF group ranking; the placement draws for 1st–8th and 9th–16th; dead
- * doubles dropped at 2-0 in the placement ties but played in the groups; an undo
- * that reopens a deciding rubber; and every place from 1 to 16 decided once.
+ * ITF group ranking; the placement draws for 1st–8th and 9th–16th with the
+ * runners-up placed by the lots drawn; the doubles played in every tie, 2-0 or
+ * not, and named after the singles; the singles below the main draw as two sets
+ * and a match tie-break; an undo that reopens a deciding rubber; and every place
+ * from 1 to 16 decided once.
  *
  * Most rubbers are scored through the same server functions the events route
  * calls. One full group tie and one placement tie go through the real referee
@@ -147,7 +149,7 @@ async function main() {
   try {
     await ensureMainScreen(tid);
     await db().from("courts").insert([1, 2].map((n) => ({ tournament_id: tid, court_name: `Court ${n}`, court_order: n })));
-    const t = (await getTournament(tid))!;
+    let t = (await getTournament(tid))!;
 
     phase("Nations");
     for (const [i, [code, players]] of FIELD.entries()) {
@@ -194,6 +196,8 @@ async function main() {
     const squad = (id: string) => teamBy.get(id)!.players!.sort((a, b) => a.player_order - b.player_order).map((p) => p.id);
     const bad = await setLineup(ties[0].id, "A", { S1: squad(ties[0].team_a_id!)[0], S2: squad(ties[0].team_a_id!)[0], D: [squad(ties[0].team_a_id!)[0], squad(ties[0].team_a_id!)[1]] }, "e2e");
     check("one player in both singles is refused", !bad.ok && bad.message.includes("both singles"), bad.ok ? "accepted" : bad.message);
+    const merit = await setLineup(ties[0].id, "A", { S1: squad(ties[0].team_a_id!)[2], S2: squad(ties[0].team_a_id!)[0], D: [] }, "e2e");
+    check("a No. 1 singles ranked below the No. 2 is refused (order of merit)", !merit.ok && merit.message.includes("order of merit"), merit.ok ? "accepted" : merit.message);
     const nominate = async (tie: Tie) => {
       for (const side of ["A", "B"] as const) {
         const s = squad((side === "A" ? tie.team_a_id : tie.team_b_id)!);
@@ -201,17 +205,29 @@ async function main() {
         if (!r.ok) throw new Error(r.message);
       }
     };
-    for (const tie of ties) await nominate(tie);
+    // Tie 1: the singles named and locked, the doubles to be named after them (Reg 43).
+    for (const side of ["A", "B"] as const) {
+      const s = squad((side === "A" ? ties[0].team_a_id : ties[0].team_b_id)!);
+      const r = await setLineup(ties[0].id, side, { S1: s[0], S2: s[1], D: [null, null] }, "e2e");
+      if (!r.ok) throw new Error(r.message);
+    }
     const locked = await lockLineups(ties[0].id, "e2e");
-    check("line-ups lock once both sides have nominated", locked.ok);
+    check("line-ups lock with the singles named and the doubles still to be named", locked.ok, locked.ok ? "" : locked.message);
+    matches = await getMatches(tid);
+    const d0 = matches.find((m) => m.tie_id === ties[0].id && m.rubber_type === "D")!;
+    const dWait = await http(`/referee/matches/${d0.id}/score`, {}, "referee");
+    check("the doubles waits on the referee phone until the pairs are named", dWait.status === 200 && dWait.text.includes("Waiting for the line-ups"), String(dWait.status));
+    const tiesPageEarly = await http(`/admin/tournaments/${tid}/ties`);
+    check("the Ties page shows the doubles as to be named", tiesPageEarly.text.includes("to be named"));
+    for (const tie of ties.slice(1)) await nominate(tie);
     const s0 = squad(ties[0].team_a_id!);
-    const late = await setLineup(ties[0].id, "A", { S1: s0[2], S2: s0[1], D: [s0[0], s0[1]] }, "e2e");
-    check("a change after the lock is refused without a reason", !late.ok && late.message.includes("locked"));
-    const lateOk = await setLineup(ties[0].id, "A", { S1: s0[2], S2: s0[1], D: [s0[0], s0[1]] }, "e2e", { lateChangeReason: "Injury in warm-up" });
+    const late = await setLineup(ties[0].id, "A", { S1: s0[0], S2: s0[2], D: [] }, "e2e");
+    check("a singles change after the lock is refused without a reason", !late.ok && late.message.includes("locked"), late.ok ? "accepted" : late.message);
+    const lateOk = await setLineup(ties[0].id, "A", { S1: s0[0], S2: s0[2], D: [] }, "e2e", { lateChangeReason: "Injury in warm-up" });
     const { count: lateAudits } = await db().from("audit_logs").select("id", { count: "exact", head: true }).eq("tournament_id", tid).eq("action", "LINEUP_LATE_CHANGE");
     check("…and accepted with one, recorded as a late change", lateOk.ok && lateAudits === 1, String(lateAudits));
     matches = await getMatches(tid);
-    const s1 = matches.find((m) => m.tie_id === ties[0].id && m.rubber_type === "S1")!;
+    const s1 = matches.find((m) => m.tie_id === ties[0].id && m.rubber_type === "S2")!;
     check("the late change reached the rubber", s1.team_a_player_ids?.[0] === s0[2]);
     const refPage = await http(`/referee/matches/${s1.id}/score`, {}, "referee");
     const nominee = teamBy.get(ties[0].team_a_id!)!.players!.find((p) => p.id === s0[2])!.full_name.split(" ").slice(-1)[0];
@@ -224,7 +240,17 @@ async function main() {
     const httpRubbers = matches.filter((m) => m.tie_id === httpTie.id).sort((a, b) => a.rubber_no! - b.rubber_no!);
     const better: TeamKey = seedOf(httpTie.team_a_id!) < seedOf(httpTie.team_b_id!) ? "A" : "B";
     let events = 0;
-    for (const r of httpRubbers) events += (await finishHttp(t, r, better)).events;
+    for (const r of httpRubbers.filter((x) => x.rubber_type !== "D")) events += (await finishHttp(t, r, better)).events;
+    // After the second singles the captains name the doubles: no reason needed after the lock.
+    for (const side of ["A", "B"] as const) {
+      const s = squad((side === "A" ? httpTie.team_a_id : httpTie.team_b_id)!);
+      const r = await setLineup(httpTie.id, side, { S1: s[0], S2: side === "A" ? s[2] : s[1], D: [s[1], s[2]] }, "e2e");
+      check(`${side === "A" ? "home" : "away"} doubles pair named after the singles, without a reason`, r.ok, r.ok ? "" : r.message);
+    }
+    const { count: named } = await db().from("audit_logs").select("id", { count: "exact", head: true }).eq("tournament_id", tid).eq("action", "DOUBLES_NAMED");
+    check("…each recorded as the doubles named", named === 2, String(named));
+    const dNamed = (await getMatches(tid)).find((m) => m.id === d0.id)!;
+    events += (await finishHttp(t, dNamed, better)).events;
     const afterHttp = (await getTies(tid)).find((x) => x.id === httpTie.id)!;
     check("a tie scored on referee phones: 3-0, all three rubbers played in the group", afterHttp.status === "completed" && afterHttp.rubbers_a + afterHttp.rubbers_b === 3, `${afterHttp.rubbers_a}-${afterHttp.rubbers_b} over ${events} events`);
 
@@ -266,7 +292,8 @@ async function main() {
     check("the Ties page renders all 24 group ties", tiesPage.status === 200 && (tiesPage.text.match(/data-testid="tie-card"/g) ?? []).length === 24, String(tiesPage.status));
 
     phase("Placement draws");
-    const drawn = await drawPlacement(tid, "e2e");
+    // At the venue the lots put D2 into position 2 and C2 into 3 (Reg 36).
+    const drawn = await drawPlacement(tid, "e2e", { "1": { top: true } });
     check("placement draws made: 24 ties", drawn.ok && drawn.ties === 24, drawn.ok ? String(drawn.ties) : drawn.message);
     const again = await drawPlacement(tid, "e2e");
     check("drawing twice is refused", !again.ok);
@@ -274,9 +301,19 @@ async function main() {
     const rankOf = new Map(standings.map((s) => [s.team_id, { rank: s.rank, group: g.findIndex((x) => x.id === s.group_id) }]));
     const label = (id: string | null) => (id ? `${"ABCD"[rankOf.get(id)!.group]}${rankOf.get(id)!.rank}` : "?");
     const qf = ties.filter((x) => x.stage === "placement" && x.round_no === 1 && x.draw_from === 1).sort((a, b) => a.tie_order - b.tie_order);
-    check("1st–8th round one: A1 v C2, D2 v B1, C1 v A2, B2 v D1", qf.map((x) => `${label(x.team_a_id)}-${label(x.team_b_id)}`).join(" ") === "A1-C2 D2-B1 C1-A2 B2-D1", qf.map((x) => `${label(x.team_a_id)}-${label(x.team_b_id)}`).join(" "));
+    check("1st–8th round one, as the lots fell: A1 v D2, C2 v B1, C1 v A2, B2 v D1", qf.map((x) => `${label(x.team_a_id)}-${label(x.team_b_id)}`).join(" ") === "A1-D2 C2-B1 C1-A2 B2-D1", qf.map((x) => `${label(x.team_a_id)}-${label(x.team_b_id)}`).join(" "));
     const low = ties.filter((x) => x.stage === "placement" && x.round_no === 1 && x.draw_from === 9);
     check("9th–16th round one has the 3rd and 4th placed nations", low.every((x) => [3, 4].includes(rankOf.get(x.team_a_id!)!.rank) && [3, 4].includes(rankOf.get(x.team_b_id!)!.rank)));
+    t = (await getTournament(tid))!;
+    const placementRubbers = (await getMatches(tid)).filter((m) => ties.some((x) => x.stage === "placement" && x.id === m.tie_id));
+    const shortIds = Object.keys(t.scoring_config.matchRules ?? {});
+    const shortTies = new Set(placementRubbers.filter((m) => shortIds.includes(m.id)).map((m) => m.tie_id));
+    const qfRubbers = placementRubbers.filter((m) => qf.some((x) => x.id === m.tie_id));
+    check(
+      "singles below the main draw are two sets and a match tie-break: 30 rubbers in 15 ties, none in the main draw or the doubles (Reg 51)",
+      shortIds.length === 30 && shortTies.size === 15 && !qfRubbers.some((m) => shortIds.includes(m.id)) && !placementRubbers.some((m) => m.rubber_type === "D" && shortIds.includes(m.id)),
+      `${shortIds.length} rubbers, ${shortTies.size} ties`,
+    );
     const groupLock = await generateGroupMatches(tid, "e2e").then(() => "regenerated", (e: Error) => e.message);
     check("the group stage is locked once the placement draws exist", groupLock.includes("locked"), groupLock);
 
@@ -297,13 +334,13 @@ async function main() {
         const dog: TeamKey = fav === "A" ? "B" : "A";
         const viaHttp = round === 1 && tie.tie_order === Math.min(...roundTies.map((x) => x.tie_order));
         if (viaHttp) {
-          // Through the referee API: 2-0, the doubles drops, then an undo of the
-          // deciding rubber reopens the tie and brings the doubles back.
+          // Through the referee API: 2-0, the doubles is still played; an undo of
+          // the deciding rubber reopens the tie, and the doubles stays on.
           await finishHttp(t, rs[0], fav);
           const decider = await finishHttp(t, rs[1], fav);
           let now = (await getTies(tid)).find((x) => x.id === tie.id)!;
           const d = (await getMatches(tid)).find((m) => m.id === rs[2].id)!;
-          check("placement tie decided at 2-0 on referee phones; the doubles is dropped", now.status === "completed" && d.status === "cancelled", `${now.status} / doubles ${d.status}`);
+          check("placement tie won at 2-0 on referee phones; the doubles is still to be played", now.winner_team_id !== null && now.status === "live" && d.status === "scheduled", `${now.status} / doubles ${d.status}`);
           const next = (await getTies(tid)).find((x) => x.id === now.winner_to_tie_id)!;
           const winnerId = fav === "A" ? tie.team_a_id : tie.team_b_id;
           check("…and the winner is placed in the next round", [next.team_a_id, next.team_b_id].includes(winnerId));
@@ -313,13 +350,15 @@ async function main() {
           now = (await getTies(tid)).find((x) => x.id === tie.id)!;
           const dBack = (await getMatches(tid)).find((m) => m.id === rs[2].id)!;
           const nextBack = (await getTies(tid)).find((x) => x.id === tie.winner_to_tie_id)!;
-          check("an undo of the deciding point reopens the tie and brings the doubles back", now.status === "live" && !now.winner_team_id && dBack.status === "scheduled", `${now.status} / doubles ${dBack.status}`);
+          check("an undo of the deciding point reopens the tie, the doubles still on", now.status === "live" && !now.winner_team_id && dBack.status === "scheduled", `${now.status} / doubles ${dBack.status}`);
           check("…and takes the nation back out of the next round", ![nextBack.team_a_id, nextBack.team_b_id].includes(winnerId));
           // Replay the last point and confirm again.
           await decider.post("POINT_AWARDED", decider.trail[decider.trail.length - 2], final, null);
           await decider.post("MATCH_ENDED", final, final, winnerId, { winner_team_id: winnerId });
+          await finishDirect(t, (await getMatches(tid)).find((m) => m.id === rs[2].id)!, dog);
+          const after = (await getTies(tid)).find((x) => x.id === tie.id)!;
+          check("…and the tie is final once the doubles is played: 2-1", after.status === "completed" && after.rubbers_a + after.rubbers_b === 3, `${after.status} ${after.rubbers_a}-${after.rubbers_b}`);
           undoTested = true;
-          droppedDoubles++;
           continue;
         }
         for (const r of rs) {
@@ -336,7 +375,19 @@ async function main() {
     ties = await getTies(tid);
     const placement = ties.filter((x) => x.stage === "placement");
     check("every placement tie finished in three rounds", placement.every((x) => x.status === "completed") && placementRounds === 3, placement.filter((x) => x.status !== "completed").length + " open");
-    check("dead doubles were dropped in the placement ties", droppedDoubles > 0, `${droppedDoubles} dropped`);
+    check("no doubles was dropped: every placement tie played all three", droppedDoubles === 0 && placement.every((x) => x.rubbers_a + x.rubbers_b === 3), `${droppedDoubles} dropped`);
+    // One set each in a shortened singles, under the rules the referee phone is given: a match tie-break follows.
+    const shortOne = (await getMatches(tid)).find((m) => shortIds.includes(m.id))!;
+    const shortRules = rules(t, shortOne);
+    let oneAll = initialScoreState("A");
+    for (let i = 0; i < 24; i++) oneAll = awardPoint(oneAll, "A", shortRules);
+    for (let i = 0; i < 24; i++) oneAll = awardPoint(oneAll, "B", shortRules);
+    const refShort = await http(`/referee/matches/${shortOne.id}/score`, {}, "referee");
+    check(
+      "a shortened singles at one set all goes to a 10-point match tie-break (its referee page renders)",
+      oneAll.isMatchTiebreak === true && !oneAll.matchOver && refShort.status === 200,
+      `${oneAll.teamA.sets}-${oneAll.teamB.sets} mtb=${oneAll.isMatchTiebreak}`,
+    );
     check("the undo path ran", undoTested);
 
     // A decided rubber cannot be reopened once the next tie has started.

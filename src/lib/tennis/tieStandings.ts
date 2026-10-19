@@ -1,19 +1,73 @@
 /**
- * Group standings for a team competition, ranked the ITF way. Pure.
+ * Group standings for a team competition, ranked by Reg 38 of the 2026 ITF
+ * Junior Team Competitions regulations. Pure.
  *
- *  1. Ties won.
- *  2. Two nations level: the tie between them.
- *  3. Three or more level: percentage of rubbers won, then of sets won, then of
- *     games won — and the moment a criterion leaves two of them level, the tie
- *     between those two decides.
- *  4. Still level: the seeding, then the name, so the order is always stable.
+ *  1. Points: one per tie won.
+ *  2. Two nations level on points: the tie between them.
+ *  3. Three or more level on points: matches (rubbers) won, then the percentage
+ *     of sets won, then of games won, over all their group rubbers. Head-to-head
+ *     is never used here, even when a criterion leaves two of them level.
+ *  4. Still level: the seeding, then the name, so the order is always stable
+ *     (the Referee decides a true dead heat).
  *
- * The ITF regulations for 2026 could not be read when this was written; the
- * order is the ITF's standard one for its team competitions. See
- * docs/tennis-junior-finals.md.
+ * Counting (Reg 38): a match tie-break is one set and one game; a rubber stopped
+ * by injury counts its full score (6-1 2-0 ret. is 6-1 6-0); a walkover counts
+ * 6-0 6-0.
  */
 import { gamesFromSnapshot, isFinished } from "../standings";
-import type { Match, MatchSnapshot, Standing, Tie } from "../types";
+import type { CompletedSet, Match, MatchSnapshot, Standing, Tie } from "../types";
+
+/** What finishing a stopped rubber's score needs from its rules. */
+export interface FinishRules {
+  setsToWinMatch: number;
+  gamesToWinSet: number;
+  /** The deciding set is a match tie-break (doubles, the shortened singles). */
+  matchTiebreak?: boolean;
+}
+
+const TENNIS_SINGLES: FinishRules = { setsToWinMatch: 2, gamesToWinSet: 6 };
+
+/**
+ * A rubber stopped by retirement (or a default) scored as if the winner had won
+ * every remaining game (Reg 38): the set in progress is completed for them, and
+ * any set still needed is won to love — a match tie-break as one game. Sets are
+ * from side A's view; `winner` is the side that won the rubber.
+ */
+export function fullScore(
+  completed: CompletedSet[],
+  current: { a: number; b: number },
+  winner: "A" | "B",
+  rules: FinishRules,
+): { a: number; b: number; setsA: number; setsB: number } {
+  const sets = completed.map((s) => [s.teamAGames ?? 0, s.teamBGames ?? 0] as [number, number]);
+  const won = (side: 0 | 1) => sets.filter((s) => s[side] > s[1 - side]).length;
+  const w = winner === "A" ? 0 : 1;
+  const need = rules.setsToWinMatch;
+  const decider = () => rules.matchTiebreak && won(0) === need - 1 && won(1) === need - 1;
+  // The set in progress, when it has a game in it.
+  if (current.a + current.b > 0 && won(w) < need) {
+    const g: [number, number] = [current.a, current.b];
+    if (decider()) {
+      g[w] = 1;
+      g[1 - w] = 0;
+    } else {
+      const other = g[1 - w];
+      g[w] = other >= rules.gamesToWinSet - 1 ? rules.gamesToWinSet + 1 : rules.gamesToWinSet;
+    }
+    sets.push(g);
+  }
+  while (won(w) < need) {
+    const g: [number, number] = [0, 0];
+    g[w] = decider() ? 1 : rules.gamesToWinSet;
+    sets.push(g);
+  }
+  return {
+    a: sets.reduce((n, s) => n + s[0], 0),
+    b: sets.reduce((n, s) => n + s[1], 0),
+    setsA: won(0),
+    setsB: won(1),
+  };
+}
 
 export interface TieTeam {
   id: string;
@@ -38,17 +92,19 @@ const pct = (won: number, lost: number) => (won + lost === 0 ? 0 : won / (won + 
 
 /**
  * `walkoverGames` is what a walked-over rubber counts as per set (6 for 6-0),
- * over the two sets a best-of-three is won in.
+ * over the two sets a best-of-three is won in. `rulesFor` gives a rubber's
+ * rules, for finishing a retired rubber's score; best of three by default.
  */
 export function calculateTieStandings(
   tournamentId: string,
   groupId: string,
   teams: TieTeam[],
   ties: Pick<Tie, "id" | "team_a_id" | "team_b_id" | "status" | "winner_team_id">[],
-  rubbers: Pick<Match, "id" | "tie_id" | "team_a_id" | "team_b_id" | "status" | "winner_team_id">[],
+  rubbers: (Pick<Match, "id" | "tie_id" | "team_a_id" | "team_b_id" | "status" | "winner_team_id"> & Partial<Pick<Match, "rubber_type">>)[],
   snapshots: Map<string, MatchSnapshot>,
   disqualified: Set<string> = new Set(),
   walkoverGames = 6,
+  rulesFor: (rubber: Pick<Match, "id" | "rubber_type">) => FinishRules = () => TENNIS_SINGLES,
 ): Standing[] {
   const tally = new Map<string, Tally>(
     teams.map((t) => [
@@ -84,7 +140,14 @@ export function calculateTieStandings(
     (aWon ? b : a).rubbersLost++;
     const snap = snapshots.get(r.id) ?? null;
     let g = gamesFromSnapshot(snap);
-    if (r.status === "walkover" || (!snap && isFinished(r.status))) {
+    if ((r.status === "retired" || r.status === "disqualified") && snap) {
+      const done = Array.isArray(snap.completed_sets) ? snap.completed_sets : [];
+      // The live games are the set in progress unless they repeat the last finished set.
+      const last = done[done.length - 1];
+      const repeat = last && last.teamAGames === snap.team_a_games && last.teamBGames === snap.team_b_games;
+      const current = repeat ? { a: 0, b: 0 } : { a: snap.team_a_games ?? 0, b: snap.team_b_games ?? 0 };
+      g = fullScore(done, current, aWon ? "A" : "B", rulesFor(r));
+    } else if (r.status === "walkover" || (!snap && isFinished(r.status))) {
       g = aWon
         ? { a: walkoverGames * 2, b: 0, setsA: 2, setsB: 0 }
         : { a: 0, b: walkoverGames * 2, setsA: 0, setsB: 2 };
@@ -116,19 +179,14 @@ export function calculateTieStandings(
     return (seedOf.get(x)?.team_name ?? "").localeCompare(seedOf.get(y)?.team_name ?? "");
   };
   const criteria: ((t: Tally) => number)[] = [
-    (t) => pct(t.rubbersWon, t.rubbersLost),
+    (t) => t.rubbersWon,
     (t) => pct(t.setsWon, t.setsLost),
     (t) => pct(t.gamesWon, t.gamesLost),
   ];
 
-  /** Orders nations that are level on ties won. */
-  const resolve = (ids: string[], level: number): string[] => {
+  /** Orders three or more nations level on points, by the numbers alone. */
+  const byNumbers = (ids: string[], level: number): string[] => {
     if (ids.length <= 1) return ids;
-    if (ids.length === 2) {
-      const w = h2h(ids[0], ids[1]);
-      if (w) return w === ids[0] ? ids : [ids[1], ids[0]];
-      // Not yet played: fall through to the numbers, then the draw.
-    }
     if (level >= criteria.length) return [...ids].sort(byDraw);
     const key = criteria[level];
     const groups = new Map<number, string[]>();
@@ -136,10 +194,19 @@ export function calculateTieStandings(
       const v = Math.round(key(tally.get(id)!) * 1e9) / 1e9;
       groups.set(v, [...(groups.get(v) ?? []), id]);
     }
-    if (groups.size === 1) return resolve(ids, level + 1);
     return [...groups.entries()]
       .sort((x, y) => y[0] - x[0])
-      .flatMap(([, members]) => resolve(members, members.length === 2 ? 0 : level + 1));
+      .flatMap(([, members]) => byNumbers(members, level + 1));
+  };
+
+  /** Orders nations level on points: two by their tie, three or more by the numbers. */
+  const resolve = (ids: string[]): string[] => {
+    if (ids.length === 2) {
+      const w = h2h(ids[0], ids[1]);
+      if (w) return w === ids[0] ? ids : [ids[1], ids[0]];
+      // Not yet played: the numbers, then the draw.
+    }
+    return byNumbers(ids, 0);
   };
 
   const active = teams.map((t) => t.id).filter((id) => !disqualified.has(id));
@@ -150,7 +217,7 @@ export function calculateTieStandings(
   }
   const order = [...byWins.entries()]
     .sort((x, y) => y[0] - x[0])
-    .flatMap(([, ids]) => resolve(ids, 0));
+    .flatMap(([, ids]) => resolve(ids));
   const dq = teams.map((t) => t.id).filter((id) => disqualified.has(id));
 
   return [...order, ...dq].map((id, i) => {

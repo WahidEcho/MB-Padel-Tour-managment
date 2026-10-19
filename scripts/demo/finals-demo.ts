@@ -99,7 +99,7 @@ insert("tournaments", [
     public_access_enabled: true,
     created_by: "admin",
     scoring_config: { ...DEFAULT_TENNIS_SCORING_CONFIG, requireResultConfirmation: true },
-    format_config: { type: "group_knockout", qualifyPerGroup: 2, thirdPlaceMatch: false, ties: { replays } },
+    format_config: { type: "group_knockout", qualifyPerGroup: 2, thirdPlaceMatch: false, ties: { replays, playDeadRubbersInPlacement: false } },
     branding_config: {
       background: { url: "/backgrounds/night-clay.svg", kind: "svg", mime: "image/svg+xml", bytes: 8746, dim: "light", showOnPublic: false },
       holding: { title: "Junior Team Finals · Cairo 2026", message: "The finals, replayed" },

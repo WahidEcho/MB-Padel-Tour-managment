@@ -17,7 +17,10 @@ import { scoringConfigForMatch } from "../scoring/rules";
 import type { Court, Group, GroupTeam, Match, MatchSnapshot, RubberType, Team, Tie, Tournament } from "../types";
 import { MAX_DELAY_MINUTES, RUBBER_GAP_MINUTES, RUBBER_LABELS, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome } from "./ties";
 import { calculateTieStandings } from "./tieStandings";
-import { placementPlan, type PlannedTie } from "./placement";
+import { placementPlan, type DrawLots, type PlannedTie } from "./placement";
+
+/** The singles of a placement play-off below the main draw (Reg 51): two sets and a match tie-break. */
+export const SHORT_SINGLES = { setsToWinMatch: 2, matchTiebreak: true, matchTiebreakPoints: 10 } as const;
 
 export function isTieFormat(t: Pick<Tournament, "format_config"> | null | undefined): boolean {
   return Boolean(t?.format_config?.ties);
@@ -145,7 +148,7 @@ export async function recalcTieStandings(tournamentId: string) {
       db().from("group_teams").select("*").eq("tournament_id", tournamentId),
       db().from("teams").select("id, team_name, seed_number, team_status").eq("tournament_id", tournamentId),
       db().from("ties").select("*").eq("tournament_id", tournamentId).eq("stage", "group"),
-      db().from("matches").select("id, tie_id, team_a_id, team_b_id, status, winner_team_id").eq("tournament_id", tournamentId).not("tie_id", "is", null),
+      db().from("matches").select("id, tie_id, team_a_id, team_b_id, status, winner_team_id, rubber_type, stage").eq("tournament_id", tournamentId).not("tie_id", "is", null),
       db().from("match_score_snapshots").select("*").eq("tournament_id", tournamentId),
       db().from("standings_snapshots").select("group_id, team_id, status, manual_status_override").eq("tournament_id", tournamentId),
     ]);
@@ -165,7 +168,9 @@ export async function recalcTieStandings(tournamentId: string) {
     const ids = ((groupTeams ?? []) as GroupTeam[]).filter((gt) => gt.group_id === group.id).map((gt) => gt.team_id);
     const groupTies = ((ties ?? []) as Tie[]).filter((t) => t.group_id === group.id);
     const members = teamRows.filter((t) => ids.includes(t.id));
-    const standings = calculateTieStandings(tournamentId, group.id, members, groupTies, (rubbers ?? []) as Match[], snapBy, disqualified, walkover);
+    const rulesFor = (r: Pick<Match, "id" | "rubber_type">) =>
+      scoringConfigForMatch(tournament, { stage: "group", id: r.id }, null, { doubles: r.rubber_type === "D" });
+    const standings = calculateTieStandings(tournamentId, group.id, members, groupTies, (rubbers ?? []) as Match[], snapBy, disqualified, walkover, rulesFor);
     const complete = groupTies.length > 0 && groupTies.every((t) => t.status === "completed");
     // Everyone plays on after the groups; "plate" reads as "to the lower draw".
     applyQualification(standings, qualify, complete, Math.max(0, ids.length - qualify));
@@ -201,7 +206,9 @@ export type LineupResult = { ok: true } | { ok: false; message: string };
 /**
  * A captain's nominations for one side of a tie. Free until the line-ups are
  * locked; after that only with a stated reason, which is audited as a late
- * change. A rubber already under way never changes its players.
+ * change — except the doubles pair, which the captain names (or changes) after
+ * the second singles as a matter of course (Reg 43). A rubber already under way
+ * never changes its players.
  */
 export async function setLineup(
   tieId: string,
@@ -215,15 +222,17 @@ export async function setLineup(
   const t = tie as Tie;
   const teamId = side === "A" ? t.team_a_id : t.team_b_id;
   if (!teamId) return { ok: false, message: "That side of the tie is not known yet." };
-  if (t.lineup_locked_at && !opts.lateChangeReason?.trim()) {
-    return { ok: false, message: "The line-ups are locked. A change now needs a reason, and is recorded as a late change." };
-  }
-  const { data: players } = await db().from("players").select("id").eq("team_id", teamId);
+  const { data: players } = await db().from("players").select("id").eq("team_id", teamId).order("player_order");
   const problems = lineupProblems(lineup, ((players ?? []) as { id: string }[]).map((p) => p.id));
   if (problems.length) return { ok: false, message: problems.join(" ") };
 
   const rubbers = await tieRubbers(tieId);
   const field = side === "A" ? "team_a_player_ids" : "team_b_player_ids";
+  const changes = rubbers.filter((r) => JSON.stringify(r[field] ?? []) !== JSON.stringify(lineupFor(r.rubber_type as RubberType, lineup) ?? []));
+  const doublesOnly = changes.length > 0 && changes.every((r) => r.rubber_type === "D");
+  if (t.lineup_locked_at && !doublesOnly && changes.length > 0 && !opts.lateChangeReason?.trim()) {
+    return { ok: false, message: "The singles are locked. A change now needs a reason, and is recorded as a late change." };
+  }
   for (const r of rubbers) {
     const ids = lineupFor(r.rubber_type as RubberType, lineup);
     const current = (r[field] ?? []) as string[];
@@ -241,7 +250,7 @@ export async function setLineup(
   await audit({
     tournament_id: t.tournament_id,
     actor_role: actorRole,
-    action: t.lineup_locked_at ? "LINEUP_LATE_CHANGE" : "LINEUP_SET",
+    action: !t.lineup_locked_at ? "LINEUP_SET" : doublesOnly ? "DOUBLES_NAMED" : "LINEUP_LATE_CHANGE",
     entity_type: "tie",
     entity_id: tieId,
     new_value: { side, lineup, reason: opts.lateChangeReason ?? null },
@@ -249,12 +258,15 @@ export async function setLineup(
   return { ok: true };
 }
 
-/** Locks both line-ups. Refused until every rubber has its players on both sides. */
+/**
+ * Locks both line-ups. Refused until both singles have their players on both
+ * sides; the doubles may still be to be named.
+ */
 export async function lockLineups(tieId: string, actorRole: string): Promise<LineupResult> {
   const rubbers = await tieRubbers(tieId);
-  const missing = rubbers.filter((r) => !(r.team_a_player_ids?.length && r.team_b_player_ids?.length));
+  const missing = rubbers.filter((r) => r.rubber_type !== "D" && !(r.team_a_player_ids?.length && r.team_b_player_ids?.length));
   if (missing.length) {
-    return { ok: false, message: `Both captains must nominate every rubber first (${missing.map((r) => RUBBER_LABELS[r.rubber_type as RubberType]).join(", ")} missing).` };
+    return { ok: false, message: `Both captains must name their singles players first (${missing.map((r) => RUBBER_LABELS[r.rubber_type as RubberType]).join(", ")} missing).` };
   }
   const { data: tie } = await db()
     .from("ties")
@@ -289,7 +301,8 @@ export async function applyTieResult(tieId: string, opts: { dryRun?: boolean } =
   const tie = tieRow as Tie;
   const tournament = await tournamentOf(tie.tournament_id);
   const rubbers = await tieRubbers(tieId);
-  const playDead = tie.stage === "group" || tournament.format_config?.ties?.playDeadRubbersInPlacement === true;
+  // The doubles is played whatever the singles did (an event may opt out for its placement ties).
+  const playDead = tie.stage === "group" || tournament.format_config?.ties?.playDeadRubbersInPlacement !== false;
   const outcome = tieOutcome(
     rubbers.map((r) => ({
       id: r.id,
@@ -375,7 +388,11 @@ export type PlacementResult = { ok: true; ties: number } | { ok: false; message:
  * later round waiting for its winners and losers. Refused while a group tie is
  * unfinished, and when the draws already exist.
  */
-export async function drawPlacement(tournamentId: string, actorRole: string): Promise<PlacementResult> {
+export async function drawPlacement(
+  tournamentId: string,
+  actorRole: string,
+  lots: Record<string, DrawLots> = {},
+): Promise<PlacementResult> {
   const tournament = await tournamentOf(tournamentId);
   const [{ data: groups }, { data: ties }, { data: courts }, { data: teams }] = await Promise.all([
     db().from("groups").select("*").eq("tournament_id", tournamentId).order("group_order"),
@@ -396,7 +413,7 @@ export async function drawPlacement(tournamentId: string, actorRole: string): Pr
   if (sizes.size !== 1) return { ok: false, message: "Every group needs the same number of nations for the placement draws." };
   let plan: PlannedTie[];
   try {
-    plan = placementPlan(groupList.length, [...sizes][0]);
+    plan = placementPlan(groupList.length, [...sizes][0], lots);
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   }
@@ -447,10 +464,21 @@ export async function drawPlacement(tournamentId: string, actorRole: string): Pr
   const firstOrder = ((maxMatch as { match_order: number } | null)?.match_order ?? 0) + 1;
   const rubbers = rows.flatMap((t, i) => {
     const label = `${t.round_name} · ${code(teamById.get(t.team_a_id ?? ""))} v ${code(teamById.get(t.team_b_id ?? ""))}`;
-    return rubberRows(tournament, t, t.team_a_id && t.team_b_id ? label : t.round_name, firstOrder + i * 3);
+    return rubberRows(tournament, t, t.team_a_id && t.team_b_id ? label : t.round_name, firstOrder + i * 3).map((r) => ({ ...r, id: randomUUID() }));
   });
   const { error: mErr } = await db().from("matches").insert(rubbers);
   if (mErr) return { ok: false, message: mErr.message };
+
+  // Singles below the main draw play two sets and a match tie-break (Reg 51).
+  const fullSingles = new Map<string, boolean>(plan.map((p) => [idOf.get(p.key)!, p.fullSingles]));
+  const short = rubbers.filter((r) => r.rubber_type !== "D" && !fullSingles.get(r.tie_id)).map((r) => r.id);
+  await db()
+    .from("tournaments")
+    .update({
+      scoring_config: { ...tournament.scoring_config, matchRules: { ...tournament.scoring_config?.matchRules, ...Object.fromEntries(short.map((id) => [id, SHORT_SINGLES])) } },
+      format_config: { ...tournament.format_config, ties: { ...tournament.format_config?.ties, placementLots: lots } },
+    })
+    .eq("id", tournamentId);
 
   await audit({
     tournament_id: tournamentId,
@@ -474,8 +502,18 @@ export async function resetPlacement(tournamentId: string, actorRole: string): P
     return { ok: false, message: `${played.length} placement rubber${played.length === 1 ? " has" : "s have"} been played; the draws cannot be reset.` };
   }
   await db().from("ties").delete().eq("tournament_id", tournamentId).eq("stage", "placement");
+  await dropMatchRules(tournamentId, new Set(((rubbers ?? []) as Pick<Match, "id" | "tie_id">[]).filter((r) => r.tie_id && placementIds.has(r.tie_id)).map((r) => r.id)));
   await audit({ tournament_id: tournamentId, actor_role: actorRole, action: "PLACEMENT_RESET", entity_type: "tournament", entity_id: tournamentId });
   return { ok: true, ties: 0 };
+}
+
+/** Forgets the per-match rules of rubbers that no longer exist. */
+async function dropMatchRules(tournamentId: string, ids: Set<string>) {
+  const tournament = await tournamentOf(tournamentId);
+  const own = tournament.scoring_config?.matchRules;
+  if (!own || !Object.keys(own).some((id) => ids.has(id))) return;
+  const kept = Object.fromEntries(Object.entries(own).filter(([id]) => !ids.has(id)));
+  await db().from("tournaments").update({ scoring_config: { ...tournament.scoring_config, matchRules: kept } }).eq("id", tournamentId);
 }
 
 /** The final places decided so far, 1st first. */
@@ -525,6 +563,11 @@ export async function canReopenRubber(match: Pick<Match, "id" | "tie_id">): Prom
 
 /** A tie tournament's live data reset: placement draws gone, group ties back to 0-0, line-ups kept. */
 export async function resetTies(tournamentId: string) {
+  const placement = (await getTies(tournamentId)).filter((t) => t.stage === "placement").map((t) => t.id);
+  if (placement.length) {
+    const { data } = await db().from("matches").select("id").in("tie_id", placement);
+    await dropMatchRules(tournamentId, new Set(((data ?? []) as { id: string }[]).map((r) => r.id)));
+  }
   await db().from("ties").delete().eq("tournament_id", tournamentId).eq("stage", "placement");
   await db()
     .from("ties")

@@ -23,7 +23,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   migrations ≥ 0014). Point `SUPABASE_URL=http://localhost:54321` at it and every E2E script runs.
   New migrations must also be applied to the live project (Supabase MCP `apply_migration`).
 - Tennis team competitions (nations, ties of S2/S1/D rubbers, ITF ranking, placement draws for every
-  place): `src/lib/tennis/`, admin pages `nations` and `ties`, gate `scripts/e2e/tennis-ties.ts`.
+  place): `src/lib/tennis/`, admin pages `nations` and `ties`, gate `scripts/e2e/tennis-ties.ts`. Follows the 2026
+  ITF regulations: singles named before play with the order-of-merit check, doubles "to be named" until after the
+  singles (no reason needed after the lock); the doubles always played (demo opts out with
+  `playDeadRubbersInPlacement: false`); Reg 38 ranking; Reg 36 lots (`format_config.ties.placementLots`); Reg 51
+  short singles written per match as `scoring_config.matchRules` (applied last by `scoringConfigForMatch`, by id).
+  The real Cairo events: `scripts/events/cairo-2026.ts` (SQL, drafts, public pages off).
 - Tennis court TVs (`src/components/tennis/`, scenes decided by `src/lib/tennis/tvScene.ts`): a tie-format
   tournament's live screen runs line-up → walk-on → live score → rubber won → tie score per court on its own.
   Flags are local SVGs in `public/flags/` (from `flag-icons`, MIT). Gate on the stand-in only:
@@ -40,8 +45,6 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Go-live: `docs/junior-finals-go-live.md`. Ties page has per-tie court + not-before time (entered in Cairo
   time, `zonedToIso`) and "Delay the order of play" (`delayOrderOfPlay`). Week rehearsal of both events with
   an offline referee, a late line-up change and rain: `npm run e2e:tennis-week` (stand-in, cleans up).
-- Open go-live item (agreed for after the 25 Sept rehearsal): live RLS still grants `anon` full access
-  (`server_full_access`); switch `SUPABASE_KEY` to the secret key in Vercel before dropping those policies.
 - **Move Score releases — owner's rule, no exceptions:** never publish a build to the App Store or
   TestFlight (no `eas submit`, no `testflight`/`production` submit profile, no App Store Connect upload, no
   store review) and never start one on someone else's behalf. iOS builds are for the owner's own phone only:
