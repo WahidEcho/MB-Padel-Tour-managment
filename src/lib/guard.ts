@@ -14,8 +14,8 @@
 import { notFound, redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { staffCan, type Permission } from "./auth";
-import { currentStaffResolution, REFUSAL_MESSAGE, type StaffPrincipal, type StaffResolution } from "./auth/staff";
-import { entityInScope, type EntityRef, type EntityScope } from "./orgs/scope";
+import { currentCarries, currentStaffResolution, REFUSAL_MESSAGE, type StaffPrincipal, type StaffResolution } from "./auth/staff";
+import { entityInScope, isScopedCode, type EntityRef, type EntityScope } from "./orgs/scope";
 import type { Role } from "./types";
 
 export const NOT_FOUND = "Not found";
@@ -26,6 +26,23 @@ export type { StaffPrincipal, EntityRef, EntityScope };
 export interface ScopedStaff {
   staff: StaffPrincipal;
   scope: EntityScope;
+}
+
+/**
+ * The principal that reaches a row: the signed-in one, or, for a match only, a
+ * carry-over credential of the same request (the old court's code after switching
+ * courts, for a match the phone still holds; src/lib/auth/staff.ts issueCarry).
+ */
+async function reaching(staff: StaffPrincipal, ref: EntityRef, action?: Permission): Promise<ScopedStaff | null> {
+  const scope = await entityInScope(staff, ref);
+  if (scope) return { staff, scope };
+  if (!("match" in ref)) return null;
+  for (const carry of await currentCarries()) {
+    if (action && !staffCan(carry, action)) continue;
+    const s = await entityInScope(carry, ref);
+    if (s) return { staff: carry, scope: s };
+  }
+  return null;
 }
 
 function loginRedirect(nextUrl: string, r: StaffResolution): never {
@@ -50,9 +67,9 @@ export async function requireRole(roles: Role[], nextUrl: string): Promise<Role>
 /** Page guard for one row: the principal must reach it, else the page is a 404. */
 export async function requireEntityPage(ref: EntityRef, roles: Role[], nextUrl: string): Promise<ScopedStaff> {
   const staff = await requireStaff(roles, nextUrl);
-  const scope = await entityInScope(staff, ref);
-  if (!scope) notFound();
-  return { staff, scope };
+  const hit = await reaching(staff, ref);
+  if (!hit) notFound();
+  return hit;
 }
 
 export function requireTournamentPage(tournamentId: string, roles: Role[], nextUrl: string): Promise<ScopedStaff> {
@@ -83,24 +100,26 @@ async function staffFor(action: Permission): Promise<StaffPrincipal> {
  */
 export async function requireStaffPermission(action: Permission): Promise<StaffPrincipal> {
   const staff = await staffFor(action);
-  // A code scoped to one tournament acts inside it only.
-  if (staff.scopeTournamentId) throw new Error(NOT_ALLOWED);
+  // A code scoped to one tournament (or one court) acts inside it only.
+  if (isScopedCode(staff)) throw new Error(NOT_ALLOWED);
   return staff;
 }
 
 /** The principal, when it acts for exactly this organisation with this permission. */
 export async function requireOrgPermission(orgId: string, action: Permission): Promise<StaffPrincipal> {
   const staff = await staffFor(action);
-  if (staff.orgId !== orgId || staff.scopeTournamentId) throw new Error(NOT_FOUND);
+  if (staff.orgId !== orgId || isScopedCode(staff)) throw new Error(NOT_FOUND);
   return staff;
 }
 
 /** The principal and the row's scope, when the principal may do `action` to that row. */
 export async function requireScopedPermission(action: Permission, ref: EntityRef): Promise<ScopedStaff> {
   const staff = await staffFor(action);
-  const scope = await entityInScope(staff, ref);
-  if (!scope) throw new Error(NOT_FOUND);
-  return { staff, scope };
+  // A court code's actions are its court's matches only (no check-in, bracket or tournament tools).
+  if (staff.scopeCourt && !("match" in ref)) throw new Error(NOT_FOUND);
+  const hit = await reaching(staff, ref, action);
+  if (!hit) throw new Error(NOT_FOUND);
+  return hit;
 }
 
 export function requireTournamentPermission(action: Permission, tournamentId: string): Promise<ScopedStaff> {
@@ -137,19 +156,19 @@ export async function staffRoute(action: Permission, ref?: EntityRef): Promise<R
     return { ok: false, response: NextResponse.json({ error: NOT_ALLOWED }, { status: 403, headers: NO_STORE }) };
   }
   if (!ref) {
-    if (r.staff.scopeTournamentId && action !== "score_match" && action !== "control_screen") {
+    if (isScopedCode(r.staff) && action !== "score_match" && action !== "control_screen") {
       return { ok: false, response: NextResponse.json({ error: NOT_ALLOWED }, { status: 403, headers: NO_STORE }) };
     }
     return { ok: true, staff: r.staff, scope: null };
   }
-  const scope = await entityInScope(r.staff, ref);
-  if (!scope) return { ok: false, response: NextResponse.json({ error: NOT_FOUND }, { status: 404, headers: NO_STORE }) };
-  return { ok: true, staff: r.staff, scope };
+  const hit = await reaching(r.staff, ref, action);
+  if (!hit) return { ok: false, response: NextResponse.json({ error: NOT_FOUND }, { status: 404, headers: NO_STORE }) };
+  return { ok: true, staff: hit.staff, scope: hit.scope };
 }
 
 /** For read routes that serve everyone but show staff more: the principal only when it reaches the row. */
 export async function staffReaching(ref: EntityRef, action: Permission): Promise<StaffPrincipal | null> {
   const r = await currentStaffResolution().catch(() => null);
   if (!r?.ok || !staffCan(r.staff, action)) return null;
-  return (await entityInScope(r.staff, ref)) ? r.staff : null;
+  return (await reaching(r.staff, ref, action))?.staff ?? null;
 }

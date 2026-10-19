@@ -2,8 +2,9 @@ import { useCallback, useState } from "react";
 import { TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { api, ApiError } from "../../api/client";
+import { api } from "../../api/client";
 import { session, saveStaff } from "../../state/session";
+import { pruneCarry, signInWithCode } from "../../referee/courtSignIn";
 import { queue } from "../../referee/queue";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -28,25 +29,31 @@ export default function RefereeHome() {
   const [busy, setBusy] = useState(false);
   const [pendingMatches, setPendingMatches] = useState<string[]>([]);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const carries = session.use((s) => s.staffCarry);
   // Looked at again on every visit: a match opened from here may have sent its points meanwhile.
   useFocusEffect(
     useCallback(() => {
       void queue().matchesWithPending().then(setPendingMatches);
+      void pruneCarry();
     }, []),
   );
-  const list = useQuery({ queryKey: ["ref-tournaments", staff?.token], queryFn: () => api<{ tournaments: T[] }>("/api/mobile/v1/referee/tournaments", { who: "staff" }), enabled: Boolean(staff) });
+  const list = useQuery({
+    queryKey: ["ref-tournaments", staff?.token],
+    queryFn: () => api<{ tournaments: T[]; court?: { name: string } | null }>("/api/mobile/v1/referee/tournaments", { who: "staff" }),
+    enabled: Boolean(staff),
+  });
+  const court = list.data?.court?.name ?? null;
   const signIn = async () => {
     setBusy(true);
     setErr(null);
-    try {
-      const r = await api<{ token: string; role: string; expiresAt: string }>("/api/mobile/v1/staff/session", { body: { code: code.trim() } });
-      await saveStaff({ token: r.token, role: r.role, expiresAt: r.expiresAt });
+    const typed = code.trim();
+    const r = await signInWithCode(typed);
+    setBusy(false);
+    if (r.ok) {
       setCode("");
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "No connection. The code is checked online once; scoring then works offline.");
-    } finally {
-      setBusy(false);
+      return;
     }
+    setErr(r.message);
   };
   return (
     <Screen tabs={false} onRefresh={staff ? () => list.refetch() : undefined}>
@@ -80,12 +87,13 @@ export default function RefereeHome() {
           />
           {err ? <Body tone="live" size={13}>{err}</Body> : null}
           <Button label={busy ? "Checking…" : "Open referee console"} disabled={!code || busy} onPress={() => void signIn()} />
+          <Button kind="ghost" label="Scan court QR" onPress={() => router.push("/referee/scan")} />
           <Body tone="ink3" size={12}>Once a match is open, scoring continues without signal and sends when the connection returns.</Body>
         </Card>
       ) : (
         <>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
-            <Body tone="ink2" size={13}>{`Signed in · ${staff.role}`}</Body>
+            <Body tone="ink2" size={13}>{court ? `Signed in · ${court}` : `Signed in · ${staff.role}`}</Body>
             <Body tone="blue" weight="semi" size={13} onPress={() => (pendingMatches.length ? setConfirmSignOut(true) : void saveStaff(null))}>Sign out</Body>
           </View>
           {confirmSignOut && (
@@ -96,7 +104,17 @@ export default function RefereeHome() {
               <Button kind="ghost" label="Stay signed in" onPress={() => setConfirmSignOut(false)} />
             </Card>
           )}
-          <SectionHeader title="What are you scoring?" />
+          <Button kind="ghost" label="Scan court QR (switch court)" onPress={() => router.push("/referee/scan")} />
+          {carries.flatMap((c) => c.matchIds.map((id) => ({ id, court: c.court }))).length > 0 && (
+            <Card style={{ marginTop: 10, gap: 8 }}>
+              <Body weight="semi">Still yours from your last court</Body>
+              <Body tone="ink2" size={13}>Finish these and send their points: the old court&apos;s access ends for each once it is sent and finished.</Body>
+              {carries.flatMap((c) => c.matchIds.map((id) => ({ id, court: c.court }))).map((x) => (
+                <Button key={x.id} kind="ghost" label={`Open the ${x.court ?? "earlier"} match`} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: x.id } })} />
+              ))}
+            </Card>
+          )}
+          <SectionHeader title={court ? `${court}: today's matches` : "What are you scoring?"} />
           <View style={{ gap: 8 }}>
             {list.data?.tournaments.map((x) => (
               <Card key={x.id} onPress={() => router.push({ pathname: "/referee/[tournamentId]", params: { tournamentId: x.id } })} style={{ gap: 4 }}>

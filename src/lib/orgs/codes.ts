@@ -10,7 +10,7 @@
  * code that works, and a copy of the table alone cannot be searched for codes
  * offline without the pepper too.
  */
-import { createHmac, randomInt } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomInt } from "node:crypto";
 
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const CODE_LENGTH = 12;
@@ -58,4 +58,36 @@ export function hashEventCode(normalized: string, pepper = eventCodePepper()): s
 /** "K7QMW3XT9HRP" → "K7QM-W3XT-9HRP". */
 export function formatEventCode(code: string): string {
   return code.match(/.{1,4}/g)?.join("-") ?? code;
+}
+
+function sealKey(pepper: string): Buffer {
+  return createHmac("sha256", pepper).update("mb-event-code-seal:v1").digest();
+}
+
+/**
+ * Court codes only (migration 0034): the code sealed (AES-256-GCM, "v1.<iv>.<tag>.<body>")
+ * so the organiser can print the court's QR sheet again. Only this server can open it.
+ */
+export function sealEventCode(normalized: string, pepper = eventCodePepper()): string {
+  const iv = randomBytes(12);
+  const c = createCipheriv("aes-256-gcm", sealKey(pepper), iv);
+  const body = Buffer.concat([c.update(normalized, "utf8"), c.final()]);
+  return ["v1", iv.toString("base64url"), c.getAuthTag().toString("base64url"), body.toString("base64url")].join(".");
+}
+
+/** The sealed code (normalised), or null when it is not a seal made with this pepper. */
+export function openEventCode(sealed: string | null | undefined, pepper?: string): string | null {
+  if (!sealed) return null;
+  try {
+    const [v, iv, tag, body] = sealed.split(".");
+    if (v !== "v1" || !iv || !tag || !body) return null;
+    const authTag = Buffer.from(tag, "base64url");
+    if (authTag.length !== 16) return null;
+    const d = createDecipheriv("aes-256-gcm", sealKey(pepper ?? eventCodePepper()), Buffer.from(iv, "base64url"), { authTagLength: 16 });
+    d.setAuthTag(authTag);
+    const code = Buffer.concat([d.update(Buffer.from(body, "base64url")), d.final()]).toString("utf8");
+    return normalizeEventCode(code);
+  } catch {
+    return null;
+  }
 }

@@ -4,16 +4,19 @@ import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/d
 import { requireTournamentPage } from "@/lib/guard";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import AutoRefresh from "@/components/AutoRefresh";
+import { filterForCourt } from "@/lib/referee/courtList";
 
 export const dynamic = "force-dynamic";
 
 export default async function RefereeMatches({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   // Re-checked on every request: organisation, and an event code's tournament scope.
-  await requireTournamentPage(id, ["referee", "admin", "manager"], `/referee/tournaments/${id}/matches`);
+  const { staff } = await requireTournamentPage(id, ["referee", "admin", "manager"], `/referee/tournaments/${id}/matches`);
   const tournament = await getTournament(id);
   if (!tournament) notFound();
-  const [matches, teams, courts] = await Promise.all([getMatches(id), getTeams(id), getCourts(id)]);
+  const [all, teams, courts] = await Promise.all([getMatches(id), getTeams(id), getCourts(id)]);
+  // A court referee code (migration 0034): today's matches on its court only.
+  const matches = staff.scopeCourt ? filterForCourt(staff.scopeCourt, all, tournament.timezone || "Africa/Cairo") : all;
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
 

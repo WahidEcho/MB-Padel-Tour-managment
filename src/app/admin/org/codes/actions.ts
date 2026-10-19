@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { requireScopedPermission, requireStaffPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
@@ -83,4 +84,8 @@ export async function revokeEventCode(formData: FormData) {
     .is("revoked_at", null);
   await audit({ organization_id: staff.orgId, action: "EVENT_CODE_REVOKED", entity_type: "organization_code", entity_id: id });
   revalidatePath(PATH);
+  revalidatePath(`${PATH}/courts`);
+  // From the court codes page: back to that event's list.
+  const back = String(formData.get("back") ?? "");
+  if (/^\/admin\/org\/codes\/courts\?event=[0-9a-f-]{36}$/.test(back)) redirect(back);
 }

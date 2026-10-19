@@ -102,6 +102,9 @@ export async function clearSessionCookie() {
   // A __Host- cookie is only replaced by a Set-Cookie with the same Secure, path /.
   store.set(HOST_COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
   store.set(COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+  // A court switch's carry-over credential (src/lib/auth/staff.ts) ends with the session.
+  store.set("__Host-mb_carry", "", { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
+  store.set("mb_carry", "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
 
 // Permission matrix (spec §4.4). Manager has admin-level tournament ops.

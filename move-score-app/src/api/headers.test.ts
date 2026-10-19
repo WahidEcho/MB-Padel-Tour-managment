@@ -23,4 +23,11 @@ describe("credential headers", () => {
     expect(credentialHeaders("public", "/api/mobile/v1/discover", phone)).toEqual({ Accept: "application/json" });
     expect(credentialHeaders("public", "/api/matches/abc/state", phone)["X-Install-Token"]).toBe("inst.1.sig");
   });
+  it("sends an old court's carry-over token only on calls about one of its matches", () => {
+    const carries = [{ token: "carry-1", matchIds: ["m-old"] }];
+    expect(credentialHeaders("staff", "/api/matches/m-old/events", { ...phone, carries })["X-Staff-Carry"]).toBe("carry-1");
+    expect(credentialHeaders("staff", "/api/mobile/v1/referee/matches/m-old/bootstrap", { ...phone, carries })["X-Staff-Carry"]).toBe("carry-1");
+    expect(credentialHeaders("staff", "/api/matches/m-new/events", { ...phone, carries })["X-Staff-Carry"]).toBeUndefined();
+    expect(credentialHeaders("me", "/api/mobile/v1/me/matches/m-old/here", { ...phone, carries })["X-Staff-Carry"]).toBeUndefined();
+  });
 });

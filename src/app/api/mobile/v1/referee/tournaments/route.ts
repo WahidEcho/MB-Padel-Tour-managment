@@ -20,6 +20,8 @@ export async function GET() {
     .eq("organization_id", staff.orgId)
     .in("kind", ["tournament", "friendly_session"]);
   if (staff.scopeTournamentId) q = q.eq("id", staff.scopeTournamentId);
+  // A court referee code (migration 0034): only the events that have its court.
+  if (staff.scopeCourt) q = q.in("id", staff.scopeCourt.withCourt.length ? staff.scopeCourt.withCourt : ["00000000-0000-4000-8000-000000000000"]);
   const { data } = await q
     .in("status", ["active", "draft"])
     .order("created_at", { ascending: false })
@@ -34,5 +36,7 @@ export async function GET() {
       void kind;
       return rest;
     });
-  return NextResponse.json({ role, organization: { name: staff.orgName, slug: staff.orgSlug }, tournaments }, { headers: { "Cache-Control": "private, no-store" } });
+  // `court` is new (null for every other credential); 1.0.1 ignores it.
+  const court = staff.scopeCourt ? { name: staff.scopeCourt.name } : null;
+  return NextResponse.json({ role, organization: { name: staff.orgName, slug: staff.orgSlug }, court, tournaments }, { headers: { "Cache-Control": "private, no-store" } });
 }

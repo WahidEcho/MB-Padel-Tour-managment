@@ -232,3 +232,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Old-app compatibility: Move Score 1.0.1 (built from `0159033`) is in people's hands. `npm run e2e:old-app` (stand-in)
   replays its calls as it builds them (headers, bodies, referee queue batches) and checks every response against
   0159033's contract types. Keep it green before every deploy; never remove a response field or tighten a body 1.0.1 sends.
+- Court referee codes (migration `0034_court_codes`, not yet on the live project; apply before deploying): a referee code limited to one
+  physical court (`organization_codes.court_name` + `event_group_id` or `tournament_id`; sealed `code_sealed` so the QR sheet reprints).
+  Pure rules `src/lib/orgs/courtScope.ts` (today's list, "Show earlier days", carry-over lapse, `/r#<code>` link), server
+  `src/lib/orgs/courtCodes.ts`, reach in `principalReaches` (court codes reach their court's matches + their tournaments' lists only).
+  Admin Event codes → Court codes (`admin/org/codes/courts`), QR sheet `/qr/courts?event=`. The QR (`https://tour.mbeg.org/r#<code>`,
+  code in the #fragment) is a universal link (`/r` in AASA, Android `path: "/r"`); `/r` on the web never signs a browser in. Switching
+  courts is never blocked: `issueCarry` (staff.ts) returns a carry-over token (`m` match list in the code token; app header
+  `X-Staff-Carry`, web cookie `mb_carry`) for the old court's unsent/unfinished matches only. Gate: `npm run e2e:court-codes` (stand-in).

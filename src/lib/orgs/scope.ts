@@ -11,6 +11,7 @@ import { db } from "../supabase";
 import { isUuid } from "./roles";
 import type { StaffPrincipal } from "../auth/staff";
 import type { OrgPlayerSource } from "./personFields";
+import { carryStillReaches, courtReachesMatch, type CourtScope } from "./courtScope";
 
 export type EntityRef =
   | { tournament: string }
@@ -39,6 +40,17 @@ export interface EntityScope {
   tournamentId: string | null;
   /** tournaments.kind when the row is or hangs off a tournament. */
   kind: string | null;
+  /**
+   * What the ref named, for court codes: "tournament" (the row is the tournament
+   * itself), "match", or "other". Absent means "other".
+   */
+  ref?: "tournament" | "match" | "other";
+  /** A match's current court (ref "match" only). */
+  courtId?: string | null;
+  /** The match itself (ref "match" only): for carry-over credentials. */
+  matchId?: string;
+  matchStatus?: string | null;
+  matchEndedAt?: string | null;
 }
 
 async function one<T>(table: string, columns: string, id: string): Promise<T | null> {
@@ -54,10 +66,15 @@ async function tournamentScope(id: string | null | undefined): Promise<EntitySco
 
 /** The organisation (and tournament) a row belongs to; null when there is no such row. */
 export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null> {
-  if ("tournament" in ref) return tournamentScope(ref.tournament);
+  if ("tournament" in ref) {
+    const t = await tournamentScope(ref.tournament);
+    return t ? { ...t, ref: "tournament" } : null;
+  }
   if ("match" in ref) {
     if (!isUuid(ref.match)) return null;
-    return tournamentScope((await one<{ tournament_id: string }>("matches", "tournament_id", ref.match))?.tournament_id);
+    const m = await one<{ tournament_id: string; court_id: string | null; status: string; ended_at: string | null }>("matches", "tournament_id, court_id, status, ended_at", ref.match);
+    const t = await tournamentScope(m?.tournament_id);
+    return t ? { ...t, ref: "match", courtId: m?.court_id ?? null, matchId: ref.match, matchStatus: m?.status ?? null, matchEndedAt: m?.ended_at ?? null } : null;
   }
   if ("session" in ref) {
     if (!isUuid(ref.session)) return null;
@@ -108,11 +125,38 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
   return row ? { orgId: row.organization_id, tournamentId: row.tournament_id ?? null, kind: null } : null;
 }
 
-/** Whether a principal may reach a resolved row: same organisation, and inside a code's tournament scope. */
-export function principalReaches(staff: Pick<StaffPrincipal, "orgId" | "scopeTournamentId">, scope: EntityScope | null): scope is EntityScope {
+/**
+ * Whether a principal may reach a resolved row: same organisation, inside a code's
+ * tournament scope, and for a court code (migration 0034) only a match on its court
+ * right now, or one of its tournaments themselves (the match lists, which then show
+ * only the court's matches). Anything else a court code names is out of reach, so a
+ * court code refused on another court's match gets the same answer as a missing one.
+ */
+export function principalReaches(
+  staff: Pick<StaffPrincipal, "orgId" | "scopeTournamentId"> & { scopeCourt?: CourtScope | null; scopeMatchIds?: string[] | null },
+  scope: EntityScope | null,
+  nowMs = Date.now(),
+): scope is EntityScope {
   if (!scope || scope.orgId !== staff.orgId) return false;
+  // A carry-over credential (after switching courts): its listed matches only, while they last.
+  if (staff.scopeMatchIds) {
+    if (scope.ref !== "match" || !scope.matchId || !staff.scopeMatchIds.includes(scope.matchId)) return false;
+    if (!carryStillReaches({ status: scope.matchStatus, endedAt: scope.matchEndedAt }, nowMs)) return false;
+  }
   if (staff.scopeTournamentId && scope.tournamentId !== staff.scopeTournamentId) return false;
+  const court = staff.scopeCourt;
+  if (court) {
+    if (!scope.tournamentId || !court.tournamentIds.includes(scope.tournamentId)) return false;
+    if (scope.ref === "tournament") return true;
+    if (scope.ref === "match") return courtReachesMatch(court, { tournamentId: scope.tournamentId, courtId: scope.courtId });
+    return false;
+  }
   return true;
+}
+
+/** A code limited to part of the organisation (one tournament, or one court): no organisation-level work. */
+export function isScopedCode(staff: Pick<StaffPrincipal, "scopeTournamentId"> & { scopeCourt?: CourtScope | null; scopeMatchIds?: string[] | null }): boolean {
+  return Boolean(staff.scopeTournamentId || staff.scopeCourt || staff.scopeMatchIds);
 }
 
 /** The row's scope when the principal may reach it; null otherwise (not found and not yours alike). */

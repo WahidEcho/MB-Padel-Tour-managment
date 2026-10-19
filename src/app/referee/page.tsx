@@ -3,6 +3,7 @@ import { db } from "@/lib/supabase";
 import { requireStaff } from "@/lib/guard";
 import { orgTournamentIds } from "@/lib/orgs/scope";
 import type { FriendlySession, Tournament } from "@/lib/types";
+import CourtList from "./CourtList";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,16 @@ const SESSION_BADGE: Record<string, string> = {
   completed: "bg-border text-muted",
 };
 
+async function codeLabel(codeId: string | null, orgId: string): Promise<string | null> {
+  if (!codeId) return null;
+  const { data } = await db().from("organization_codes").select("label").eq("id", codeId).eq("organization_id", orgId).maybeSingle();
+  return (data as { label: string | null } | null)?.label ?? null;
+}
+
 export default async function RefereePicker() {
   const staff = await requireStaff(["referee", "admin", "manager"], "/referee");
+  // A court referee code (migration 0034): today's matches on its court, nothing else.
+  if (staff.scopeCourt) return <CourtList scope={staff.scopeCourt} label={await codeLabel(staff.codeId, staff.orgId)} />;
   // This organisation's only, and only the one tournament an event code is scoped to.
   let tq = db()
     .from("tournaments")

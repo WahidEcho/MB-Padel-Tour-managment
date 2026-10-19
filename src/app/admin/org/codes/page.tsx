@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/supabase";
 import { requireStaff } from "@/lib/guard";
 import { can } from "@/lib/auth";
@@ -13,6 +14,8 @@ interface CodeRow {
   role: string;
   label: string | null;
   tournament_id: string | null;
+  event_group_id: string | null;
+  court_name: string | null;
   expires_at: string | null;
   revoked_at: string | null;
   last_used_at: string | null;
@@ -35,7 +38,7 @@ export default async function EventCodesPage() {
   const [{ data: codeRows }, { data: tRows }] = await Promise.all([
     db()
       .from("organization_codes")
-      .select("id, role, label, tournament_id, expires_at, revoked_at, last_used_at, created_at")
+      .select("id, role, label, tournament_id, event_group_id, court_name, expires_at, revoked_at, last_used_at, created_at")
       .eq("organization_id", staff.orgId)
       .order("created_at", { ascending: false })
       .limit(200),
@@ -61,6 +64,10 @@ export default async function EventCodesPage() {
         Referees and screen operators sign in with a code instead of an account. A code can be limited to one event and
         can expire; revoking it signs out every phone and browser using it on their next request (points already scored
         on a phone stay queued until a new code is entered).
+      </p>
+      <p className="text-sm">
+        <Link href="/admin/org/codes/courts" className="btn-secondary text-xs" data-testid="court-codes-link">Court codes and QR sheets</Link>
+        <span className="ml-2 text-xs text-muted">One referee code per court: the referee sees and scores only that court&apos;s matches.</span>
       </p>
       <CodeForm tournaments={tournaments.map((t) => ({ id: t.id, name: `${t.name}${t.kind === "friendly_session" ? " (session)" : ""}` }))} />
       <p className="text-sm font-semibold" data-testid="codes-summary">
@@ -88,7 +95,10 @@ export default async function EventCodesPage() {
                     <span className="font-semibold">{c.role === "operator" ? "Screen operator" : "Referee"}</span>
                     {c.label && <span className="text-muted"> · {c.label}</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs">{c.tournament_id ? (nameOf.get(c.tournament_id) ?? "an earlier event") : "every event"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {c.court_name ? `${c.court_name} · ` : ""}
+                    {c.tournament_id ? (nameOf.get(c.tournament_id) ?? "an earlier event") : c.event_group_id ? "its event group" : "every event"}
+                  </td>
                   <td className="px-3 py-2 text-xs">{when(c.created_at)}</td>
                   <td className="px-3 py-2 text-xs">{c.expires_at ? when(c.expires_at) : "never"}</td>
                   <td className="px-3 py-2 text-xs">{when(c.last_used_at)}</td>

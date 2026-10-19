@@ -8,8 +8,9 @@ import { audit } from "@/lib/audit";
 import { authClient, authProviders } from "@/lib/auth/users";
 import { getAuthUser, signOutAuth } from "@/lib/auth/accounts";
 import { isValidEmail, normalizeEmail } from "@/lib/auth/password";
-import { currentStaff, finishStaffSignIn, setStaffCookie, signInWithAccessCode, STAFF_WEB_HOURS } from "@/lib/auth/staff";
+import { currentStaff, finishStaffSignIn, issueCarry, setCarryCookie, setStaffCookie, signInWithAccessCode, STAFF_WEB_HOURS } from "@/lib/auth/staff";
 import { LOGIN_ERRORS, safeNextPath, staffHome } from "@/lib/auth/staffRedirect";
+import PendingField from "./PendingField";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +19,15 @@ const withNext = (path: string, next: string | null) => (next ? `${path}${path.i
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ next?: string; error?: string; switch?: string }>;
 }) {
-  const { next: rawNext, error } = await searchParams;
+  const { next: rawNext, error, switch: switching } = await searchParams;
   const next = safeNextPath(rawNext);
   const signedIn = await currentStaff();
   // Coming from an invite (next=/invite), a signed-in person may sign in again as the invited address.
-  if (signedIn && next !== "/invite") redirect(next || staffHome(signedIn.role));
+  // A referee switching courts types the new court's code while still signed in (the old
+  // court's unsent or unfinished matches are carried over by the sign-in).
+  if (signedIn && next !== "/invite" && !(switching === "1" && signedIn.kind === "code")) redirect(next || staffHome(signedIn.role));
   const providers = await authProviders();
 
   /** An event code (referees, TV operators) or Move Beyond's shared role password. */
@@ -36,6 +39,10 @@ export default async function LoginPage({
     // Counted before it is checked (atomically); a right code is refunded (src/lib/staffLogin.ts).
     const gate = await staffLoginAttempt(ip, password);
     if (!gate.allowed) redirect(withNext("/login?error=2", nextUrl));
+    // Switching courts: this browser's unsent / unfinished matches stay reachable with the
+    // old court's code (a carry-over cookie), never new ones (src/lib/auth/staff.ts issueCarry).
+    const list = (k: string) => String(formData.get(k) ?? "").split(",").filter(Boolean).slice(0, 25);
+    const previous = await currentStaff();
     const r = await signInWithAccessCode(password, STAFF_WEB_HOURS);
     if (!r.ok) {
       if (r.reason === "unavailable") await gate.refund();
@@ -43,6 +50,7 @@ export default async function LoginPage({
     }
     await gate.refund();
     await setStaffCookie(r.token, STAFF_WEB_HOURS);
+    await setCarryCookie(await issueCarry(previous, r.reach, { pending: list("pending"), open: list("open") }));
     await audit({
       organization_id: r.orgId,
       actor_role: r.role,
@@ -138,6 +146,7 @@ export default async function LoginPage({
           <h2 className="text-sm font-bold">Referees and screen operators</h2>
           <p className="text-xs text-muted">Enter the event code your organiser gave you.</p>
           <input type="hidden" name="next" value={next ?? ""} />
+          <PendingField />
           <div>
             <label className="label" htmlFor="password">Event code</label>
             <input

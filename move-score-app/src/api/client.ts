@@ -28,7 +28,7 @@ export const errorMessage = (e: unknown) => (e instanceof ApiError ? e.message :
 async function headersFor(who: Who, path: string): Promise<Record<string, string>> {
   const s = session.get();
   const userToken = who === "me" && s.user ? await freshUserToken() : null;
-  return credentialHeaders(who, path, { installToken: s.installToken, userToken, staffToken: s.staff?.token ?? null });
+  return credentialHeaders(who, path, { installToken: s.installToken, userToken, staffToken: s.staff?.token ?? null, carries: s.staffCarry });
 }
 
 let installRejected: (() => Promise<void>) | null = null;

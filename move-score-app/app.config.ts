@@ -100,10 +100,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         action: "VIEW",
         autoVerify: true,
-        // /v/: the venue code; /m/: a match's check-in code.
+        // /v/: the venue code; /m/: a match's check-in code; /r: a court's referee QR
+        // (exactly "/r", so /register and the rest stay in the browser).
         data: LINK_HOSTS.flatMap((host) => [
           { scheme: "https", host, pathPrefix: "/v/" },
           { scheme: "https", host, pathPrefix: "/m/" },
+          { scheme: "https", host, path: "/r" },
         ]),
         category: ["BROWSABLE", "DEFAULT"],
       },

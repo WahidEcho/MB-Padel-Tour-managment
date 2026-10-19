@@ -35,9 +35,22 @@ export interface Session {
     expiresAt: number | null;
   } | null;
   staff: { role: string; token: string; expiresAt: string } | null;
+  /**
+   * After switching courts (court codes): the old court's carry-over tokens, each for
+   * the matches this phone still had unsent points or an unfinished match on. Sent
+   * only with calls about those matches; dropped once they are sent and finished.
+   */
+  staffCarry: StaffCarry[];
 }
 
-export const session = createStore<Session>({ ready: false, installationId: null, installToken: null, user: null, staff: null });
+export interface StaffCarry {
+  token: string;
+  matchIds: string[];
+  court: string | null;
+  expiresAt: string;
+}
+
+export const session = createStore<Session>({ ready: false, installationId: null, installToken: null, user: null, staff: null, staffCarry: [] });
 
 const freshInstallationId = () => `${Platform.OS}-${Crypto.randomUUID()}`;
 
@@ -47,7 +60,13 @@ export async function loadSession() {
     installationId = freshInstallationId();
     await setSecret("ms.install.id", installationId);
   }
-  const [installToken, user, staff] = await Promise.all([readSecret("ms.install.token"), readUserSecret(), readSecret("ms.staff")]);
+  const [installToken, user, staff, carry] = await Promise.all([readSecret("ms.install.token"), readUserSecret(), readSecret("ms.staff"), readSecret("ms.staff.carry")]);
+  let staffCarry: StaffCarry[] = [];
+  try {
+    staffCarry = carry ? (JSON.parse(carry) as StaffCarry[]).filter((c) => Date.parse(c.expiresAt) > Date.now()) : [];
+  } catch {
+    staffCarry = [];
+  }
   const staffParsed = staff ? (JSON.parse(staff) as Session["staff"]) : null;
   let savedUser: Session["user"] = null;
   try {
@@ -61,6 +80,7 @@ export async function loadSession() {
     installToken,
     user: savedUser,
     staff: staffParsed && Date.parse(staffParsed.expiresAt) > Date.now() ? staffParsed : null,
+    staffCarry,
   });
 }
 
@@ -124,4 +144,10 @@ export async function patchUser(userId: string, patch: Partial<NonNullable<Sessi
 export async function saveStaff(staff: Session["staff"]) {
   await setSecret("ms.staff", staff ? JSON.stringify(staff) : null);
   session.set((s) => ({ ...s, staff }));
+}
+
+export async function saveStaffCarry(staffCarry: StaffCarry[]) {
+  const live = staffCarry.filter((c) => c.matchIds.length && Date.parse(c.expiresAt) > Date.now()).slice(-3);
+  await setSecret("ms.staff.carry", live.length ? JSON.stringify(live) : null);
+  session.set((s) => ({ ...s, staffCarry: live }));
 }

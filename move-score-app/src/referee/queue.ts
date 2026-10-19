@@ -50,7 +50,12 @@ interface Backend {
   /** Drops the phone's copy of the match, so the phone no longer counts as scoring it. */
   forget(matchId: string): Promise<void>;
   matchesWithPending(): Promise<string[]>;
+  /** Matches this phone has a copy of that are not over (switching courts carries them over). */
+  unfinished(): Promise<string[]>;
 }
+
+const OVER = new Set(["completed", "walkover", "disqualified", "retired", "cancelled"]);
+const isOpen = (status: string, state: ScoreState | null) => !OVER.has(status) && !state?.matchOver;
 
 /** Runs each call after the one before has finished, whatever its outcome. */
 function serialize(b: Backend): Backend {
@@ -76,6 +81,7 @@ function serialize(b: Backend): Backend {
     saveMatch: one(b.saveMatch),
     forget: one(b.forget),
     matchesWithPending: one(b.matchesWithPending),
+    unfinished: one(b.unfinished),
   };
 }
 
@@ -215,6 +221,10 @@ function sqliteBackend(): Backend {
       const rows = await db.getAllAsync<{ match_id: string }>(`SELECT DISTINCT match_id FROM score_event_queue WHERE sync_status = 'pending'`);
       return rows.map((r) => r.match_id);
     },
+    async unfinished() {
+      const rows = await db.getAllAsync<{ match_id: string; state: string | null; match_status: string }>(`SELECT match_id, state, match_status FROM match_state`);
+      return rows.filter((r) => isOpen(r.match_status, r.state ? (JSON.parse(r.state) as ScoreState) : null)).map((r) => r.match_id);
+    },
   };
 }
 
@@ -263,6 +273,16 @@ function webBackend(): Backend {
     },
     async matchesWithPending() {
       return [...new Set(all().filter((e) => e.sync_status === "pending").map((e) => e.match_id))];
+    },
+    async unfinished() {
+      const out: string[] = [];
+      for (let i = 0; i < globalThis.localStorage.length; i++) {
+        const k = globalThis.localStorage.key(i);
+        if (!k?.startsWith("ms.m:")) continue;
+        const m = read<LocalMatch | null>(k, null);
+        if (m && isOpen(m.match_status, m.state)) out.push(m.match_id);
+      }
+      return out;
     },
   };
 }

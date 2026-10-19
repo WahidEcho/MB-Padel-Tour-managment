@@ -1,5 +1,5 @@
 import { db } from "./supabase";
-import { currentStaffIfAny, type StaffPrincipal } from "./auth/staff";
+import { currentStaffIfAny, principalForMatch, type StaffPrincipal } from "./auth/staff";
 import { orgOfTournament } from "./orgs/scope";
 
 /** Roles of flows no staff member performs (public forms, app users' own account routes). */
@@ -47,7 +47,12 @@ export async function audit(entry: {
   // routes) is never a staff action, even when the browser also carries a staff
   // cookie: no staff role, user or organisation is stamped on it.
   const publicFlow = PUBLIC_ACTORS.has(entry.actor_role ?? "");
-  const staff = publicFlow ? null : await currentStaffIfAny();
+  const signedIn = publicFlow ? null : await currentStaffIfAny();
+  // A match a carry-over credential acts on (the old court's code after switching courts): that code, not the new one.
+  const staff =
+    signedIn && entry.entity_type === "match" && entry.entity_id && /^[0-9a-f-]{36}$/i.test(entry.entity_id)
+      ? ((await principalForMatch(signedIn, entry.entity_id).catch(() => null)) ?? signedIn)
+      : signedIn;
   const explicitUser = typeof entry.actor_user_id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry.actor_user_id) ? entry.actor_user_id : null;
   const organizationId =
     entry.organization_id ?? (entry.tournament_id ? await orgOfTournament(entry.tournament_id).catch(() => null) : null) ?? staff?.orgId ?? null;

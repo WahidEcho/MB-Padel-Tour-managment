@@ -551,6 +551,47 @@ async function main() {
     const signedOut = await new OldPhone().api(`/api/mobile/v1/referee/tournaments/${tid}/matches`, { who: "staff" });
     check([401, 403].includes(signedOut.status) && typeof signedOut.json?.error === "string", "Without a token: 401 (1.0.1 handles 401 and 403 alike) with a message", signedOut.status);
 
+    section("A court referee code (migration 0034) typed by hand into 1.0.1");
+    {
+      const { data: c2 } = await db().from("courts").insert({ tournament_id: tid, court_name: "Court 2", court_order: 2 }).select("*").single();
+      const { data: other } = await db()
+        .from("matches")
+        .insert({ tournament_id: tid, stage: "group", round_name: "Group B", match_order: 9, court_id: c2!.id, team_a_id: egy.id, team_b_id: jpn.id, status: "scheduled" })
+        .select("id")
+        .single();
+      const courtCode = generateEventCode();
+      const { data: cc } = await db()
+        .from("organization_codes")
+        .insert({ organization_id: mb!.id, role: "referee", tournament_id: tid, court_name: "Court 1", code_hash: hashEventCode(courtCode), label: `e2e-old-court-${tag}` })
+        .select("id")
+        .single();
+      made.codes.push(cc!.id);
+      const courtRef = new OldPhone();
+      made.installs.push(courtRef.installationId);
+      courtRef.installToken = (await courtRef.register(null, false)).json?.installToken ?? null;
+      const typedCourt = `${courtCode.slice(0, 4)}-${courtCode.slice(4, 8)}-${courtCode.slice(8)}`;
+      const signed = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: typedCourt } });
+      check(signed.status === 200 && typeof signed.json?.token === "string" && signed.json.role === "referee" && typeof signed.json.expiresAt === "string", "A court code: { token, role: referee, expiresAt } as 1.0.1 reads it", signed.json && Object.keys(signed.json));
+      courtRef.staff = { token: signed.json?.token, role: signed.json?.role, expiresAt: signed.json?.expiresAt };
+      const cl = await courtRef.api("/api/mobile/v1/referee/tournaments", { who: "staff" });
+      const crow = cl.json?.tournaments?.[0];
+      check(cl.status === 200 && cl.json?.tournaments?.length === 1 && crow?.id === tid && ["id", "name", "sport", "status", "is_demo"].every((k) => k in crow), "Its referee list: only its court's tournament, with 1.0.1's fields", cl.json?.tournaments?.map((x: { id: string }) => x.id));
+      const cp = await courtRef.api(`/api/mobile/v1/referee/tournaments/${tid}/matches`, { who: "staff", headers: { "X-Device-Id": courtRef.installationId } });
+      const cms = (cp.json?.matches ?? []) as Record<string, unknown>[];
+      check(
+        cp.status === 200 && typeof cp.json?.tournament?.name === "string" && cms.length >= 2 && cms.every((x) => x.court === "Court 1") && !cms.some((x) => x.id === other!.id) && cms.every((x) => ["id", "order", "round", "court", "scheduledTime", "status", "tieId", "rubberType", "a", "b", "lineupsMissing", "heldBy"].every((k) => k in x)),
+        "Its picker: Court 1's matches only (the rubbers), every field the picker reads",
+        cms.map((x) => [x.court, x.rubberType]),
+      );
+      const theirs = await courtRef.api(`/api/mobile/v1/referee/matches/${other!.id}/bootstrap`, { who: "staff" });
+      check(theirs.status === 404 && typeof theirs.json?.error === "string", "Court 2's match: 404 with an error message 1.0.1 shows", theirs.status);
+      const padelList = await courtRef.api(`/api/mobile/v1/referee/tournaments/${pid}/matches`, { who: "staff" });
+      check(padelList.status === 404, "Another event's picker: 404", padelList.status);
+      // Out of the way of the sections after this one.
+      await db().from("matches").delete().eq("id", other!.id);
+      await db().from("courts").delete().eq("id", c2!.id);
+    }
+
     section("Scoring S1 with the shared password: claim, state poll, points, undo, finish, reopen, finish (useLease.ts, useConsole.ts, sync.ts)");
     const dev = ref.installationId;
     const boot = await ref.api(`/api/mobile/v1/referee/matches/${s1.id}/bootstrap`, { who: "staff" });

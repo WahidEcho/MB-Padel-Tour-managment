@@ -28,9 +28,22 @@ export const STAFF_WEB_HOURS = 24;
 export const STAFF_APP_HOURS = 24 * 7;
 const MAX_LIFETIME_MS = 8 * 24 * 3600_000;
 
+/** At most this many matches in a carry-over token (`m`). */
+export const MAX_CARRY_MATCHES = 25;
+
+/**
+ * Code tokens may carry, besides the code (`c`):
+ * - `m`: a carry-over token (court codes, migration 0034). After the referee
+ *   switched courts, the old court's code keeps reaching only these matches (the
+ *   ones the phone still had unsent points or an unfinished match on), never a
+ *   new one. Absent on every ordinary code token.
+ * - reserved for the referee PIN (planned): `p`, the signed-in referee's id, so the
+ *   server knows which referee is on which court. Not read or written yet; a token
+ *   with any unknown field is still verified on the fields it knows.
+ */
 export type StaffTokenPayload =
   | { v: 1; k: "m"; u: string; o: string; r: OrgRole; iat: number; exp: number }
-  | { v: 1; k: "c"; c: string; o: string; r: "referee" | "operator"; t: string | null; iat: number; exp: number };
+  | { v: 1; k: "c"; c: string; o: string; r: "referee" | "operator"; t: string | null; m?: string[]; iat: number; exp: number };
 
 /** The secret new staff tokens are signed with. Fails closed in production. */
 export function staffSecret(env: Record<string, string | undefined> = process.env): string {
@@ -81,6 +94,10 @@ export function verifyStaffToken(token: string | null | undefined, secret: strin
   if (p.k === "c") {
     if (!isUuid(p.c) || !isCodeRole(p.r)) return null;
     if (p.t !== null && !isUuid(p.t)) return null;
+    if (p.m !== undefined) {
+      if (!Array.isArray(p.m) || p.m.length === 0 || p.m.length > MAX_CARRY_MATCHES || !p.m.every((x) => isUuid(x))) return null;
+      return { v: 1, k: "c", c: p.c, o: p.o, r: p.r, t: p.t as string | null, m: p.m as string[], iat, exp };
+    }
     return { v: 1, k: "c", c: p.c, o: p.o, r: p.r, t: p.t as string | null, iat, exp };
   }
   return null;
