@@ -77,7 +77,12 @@ function rubberRows(
  * each tie with its three rubbers. Refused once the placement draws exist, for
  * the same reason a drawn bracket locks the padel group stage.
  */
-export async function generateGroupTies(tournamentId: string, actorRole: string): Promise<number> {
+/** What a draw did besides the ties: coach codes made for the event's teams (owner's decision, 20 Oct 2026). */
+export interface DrawReport {
+  coachCodesCreated?: number;
+}
+
+export async function generateGroupTies(tournamentId: string, actorRole: string, report?: DrawReport): Promise<number> {
   const tournament = await tournamentOf(tournamentId);
   const [{ data: groups }, { data: groupTeams }, { data: courts }, { data: teams }, placement] = await Promise.all([
     db().from("groups").select("*").eq("tournament_id", tournamentId).order("group_order"),
@@ -137,6 +142,13 @@ export async function generateGroupTies(tournamentId: string, actorRole: string)
     new_value: { ties: tieRows.length, rubbers: tieRows.length * 3 },
   });
   await recalcTieStandings(tournamentId);
+  // The draw is confirmed: every team of the event gets its coach code (idempotent; a team
+  // with a working code gets nothing). Never fails the draw.
+  if (tieRows.length) {
+    const { coachCodesOnDraw } = await import("../coaches/autoCodes");
+    const codes = await coachCodesOnDraw(tournamentId, actorRole);
+    if (report) report.coachCodesCreated = codes.created;
+  }
   return tieRows.length;
 }
 

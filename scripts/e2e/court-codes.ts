@@ -33,7 +33,7 @@ import { siteUrl } from "../../src/lib/messaging/links";
 import { eventDay } from "../../src/lib/matchday/eventDay";
 import { zonedToIso } from "../../src/lib/tennis/ties";
 import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
-import { BASE_URL, assertStandIn, bearer, check, cookie, finish, fixtures, http, lastEvent, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
+import { clearRequestCounters, BASE_URL, assertStandIn, bearer, check, cookie, finish, fixtures, http, lastEvent, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
 import { actionOk, callAction, form } from "./lib/actions";
 import { hashRefereePin } from "../../src/lib/referees/pin";
 
@@ -51,6 +51,8 @@ const shift = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`
 const at = (day: string, hhmm: string) => zonedToIso(`${day}T${hhmm}`, TZ)!;
 
 async function main() {
+  // Another script's failed sign-ins must not brake this one's (shared stand-in).
+  await clearRequestCounters();
   const { data: mb } = await db().from("organizations").select("id").eq("slug", MOVE_BEYOND_SLUG).single();
   const MB = (mb as { id: string }).id;
   const ADMIN = staff("admin");
@@ -126,6 +128,14 @@ async function main() {
   const sheet = await http("GET", `/qr/courts?event=${GIRLS}`, ADMIN);
   check(sheet.status === 200 && (sheet.text.match(/data-testid="court-sheet-page"/g) ?? []).length === 3 && sheet.text.includes(C1.code) && sheet.text.includes("<svg"), "the QR sheet: one page per court, a QR and the code in text", sheet.status);
   check(/no-store|private/.test(sheet.cache ?? "") || sheet.cache === null || /no-cache/.test(sheet.cache ?? ""), "the sheet is not cached publicly", sheet.cache);
+  check(sheet.text.includes('data-testid="brand-band"') && sheet.text.includes("/email/move-score-lockup@2x.png") && sheet.text.includes("/brand/move-beyond-logo-white.png") && sheet.text.includes("Move Score by Move Beyond · tour.mbeg.org") && (sheet.text.match(/data-testid="brand-foot"/g) ?? []).length === 3, "the QR sheet is branded on every page: Move Score and Move Beyond logos, the event, the footer line", null);
+  const share = await fetch(`${BASE_URL}/qr/courts/share?event=${GIRLS}&court=${encodeURIComponent("Court 1")}`, { headers: ADMIN });
+  const shareBytes = Buffer.from(await share.arrayBuffer());
+  check(share.status === 200 && share.headers.get("content-type") === "image/png" && shareBytes.subarray(1, 4).toString() === "PNG" && shareBytes.readUInt32BE(16) === 1080 && shareBytes.readUInt32BE(20) === 1350 && /no-store/.test(share.headers.get("cache-control") ?? ""), "Share: Court 1's QR card as a branded PNG, 1080×1350, private", [share.status, share.headers.get("content-type")]);
+  if (process.env.BRAND_OUT) (await import("node:fs")).writeFileSync(`${process.env.BRAND_OUT}/court-share.png`, shareBytes);
+  const shareNo = await http("GET", `/qr/courts/share?event=${GIRLS}&court=Court%2099`, ADMIN);
+  const shareRef = await http("GET", `/qr/courts/share?event=${GIRLS}&court=Court%201`, staff("referee"));
+  check(shareNo.status === 404 && [401, 403].includes(shareRef.status), "Share: a court without a code 404; a referee is refused", [shareNo.status, shareRef.status]);
   const sheetRef = await http("GET", `/qr/courts?event=${GIRLS}`, staff("referee"));
   check(sheetRef.status !== 200 || !sheetRef.text.includes(C1.code), "a referee cannot open the QR sheet", sheetRef.status);
   // The server's PUBLIC_SITE_URL (the gates start it with http://localhost:3077), else tour.mbeg.org.

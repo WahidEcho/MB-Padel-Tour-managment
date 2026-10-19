@@ -6,20 +6,10 @@ import { db } from "@/lib/supabase";
 import { requireScopedPermission, requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { courtCodeEvent } from "@/lib/orgs/courtCodes";
-import { zonedToIso } from "@/lib/tennis/ties";
-import { coachCodeWorks, coachCodesOf, coachEventTeams, endCoachSessionsOf, newCoachCodeRow } from "@/lib/coaches/server";
+import { endCoachSessionsOf, newCoachCodeRow } from "@/lib/coaches/server";
+import { coachCodeExpiry, ensureCoachCodes } from "@/lib/coaches/autoCodes";
 
 const PATH = "/admin/org/coaches";
-
-/** Without dates on the event, a coach code still ends by itself: two weeks after it is made. */
-const NO_DATES_DAYS = 14;
-
-/** When a team's code stops working: the end of its own event's last day (Cairo), else two weeks from now. */
-function eventEnd(row: { ends_on: string | null; starts_on: string | null } | undefined, now = Date.now()): string {
-  const day = row?.ends_on ?? row?.starts_on ?? null;
-  const at = day ? zonedToIso(`${day}T23:59`) : null;
-  return at && Date.parse(at) > now ? at : new Date(now + NO_DATES_DAYS * 86_400_000).toISOString();
-}
 
 /**
  * One click: a coach code for every team of the event (both events of its group) that has
@@ -33,32 +23,9 @@ export async function createCoachCodesAction(formData: FormData) {
   const { staff } = await requireTournamentPermission("manage_coaches", tournamentId);
   const ev = await courtCodeEvent(staff.orgId, tournamentId);
   if (!ev) throw new Error("Not found");
-  const [teams, existing, { data: dates }] = await Promise.all([
-    coachEventTeams(ev),
-    coachCodesOf(staff.orgId, ev),
-    db().from("tournaments").select("id, ends_on, starts_on").eq("organization_id", staff.orgId).in("id", ev.tournaments.map((t) => t.id)),
-  ]);
-  const dateOf = new Map(((dates ?? []) as { id: string; ends_on: string | null; starts_on: string | null }[]).map((d) => [d.id, d]));
-  const nameOf = new Map(ev.tournaments.map((t) => [t.id, t.name]));
-  const covered = new Set(existing.filter((c) => coachCodeWorks(c)).map((c) => c.team_id));
-  // An expired code that was never revoked still holds its team's one slot: revoke it first.
-  const stale = existing.filter((c) => !c.revoked_at && !coachCodeWorks(c)).map((c) => c.id);
-  if (stale.length) await db().from("coach_codes").update({ revoked_at: new Date().toISOString() }).eq("organization_id", staff.orgId).in("id", stale);
-  const rows = teams
-    .filter((t) => t.team_status !== "withdrawn" && !covered.has(t.id))
-    .map((t) =>
-      newCoachCodeRow({ orgId: staff.orgId, team: t, eventName: nameOf.get(t.tournament_id) ?? ev.title, expiresAt: eventEnd(dateOf.get(t.tournament_id)), createdBy: staff.userId, createdByRole: staff.orgRole }).row,
-    );
-  if (rows.length) {
-    const { data, error } = await db().from("coach_codes").insert(rows.map((r) => ({ ...r, organization_id: staff.orgId }))).select("id, tournament_id, team_id, expires_at");
-    if (error) throw new Error("Could not create the coach codes. Try again.");
-    for (const r of (data ?? []) as { id: string; tournament_id: string; team_id: string; expires_at: string | null }[]) {
-      // Never the code itself: which team, and until when.
-      await audit({ organization_id: staff.orgId, tournament_id: r.tournament_id, action: "COACH_CODE_CREATED", entity_type: "coach_code", entity_id: r.id, new_value: { team_id: r.team_id, expires_at: r.expires_at } });
-    }
-  }
+  const made = await ensureCoachCodes({ orgId: staff.orgId, tournamentIds: ev.tournaments.map((t) => t.id), createdBy: staff.userId, createdByRole: staff.orgRole, via: "button" });
   revalidatePath(PATH);
-  redirect(`${PATH}?event=${ev.tournamentId}&made=${rows.length}`);
+  redirect(`${PATH}?event=${ev.tournamentId}&made=${made.created}`);
 }
 
 /**
@@ -78,7 +45,7 @@ export async function regenerateCoachCodeAction(formData: FormData) {
   const { data: t } = await db().from("tournaments").select("id, name, ends_on, starts_on").eq("id", old.tournament_id).eq("organization_id", staff.orgId).maybeSingle();
   if (!team || !t) throw new Error("Not found");
   const tr = t as { name: string; ends_on: string | null; starts_on: string | null };
-  const expiresAt = old.expires_at && Date.parse(old.expires_at) > Date.now() ? old.expires_at : eventEnd(tr);
+  const expiresAt = old.expires_at && Date.parse(old.expires_at) > Date.now() ? old.expires_at : coachCodeExpiry(tr);
   const { row } = newCoachCodeRow({ orgId: staff.orgId, team: team as { id: string; tournament_id: string; team_name: string }, eventName: tr.name, expiresAt, createdBy: staff.userId, createdByRole: staff.orgRole });
   const { data: made, error } = await db().from("coach_codes").insert({ ...row, organization_id: staff.orgId }).select("id").single();
   if (error || !made) throw new Error("Could not make the new code. Try again.");

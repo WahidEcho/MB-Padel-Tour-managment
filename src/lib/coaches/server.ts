@@ -409,7 +409,7 @@ async function names(tournamentId: string, playerIds: string[]): Promise<Names> 
 const playerList = (ids: string[] | null | undefined, n: Names, teamId: string | null): MCoachPlayer[] =>
   (ids ?? []).map((id) => n.players.get(id)).filter((p): p is { id: string; full_name: string; team_id: string } => Boolean(p) && p!.team_id === teamId).map((p) => ({ id: p.id, name: p.full_name }));
 
-function rubberView(r: RubberRow, side: CoachSide, teamId: string, n: Names, snap: MatchSnapshot | null): MCoachRubber {
+function rubberView(r: RubberRow, side: CoachSide, teamId: string, n: Names, snap: MatchSnapshot | null, lineupConfirmed: boolean): MCoachRubber {
   const oursIds = side === "A" ? r.team_a_player_ids : r.team_b_player_ids;
   const theirIds = side === "A" ? r.team_b_player_ids : r.team_a_player_ids;
   const theirTeam = side === "A" ? r.team_b_id : r.team_a_id;
@@ -424,7 +424,7 @@ function rubberView(r: RubberRow, side: CoachSide, teamId: string, n: Names, sna
     startedAt: r.started_at,
     endedAt: r.ended_at,
     ours: playerList(oursIds, n, teamId),
-    theirs: opponentsShown(r.status) ? playerList(theirIds, n, theirTeam) : null,
+    theirs: opponentsShown(r.status, lineupConfirmed) ? playerList(theirIds, n, theirTeam) : null,
     score: orientScore(toScore(r, snap), side),
     result: resultFor(teamId, r.winner_team_id),
   };
@@ -453,7 +453,7 @@ function tieView(t: TieRow, teamId: string, rubbers: RubberRow[], n: Names, snap
     placesTo: t.places_to,
     lineupLocked: Boolean(t.lineup_locked_at),
     lineupEntered: own.length > 0 && singlesNamed,
-    rubbers: own.map((r) => rubberView(r, side, teamId, n, snaps.get(r.id) ?? null)),
+    rubbers: own.map((r) => rubberView(r, side, teamId, n, snaps.get(r.id) ?? null, Boolean(t.lineup_locked_at))),
   };
 }
 
@@ -571,7 +571,12 @@ export async function coachMatch(coach: CoachPrincipal, matchId: string): Promis
   if (!r || !coachReaches(coach.teamId, r)) return null;
   const side = coachSideOf(coach.teamId, r)!;
   const ids = [...(r.team_a_player_ids ?? []), ...(r.team_b_player_ids ?? [])];
-  const [n, snaps, { loadMatchLog }] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor([r.id]), import("../scoring/matchLogServer")]);
+  const [n, snaps, { loadMatchLog }, tie] = await Promise.all([
+    names(coach.tournamentId, ids),
+    snapshotsFor([r.id]),
+    import("../scoring/matchLogServer"),
+    r.tie_id ? db().from("ties").select("lineup_locked_at").eq("id", r.tie_id).eq("tournament_id", coach.tournamentId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
   const log = await loadMatchLog(r.id);
   const oppId = side === "A" ? r.team_b_id : r.team_a_id;
   const opp = oppId ? n.teams.get(oppId) : undefined;
@@ -579,7 +584,7 @@ export async function coachMatch(coach: CoachPrincipal, matchId: string): Promis
     tieId: r.tie_id,
     team: coach.team,
     opponent: opp ? toRef(opp) : null,
-    rubber: rubberView(r, side, coach.teamId, n, snaps.get(r.id) ?? null),
+    rubber: rubberView(r, side, coach.teamId, n, snaps.get(r.id) ?? null, Boolean((tie.data as { lineup_locked_at: string | null } | null)?.lineup_locked_at)),
     // Who entered each event (a referee's name) is staff-only: never in a coach's log.
     log: (log?.entries ?? []).filter((e) => !e.superseded).map((e) => ({ n: e.n, at: e.at, title: e.title, detail: e.detail, tag: e.tag, chip: e.chip, set: e.set, undone: e.undone })),
   };

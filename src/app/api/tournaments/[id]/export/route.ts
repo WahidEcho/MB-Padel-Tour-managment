@@ -19,6 +19,8 @@ import { db } from "@/lib/supabase";
 import { podiumFromMatches } from "@/components/WinnerDisplay";
 import { podiumDepthFor } from "@/lib/bracket";
 import { audit, slugify } from "@/lib/audit";
+import { loadEventBrand } from "@/lib/brand/server";
+import { brandImages, brandSheet, brandWorkbook } from "@/lib/brand/excel";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -45,7 +47,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const teamName = (teamId: string | null) => (teamId ? tm.get(teamId)?.team_name ?? "?" : "TBD");
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Move Beyond Tournament Management";
+  const brand = await loadEventBrand(id);
+  brandWorkbook(wb, brand);
 
   const summary = wb.addWorksheet("Tournament Summary");
   // One podium per bracket: a Cup and a Plate each crown their own champion.
@@ -195,11 +198,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     ]);
   }
 
+  // Branded: the band with the logos, the event's name, the footer line, a coloured
+  // header row frozen under it (the summary and final results have no header row).
+  const images = await brandImages(wb, brand);
   for (const ws of wb.worksheets) {
-    ws.getRow(1).font = { bold: true };
     ws.columns.forEach((col) => {
       if (!col.width) col.width = 18;
     });
+    const plain = ws === summary || ws === finalSheet;
+    if (!plain) ws.getRow(1).font = { bold: true };
+    brandSheet(ws, brand, images, { title: ws.name, columns: Math.max(ws.columnCount, 4), headerRow: !plain });
   }
 
   await audit({ tournament_id: id, actor_role: role, action: "EXCEL_EXPORTED" });

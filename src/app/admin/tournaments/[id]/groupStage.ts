@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { decodeBracketFingerprint, type BracketFingerprint, type BracketSummary } from "@/lib/bracket";
 import { regenerateGroupStage } from "@/lib/ops";
+import { coachCodesNotice } from "@/lib/coaches/autoCodes";
 
 /**
  * What the regenerate forms show after a submit.
@@ -61,9 +62,10 @@ export async function runGroupStageRegeneration(
     result.bracketsDeleted > 0
       ? ` Deleted ${result.bracketsDeleted === 1 ? "the bracket" : `${result.bracketsDeleted} brackets`} and ${result.knockoutMatchesDeleted} knockout match${result.knockoutMatchesDeleted === 1 ? "" : "es"}.`
       : "";
+  const coaches = coachCodesNotice(result.coachCodesCreated ?? 0);
   return {
     ok: true,
-    message: `Generated ${result.matchesCreated} group matches.${deleted} Standings were recalculated.`,
+    message: `Generated ${result.matchesCreated} group matches.${deleted} Standings were recalculated.${coaches ? ` ${coaches} (Admin → Team coaches).` : ""}`,
   };
 }
 

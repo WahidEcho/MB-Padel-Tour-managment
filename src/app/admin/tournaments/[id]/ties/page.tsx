@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireTournamentPage } from "@/lib/guard";
 import { getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
 import { scoreSummary, type ScoreState } from "@/lib/scoring/engine";
@@ -9,6 +10,7 @@ import SessionRowNotice from "../SessionRowNotice";
 import LineupSheet from "@/components/lineups/LineupSheet";
 import { eventDay } from "@/lib/matchday/eventDay";
 import { generateTiesAction } from "./actions";
+import { coachCodesNotice } from "@/lib/coaches/autoCodes";
 import { DelayForm, LineupForm, LockForm, PlacementControls, ScheduleForm } from "./TieForms";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +21,10 @@ const STATUS: Record<Tie["status"], [string, string]> = {
   completed: ["Final", "bg-success/15 text-success"],
 };
 
-export default async function TiesPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TiesPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ coachCodes?: string }> }) {
   const { id } = await params;
+  const madeCodes = Math.max(0, Math.min(500, Number((await searchParams).coachCodes) || 0));
+  const codesNotice = coachCodesNotice(madeCodes);
   // Re-checked on every request: the staff member's organisation must own this tournament.
   await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/ties`);
   const tournament = await getTournament(id);
@@ -182,6 +186,15 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
           </form>
         )}
       </div>
+      {codesNotice && (
+        <p className="card flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-success" data-testid="coach-codes-notice">
+          <span>{codesNotice}.</span>
+          <span className="flex gap-2">
+            <Link href={`/qr/coaches?event=${id}`} target="_blank" className="btn-primary text-xs" data-testid="coach-codes-print">Print the cards</Link>
+            <Link href={`/admin/org/coaches?event=${id}`} className="btn-secondary text-xs">Team coaches</Link>
+          </span>
+        </p>
+      )}
       {groups.length === 0 && <p className="text-sm text-muted">Draw the nations into groups first, on the Groups page.</p>}
       {ties.some((x) => x.status !== "completed") && <LineupSheet tournamentId={id} defaultDay={eventDay(EVENT_TIME_ZONE)} />}
       {ties.some((x) => x.status !== "completed") && (

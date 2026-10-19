@@ -1,11 +1,12 @@
 /**
  * National team coach access (migration 0037), end to end on the stand-in: two tie events
  * of one event group (the Junior Finals' shape: boys and girls, Egypt in both), and
- *   - the admin makes a code for every team of both events in one click (a manager cannot),
+ *   - confirming the draw (generating the group ties) makes a code for every team, once; the
+ *     admin's button makes none after it (a manager cannot), cards and share PNGs are branded,
  *     the Team coaches page lists them, the printable cards carry a QR of /c#<code>;
  *   - the coach of Egypt boys signs in on two phones (and the web) with the same code and
  *     sees only Egypt boys: its group table, its ties with court and time, its own line-up
- *     once entered, the opponents' players only once a rubber starts, live score and match
+ *     once entered, the opponents' players once the line-ups are confirmed (not before), live score and match
  *     log of its own rubbers without referee names, the players' schedule;
  *   - another team's tie / rubber / line-up / log answers 404 exactly like a missing one;
  *     every staff route (referee lists, scoring, line-ups, assistance, match log, admin)
@@ -28,7 +29,7 @@ import { awardPoint, initialScoreState, type TeamKey } from "../../src/lib/scori
 import { scoringConfigForMatch } from "../../src/lib/scoring/rules";
 import { finalizeMatch, upsertSnapshotFromState } from "../../src/lib/ops";
 import { getTournament } from "../../src/lib/data";
-import { generateGroupTies, getTies, scheduleTie, setLineup } from "../../src/lib/tennis/tieOps";
+import { generateGroupTies, getTies, lockLineups, scheduleTie, setLineup, type DrawReport } from "../../src/lib/tennis/tieOps";
 import { formatEventCode, hashEventCode, openEventCode } from "../../src/lib/orgs/codes";
 import { coachLink, parseCoachLink } from "../../src/lib/coaches/rules";
 import { mintInstallToken } from "../../src/lib/mobile/identity";
@@ -36,7 +37,7 @@ import { eventDay } from "../../src/lib/matchday/eventDay";
 import { zonedToIso } from "../../src/lib/tennis/ties";
 import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
 import { DEFAULT_TENNIS_SCORING_CONFIG, type Match, type Tie } from "../../src/lib/types";
-import { BASE_URL, assertStandIn, bearer, check, eventually, finish, fixtures, http, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
+import { clearRequestCounters, BASE_URL, assertStandIn, bearer, check, eventually, finish, fixtures, http, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
 import { actionOk, callAction, form } from "./lib/actions";
 
 assertStandIn("coaches");
@@ -65,7 +66,11 @@ async function finishDirect(m: Match, winner: TeamKey) {
   await finalizeMatch(m, { status: "completed", winnerTeamId: winner === "A" ? m.team_a_id! : m.team_b_id!, actorRole: "e2e" });
 }
 
+const webAfter0 = (r: { status: number; text: string }, name: string) => r.status === 200 && r.text.includes(name);
+
 async function main() {
+  // Another script's failed sign-ins must not brake this one's (shared stand-in).
+  await clearRequestCounters();
   const { data: mb } = await db().from("organizations").select("id").eq("slug", MOVE_BEYOND_SLUG).single();
   const MB = (mb as { id: string }).id;
   const ADMIN = staff("admin");
@@ -94,8 +99,30 @@ async function main() {
   const gt = await setUp(GIRLS, ["Egypt", "France", "India", "Peru"], ["EGY", "FRA", "IND", "PER"], "g");
   const EGYB = bt[0];
   const EGYG = gt[0];
+  /* ---------------- the draw makes the codes ---------------- */
+  section("Confirming the draw makes a coach code for every team (once)");
+  const mgr = await callAction(ACTIONS, "createCoachCodesAction", [form({ tournament_id: BOYS })], staff("manager"));
+  const { count: none } = await db().from("coach_codes").select("id", { count: "exact", head: true }).in("tournament_id", [BOYS, GIRLS]);
+  check(!actionOk(mgr) && none === 0, "a manager cannot make coach codes (admins only); none before the draw", mgr.status);
+  const rb: DrawReport = {};
+  const rg: DrawReport = {};
+  await generateGroupTies(BOYS, "e2e", rb);
+  await generateGroupTies(GIRLS, "e2e", rg);
+  const countCodes = async () => (await db().from("coach_codes").select("id", { count: "exact", head: true }).in("tournament_id", [BOYS, GIRLS]).is("revoked_at", null)).count ?? 0;
+  check(rb.coachCodesCreated === 4 && rg.coachCodesCreated === 4 && (await countCodes()) === 8, "generating each event's group ties makes a code for each of its four teams (8)", [rb.coachCodesCreated, rg.coachCodesCreated]);
+  const again0: DrawReport = {};
+  await generateGroupTies(BOYS, "e2e", again0);
+  check(again0.coachCodesCreated === 0 && (await countCodes()) === 8, "confirming the boys' draw again makes none (never a second live code)", again0.coachCodesCreated);
+  // A team added later gets its code when the ties are generated again: here through the admin's own button on the Ties page.
+  const late = await f.teams(BOYS, [`Late ${tag}`], 4);
+  const viaPage = await callAction("src/app/admin/tournaments/[id]/ties/actions.ts", "generateTiesAction", [form({ tournament_id: BOYS })], ADMIN, { id: BOYS });
+  const { count: lateCodes } = await db().from("coach_codes").select("id", { count: "exact", head: true }).eq("team_id", late.teams[0].id).is("revoked_at", null);
+  check((viaPage.status === 303 || viaPage.status === 200) && lateCodes === 1 && (await countCodes()) === 9 && /coachCodes=1/.test(viaPage.redirect ?? viaPage.text), "the Ties page's Generate makes one code for the team added later and says so", [viaPage.status, viaPage.redirect, lateCodes]);
+  const notice = await http("GET", `/admin/tournaments/${BOYS}/ties?coachCodes=16`, ADMIN);
+  check(notice.status === 200 && notice.text.includes('data-testid="coach-codes-notice"') && notice.text.includes("Coach codes created for 16 teams — print the cards") && notice.text.includes(`/qr/coaches?event=${BOYS}`), "the admin sees “Coach codes created for 16 teams — print the cards” with a link to the cards", notice.status);
+  await db().from("teams").delete().eq("id", late.teams[0].id);
   await generateGroupTies(BOYS, "e2e");
-  await generateGroupTies(GIRLS, "e2e");
+  check((await countCodes()) === 8, "the late team removed: eight codes again (its code went with it)");
   const ties = await getTies(BOYS);
   const egyTies = ties.filter((t) => t.team_a_id === EGYB.id || t.team_b_id === EGYB.id);
   const otherTie = ties.find((t) => t.team_a_id !== EGYB.id && t.team_b_id !== EGYB.id)!;
@@ -105,12 +132,9 @@ async function main() {
   const rubbersOf = async (tie: Pick<Tie, "id">) => ((await db().from("matches").select("*").eq("tie_id", tie.id).order("rubber_no")).data ?? []) as Match[];
 
   /* ---------------- the admin: one click, a list, the cards ---------------- */
-  section("Admin: a code for every team (both events), the list, the cards");
-  const mgr = await callAction(ACTIONS, "createCoachCodesAction", [form({ tournament_id: BOYS })], staff("manager"));
-  const { count: none } = await db().from("coach_codes").select("id", { count: "exact", head: true }).in("tournament_id", [BOYS, GIRLS]);
-  check(!actionOk(mgr) && none === 0, "a manager cannot make coach codes (admins only)", mgr.status);
+  section("Admin: the button covers both events (nothing new to make), the list, the cards");
   const mk = await callAction(ACTIONS, "createCoachCodesAction", [form({ tournament_id: BOYS })], ADMIN);
-  check(actionOk(mk), "createCoachCodesAction answers", `${mk.status} ${mk.text.slice(0, 200)}`);
+  check(actionOk(mk) && /made=0/.test(mk.redirect ?? mk.text), "\"Create a code for every team\" after the draw: nothing to make", `${mk.status} ${mk.redirect}`);
   const { data: codeRows } = await db().from("coach_codes").select("id, team_id, tournament_id, label, code_sealed, code_hash, expires_at").in("tournament_id", [BOYS, GIRLS]);
   const codes = (codeRows ?? []) as { id: string; team_id: string; tournament_id: string; label: string; code_sealed: string; code_hash: string; expires_at: string }[];
   check(codes.length === 8 && new Set(codes.map((c) => c.team_id)).size === 8, "one code per team, eight teams over both events", codes.length);
@@ -136,6 +160,28 @@ async function main() {
   check((one.text.match(/data-testid="coach-card"/g) ?? []).length === 1 && one.text.includes(CG.code), "one team's card on its own", one.status);
   const refCards = await http("GET", `/qr/coaches?event=${BOYS}`, staff("referee"));
   check(!refCards.text.includes(CB.code), "a referee cannot open the cards", refCards.status);
+  check(cards.text.includes('data-testid="brand-band"') && cards.text.includes("/email/move-score-lockup@2x.png") && cards.text.includes("/brand/move-beyond-logo-white.png") && cards.text.includes("Move Score by Move Beyond · tour.mbeg.org") && cards.text.includes(`E2E Junior Finals ${tag}`), "the cards are branded: Move Score and Move Beyond logos, the event's name, the footer line", null);
+  await db().from("tournaments").update({ branding_config: { sponsors: [{ name: "E2E Sponsor", logoUrl: "https://example.com/e2e-sponsor.png" }] }, app_skin: { seedA: "#c8102e" } }).eq("id", GIRLS);
+  const sponsored = await http("GET", `/qr/coaches?event=${GIRLS}&team=${EGYG.id}`, ADMIN);
+  check(sponsored.text.includes('data-testid="brand-sponsors"') && sponsored.text.includes("https://example.com/e2e-sponsor.png") && /#c8102e/i.test(sponsored.text), "an event's sponsors (small, at the foot) and colour on its cards", null);
+  const png = await fetch(`${BASE_URL}/qr/coaches/share?event=${BOYS}&team=${EGYB.id}`, { headers: ADMIN });
+  const pngBytes = Buffer.from(await png.arrayBuffer());
+  const pngW = pngBytes.length > 24 ? pngBytes.readUInt32BE(16) : 0;
+  const pngH = pngBytes.length > 24 ? pngBytes.readUInt32BE(20) : 0;
+  check(png.status === 200 && png.headers.get("content-type") === "image/png" && pngBytes.subarray(1, 4).toString() === "PNG" && pngW === 1080 && pngH === 1350 && /no-store/.test(png.headers.get("cache-control") ?? "") && /attachment; filename="coach-card-/.test(png.headers.get("content-disposition") ?? ""), "Share: the team's card as a branded PNG, 1080×1350, private", [png.status, png.headers.get("content-type"), pngW, pngH, png.headers.get("cache-control")]);
+  if (process.env.BRAND_OUT) (await import("node:fs")).writeFileSync(`${process.env.BRAND_OUT}/coach-share.png`, pngBytes);
+  const pngOther = await http("GET", `/qr/coaches/share?event=${BOYS}&team=${randomUUID()}`, ADMIN);
+  const pngMgr = await http("GET", `/qr/coaches/share?event=${BOYS}&team=${EGYB.id}`, staff("manager"));
+  const pngRef = await http("GET", `/qr/coaches/share?event=${BOYS}&team=${EGYB.id}`, staff("referee"));
+  const pngNone = await http("GET", `/qr/coaches/share?event=${BOYS}&team=${EGYB.id}`);
+  check(pngOther.status === 404 && [401, 403].includes(pngMgr.status) && [401, 403].includes(pngRef.status) && pngNone.status === 401, "Share: an unknown team 404; a manager, a referee and nobody are refused", [pngOther.status, pngMgr.status, pngRef.status, pngNone.status]);
+  const xlsx = await fetch(`${BASE_URL}/api/tournaments/${BOYS}/export`, { headers: ADMIN });
+  const { default: ExcelJS } = await import("exceljs");
+  const xwb = new ExcelJS.Workbook();
+  await xwb.xlsx.load(await xlsx.arrayBuffer());
+  const teamsWs = xwb.getWorksheet("Teams")!;
+  check(xlsx.status === 200 && String(teamsWs.getRow(2).getCell(1).value).includes(`E2E Junior Finals ${tag}`) && String(teamsWs.getRow(3).getCell(1).value).includes("Move Score by Move Beyond · tour.mbeg.org") && String(teamsWs.getRow(4).getCell(1).value) === "Team" && teamsWs.getImages().length >= 2 && teamsWs.views[0]?.state === "frozen", "the tournament workbook is branded: logos, the event, the footer line, the header row frozen under them", [xlsx.status, teamsWs.getImages().length]);
+  if (process.env.BRAND_OUT) (await import("node:fs")).writeFileSync(`${process.env.BRAND_OUT}/tournament-export.xlsx`, Buffer.from(await xwb.xlsx.writeBuffer()));
   check(parseCoachLink(coachLink(BASE_URL, CB.code)) === CB.code && new URL(coachLink(BASE_URL, CB.code)).pathname === "/c", "the card's QR is <site>/c#<code>");
 
   /* ---------------- signing in: two phones and the web, one code ---------------- */
@@ -191,13 +237,34 @@ async function main() {
   check(v.group?.rows.length === 4 && v.group.rows.some((r) => r.teamId === EGYB.id), "the group table (four teams)", v.group?.rows.length);
   const t1 = v.ties.find((t) => t.id === T1.id)!;
   check(t1.court === "Court 1" && Boolean(t1.scheduledTime) && t1.lineupEntered && t1.rubbers.every((r) => r.ours.length > 0), "Egypt's tie: court, time, its own line-up", { court: t1.court, entered: t1.lineupEntered });
-  check(t1.rubbers.every((r) => r.theirs === null), "the opponents' line-up is not shown before the rubber starts", t1.rubbers.map((r) => r.theirs));
+  check(t1.rubbers.every((r) => r.theirs === null), "the opponents' line-up is not shown before the line-ups are confirmed (entered, not locked)", t1.rubbers.map((r) => r.theirs));
   check(!team.text.includes("ITAb Player") && !team.text.includes(`${opp.name.slice(0, 3).toUpperCase()}b Player`), "no other team's players anywhere in the payload", null);
   check(!/access_code|"phone"|"email"|referee/i.test(team.text), "no codes, phones, emails or referees in the payload");
   const slots = (i: number) => v.schedule.filter((s) => s.playerId === EGYB.players[i] && s.tieId === T1.id).map((s) => s.label);
   check(slots(0).join() === "No. 1 singles" && slots(1).join() === "No. 2 singles" && slots(2).join() === "Doubles" && slots(3).join() === "Doubles" && v.schedule.every((s) => s.court === "Court 1" || s.tieId !== T1.id), "players' schedule: who plays which rubber, on which court", [0, 1, 2, 3].map(slots));
   const team2 = await http("GET", "/api/mobile/v1/coach/team", C2);
   check(team2.status === 200, "the second phone reads it too", team2.status);
+  const webBefore = await http("GET", `/coach/ties/${T1.id}`, coachCookie(String(s1.json?.token)));
+  const oppName = String((await db().from("players").select("full_name").eq("id", opp.players[0]).single()).data?.full_name);
+  check(webBefore.status === 200 && !webBefore.text.includes(oppName), "the web tie page does not name the opponents' players before confirmation", webBefore.status);
+
+  section("Line-ups confirmed (locked by the referee): the opponents' players are shown");
+  const lock = await lockLineups(BOYS, T1.id, "referee");
+  check(lock.ok, "the court referee confirms (locks) the line-ups", lock);
+  const afterLock = (await http("GET", "/api/mobile/v1/coach/team", C1)).json as unknown as import("../../src/lib/mobile/contract").MCoachTeamView;
+  const t1c = afterLock.ties.find((t) => t.id === T1.id)!;
+  const singles = t1c.rubbers.filter((r) => r.rubberType !== "D");
+  const oppIdx = (r: { rubberType: string | null }) => (r.rubberType === "S1" ? 0 : 1);
+  check(t1c.lineupLocked && singles.length === 2 && singles.every((r) => Array.isArray(r.theirs) && r.theirs.length === 1 && r.theirs[0].id === opp.players[oppIdx(r)]) && t1c.rubbers.every((r) => r.status === "scheduled"), "confirmed, not started: each singles rubber shows the opponent's player", singles.map((r) => [r.rubberType, r.status, r.theirs]));
+  const dbl = t1c.rubbers.find((r) => r.rubberType === "D");
+  check(Array.isArray(dbl?.theirs) && dbl!.theirs!.length === 0, "the opponents' doubles pair not named yet: shown as to be named (empty), never another tie's players", dbl?.theirs);
+  const shownIds = afterLock.ties.flatMap((t) => t.rubbers.flatMap((r) => (r.theirs ?? []).map((p) => p.id)));
+  check(shownIds.length === 2 && shownIds.every((id) => opp.players.includes(id)), "only this tie's opponents' players appear", shownIds);
+  check(webAfter0(await http("GET", `/coach/ties/${T1.id}`, coachCookie(String(s1.json?.token))), oppName), "the web tie page names the opponent's player once confirmed");
+  const unlockedTies = afterLock.ties.filter((t) => t.id !== T1.id);
+  check(unlockedTies.every((t) => t.rubbers.every((r) => r.theirs === null)), "Egypt's other (unconfirmed) ties still hide the opponents", unlockedTies.map((t) => t.rubbers.map((r) => r.theirs)));
+  const webAfter = await http("GET", `/coach/ties/${T1.id}`, coachCookie(String(s1.json?.token)));
+  check(webAfter.status === 200 && webAfter.text.includes("Line-ups are confirmed"), "the web tie page says the line-ups are confirmed", webAfter.status);
   const lu1 = await http("GET", `/api/mobile/v1/coach/ties/${T1.id}/lineup`, C1);
   check(lu1.status === 200 && (lu1.json?.rubbers as { players: { id: string }[] }[]).every((r) => r.players.every((p) => EGYB.players.includes(p.id))), "coach/ties/:id/lineup: Egypt's own line-up only", lu1.json);
 
@@ -350,14 +417,14 @@ async function main() {
 
   /* ---------------- brakes ---------------- */
   section("Brakes on guessing: failed attempts only");
-  await db().from("request_counters").delete().like("bucket_key", "coach-%");
+  await clearRequestCounters();
   for (let i = 0; i < 3; i++) await http("POST", SESSION, ip(40), { code: newCode });
   let last = 0;
   for (let i = 0; i < 20; i++) last = (await http("POST", SESSION, ip(40), { code: `ZZZZ-ZZZZ-ZZ${String(i).padStart(2, "2").replace(/[01]/g, "2")}` })).status;
   const locked = await http("POST", SESSION, ip(40), { code: newCode });
   const elsewhere = await http("POST", SESSION, ip(41), { code: newCode });
   check(last === 401 && locked.status === 429 && elsewhere.status === 200, "20 wrong codes from one address close it (right codes before did not count); another address still signs in", [last, locked.status, elsewhere.status]);
-  await db().from("request_counters").delete().like("bucket_key", "coach-%");
+  await clearRequestCounters();
 }
 
 main()
@@ -368,7 +435,7 @@ main()
   .finally(async () => {
     const ok = await f.cleanup();
     if (made.group) await db().from("event_groups").delete().eq("id", made.group);
-    await db().from("request_counters").delete().like("bucket_key", "coach-%");
+    await clearRequestCounters();
     check(ok, "cleanup: everything made here is gone");
     finish("coaches");
   });

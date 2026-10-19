@@ -5,6 +5,8 @@ import { eventDay } from "@/lib/matchday/eventDay";
 import { lineupActor } from "@/lib/tennis/lineupServer";
 import { lineupTemplate, sheetTies, sheetTournaments } from "@/lib/tennis/lineupSheetServer";
 import { EVENT_TIME_ZONE } from "@/lib/tennis/ties";
+import { loadEventBrand } from "@/lib/brand/server";
+import { fileSlug } from "@/lib/brand/brand";
 
 /**
  * The match-day line-up sheet (.xlsx) for the organiser and the master referees:
@@ -21,11 +23,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const raw = new URL(request.url).searchParams.get("day") ?? "";
   const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : raw === "all" ? null : eventDay(EVENT_TIME_ZONE);
   const ties = await sheetTies(await sheetTournaments(gate.staff, id));
-  const file = await lineupTemplate(ties, day);
+  const brand = await loadEventBrand(id);
+  const file = await lineupTemplate(ties, day, brand);
   return new NextResponse(new Uint8Array(file), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="line-ups-${day ?? "all"}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${fileSlug(brand.eventName)}-line-ups-${day ?? "all"}.xlsx"`,
       "Cache-Control": "private, no-store",
     },
   });

@@ -6,8 +6,9 @@
  * A coach's code names one team (a nation in one event). The coach reaches:
  *   - the ties and rubbers that team plays in (either side), nothing else;
  *   - their own team's line-up for each of them, once entered;
- *   - the opponents' players of a rubber only once that rubber is under way (the players
- *     are then on court for everyone to see); never another team's line-up before that;
+ *   - the opponents' players of a rubber once the tie's line-ups are confirmed (locked by the
+ *     court referee, a master referee or the organiser: published, public from then on) or
+ *     once the rubber is under way; never another team's line-up before that;
  *   - the score and match log of their own rubbers, with no referee names;
  *   - their group's table (every team of the group, results only).
  * Anything else answers exactly like a missing row (404).
@@ -53,12 +54,14 @@ export function coachReaches(teamId: string, row: { team_a_id: string | null; te
 const NOT_UNDER_WAY = new Set(["scheduled", "ready", "cancelled"]);
 
 /**
- * Whether the opponents' players of a rubber are shown to the coach: only once the
- * rubber is under way (or over). Before that the opponents' line-up is another team's
- * line-up, and a coach never sees one.
+ * Whether the opponents' players of a rubber are shown to the coach (owner's decision,
+ * 20 Oct 2026: line-ups are public once published): as soon as the tie's line-ups are
+ * confirmed (`ties.lineup_locked_at`, set when the court referee, a master referee or the
+ * organiser locks them), or once the rubber is under way (or over). Before either, the
+ * opponents' line-up is another team's unpublished line-up, and a coach never sees one.
  */
-export function opponentsShown(rubberStatus: string): boolean {
-  return !NOT_UNDER_WAY.has(rubberStatus);
+export function opponentsShown(rubberStatus: string, lineupConfirmed = false): boolean {
+  return lineupConfirmed || !NOT_UNDER_WAY.has(rubberStatus);
 }
 
 /** A score with the coach's team first (`a` = us, `b` = them). */
@@ -113,3 +116,31 @@ export type CoachAlertKind = (typeof COACH_ALERT_KINDS)[number];
 
 /** How long before a tie's time its coaches hear "starting in 5 minutes". */
 export const COACH_SOON_MINUTES = 5;
+
+/** A coach code works: not revoked and not past its expiry. */
+export const codeLive = (c: { revoked_at: string | null; expires_at: string | null }, now = Date.now()) => !c.revoked_at && !(c.expires_at && Date.parse(c.expires_at) <= now);
+
+/**
+ * Which teams need a code now, and which codes to retire first. A team is covered by a
+ * working code (unrevoked, not expired); an expired code that was never revoked still
+ * holds the team's one slot in the database, so it is revoked before the new one is made.
+ * Withdrawn teams get none.
+ */
+export function teamsNeedingCodes<T extends { id: string; team_status: string | null }>(
+  teams: T[],
+  codes: { id: string; team_id: string; revoked_at: string | null; expires_at: string | null }[],
+  now = Date.now(),
+): { create: T[]; stale: string[] } {
+  const covered = new Set(codes.filter((c) => codeLive(c, now)).map((c) => c.team_id));
+  const stale = codes.filter((c) => !c.revoked_at && !codeLive(c, now)).map((c) => c.id);
+  const create = teams.filter((t) => t.team_status !== "withdrawn" && !covered.has(t.id));
+  // One per team even when a team appears twice in the list.
+  const seen = new Set<string>();
+  return { create: create.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true))), stale };
+}
+
+/** The admin's notice after a draw: "Coach codes created for 16 teams — print the cards". */
+export function coachCodesNotice(created: number): string | null {
+  if (created <= 0) return null;
+  return `Coach codes created for ${created} ${created === 1 ? "team" : "teams"} — print the cards`;
+}

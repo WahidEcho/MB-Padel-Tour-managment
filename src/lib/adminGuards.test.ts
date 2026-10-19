@@ -245,8 +245,10 @@ describe("every staff page checks the organisation itself (a layout is not re-ru
 describe("every staff route checks the organisation of the row it serves", () => {
   const routes = sources.filter(({ path }) => {
     const r = rel(path);
-    if (!r.endsWith("route.ts")) return false;
+    if (!/route\.tsx?$/.test(r)) return false;
     return (
+      // The share images of the printed cards (court QR, team coach): staff only.
+      r.startsWith("qr/") ||
       (r.startsWith("api/matches/") && !r.includes("checkin-qr")) ||
       r.startsWith("api/mobile/v1/referee/") ||
       /^api\/(tournaments|f)\/\[[a-z]+\]\/export\//.test(r) ||

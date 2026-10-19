@@ -50,7 +50,7 @@ export function RubberLine({ r, tz, us, them, link = true }: { r: MCoachRubber; 
         </span>
         <span className="text-right font-mono font-bold">{line}</span>
         <span className="truncate text-muted" data-testid="coach-theirs">
-          <strong>{them?.code ?? "TBD"}</strong> {r.theirs ? r.theirs.map((p) => p.name).join(" / ") : "players shown when the rubber starts"}
+          <strong>{them?.code ?? "TBD"}</strong> {r.theirs ? (r.theirs.length ? r.theirs.map((p) => p.name).join(" / ") : "to be named") : "shown once the line-ups are confirmed"}
         </span>
         <span className="text-right font-mono text-muted">{points ?? ""}</span>
       </div>

@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireTournamentPermission } from "@/lib/guard";
 import { entityRefusal, ownershipRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
-import { delayOrderOfPlay, drawPlacement, generateGroupTies, lockLineups, resetPlacement, scheduleTie } from "@/lib/tennis/tieOps";
+import { delayOrderOfPlay, drawPlacement, generateGroupTies, lockLineups, resetPlacement, scheduleTie, type DrawReport } from "@/lib/tennis/tieOps";
 import { applyTieLineups, lineupActor } from "@/lib/tennis/lineupServer";
 import { zonedToIso } from "@/lib/tennis/ties";
 
@@ -15,8 +16,12 @@ export async function generateTiesAction(formData: FormData) {
   const id = String(formData.get("tournament_id"));
   const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
-  await generateGroupTies(id, role);
+  // Confirming the draw also makes every team's coach code (owner's decision, 20 Oct 2026).
+  const report: DrawReport = {};
+  await generateGroupTies(id, role, report);
   revalidatePath(path(id));
+  revalidatePath("/admin/org/coaches");
+  if (report.coachCodesCreated) redirect(`${path(id)}?coachCodes=${report.coachCodesCreated}`);
 }
 
 export async function saveLineupAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {

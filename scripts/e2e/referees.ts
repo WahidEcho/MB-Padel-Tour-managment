@@ -34,7 +34,7 @@ import { mintInstallToken } from "../../src/lib/mobile/identity";
 import { eventDay } from "../../src/lib/matchday/eventDay";
 import { zonedToIso } from "../../src/lib/tennis/ties";
 import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
-import { assertStandIn, bearer, check, cookie, finish, fixtures, http, lastEvent, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
+import { clearRequestCounters, assertStandIn, bearer, check, cookie, finish, fixtures, http, lastEvent, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
 import { actionOk, callAction, form } from "./lib/actions";
 
 assertStandIn("referees");
@@ -51,6 +51,8 @@ const ASSIST = "/api/mobile/v1/referee/assistance";
 const shownState = (text: string, key: string) => new RegExp(`"${key}":"([^"]+)"`).exec(text)?.[1] ?? null;
 
 async function main() {
+  // Another script's failed sign-ins must not brake this one's (shared stand-in).
+  await clearRequestCounters();
   const { data: mb } = await db().from("organizations").select("id").eq("slug", MOVE_BEYOND_SLUG).single();
   const MB = (mb as { id: string }).id;
   const ADMIN = staff("admin");

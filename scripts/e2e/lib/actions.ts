@@ -52,7 +52,7 @@ export async function callAction(file: string, name: string, args: unknown[], he
     h["Content-Type"] = "text/plain;charset=UTF-8";
   }
   const res = await fetch(`${BASE_URL}${page}`, { method: "POST", headers: h, body, redirect: "manual" });
-  return { status: res.status, text: await res.text() };
+  return { status: res.status, text: await res.text(), redirect: res.headers.get("x-action-redirect") ?? res.headers.get("location") };
 }
 
 /** An action that did its work answers 200 (or a 303 redirect) without an error in its payload. */

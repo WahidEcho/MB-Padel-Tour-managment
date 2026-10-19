@@ -92,6 +92,7 @@ export default async function TeamCoachesPage({ searchParams }: { searchParams: 
         <span className="text-xs text-muted">Codes work until the team&apos;s event ends{ev.endsOn ? ` (last day ${ev.endsOn})` : ""}.</span>
       </form>
       {made && Number(made) > 0 && <p className="text-sm font-semibold text-success" data-testid="coach-codes-made">{made} new {made === "1" ? "code" : "codes"}. Print the cards and hand one to each team.</p>}
+      <p className="text-xs text-muted">Codes are also made by themselves when the draw is confirmed (Ties → Generate the group ties): every team of the event gets one, never a second. Share gives a branded image of a team&apos;s card to send on WhatsApp.</p>
 
       {byTournament.map((t) => (
         <section key={t.id} className="space-y-2">
@@ -136,6 +137,9 @@ export default async function TeamCoachesPage({ searchParams }: { searchParams: 
                             <Link href={`/qr/coaches?event=${ev.tournamentId}&team=${team.id}`} target="_blank" className="btn-secondary text-xs" data-testid="print-coach-card">
                               Card
                             </Link>
+                            <a href={`/qr/coaches/share?event=${ev.tournamentId}&team=${team.id}`} download className="btn-secondary text-xs" data-testid="share-coach-card" title="A branded image of the card (PNG) to send on WhatsApp">
+                              Share
+                            </a>
                             <form action={regenerateCoachCodeAction}>
                               <input type="hidden" name="code_id" value={code.id} />
                               <ConfirmSubmit message={`A new code for ${team.team_name}? The old one stops working on its next request (every coach of the team signs in again). Print the new card.`} className="btn-secondary text-xs">

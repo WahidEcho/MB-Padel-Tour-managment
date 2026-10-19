@@ -127,6 +127,9 @@ export default async function CourtCodesPage({ searchParams }: { searchParams: P
                   <td className="px-3 py-2 text-right">
                     {live && (
                       <div className="flex justify-end gap-2">
+                      <a href={`/qr/courts/share?event=${ev.tournamentId}&court=${encodeURIComponent(court.name)}`} download className="btn-secondary text-xs" data-testid="share-court-card" title="A branded image of this court's QR card (PNG) to send">
+                        Share
+                      </a>
                       <form action={regenerateCourtCodeAction}>
                         <input type="hidden" name="code_id" value={live.id} />
                         <ConfirmSubmit message={`A new code for ${court.name}? The old one stops working on its next request; print ${court.name}'s page again.`} className="btn-secondary text-xs">

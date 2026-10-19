@@ -1037,7 +1037,7 @@ export interface MCoachRubber {
   endedAt: string | null;
   /** The team's own players in this rubber, once its line-up is entered; empty before. */
   ours: MCoachPlayer[];
-  /** The opponents' players: only once the rubber is under way (null before: never another team's line-up). */
+  /** The opponents' players: once the tie's line-ups are confirmed (locked) or the rubber is under way (null before: never another team's unpublished line-up; empty while a doubles pair is still to be named). */
   theirs: MCoachPlayer[] | null;
   score: MScore | null;
   result: "us" | "them" | null;

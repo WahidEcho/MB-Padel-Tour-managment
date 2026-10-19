@@ -24,6 +24,7 @@
  */
 import { randomUUID } from "crypto";
 import ExcelJS from "exceljs";
+import { BRAND_ROWS } from "../../src/lib/brand/excel";
 import { db } from "../../src/lib/supabase";
 import { awardPoint, initialScoreState, type TeamKey } from "../../src/lib/scoring/engine";
 import { scoringConfigForMatch } from "../../src/lib/scoring/rules";
@@ -37,7 +38,7 @@ import { eventDay } from "../../src/lib/matchday/eventDay";
 import { zonedToIso } from "../../src/lib/tennis/ties";
 import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
 import { DEFAULT_TENNIS_SCORING_CONFIG, type Match, type Tie } from "../../src/lib/types";
-import { BASE_URL, assertStandIn, bearer, check, cookie, finish, fixtures, http, section, staff, type Who } from "./lib/fixtures";
+import { clearRequestCounters, BASE_URL, assertStandIn, bearer, check, cookie, finish, fixtures, http, section, staff, type Who } from "./lib/fixtures";
 import { actionOk, callAction, form } from "./lib/actions";
 
 assertStandIn("lineups");
@@ -67,6 +68,8 @@ async function finishDirect(m: Match, winner: TeamKey) {
 }
 
 async function main() {
+  // Another script's failed sign-ins must not brake this one's (shared stand-in).
+  await clearRequestCounters();
   const { data: mb } = await db().from("organizations").select("id").eq("slug", MOVE_BEYOND_SLUG).single();
   const MB = (mb as { id: string }).id;
   const ADMIN = staff("admin");
@@ -140,11 +143,13 @@ async function main() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(tplBytes);
   const ws = wb.getWorksheet("Line-ups")!;
-  const header = (ws.getRow(1).values as unknown[]).slice(1).map(String);
+  // Branded (owner, 20 Oct 2026): the band, the event and the footer line above the header row.
+  const header = (ws.getRow(BRAND_ROWS + 1).values as unknown[]).slice(1).map(String);
   check(tpl.status === 200 && /spreadsheetml/.test(tpl.headers.get("content-type") ?? ""), "the template downloads as .xlsx", tpl.status);
   check(header.join("|") === "Day|Event|Court|Time|Nation A|Nation B|S1 A|S1 B|S2 A|S2 B|D A1|D A2|D B1|D B2", "…with the agreed columns", header.join("|"));
-  check(ws.rowCount === 1 + 6, "…pre-filled with the day's six ties", ws.rowCount);
-  check(Boolean(wb.getWorksheet("Squads")) && wb.getWorksheet("Squads")!.rowCount === 1 + 16, "…and a Squads sheet in order of merit", wb.getWorksheet("Squads")?.rowCount);
+  check(ws.rowCount === BRAND_ROWS + 1 + 6, "…pre-filled with the day's six ties", ws.rowCount);
+  check(Boolean(wb.getWorksheet("Squads")) && wb.getWorksheet("Squads")!.rowCount === BRAND_ROWS + 1 + 16, "…and a Squads sheet in order of merit", wb.getWorksheet("Squads")?.rowCount);
+  check(String(ws.getRow(3).getCell(1).value).includes("Move Score by Move Beyond · tour.mbeg.org") && ws.getImages().length >= 2 && /Move Score by Move Beyond/.test(ws.headerFooter.oddFooter ?? ""), "…branded: Move Score and Move Beyond logos, the event, the footer line", ws.getImages().length);
   const refTpl = await http("GET", `/api/mobile/v1/referee/tournaments/${BOYS}/lineups/template`, REF1);
   check(refTpl.status === 403, "a court referee cannot download the sheet (403)", refTpl.status);
 
@@ -152,7 +157,7 @@ async function main() {
   const t0 = ties[0];
   const t1 = ties[1];
   const rowFor = (tie: Tie) => {
-    for (let r = 2; r <= ws.rowCount; r++) {
+    for (let r = BRAND_ROWS + 2; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       const a = String(row.getCell(5).value ?? "");
       const b = String(row.getCell(6).value ?? "");

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { coachLink, coachReaches, coachSideOf, drawLabel, landingFrom, opponentsShown, orientScore, parseCoachLink, resultFor, tieStageLabel } from "./rules";
+import { coachLink, coachReaches, coachSideOf, drawLabel, landingFrom, opponentsShown, orientScore, parseCoachLink, resultFor, teamsNeedingCodes, coachCodesNotice, tieStageLabel } from "./rules";
 import { COACH_TOKEN_PREFIX, coachSecret, isCoachTokenShaped, signCoachToken, verifyCoachToken, type CoachTokenPayload } from "./token";
 import { coachLineup, coachTieResult, coachTieSoon } from "./alerts";
 import { formatEventCode, generateEventCode, hashEventCode, normalizeEventCode, openEventCode, sealEventCode } from "../orgs/codes";
@@ -85,9 +85,17 @@ describe("what a coach reaches", () => {
     expect(coachReaches(EGY, null)).toBe(false);
     expect(coachReaches("", { team_a_id: null, team_b_id: null })).toBe(false);
   });
-  it("the opponents' players only once the rubber is under way", () => {
+  it("the opponents' players once the rubber is under way", () => {
     for (const s of ["scheduled", "ready", "cancelled"]) expect(opponentsShown(s), s).toBe(false);
     for (const s of ["live", "paused", "completed", "retired", "walkover"]) expect(opponentsShown(s), s).toBe(true);
+  });
+
+  it("the opponents' players as soon as the line-ups are confirmed (published), not before", () => {
+    for (const s of ["scheduled", "ready"]) {
+      expect(opponentsShown(s, false), `${s}, not confirmed`).toBe(false);
+      expect(opponentsShown(s, true), `${s}, confirmed`).toBe(true);
+    }
+    for (const s of ["live", "completed"]) expect(opponentsShown(s, true), s).toBe(true);
   });
   it("scores read our team first", () => {
     const score: MScore = { sets: [{ a: 6, b: 4, tb: null }, { a: 6, b: 7, tb: { a: 5, b: 7 } }], games: { a: 1, b: 3 }, points: { a: "15", b: "40" }, tiebreak: false, serving: "A", setsWon: { a: 1, b: 1 }, lastEventNumber: 9, lastUndo: 0, updatedAt: null };
@@ -188,5 +196,44 @@ describe("the coach server never selects private columns", () => {
       expect(m, c).not.toBeNull();
       expect(m![1]).not.toMatch(/access_code|phone|email|notes|captain|code_hash/);
     }
+  });
+});
+
+describe("coach codes made when the draw is confirmed (idempotent)", () => {
+  const now = Date.parse("2026-10-30T10:00:00Z");
+  const later = "2026-11-08T21:59:00Z";
+  const teams = Array.from({ length: 16 }, (_, i) => ({ id: `t${i}`, team_status: i === 15 ? "withdrawn" : "active" }));
+  it("the first draw: a code for every team that plays (a withdrawn team gets none)", () => {
+    const r = teamsNeedingCodes(teams, [], now);
+    expect(r.create.map((t) => t.id)).toEqual(teams.slice(0, 15).map((t) => t.id));
+    expect(r.stale).toEqual([]);
+  });
+  it("a second run with every code working makes none", () => {
+    const codes = teams.slice(0, 15).map((t, i) => ({ id: `c${i}`, team_id: t.id, revoked_at: null, expires_at: later }));
+    expect(teamsNeedingCodes(teams, codes, now).create).toEqual([]);
+  });
+  it("only the team added later gets one; a revoked code does not count, an expired one is retired first", () => {
+    const codes = [
+      ...teams.slice(0, 12).map((t, i) => ({ id: `c${i}`, team_id: t.id, revoked_at: null, expires_at: later })),
+      { id: "rev", team_id: "t12", revoked_at: "2026-10-29T10:00:00Z", expires_at: later },
+      { id: "old", team_id: "t13", revoked_at: null, expires_at: "2026-10-01T00:00:00Z" },
+    ];
+    const r = teamsNeedingCodes([...teams, { id: "late", team_status: "active" }], codes, now);
+    expect(r.create.map((t) => t.id)).toEqual(["t12", "t13", "t14", "late"]);
+    expect(r.stale).toEqual(["old"]);
+  });
+  it("the admin's notice", () => {
+    expect(coachCodesNotice(16)).toBe("Coach codes created for 16 teams — print the cards");
+    expect(coachCodesNotice(1)).toBe("Coach codes created for 1 team — print the cards");
+    expect(coachCodesNotice(0)).toBeNull();
+  });
+  it("never two codes for one team in one run", () => {
+    expect(teamsNeedingCodes([{ id: "a", team_status: null }, { id: "a", team_status: null }], [], now).create).toHaveLength(1);
+  });
+  it("the draw hooks it: generateGroupTies makes the codes, the ties page shows the notice", () => {
+    const tieOps = readFileSync(join(__dirname, "..", "tennis", "tieOps.ts"), "utf8");
+    expect(tieOps).toMatch(/coachCodesOnDraw\(tournamentId, actorRole\)/);
+    const page = readFileSync(join(__dirname, "..", "..", "app", "admin", "tournaments", "[id]", "ties", "page.tsx"), "utf8");
+    expect(page).toContain("coach-codes-notice");
   });
 });

@@ -51,7 +51,7 @@ export function RubberCard({ r, tz, us, them, onPress }: { r: MCoachRubber; tz: 
       <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
         <Body size={14} tone="ink2" numberOfLines={2} style={{ flex: 1 }}>
           <Body weight="bold" size={14} tone="ink2">{them?.code ?? "TBD"} </Body>
-          {r.theirs ? r.theirs.map((p) => p.name).join(" / ") : "players shown when the rubber starts"}
+          {r.theirs ? (r.theirs.length ? r.theirs.map((p) => p.name).join(" / ") : "to be named") : "shown once the line-ups are confirmed"}
         </Body>
         {points ? <Num size={16} tone="live">{points}</Num> : null}
       </View>
