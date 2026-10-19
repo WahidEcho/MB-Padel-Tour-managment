@@ -3,7 +3,8 @@ import { MASTER_REFEREE_PERMISSIONS, can, staffCan, type Permission } from "../a
 import { signStaffToken, verifyStaffToken } from "../auth/staffToken";
 import { isScopedCode, principalReaches } from "../orgs/scope";
 import { masterCovers } from "./assistance";
-import { sessionIsCurrent } from "./server";
+import { codeNeedsPin, sessionIsCurrent } from "./server";
+import { PIN_LOCK, PIN_LOCK_MINUTES } from "./rules";
 
 process.env.AUTH_SECRET ??= "test-auth-secret-for-vitest-only-0123456789";
 
@@ -96,5 +97,18 @@ describe("On court now", () => {
     expect(sessionIsCurrent({ ended_at: null, expires_at: "2026-11-03T10:00:00Z", last_seen_at: "2026-11-02T09:39:00Z" }, now)).toBe(false);
     expect(sessionIsCurrent({ ended_at: "2026-11-02T09:59:00Z", expires_at: "2026-11-03T10:00:00Z", last_seen_at: "2026-11-02T09:59:00Z" }, now)).toBe(false);
     expect(sessionIsCurrent({ ended_at: null, expires_at: "2026-11-02T09:59:00Z", last_seen_at: "2026-11-02T09:59:00Z" }, now)).toBe(false);
+  });
+});
+
+describe("every referee code needs a PIN (owner's decision)", () => {
+  it("court, whole-event and master codes; never an operator (TV) code", () => {
+    expect(codeNeedsPin({ role: "referee", court_name: "Court 1" })).toBe(true);
+    expect(codeNeedsPin({ role: "referee", court_name: null })).toBe(true);
+    expect(codeNeedsPin({ role: "master_referee", court_name: null })).toBe(true);
+    expect(codeNeedsPin({ role: "operator", court_name: null })).toBe(false);
+  });
+  it("five wrong PINs lock a code for five minutes", () => {
+    expect(PIN_LOCK).toEqual({ limit: 5, windowSeconds: 300 });
+    expect(PIN_LOCK_MINUTES).toBe(5);
   });
 });

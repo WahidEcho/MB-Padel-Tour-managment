@@ -40,16 +40,16 @@ export default function RefereePin() {
   return (
     <Screen tabs={false}>
       <BackHeader label="Referee" />
-      <Eyebrow tone="live">{waiting?.master ? "Master referee" : "Court referee"}</Eyebrow>
+      <Eyebrow tone="live">{waiting?.master ? "Master referee" : waiting?.court ? "Court referee" : "Referee"}</Eyebrow>
       <Display size={30} style={{ marginTop: 6 }}>{waiting?.master ? "Your PIN" : (waiting?.court ?? "Your PIN")}</Display>
       {!waiting ? (
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body>Scan the court QR or type the court code first.</Body>
+          <Body>Scan the court QR or type your referee code first.</Body>
           <Button label="Referee home" onPress={() => router.replace("/referee")} />
         </Card>
       ) : (
         <Card style={{ marginTop: 16, gap: 12 }}>
-          <Body tone="ink2" size={14}>Enter your own 4-digit referee PIN from the organiser. It tells the desk who is on {waiting.master ? "duty" : "this court"}.</Body>
+          <Body tone="ink2" size={14}>Enter your own 4-digit referee PIN from the organiser. It tells the desk who is on {waiting.master ? "duty" : waiting.court ? "this court" : "the event"}.</Body>
           <TextInput
             value={pin}
             onChangeText={(v) => {

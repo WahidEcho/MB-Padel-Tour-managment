@@ -45,6 +45,7 @@ import { addEntryForProfile, createFriendlySession, generateSchedule } from "../
 import { formatEventCode, generateEventCode, hashEventCode } from "../../src/lib/orgs/codes";
 import { signStaffToken } from "../../src/lib/auth/staffToken";
 import { BASE_URL, sessionToken, staffToken } from "./lib/session";
+import { refereeCodeToken, refereeWithPin } from "./lib/fixtures";
 
 const SUPA = process.env.SUPABASE_URL ?? "";
 if (!/localhost|127\.0\.0\.1/.test(SUPA)) throw new Error("organizations.ts runs against the local stand-in only");
@@ -367,6 +368,9 @@ async function main() {
     const codeRows = codes as { id: string; organization_id: string; role: string }[];
     const CB = codeRows.find((c) => c.organization_id === B)!.id;
     const CAref = codeRows.find((c) => c.organization_id === A && c.role === "referee")!.id;
+    // Every referee code signs in with a referee's PIN (owner's decision).
+    const PIN_A = (await refereeWithPin(A, `E2E Ref A ${tag}`)).pin;
+    const PIN_B = (await refereeWithPin(B, `E2E Ref B ${tag}`)).pin;
     {
       const { error } = await db().from("organization_codes").insert({ organization_id: A, role: "referee", tournament_id: TB.id, code_hash: hashEventCode(generateEventCode()), label: "e2e cross-org" });
       check(Boolean(error), "the database refuses an event code of A scoped to B's tournament (trigger)", error?.message);
@@ -403,11 +407,11 @@ async function main() {
     const evilNext = await fetch(`${BASE_URL}/staff/auth/google?next=${encodeURIComponent("https://evil.example/x")}`, { redirect: "manual" });
     check(!/evil\.example/.test(decodeURIComponent(evilNext.headers.get("location") ?? "")), "next cannot point off the site");
 
-    const refApp = await http("POST", "/api/mobile/v1/staff/session", {}, { code: formatEventCode(codeAref).toLowerCase() });
+    const refApp = await http("POST", "/api/mobile/v1/staff/session", {}, { code: formatEventCode(codeAref).toLowerCase(), pin: PIN_A });
     check(refApp.status === 200 && String(refApp.json?.token).startsWith("mbs1.") && refApp.json?.role === "referee", "A's referee signs in in the app with an event code", refApp.json?.role);
     const opApp = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeAop });
     check(opApp.status === 200 && (opApp.json?.scope as { tournamentId?: string } | null)?.tournamentId === TA.id, "A's scoped operator code carries its tournament scope");
-    const bRef = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeB });
+    const bRef = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeB, pin: PIN_B });
     const wrongCode = await http("POST", "/api/mobile/v1/staff/session", {}, { code: generateEventCode() });
     check(wrongCode.status === 401 && wrongCode.json?.error === "Wrong access code.", "an unknown code is refused", wrongCode.status);
     const hashAsCode = await http("POST", "/api/mobile/v1/staff/session", {}, { code: hashEventCode(codeB) });
@@ -875,7 +879,7 @@ async function main() {
 
     section("event codes scoped to one tournament, against another tournament of the same organisation");
     {
-      const refT = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeArefT });
+      const refT = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeArefT, pin: PIN_A });
       check(refT.status === 200 && (refT.json?.scope as { tournamentId?: string } | null)?.tournamentId === TA.id, "A's referee code scoped to TA signs in with its scope");
       const scoped = bearer(String(refT.json?.token));
       const own = await http("POST", `/api/matches/${TA.match}/claim`, scoped, { deviceId: `e2e-scoped-${tag}`, deviceLabel: "E2E" });
@@ -921,9 +925,9 @@ async function main() {
       const attacker = { "X-Forwarded-For": freshAddr() };
       let last = 0;
       for (let i = 0; i < 21; i++) last = (await http("POST", "/api/mobile/v1/staff/session", attacker, { code: generateEventCode() })).status;
-      const blocked = await http("POST", "/api/mobile/v1/staff/session", attacker, { code: codeLock });
+      const blocked = await http("POST", "/api/mobile/v1/staff/session", attacker, { code: codeLock, pin: PIN_A });
       check(last === 429 && blocked.status === 429, "one address guessing codes is stopped (even with a right code)", [last, blocked.status]);
-      const other = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: codeLock });
+      const other = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: codeLock, pin: PIN_A });
       check(other.status === 200, "…while a referee on another address signs in with their code", other.status);
     }
 
@@ -976,7 +980,7 @@ async function main() {
       check(r.status === 401 && r.json?.code === "code_revoked" && /revoked/i.test(String(r.json?.error)), "a revoked code fails the very next request with a clear message", r.json);
       const ev = await http("POST", `/api/matches/${TA.match}/events`, aReferee.headers, { deviceId, events: [{ client_event_id: randomUUID(), event_number: 1, event_type: "MATCH_STARTED", team_id: null, previous_state: null, new_state: {}, payload: null, created_at_client: new Date().toISOString() }] });
       check(ev.status === 401, "…including scoring (the app keeps its queue and asks for a new code)", ev.status);
-      const again = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeAref });
+      const again = await http("POST", "/api/mobile/v1/staff/session", {}, { code: codeAref, pin: PIN_A });
       check(again.status === 401 && /revoked/i.test(String(again.json?.error)), "signing in again with the revoked code is refused", again.json?.error);
       const webPage = await http("GET", "/referee", cookie(String(refApp.json?.token)));
       check(webPage.status === 307 && /error=code_revoked/.test(webPage.location), "on the web the revoked code goes back to the login with the reason", webPage.location);
@@ -1799,7 +1803,7 @@ async function main() {
       const snap = ((await db().from("match_score_snapshots").select("last_event_number, snapshot_json").eq("match_id", RM.id).maybeSingle()).data as { last_event_number: number; snapshot_json: unknown } | null) ?? { last_event_number: 0, snapshot_json: null };
       // A fresh referee code of A's (the earlier one was revoked by the codes section).
       const { data: rc } = await db().from("organization_codes").insert({ organization_id: A, role: "referee", code_hash: hashEventCode(generateEventCode()), label: "e2e correction" }).select("id").single();
-      const freshReferee = bearer(staffToken({ kind: "code", codeId: (rc as { id: string }).id, orgId: A, role: "referee" }));
+      const freshReferee = bearer(await refereeCodeToken({ codeId: (rc as { id: string }).id, orgId: A }));
       const byRef = await http("POST", `/api/matches/${RM.id}/events`, freshReferee, {
         deviceId: `e2e-ref-${tag}`,
         events: [{ client_event_id: randomUUID(), event_number: snap.last_event_number + 1, event_type: "RESULT_ENTERED", team_id: RM.team_b_id, previous_state: snap.snapshot_json, new_state: fixed.state, payload: { sets: [{ a: 2, b: 6 }] }, created_at_client: new Date().toISOString() }],
@@ -1971,7 +1975,7 @@ async function main() {
       await db().from("organization_codes").insert({ organization_id: A, role: "referee", code_hash: hashEventCode(codeMany), label: "e2e venue" });
       const venue = { "X-Forwarded-For": freshAddr() };
       const statuses: number[] = [];
-      for (let i = 0; i < 45; i++) statuses.push((await http("POST", "/api/mobile/v1/staff/session", venue, { code: codeMany })).status);
+      for (let i = 0; i < 45; i++) statuses.push((await http("POST", "/api/mobile/v1/staff/session", venue, { code: codeMany, pin: PIN_A })).status);
       check(statuses.every((s) => s === 200), "45 referees sharing one event code on one venue Wi-Fi all sign in", statuses.filter((s) => s !== 200).length);
       // Wrong codes that start like it, from many addresses: the prefix brake still stops guessing.
       const guessStatuses: number[] = [];
@@ -1979,7 +1983,7 @@ async function main() {
         const wrongCode = `${codeMany.slice(0, 4)}${generateEventCode().slice(4)}`;
         guessStatuses.push((await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: wrongCode })).status);
       }
-      const afterGuess = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: codeMany });
+      const afterGuess = await http("POST", "/api/mobile/v1/staff/session", { "X-Forwarded-For": freshAddr() }, { code: codeMany, pin: PIN_A });
       check(
         guessStatuses.every((x) => x === 401) && afterGuess.status === 429,
         "40 failed guesses at one prefix (each tried: 401), spread over addresses, still close it",

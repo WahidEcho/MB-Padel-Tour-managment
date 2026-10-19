@@ -89,6 +89,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       ITSAppUsesNonExemptEncryption: false,
     },
     privacyManifests: PRIVACY_MANIFEST,
+    // A master referee's "Call for assistance" alert breaks through Focus and the
+    // notification summary (Expo push interruptionLevel "time-sensitive",
+    // src/lib/referees/assistance.ts). The App ID needs the Time Sensitive
+    // Notifications capability in the Apple developer portal (docs/device-install.md).
+    entitlements: { "com.apple.developer.usernotifications.time-sensitive": true },
   },
   android: {
     package: `${BUNDLE}${suffix}`,

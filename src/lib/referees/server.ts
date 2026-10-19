@@ -45,8 +45,11 @@ export interface PinCode {
   referee_id: string | null;
 }
 
-/** A court code or a master referee code: it signs in only with a referee PIN. */
-export const codeNeedsPin = (c: Pick<PinCode, "court_name" | "role">) => Boolean(c.court_name) || c.role === "master_referee";
+/**
+ * Every referee code signs in only with a referee PIN (owner's decision): court codes,
+ * whole-event referee codes and master referee codes. Operator (TV) codes need none.
+ */
+export const codeNeedsPin = (c: Pick<PinCode, "court_name" | "role">) => c.role === "referee" || c.role === "master_referee" || Boolean(c.court_name);
 
 /** The event group a code belongs to (its own, or its tournament's). */
 async function groupOfCode(c: Pick<PinCode, "event_group_id" | "tournament_id">): Promise<string | null> {
@@ -60,6 +63,19 @@ const pinBuckets = (codeId: string, ip: string): RateLimitOptions[] => [
   { key: `staff-pin-ip:${ip}`, ...PIN_PER_IP },
   { key: `staff-pin:${codeId}`, ...PIN_LOCK },
 ];
+
+/**
+ * The wrong PIN that fills a code's bucket starts its lock: the window restarts now,
+ * so the code stays locked PIN_LOCK_MINUTES from that PIN (not just for what was left
+ * of the window). Only ever moves the window later.
+ */
+async function lockFromNow(codeId: string): Promise<void> {
+  const key = `staff-pin:${codeId}`;
+  const { data } = await db().from("request_counters").select("count, window_started_at").eq("bucket_key", key).maybeSingle();
+  const row = data as { count: number; window_started_at: string } | null;
+  if (!row || row.count < PIN_LOCK.limit) return;
+  await db().from("request_counters").update({ window_started_at: new Date().toISOString() }).eq("bucket_key", key).eq("window_started_at", row.window_started_at);
+}
 
 export type PinCheck =
   | { ok: true; referee: RefereeRow }
@@ -107,7 +123,10 @@ export async function checkRefereePin(code: PinCode, rawPin: unknown, ip: string
   let ok = Boolean(ref);
   if (ref && code.role === "master_referee") ok = ref.role === "master_referee" && code.referee_id === ref.id;
   if (ref && ok && ref.event_group_id) ok = (await groupOfCode(code)) === ref.event_group_id;
-  if (!ok || !ref) return { ok: false, reason: "wrong_pin" };
+  if (!ok || !ref) {
+    await lockFromNow(code.id);
+    return { ok: false, reason: "wrong_pin" };
+  }
   await refund();
   return { ok: true, referee: ref };
 }

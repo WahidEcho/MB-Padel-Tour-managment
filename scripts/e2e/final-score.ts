@@ -46,6 +46,7 @@ import { DEFAULT_SCORING_CONFIG, type Match, type MatchRules } from "../../src/l
 import { resultPayloadOf, resultRejection } from "../../src/lib/offline/finalResult";
 import { sameState } from "../../src/lib/scoring/eventGuard";
 import { BASE_URL, sessionToken, staffToken } from "./lib/session";
+import { refereeCodeToken } from "./lib/fixtures";
 
 const SUPA = process.env.SUPABASE_URL ?? "";
 if (!/localhost|127\.0\.0\.1/.test(SUPA)) throw new Error("final-score.ts runs against the local stand-in only");
@@ -573,7 +574,7 @@ async function main() {
       created.orgs.push(X);
       const code = generateEventCode();
       const { data: cr } = await db().from("organization_codes").insert({ organization_id: X, role: "referee", code_hash: hashEventCode(code), label: "e2e" }).select("id").single();
-      const xReferee = bearer(staffToken({ kind: "code", codeId: (cr as { id: string }).id, orgId: X, role: "referee" }));
+      const xReferee = bearer(await refereeCodeToken({ codeId: (cr as { id: string }).id, orgId: X }));
       const before = await eventCount(g3.id);
       const r = await sendResult(g3, groupRules, [{ a: 6, b: 1 }, { a: 6, b: 1 }], xReferee);
       check(r.status === 404 && !r.text.includes(t2), "another organisation's referee gets a 404 for this match", `${r.status} ${r.text}`);

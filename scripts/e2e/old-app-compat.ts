@@ -526,8 +526,14 @@ async function main() {
     const codeRef = new OldPhone();
     made.installs.push(codeRef.installationId);
     codeRef.installToken = (await codeRef.register(null, false)).json?.installToken ?? null;
-    const byCode = await codeRef.api("/api/mobile/v1/staff/session", { body: { code: ` ${typed} `.trim() } });
-    check(byCode.status === 200 && typeof byCode.json?.token === "string" && byCode.json.role === "referee" && typeof byCode.json.expiresAt === "string", "An event code: { token, role: referee, expiresAt }", byCode.json?.role);
+    // Every referee code needs the referee's PIN (owner's decision), whole-event codes too.
+    const PIN0 = "6274";
+    const { data: r0 } = await db().from("referees").insert({ organization_id: mb!.id, name: `E2E Old Event Ref ${tag}`, pin_hash: hashRefereePin(mb!.id, PIN0) }).select("id").single();
+    made.referees.push(r0!.id);
+    const codeAlone = await codeRef.api("/api/mobile/v1/staff/session", { body: { code: typed } });
+    check(codeAlone.status === 401 && /a space, then your PIN/.test(String(codeAlone.json?.error)), "A whole-event referee code alone: 401 with the message 1.0.1 shows (the code, a space, then the PIN)", codeAlone.json);
+    const byCode = await codeRef.api("/api/mobile/v1/staff/session", { body: { code: ` ${typed} ${PIN0} `.trim() } });
+    check(byCode.status === 200 && typeof byCode.json?.token === "string" && byCode.json.role === "referee" && typeof byCode.json.expiresAt === "string", "An event code with the PIN (\"<code> <PIN>\"): { token, role: referee, expiresAt }", byCode.json?.role);
     codeRef.staff = { token: byCode.json?.token, role: byCode.json?.role, expiresAt: byCode.json?.expiresAt };
 
     // A token the old server issued before the deploy (same legacy format, a week).
@@ -575,7 +581,7 @@ async function main() {
       made.referees.push(rr!.id);
       const typedCourt = `${courtCode.slice(0, 4)}-${courtCode.slice(4, 8)}-${courtCode.slice(8)}`;
       const bare = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: typedCourt } });
-      check(bare.status === 401 && typeof bare.json?.error === "string" && /court code, a space, then your PIN/.test(bare.json.error), "The court code alone: 401 with the message 1.0.1 shows (type the court code, a space, then your PIN)", bare.json);
+      check(bare.status === 401 && typeof bare.json?.error === "string" && /a space, then your PIN/.test(bare.json.error), "The court code alone: 401 with the message 1.0.1 shows (type the code, a space, then your PIN)", bare.json);
       const dashed = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: `${typedCourt}-${PIN}` } });
       check(dashed.status === 200 && typeof dashed.json?.token === "string", "<COURT-CODE>-<PIN> in the one field signs in", dashed.status);
       const wrongPin = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: `${typedCourt} 0007` } });

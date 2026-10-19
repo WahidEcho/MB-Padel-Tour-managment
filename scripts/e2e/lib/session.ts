@@ -38,7 +38,10 @@ export function sessionToken(role: Role = "admin", hours = SESSION_HOURS): strin
  * in the environment (the server is a production build, which requires it).
  */
 export function staffToken(
-  p: { kind: "member"; userId: string; orgId: string; role: "owner" | "admin" | "manager" | "referee" | "operator" } | { kind: "code"; codeId: string; orgId: string; role: "referee" | "operator"; tournamentId?: string | null },
+  p:
+    | { kind: "member"; userId: string; orgId: string; role: "owner" | "admin" | "manager" | "referee" | "operator" }
+    // Every referee code signs in with a PIN: `referee` names the referee and their sign-in row (refereeCodeToken in fixtures.ts).
+    | { kind: "code"; codeId: string; orgId: string; role: "referee" | "operator"; tournamentId?: string | null; referee?: { id: string; sessionId: string } },
   opts: { hours?: number; now?: number; secret?: string } = {},
 ): string {
   const now = opts.now ?? Date.now();
@@ -46,7 +49,7 @@ export function staffToken(
   const payload: StaffTokenPayload =
     p.kind === "member"
       ? { v: 1, k: "m", u: p.userId, o: p.orgId, r: p.role, iat: now, exp }
-      : { v: 1, k: "c", c: p.codeId, o: p.orgId, r: p.role, t: p.tournamentId ?? null, iat: now, exp };
+      : { v: 1, k: "c", c: p.codeId, o: p.orgId, r: p.role, t: p.tournamentId ?? null, ...(p.referee ? { p: p.referee.id, s: p.referee.sessionId } : {}), iat: now, exp };
   return signStaffToken(payload, opts.secret ?? staffSecret({ ...process.env, NODE_ENV: "production" }));
 }
 

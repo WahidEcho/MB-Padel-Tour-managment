@@ -37,7 +37,7 @@ export const LOGIN_ERRORS: Record<string, string> = {
   unavailable: "Staff sign-in is not available right now.",
   pin_required: "This code needs your 4-digit referee PIN.",
   wrong_pin: "Wrong PIN. Check the 4 digits the organiser gave you.",
-  pin_locked: "Too many wrong PINs for this code. It is locked for a few minutes.",
+  pin_locked: "Too many wrong PINs for this code. It is locked for 5 minutes.",
   pin_expired: "That took too long. Enter the court code again.",
   referee_ended: "Your referee sign-in has ended. Sign in again with the court code and your PIN.",
 };

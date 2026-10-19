@@ -7,7 +7,7 @@
  * old court's code for just those matches (never a new one), kept beside the new
  * session and dropped once they are sent and finished (`pruneCarry`).
  *
- * Referee PINs (migration 0035): a court code (or a master referee code) also needs the
+ * Referee PINs (migration 0035): every referee code (court, whole-event, master) also needs the
  * referee's own 4-digit PIN. Without one the server answers `pin_required`; the screen
  * then keeps the code in memory only (`pendingCode`, never on disk or in a URL) and asks
  * for the PIN on /referee/pin.

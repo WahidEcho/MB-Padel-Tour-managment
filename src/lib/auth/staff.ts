@@ -205,7 +205,7 @@ export async function resolveStaffToken(token: string, now = Date.now()): Promis
     if (!code || code.organization_id !== p.o) return refused("signed_out");
     if (code.revoked_at) return refused("code_revoked");
     if (code.expires_at && Date.parse(code.expires_at) <= now) return refused("code_expired");
-    // A court or master code (migration 0035): the referee the token names, re-checked.
+    // A referee code (court, whole-event or master): the referee the token names, re-checked.
     let referee: RefereeIdentity | null = null;
     if (codeNeedsPin(code)) {
       referee = await refereeForToken(p, code, now);
@@ -414,10 +414,10 @@ export interface AccessCodeOptions {
 }
 
 export const PIN_MESSAGES = {
-  pin_required: "This court code needs your 4-digit referee PIN.",
-  pin_required_legacy: "This court code needs your 4-digit referee PIN: type the court code, a space, then your PIN.",
+  pin_required: "This referee code needs your 4-digit referee PIN.",
+  pin_required_legacy: "This referee code needs your 4-digit referee PIN: type the code, a space, then your PIN.",
   wrong_pin: "Wrong PIN. Check the 4 digits the organiser gave you.",
-  pin_locked: "Too many wrong PINs for this code. It is locked for a few minutes.",
+  pin_locked: "Too many wrong PINs for this code. It is locked for 5 minutes.",
 } as const;
 
 /**
@@ -452,7 +452,7 @@ export async function signInWithAccessCode(raw: string, hours: number, opts: Acc
     };
   }
 
-  // Move Score 1.0.1 has one field: "<court code> <PIN>" or "<court code>-<PIN>".
+  // Move Score 1.0.1 has one field: "<referee code> <PIN>" or "<referee code>-<PIN>" (court, whole-event or master code).
   const combined = normalizeEventCode(input) ? null : splitCodeAndPin(input);
   const code = combined?.code ?? normalizeEventCode(input);
   const pin = combined?.pin ?? opts.pin;
@@ -478,7 +478,7 @@ export async function signInWithAccessCode(raw: string, hours: number, opts: Acc
   const blocked = orgRefusal(org);
   if (blocked) return { ok: false, error: REFUSAL_MESSAGE[blocked], reason: blocked };
   const master = row.role === "master_referee";
-  // A court or master code is useless without a referee PIN (migration 0035).
+  // Every referee code is useless without a referee PIN (court, whole-event and master codes).
   let referee: SignedInReferee | null = null;
   const exp = Math.min(now + hours * 3600_000, codeExpiry);
   if (codeNeedsPin(row)) {

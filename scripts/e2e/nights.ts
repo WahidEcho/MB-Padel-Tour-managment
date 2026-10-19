@@ -49,7 +49,7 @@ import { addMember, createLeague, createNight, updateLeague } from "../../src/li
 import { todayIn } from "../../src/lib/leagues/server";
 import type { Match, Tournament } from "../../src/lib/types";
 import { staffToken } from "./lib/session";
-import { appUser, assertStandIn, BASE_URL, bearer, check, cookie, eventually, finish, http, section, sleep, type Who } from "./lib/fixtures";
+import { appUser, assertStandIn, BASE_URL, bearer, refereeCodeToken, check, cookie, eventually, finish, http, section, sleep, type Who } from "./lib/fixtures";
 
 assertStandIn("nights.ts");
 
@@ -177,7 +177,7 @@ async function main() {
     const aAdmin = await admin(A, "a");
     const bAdmin = await admin(B, "b");
     const { data: codeRow } = await db().from("organization_codes").insert({ organization_id: A.id, role: "referee", code_hash: hashEventCode(generateEventCode()), label: "e2e" }).select("id").single();
-    const aReferee = bearer(staffToken({ kind: "code", codeId: (codeRow as { id: string }).id, orgId: A.id, role: "referee" }));
+    const aReferee = bearer(await refereeCodeToken({ codeId: (codeRow as { id: string }).id, orgId: A.id }));
 
     const profile = async (name: string, orgId: string, extra: Record<string, unknown> = {}) => {
       const { data, error } = await db().from("player_profiles").insert({ public_name: `${name} ${tag}`, approval_status: "approved", ...extra }).select("id").single();

@@ -110,6 +110,28 @@ async function main() {
   const bareWeb = await http("GET", "/login?pin=1&court=Court%201");
   check(bareWeb.status === 200 && bareWeb.text.includes('data-testid="pin-step"'), "web: the PIN step page", bareWeb.status);
 
+  section("Every referee code needs a PIN: a whole-event referee code too; an operator code does not");
+  {
+    const { generateEventCode, hashEventCode } = await import("../../src/lib/orgs/codes");
+    const ev = generateEventCode();
+    const op = generateEventCode();
+    const { error: ce } = await db().from("organization_codes").insert([
+      { organization_id: MB, role: "referee", tournament_id: BOYS, code_hash: hashEventCode(ev), label: `e2e whole-event ${tag}` },
+      { organization_id: MB, role: "operator", tournament_id: BOYS, code_hash: hashEventCode(op), label: `e2e operator ${tag}` },
+    ]);
+    check(!ce, "a whole-event referee code and an operator code for the boys' event", ce?.message);
+    const evBare = await http("POST", SESSION, ip(60), { code: ev });
+    check(evBare.status === 401 && evBare.json?.code === "pin_required" && evBare.json.court === null && !("token" in (evBare.json ?? {})), "a whole-event referee code alone: 401 pin_required, no token", evBare.json);
+    const evPin = await http("POST", SESSION, ip(60), { code: ev, pin: SARA.pin });
+    check(evPin.status === 200 && (evPin.json?.referee as { name: string } | null)?.name === SARA.name, "…with the referee's PIN: signed in as that referee", evPin.json?.referee);
+    const evLegacy = await http("POST", SESSION, ip(60), { code: `${formatEventCode(ev)} ${SARA.pin}` });
+    check(evLegacy.status === 200, "…and as Move Score 1.0.1 types it (\"<code> <PIN>\")", evLegacy.status);
+    const evWeb = await http("GET", "/login?pin=1", {});
+    check(evWeb.status === 200 && evWeb.text.includes('data-testid="pin-step"'), "web: the PIN step (no court)", evWeb.status);
+    const opBare = await http("POST", SESSION, ip(61), { code: op });
+    check(opBare.status === 200 && opBare.json?.role === "operator", "an operator (TV) code needs no PIN", opBare.status);
+  }
+
   section("Wrong PINs are counted per code; after 5 the code is locked (a right PIN too)");
   const wrongPin = SARA.pin === "9182" ? "9183" : "9182";
   const tries: number[] = [];
@@ -117,6 +139,9 @@ async function main() {
   check(tries.every((s) => s === 401), "5 wrong PINs from 5 addresses: 401 wrong_pin each", tries);
   const locked = await http("POST", SESSION, ip(20), { code: C2.code, pin: SARA.pin });
   check(locked.status === 429 && locked.json?.code === "pin_locked", "the 6th, even the right PIN from a new address: 429 pin_locked", locked.json);
+  const lockSecs = await fetch(`${process.env.BASE_URL}${SESSION}`, { method: "POST", headers: { "Content-Type": "application/json", ...ip(21) }, body: JSON.stringify({ code: C2.code, pin: SARA.pin }) }).then((r) => Number(r.headers.get("retry-after")));
+  check(lockSecs > 240 && lockSecs <= 300, "…locked for 5 minutes from the last wrong PIN", lockSecs);
+  check(/5 minutes/.test(String(locked.json?.error)), "…and the message says 5 minutes", locked.json?.error);
   const otherCode = await http("POST", SESSION, ip(20), { code: C1.code, pin: SARA.pin });
   check(otherCode.status === 200, "another court's code is not locked", otherCode.status);
   const perIp: number[] = [];

@@ -6,7 +6,8 @@ Owner decisions for the Junior Finals (Cairo, from 2 Nov 2026). Migration `0035_
 
 Every referee has their own 4-digit PIN. A court's QR / court code says **which court**; the PIN says **who**.
 Any referee can work any court: scan the court's QR (or type its code), then type the PIN. A court code on its
-own signs nobody in. Master referees cover every court of the event group: they sign in with their own master
+own signs nobody in. **Every referee code needs a PIN** (owner's decision, 19 Oct 2026): court codes,
+whole-event referee codes and master codes alike; only operator (TV) codes sign in without one. Master referees cover every court of the event group: they sign in with their own master
 code plus their PIN, can score any match, add matches and generate them from the draw, and they hear every
 court's **Call for assistance**. The organiser sees who is on which court right now and every call with its times.
 
@@ -33,20 +34,22 @@ court's **Call for assistance**. The organiser sees who is on which court right 
 | --- | --- |
 | New app | Scan the court QR (or type the code) → PIN screen → court console. `POST /api/mobile/v1/staff/session { code, pin }`. |
 | Web console | `/login`: the code, then the PIN step (the code is held sealed in a 5-minute HttpOnly cookie, never in a URL). |
-| **Move Score 1.0.1** | One field: `<court code> <PIN>` or `<court code>-<PIN>` (or both run together). Without the PIN it shows: "This court code needs your 4-digit referee PIN: type the court code, a space, then your PIN." |
+| **Move Score 1.0.1** | One field: `<code> <PIN>` or `<code>-<PIN>` (or both run together), for any referee code. Without the PIN it shows: "This referee code needs your 4-digit referee PIN: type the code, a space, then your PIN." |
+| Whole-event referee code | The code, then the PIN (web PIN step without a court; app PIN screen "Referee"). |
 | Master referee | Master code + their own PIN (another person's PIN is a wrong PIN). |
 
 Answers of `staff/session`: 401 `{ code: "pin_required", court, master }`, 401 `wrong_pin`, 429 `pin_locked`.
 Success adds `referee: { name, role }` (1.0.1 ignores it).
 
-**Brakes** (failed attempts only; a right PIN is refunded; `takeRateLimit`, atomic): per code 5 wrong PINs per 10
-minutes, then that code is locked for the rest of the window (a right PIN too); per address 20 per 15 minutes. A
+**Brakes** (failed attempts only; a right PIN is refunded; `takeRateLimit`, atomic): per code 5 wrong PINs within 5
+minutes, then that code is **locked for 5 minutes** from the fifth wrong PIN (a right PIN too; `PIN_LOCK_MINUTES`);
+per address 20 per 15 minutes. A
 right court code without its PIN is not counted against the code brakes of `src/lib/staffLogin.ts`.
 
 **Token**: the court/master code token carries `p` (referees.id) and `s` (referee_sessions.id). Every request re-reads
 both (`refereeForToken`): removed referee, PIN reset after the token was signed, or an ended sign-in → 401
-`referee_ended`. A court-code token without a referee (signed before 0035) → 401 `pin_required`. Event codes that are
-not court codes (operators, whole-event referee codes) are unchanged and need no PIN.
+`referee_ended`. A referee-code token without a referee (signed before PINs, or a whole-event code signed before PINs
+covered it) → 401 `pin_required`. Operator (TV) codes are unchanged and need no PIN.
 
 ## Audit
 
@@ -94,5 +97,9 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
 2. After deploy: Admin → Referees, add each referee, hand out PINs; make master codes; print the court sheets again
    (new wording). Court codes made before keep working, but a referee signed in with one before the deploy has to
    sign in again with the PIN.
-3. iPhone: the time-sensitive level needs the `com.apple.developer.usernotifications.time-sensitive` entitlement in
-   the next app build (not added yet); without it iOS delivers the alert as an ordinary (sound) notification.
+3. iPhone: `app.config.ts` carries the `com.apple.developer.usernotifications.time-sensitive` entitlement and the
+   assistance push is sent with `interruptionLevel: "time-sensitive"`. Before the next build the owner enables
+   **Time Sensitive Notifications** on the App ID in the Apple developer portal and regenerates the profiles
+   (`move-score-app/docs/device-install.md`, step 2.6). Without it the signed build fails.
+4. Whole-event referee codes now need a PIN too: referees signed in with one before this deploy sign in again with
+   their PIN.

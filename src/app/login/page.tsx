@@ -96,7 +96,7 @@ export default async function LoginPage({
     redirect(nextUrl || staffHome(r.role));
   }
 
-  /** Step two for a court or master code: the referee's own 4-digit PIN. */
+  /** Step two for every referee code (court, whole-event, master): the referee's own 4-digit PIN. */
   async function pinLogin(formData: FormData) {
     "use server";
     const nextUrl = safeNextPath(formData.get("next"));
@@ -174,8 +174,8 @@ export default async function LoginPage({
         <form action={pinLogin} className="card w-full max-w-sm space-y-4 p-6" data-testid="pin-step">
           <div className="text-center">
             <p className="text-xs font-semibold uppercase tracking-widest text-accent">Move Score</p>
-            <h1 className="text-xl font-bold">{master ? "Master referee" : court ? court : "Court referee"}</h1>
-            <p className="mt-1 text-sm text-muted">Enter your own 4-digit referee PIN. It tells the desk who is on this court.</p>
+            <h1 className="text-xl font-bold">{master ? "Master referee" : court ? court : "Referee"}</h1>
+            <p className="mt-1 text-sm text-muted">Enter your own 4-digit referee PIN. It tells the desk who is scoring.</p>
           </div>
           {message && (
             <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-semibold text-danger" data-testid="login-error">{message}</p>

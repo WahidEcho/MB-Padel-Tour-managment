@@ -24,6 +24,56 @@ export function assertStandIn(script: string) {
   if (!process.env.STAFF_SESSION_SECRET) throw new Error("STAFF_SESSION_SECRET must be set (the server's, in .env.localdb)");
 }
 
+/* ---------------- referee codes need a PIN ---------------- */
+
+/** Referees made by refereeCodeToken (removed by removeTestReferees, or with their organisation). */
+const testReferees: string[] = [];
+
+/**
+ * A staff token for a referee code as a PIN sign-in gives it (every referee code needs
+ * a PIN): a referee of the code's organisation and a sign-in row on the code, so the
+ * server's re-check (refereeForToken) passes.
+ */
+export async function refereeCodeToken(p: { codeId: string; orgId: string; tournamentId?: string | null; name?: string }): Promise<string> {
+  const { data: r, error } = await db()
+    .from("referees")
+    .insert({ organization_id: p.orgId, name: p.name ?? `E2E referee ${randomUUID().slice(0, 6)}`, role: "referee", pin_hash: randomBytes(32).toString("hex") })
+    .select("id")
+    .single();
+  if (error) throw new Error(`referees: ${error.message}`);
+  const refId = (r as { id: string }).id;
+  testReferees.push(refId);
+  const { data: s, error: se } = await db()
+    .from("referee_sessions")
+    .insert({ organization_id: p.orgId, referee_id: refId, code_id: p.codeId, role: "referee", tournament_id: p.tournamentId ?? null, via: "app", expires_at: new Date(Date.now() + 24 * 3600_000).toISOString() })
+    .select("id")
+    .single();
+  if (se) throw new Error(`referee_sessions: ${se.message}`);
+  await new Promise((res) => setTimeout(res, 1100)); // the token must be signed after the PIN was set
+  return staffToken({ kind: "code", codeId: p.codeId, orgId: p.orgId, role: "referee", tournamentId: p.tournamentId ?? null, referee: { id: refId, sessionId: (s as { id: string }).id } });
+}
+
+/** A referee with a known PIN in an organisation (for HTTP sign-ins with a referee code). */
+export async function refereeWithPin(orgId: string, name: string): Promise<{ id: string; pin: string }> {
+  const { hashRefereePin } = await import("../../../src/lib/referees/pin");
+  for (let i = 0; i < 20; i++) {
+    const pin = String(2000 + Math.floor(Math.random() * 7000));
+    const { data, error } = await db().from("referees").insert({ organization_id: orgId, name, role: "referee", pin_hash: hashRefereePin(orgId, pin) }).select("id").single();
+    if (!error && data) {
+      testReferees.push((data as { id: string }).id);
+      return { id: (data as { id: string }).id, pin };
+    }
+  }
+  throw new Error("referees: no free PIN");
+}
+
+export async function removeTestReferees(): Promise<void> {
+  if (!testReferees.length) return;
+  await db().from("audit_logs").delete().in("actor_referee_id", testReferees);
+  await db().from("referee_sessions").delete().in("referee_id", testReferees);
+  await db().from("referees").delete().in("id", testReferees.splice(0));
+}
+
 /* ---------------- bookkeeping ---------------- */
 
 const tally = { passed: 0, failed: 0 };
@@ -217,11 +267,12 @@ export function fixtures(tag: string) {
     created.orgs.push(orgId);
     const code = generateEventCode();
     const { data: cr } = await db().from("organization_codes").insert({ organization_id: orgId, role: "referee", code_hash: hashEventCode(code), label: "e2e" }).select("id").single();
-    return { who: bearer(staffToken({ kind: "code", codeId: (cr as { id: string }).id, orgId, role: "referee" })), orgId };
+    return { who: bearer(await refereeCodeToken({ codeId: (cr as { id: string }).id, orgId })), orgId };
   }
 
   /** Removes everything made here (tournaments cascade to teams, players, matches, calls, alerts). */
   async function cleanup(): Promise<boolean> {
+    await removeTestReferees();
     const t = created.tournaments;
     if (t.length) {
       await db().from("audit_logs").delete().in("tournament_id", t);

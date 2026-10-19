@@ -18,11 +18,12 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * code fails the next call with 401 and a clear message, and the app keeps its
  * queued points until a new code is entered.
  *
- * Referee PINs (migration 0035): a court code or a master referee code also needs the
+ * Referee PINs (migration 0035): every referee code (court, whole-event, master) also needs the
  * referee's 4-digit PIN, `{ code, pin }` (newer apps), or typed into the one field after
  * the code, "<code> <PIN>" / "<code>-<PIN>" (Move Score 1.0.1). Without one the answer is
  * 401 `{ code: "pin_required", court, master }`; a wrong one 401 `wrong_pin`; too many
- * wrong ones 429 `pin_locked`. The token then names the referee.
+ * wrong ones 429 `pin_locked` (the code locked for 5 minutes). The token then names the referee.
+ * Operator (TV) codes need no PIN.
  */
 export async function POST(request: Request) {
   const body = await readJson<{ code?: unknown; pin?: unknown; previousToken?: unknown; pendingMatchIds?: unknown; openMatchIds?: unknown }>(request);
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     if (r.reason === "pin_locked") {
       return NextResponse.json(
         { error: r.error, code: "pin_locked" },
-        { status: 429, headers: { "Retry-After": String(r.retryAfterSeconds ?? 600), ...NO_STORE } },
+        { status: 429, headers: { "Retry-After": String(r.retryAfterSeconds ?? 300), ...NO_STORE } },
       );
     }
     const pinCase = r.reason === "pin_required" || r.reason === "wrong_pin";

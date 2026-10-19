@@ -95,6 +95,15 @@ app reads what the build has from `extra.liveActivities` / `extra.widgets`.
    `ios.ExpoWidgetsTarget` at the two **ad-hoc** profiles for `adhoc-local` (and at the
    App Store ones for `production-local-creds`), with the distribution certificate
    `dist.p12`.
+6. **Time Sensitive Notifications** (owner, Apple developer portal; check before the next
+   build): Certificates, Identifiers & Profiles → Identifiers → `org.mbeg.movescore` →
+   enable **Time Sensitive Notifications**, then regenerate the provisioning profiles (ad-hoc
+   and App Store) so they carry it. `app.config.ts` now asks for the
+   `com.apple.developer.usernotifications.time-sensitive` entitlement: a profile without the
+   capability fails the build's signing step. The master referee's "Call for assistance"
+   push is sent with `interruptionLevel: "time-sensitive"`.
+   - [ ] Capability enabled on the App ID
+   - [ ] Profiles regenerated and pointed at in `credentials.json`
 
 ## 3. Build and install (owner)
 
@@ -158,6 +167,11 @@ Widgets
 - [ ] Star a match from another tournament: it appears on the widget.
 - [ ] With the app open, an alert arrives → the widget refreshes within a few seconds.
 - [ ] At a match's start time the widget redraws by itself (timeline), app closed.
+
+Referee alerts
+- [ ] With Focus (Do Not Disturb) on, a master referee's phone shows a court's "Call for
+      assistance" at once, marked Time Sensitive (Settings → Move Score → Notifications →
+      Time Sensitive Notifications is on).
 
 Regression
 - [ ] Alerts, sign-in, pass, story share and referee scoring work as before.

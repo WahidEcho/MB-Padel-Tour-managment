@@ -18,11 +18,13 @@ export const PIN_LENGTH = 4;
 
 /**
  * PIN brakes (failed attempts only; a right PIN is refunded, src/lib/referees/server.ts):
- * - per code: after PIN_LOCK.limit wrong PINs with one court (or master) code, the code
- *   is locked for the rest of the window, a right PIN too;
+ * - per code: after PIN_LOCK.limit wrong PINs within the window with one referee code
+ *   (court, whole-event or master), the code is locked for PIN_LOCK_MINUTES from the
+ *   last wrong PIN, a right PIN too (owner's decision: 5 minutes);
  * - per address: a generous allowance, since a venue's referees share one Wi-Fi.
  */
-export const PIN_LOCK = { limit: 5, windowSeconds: 10 * 60 };
+export const PIN_LOCK_MINUTES = 5;
+export const PIN_LOCK = { limit: 5, windowSeconds: PIN_LOCK_MINUTES * 60 };
 export const PIN_PER_IP = { limit: 20, windowSeconds: 15 * 60 };
 
 /** "On court now": a referee seen within this many minutes still counts as on court. */
