@@ -6,7 +6,7 @@
  * check against the server's own numbering.
  */
 import { awardPoint, opponent, type ScoreState, type TeamKey } from "./engine";
-import { ace, applyLet, fault, setServeOrder, type ServeOrder } from "./serve";
+import { ace, applyLet, fault, serveNumber, setServeOrder, type ServeOrder } from "./serve";
 import { isTimerKind, startClock, stopClock, TIME_DECISIONS, type TimerKind } from "./timing";
 import type { ScoringConfig } from "../types";
 import type { ScoringFeatures } from "../matchday/rules";
@@ -324,6 +324,18 @@ export function sameState(a: unknown, b: unknown): boolean {
   return true;
 }
 
+/**
+ * A first-serve fault that no longer counts (the score moved on) is not part of the
+ * score: Move Score 1.0.1's engine copies it along where today's drops it.
+ */
+function withoutStaleServe(s: ScoreState | null | undefined): unknown {
+  if (!s || typeof s !== "object" || !("serve" in s) || !s.teamA) return s;
+  if (serveNumber(s) === 2) return s;
+  const copy = { ...s };
+  delete copy.serve;
+  return copy;
+}
+
 export interface ShadowMismatch {
   event_number: number;
   event_type: string;
@@ -354,7 +366,9 @@ export function shadowMismatches(
       try {
         const v2 = isV2Event(e) ? expectedV2State(e, { teamA: opts.teamA, config: opts.config }) : null;
         const expected = v2 && v2.ok ? v2.state : awardPoint(e.previous_state as ScoreState, key, opts.config);
-        if (!sameState(expected, e.new_state)) out.push({ event_number: e.event_number, event_type: e.event_type, kind: "point" });
+        if (!sameState(withoutStaleServe(expected), withoutStaleServe(e.new_state as ScoreState))) {
+          out.push({ event_number: e.event_number, event_type: e.event_type, kind: "point" });
+        }
       } catch {
         out.push({ event_number: e.event_number, event_type: e.event_type, kind: "point" });
       }

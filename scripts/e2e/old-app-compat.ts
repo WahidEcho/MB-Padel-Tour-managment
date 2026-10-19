@@ -9,8 +9,11 @@
  * type only with a body, `undefined` fields dropped by JSON.stringify), the same
  * bodies (push/register.ts, state/follows.ts, push/prefs.ts, pass/*, player/me.ts,
  * auth/*, live/lockScreen.ts, referee/useLease.ts, referee/sync.ts with its batch of
- * 50 and its event field list), and the same referee console events (the shared
- * src/lib/scoring/console.ts, which the script checks is byte-identical to 0159033's).
+ * 50 and its event field list), and the same referee console events: the scoring
+ * console, engine and conduct modules are 0159033's own, read with `git show` and run
+ * from a temporary folder (scoring v2 changed today's copies, 1.0.1 still runs the old
+ * ones). Scoring v2: a match scored with faults, aces, lets and timers is taken over
+ * and finished by 1.0.1.
  * Each call must succeed and carry the fields 1.0.1 reads.
  *
  * Stand-in only. Creates and deletes its own rows.
@@ -24,7 +27,12 @@ import { spawnSync } from "child_process";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import sharp from "sharp";
 import { db } from "../../src/lib/supabase";
-import * as Console from "../../src/lib/scoring/console";
+import * as CurrentConsole from "../../src/lib/scoring/console";
+import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { pathToFileURL } from "url";
+import { SCORING_FEATURES_ON } from "../../src/lib/matchday/rules";
 import { stateFromFinalScore } from "../../src/lib/scoring/finalScore";
 import type { ScoreState, TeamKey } from "../../src/lib/scoring/engine";
 import type { ScoringConfig } from "../../src/lib/types";
@@ -38,6 +46,23 @@ import { BASE_URL, assertStandIn, check, finish, section } from "./lib/fixtures"
 import { sessionToken } from "./lib/session";
 
 const OLD = "0159033";
+
+/**
+ * 1.0.1's own scoring console, engine and conduct (and what they import), read from
+ * 0159033 into a temporary folder. The events below are built with them, exactly as
+ * the phones in people's hands build them, whatever today's modules say.
+ */
+async function loadOldConsole(): Promise<typeof CurrentConsole> {
+  const dir = mkdtempSync(join(tmpdir(), "ms-101-"));
+  mkdirSync(join(dir, "scoring"));
+  for (const f of ["scoring/console.ts", "scoring/engine.ts", "scoring/conduct.ts", "scoring/eventGuard.ts", "types.ts"]) {
+    const src = spawnSync("git", ["show", `${OLD}:src/lib/${f}`], { encoding: "utf8" });
+    if (src.status !== 0) throw new Error(`git show ${OLD}:src/lib/${f} failed`);
+    writeFileSync(join(dir, f), src.stdout);
+  }
+  return (await import(pathToFileURL(join(dir, "scoring/console.ts")).href)) as typeof CurrentConsole;
+}
+let Console: typeof CurrentConsole = CurrentConsole;
 const SUPA = process.env.SUPABASE_URL ?? "";
 
 /* ---------------- 1.0.1's response types (0159033:src/lib/mobile/contract.ts) ---------------- */
@@ -199,7 +224,7 @@ class OldConsole {
   number: number;
   status: string;
   queue: QueuedEvent[] = [];
-  opts: Console.ConsoleOptions;
+  opts: CurrentConsole.ConsoleOptions;
   lastSync: Reply | null = null;
 
   constructor(
@@ -228,7 +253,7 @@ class OldConsole {
   }
 
   /** useConsole `record()`. */
-  record(build: () => Console.ConsoleEvent | null): boolean {
+  record(build: () => CurrentConsole.ConsoleEvent | null): boolean {
     const prev = this.state;
     const e = build();
     if (!e) return false;
@@ -258,7 +283,7 @@ class OldConsole {
   point = (k: TeamKey) => this.record(() => (this.state ? Console.point(this.state, k, this.opts) : null));
   undo = () => this.record(() => Console.undo(this.history, Console.isFinished(this.status, this.state, this.opts.confirmFirst)));
   pause = () => this.record(() => (this.state ? Console.togglePause(this.state, this.status === "paused") : null));
-  endWith = (kind: Console.EndKind, w: TeamKey) => this.record(() => (this.state ? Console.endWith(this.state, kind, w, true) : null));
+  endWith = (kind: CurrentConsole.EndKind, w: TeamKey) => this.record(() => (this.state ? Console.endWith(this.state, kind, w, true) : null));
 
   /** sync.ts `once()` until the queue is empty or the server refuses. Returns the last reply. */
   async sync(): Promise<Reply | null> {
@@ -297,9 +322,11 @@ const label = "iPhone 15 · app"; // useLease.ts label()
 
 async function main() {
   assertStandIn("old-app-compat");
-  // The console the old app ran is the server's own pure module: it must not have changed since 1.0.1.
-  const same = spawnSync("git", ["diff", "--quiet", OLD, "HEAD", "--", "src/lib/scoring/console.ts", "src/lib/scoring/engine.ts", "src/lib/scoring/conduct.ts", "src/lib/scoringLease.ts"]);
-  check(same.status === 0, `The scoring console, engine, conduct and lease view are unchanged since ${OLD} (so these events are 1.0.1's)`, same.status);
+  // The console the old app runs: 0159033's own modules (scoring v2 changed today's).
+  Console = await loadOldConsole();
+  check(typeof Console.point === "function" && !("faultEvent" in Console), `1.0.1's scoring console, engine and conduct are loaded from ${OLD} (no v2 builders in them)`);
+  const lease = spawnSync("git", ["diff", "--quiet", OLD, "HEAD", "--", "src/lib/scoringLease.ts"]);
+  check(lease.status === 0, `The lease view is unchanged since ${OLD}`, lease.status);
 
   // Per-address brakes from earlier runs on this stand-in (one address makes every phone here):
   // staff sign-in, new installs, player-code sign-in and cheers. This run's own calls count again.
@@ -675,6 +702,80 @@ async function main() {
     const r5 = await c2.sync();
     const s2Row = (await db().from("matches").select("status, winner_team_id").eq("id", s2.id).single()).data;
     check(r5?.status === 200 && s2Row?.status === "retired" && s2Row.winner_team_id === egy.id, "Retirement (payload.winner_team_id): retired, Egypt won", { status: r5?.status, err: r5?.json?.error, row: s2Row });
+
+
+    section("Scoring v2: a doubles rubber scored with faults, aces, lets and a changeover, then taken over and finished by 1.0.1");
+    {
+      // The organiser's scoring features on for this event (Admin → Scoring features).
+      await db().from("tournaments").update({ match_day_rules: { features: SCORING_FEATURES_ON } }).eq("id", tid);
+      const dub = await rubber(3, "D", [pl(egy.id, 1).id, pl(egy.id, 2).id], [pl(jpn.id, 1).id, pl(jpn.id, 2).id]);
+      const v2dev = `v2-console-${tag}`;
+      const admin = { "Content-Type": "application/json", Cookie: `mb_session=${sessionToken("admin")}` };
+      await fetch(`${BASE_URL}/api/matches/${dub.id}/claim`, { method: "POST", headers: admin, body: JSON.stringify({ deviceId: v2dev }) });
+      const vboot = (await (await fetch(`${BASE_URL}/api/mobile/v1/referee/matches/${dub.id}/bootstrap`, { headers: admin })).json()) as { config: ScoringConfig };
+      const o: CurrentConsole.ConsoleOptions = { config: vboot.config, confirmFirst: false, online: true, tennis: true, doubles: true };
+      // Today's console (scoring v2), as the web console and the new app build its events.
+      const C = CurrentConsole;
+      let cur: ScoreState | null = null;
+      let n = 0;
+      const events: unknown[] = [];
+      const add = (e: CurrentConsole.ConsoleEvent | null) => {
+        if (!e) throw new Error("the v2 console refused a step");
+        n++;
+        events.push({
+          client_event_id: randomUUID(),
+          event_number: n,
+          event_type: e.eventType,
+          team_id: e.team ? (e.team === "A" ? egy.id : jpn.id) : null,
+          previous_state: cur,
+          new_state: e.next,
+          payload: e.payload,
+          created_at_client: new Date().toISOString(),
+        });
+        cur = e.next;
+      };
+      add(C.startMatch("A"));
+      add(C.serveOrderEvent(cur!, { servingTeam: "A", server: 1, receiver: 0, otherServer: 1, otherReceiver: 0 }));
+      add(C.faultEvent(cur!, o)); // 1st serve fault
+      add(C.letEvent(cur!, "serve")); // still the 2nd serve
+      add(C.faultEvent(cur!, o)); // double fault: 0-15
+      add(C.aceEvent(cur!, o)); // 15-15
+      add(C.letEvent(cur!, "point"));
+      for (let i = 0; i < 3; i++) add(C.aceEvent(cur!, o)); // game Egypt: change of ends after game 1
+      for (let g = 0; g < 2; g++) for (let i = 0; i < 4; i++) add(C.point(cur!, g === 0 ? "B" : "A", o)); // 2-1: a changeover
+      add(C.timerStart(cur!, "changeover", new Date().toISOString()));
+      add(C.timeDecision(cur!, "changeover", "warning", 95, "B"));
+      add(C.timerStop(cur!, "changeover", 95));
+      add(C.faultEvent(cur!, o)); // a fault left on the board for 1.0.1
+      const sent = await fetch(`${BASE_URL}/api/matches/${dub.id}/events`, { method: "POST", headers: admin, body: JSON.stringify({ deviceId: v2dev, events }) });
+      const sentBody = (await sent.json().catch(() => ({}))) as { applied?: unknown[]; error?: string };
+      check(sent.status === 200 && sentBody.applied?.length === events.length, `The v2 console's ${events.length} events (FAULT, LET, SERVE_ORDER, aces, a double fault, TIMER_*, TIME_DECISION) are accepted`, sentBody.error);
+      await fetch(`${BASE_URL}/api/matches/${dub.id}/release-lease`, { method: "POST", headers: admin, body: JSON.stringify({ deviceId: v2dev }) });
+
+      // 1.0.1 takes the match over: its bootstrap, its own (old) engine on the v2 state.
+      const oboot = await ref.api(`/api/mobile/v1/referee/matches/${dub.id}/bootstrap`, { who: "staff" });
+      const bootKeys = ["match", "tournament", "courtName", "config", "tennis", "chess", "waitingForLineups", "sideA", "sideB", "snapshot", "reopenState", "history", "redBlueTeams", "lease"];
+      check(oboot.status === 200 && bootKeys.every((k) => k in (oboot.json ?? {})), "1.0.1's bootstrap of a v2-scored match: every field it reads", oboot.status);
+      const hist = (oboot.json?.history ?? []) as ScoreState[];
+      check(hist.length === events.length - 1 - 3, "Its undo history skips the timers and the time ruling (one entry per scoring step)", { history: hist.length, events: events.length });
+      const snap = oboot.json?.snapshot?.snapshot_json as ScoreState;
+      check(snap?.teamA?.games === 2 && snap.teamB.games === 1 && snap.stats?.aces.A === 4 && snap.stats?.doubleFaults.A === 1, "The server's score: 2-1 in games, 4 aces and a double fault for Egypt", { games: [snap?.teamA?.games, snap?.teamB?.games], stats: snap?.stats });
+      await ref.api(`/api/matches/${dub.id}/claim`, { who: "staff", body: { deviceId: dev, deviceLabel: label } });
+      const old = new OldConsole(ref, dev, oboot.json);
+      old.point("A"); // 1.0.1 knows nothing of the fault: a plain point
+      old.point("B");
+      old.undo();
+      let guard2 = 0;
+      while (!old.finished && guard2++ < 400) old.point("A");
+      const ro = await old.sync();
+      const dRow = (await db().from("matches").select("status, winner_team_id").eq("id", dub.id).single()).data;
+      check(ro?.status === 200 && dRow?.status === "completed" && dRow.winner_team_id === egy.id, "1.0.1 scores on, undoes and finishes it with its own engine: accepted, completed", { status: ro?.status, err: ro?.json?.error, row: dRow });
+      const lastState = old.state as ScoreState & { serve?: { at: string } | null };
+      check(lastState.stats?.aces.A === 4, "1.0.1 carries the v2 fields along untouched (aces still 4)", lastState.stats);
+      const pub = await fan.api(`/api/mobile/v1/matches/${dub.id}`);
+      check([200, 404].includes(pub.status), "A fan's 1.0.1 reads the v2-scored match without an error", pub.status);
+      await db().from("tournaments").update({ match_day_rules: {} }).eq("id", tid);
+    }
 
     section("Padel match with the event code: walkover");
     const pboot = await codeRef.api(`/api/mobile/v1/referee/matches/${padelMid}/bootstrap`, { who: "staff" });

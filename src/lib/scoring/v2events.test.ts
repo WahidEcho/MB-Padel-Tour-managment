@@ -191,3 +191,13 @@ describe("which timer follows a point", () => {
     expect(C.runningClock(C.timerStop(s, "bathroom", 10).next)).toBeNull();
   });
 });
+
+describe("Move Score 1.0.1 after a fault", () => {
+  it("its point (old engine: the stale fault copied along) is not a shadow mismatch", () => {
+    const f = C.faultEvent(initialScoreState("A"), o)!.next;
+    const oldNext = { ...C.point(f, "B", o).next, serve: f.serve };
+    const evs = [{ event_number: 2, event_type: "POINT_AWARDED", team_id: TEAM.B, previous_state: f, new_state: oldNext, payload: null }];
+    expect(shadowMismatches(evs, { snapshotState: f, teamA: TEAM.A, config })).toEqual([]);
+    expect(serveNumber(oldNext)).toBe(1);
+  });
+});
