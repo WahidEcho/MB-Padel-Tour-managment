@@ -358,3 +358,14 @@ describe("the voice umpire on tennis rules", () => {
     expect(pointCall(s, won, doubles)?.[0]).toBe("game");
   });
 });
+
+describe("a match's own rules", () => {
+  it("shortens one placement singles to two sets and a match tie-break, and nothing else (Reg 51)", () => {
+    const t = { ...tennis, scoring_config: { ...tennis.scoring_config, matchRules: { m1: { setsToWinMatch: 2, matchTiebreak: true, matchTiebreakPoints: 10 } } } };
+    const short = scoringConfigForMatch(t, { stage: "knockout", id: "m1" });
+    expect(short).toMatchObject({ setsToWinMatch: 2, matchTiebreak: true, matchTiebreakPoints: 10 });
+    expect(short.decidingPoint).toBeFalsy();
+    expect(scoringConfigForMatch(t, { stage: "knockout", id: "m2" }).matchTiebreak).toBeFalsy();
+    expect(scoringConfigForMatch(t, { stage: "knockout" }).matchTiebreak).toBeFalsy();
+  });
+});

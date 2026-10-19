@@ -2,9 +2,10 @@
  * Ties: two nations, three rubbers. Pure.
  *
  * A tie is won by the nation that wins the majority of its rubbers, so it is
- * decided the moment one side has two. What happens to the rubber still unplayed
- * then depends on the stage: in the groups it is played anyway (rubbers, sets and
- * games all count in the ranking), in the placement draws it is dropped.
+ * decided the moment one side has two. The rubber still unplayed then is played
+ * anyway, in the groups (rubbers, sets and games all count in the ranking) and
+ * in the placement draws alike; an event can opt out for its placement ties
+ * (`playDeadRubbersInPlacement: false`, the replay demo's real finals).
  */
 import type { MatchStatus, RubberType, TieFormatConfig } from "../types";
 
@@ -53,7 +54,7 @@ export interface TieOutcome {
 }
 
 /**
- * The state of a tie from its rubbers. `playDeadRubbers` is true in the groups.
+ * The state of a tie from its rubbers. `playDeadRubbers` is true unless the event drops decided placement doubles.
  * Idempotent, and reversible: an undone rubber that un-decides the tie brings its
  * cancelled rubbers back, so an undo never strands a tie with nothing to play.
  */
@@ -86,9 +87,12 @@ export function tieOutcome(rubbers: RubberResult[], playDeadRubbers: boolean): T
 }
 
 /**
- * Validates a captain's line-up for one side: the two singles players must be
- * different people and the doubles pair two different people, all from the team.
- * Returns the problems, empty when the line-up is good.
+ * Validates a captain's line-up for one side (Reg 43). The two singles players
+ * are named before play: different people, both from the team, and the No. 1
+ * ranked above the No. 2 in the nation's order of merit (`squad` is in that
+ * order, No. 1 first). The doubles pair may still be "to be named" — the
+ * captain names it after the second singles — but once named it is two
+ * different players from the team. Returns the problems, empty when good.
  */
 export function lineupProblems(
   lineup: { S1?: string | null; S2?: string | null; D?: (string | null)[] | null },
@@ -99,10 +103,28 @@ export function lineupProblems(
   if (!inSquad(lineup.S1)) problems.push("Choose the No. 1 singles player.");
   if (!inSquad(lineup.S2)) problems.push("Choose the No. 2 singles player.");
   if (lineup.S1 && lineup.S1 === lineup.S2) problems.push("One player cannot play both singles.");
+  else if (inSquad(lineup.S1) && inSquad(lineup.S2) && squad.indexOf(lineup.S1!) > squad.indexOf(lineup.S2!)) {
+    problems.push("The No. 1 singles player must be ranked above the No. 2 in the nation's order of merit.");
+  }
   const d = (lineup.D ?? []).filter(Boolean) as string[];
-  if (d.length !== 2 || !d.every(inSquad)) problems.push("Choose two players for the doubles.");
+  if (d.length === 0) return problems;
+  if (d.length !== 2 || !d.every(inSquad)) problems.push("Choose two players for the doubles, or leave it to be named.");
   else if (d[0] === d[1]) problems.push("The doubles needs two different players.");
   return problems;
+}
+
+/**
+ * Players who retired through illness or injury earlier in this tie and so may
+ * not play again in it without the Referee's approval (Reg 50): the side that
+ * lost a retired rubber. Returns their ids.
+ */
+export function retiredInTie(
+  rubbers: { status: MatchStatus; winner: "A" | "B" | null; playersA: string[] | null | undefined; playersB: string[] | null | undefined }[],
+  side: "A" | "B",
+): string[] {
+  return rubbers
+    .filter((r) => r.status === "retired" && r.winner && r.winner !== side)
+    .flatMap((r) => (side === "A" ? r.playersA : r.playersB) ?? []);
 }
 
 /** Player ids for a rubber from a side's line-up. */

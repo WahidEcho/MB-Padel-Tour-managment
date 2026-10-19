@@ -54,7 +54,11 @@ export async function drawPlacementAction(_prev: TieFormState, formData: FormDat
   const id = String(formData.get("tournament_id"));
   const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
-  const result = await drawPlacement(id, role);
+  const swap = (k: string) => formData.get(k) === "swap";
+  const lots = Object.fromEntries(
+    ["1", "9"].map((d) => [d, { top: swap(`lot_${d}_top`), bottom: swap(`lot_${d}_bottom`) }]),
+  );
+  const result = await drawPlacement(id, role, lots);
   revalidatePath(path(id));
   return result.ok ? { ok: true, message: `Placement draws made: ${result.ties} ties.` } : { ok: false, message: result.message };
 }

@@ -249,10 +249,10 @@ async function main() {
     {
       const teams = await getTeams(girls.t.id);
       const s = teams.find((x) => x.id === gTie.team_a_id)!.players!.sort((a, b) => a.player_order - b.player_order).map((p) => p.id);
-      const refused = await setLineup(gTie.tournament_id, gTie.id, "A", { S1: s[2], S2: s[1], D: [s[0], s[1]] }, "e2e");
-      check("after the lock, a change without a reason is refused", !refused.ok);
-      const ok = await setLineup(gTie.tournament_id, gTie.id, "A", { S1: s[2], S2: s[1], D: [s[0], s[1]] }, "e2e", { lateChangeReason: "No. 1 player ill overnight" });
-      const s1 = (await getMatches(girls.t.id)).find((m) => m.tie_id === gTie.id && m.rubber_type === "S1")!;
+      const refused = await setLineup(gTie.tournament_id, gTie.id, "A", { S1: s[0], S2: s[2], D: [s[0], s[1]] }, "e2e");
+      check("after the lock, a singles change without a reason is refused", !refused.ok);
+      const ok = await setLineup(gTie.tournament_id, gTie.id, "A", { S1: s[0], S2: s[2], D: [s[0], s[1]] }, "e2e", { lateChangeReason: "No. 2 player ill overnight" });
+      const s1 = (await getMatches(girls.t.id)).find((m) => m.tie_id === gTie.id && m.rubber_type === "S2")!;
       check("with a reason it goes through, and the rubber has the new player", ok.ok && s1.team_a_player_ids?.[0] === s[2]);
       const wall = await http(`/t/${girls.t.slug}/screen/court-2-tv`);
       check("the Court 2 TV opens on the line-up with the new name", wall.status === 200 && wall.text.includes(`Girl ${teams.find((x) => x.id === gTie.team_a_id)!.nation_code} 3`), String(wall.status));

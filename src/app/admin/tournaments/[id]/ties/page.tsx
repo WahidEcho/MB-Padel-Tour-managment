@@ -1,7 +1,7 @@
 import { requireTournamentPage } from "@/lib/guard";
 import { getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
 import { scoreSummary, type ScoreState } from "@/lib/scoring/engine";
-import { RUBBER_LABELS, isoToZonedInput } from "@/lib/tennis/ties";
+import { RUBBER_LABELS, isoToZonedInput, retiredInTie } from "@/lib/tennis/ties";
 import { finalPlacings, getTies, isTieFormat } from "@/lib/tennis/tieOps";
 import { ordinal } from "@/lib/tennis/placement";
 import type { Match, RubberType, Team, Tie } from "@/lib/types";
@@ -55,6 +55,25 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
       return { S1: of("S1")?.[0] ?? null, S2: of("S2")?.[0] ?? null, D: of("D") ?? [] };
     };
     const [label, cls] = STATUS[tie.status];
+    const squadOf = (team: Team) => [...(team.players ?? [])].sort((x, y) => x.player_order - y.player_order).map((p) => ({ id: p.id, name: p.full_name }));
+    // Reg 50: a player who retired may not play on in the tie without the Referee's approval.
+    const retiredWarning = (side: "A" | "B", team: Team) => {
+      const out = retiredInTie(
+        rubbers.map((r) => ({
+          status: r.status,
+          winner: r.winner_team_id ? (r.winner_team_id === tie.team_a_id ? "A" : "B") : null,
+          playersA: r.team_a_player_ids,
+          playersB: r.team_b_player_ids,
+        })),
+        side,
+      );
+      const field = side === "A" ? "team_a_player_ids" : "team_b_player_ids";
+      const named = rubbers.filter((r) => !["completed", "retired", "walkover", "disqualified", "cancelled"].includes(r.status)).flatMap((r) => r[field] ?? []);
+      const barred = out.filter((pid) => named.includes(pid));
+      return barred.length
+        ? `${barred.map((pid) => playerName(team, pid)).join(", ")} retired earlier in this tie: playing on needs the Referee's approval (Reg 50).`
+        : null;
+    };
     return (
       <div key={tie.id} className="card space-y-3" data-testid="tie-card">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -74,10 +93,13 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
             const snap = snapBy.get(r.id);
             const score = snap?.snapshot_json ? scoreSummary(snap.snapshot_json as unknown as ScoreState) : "";
             const side = (ids: string[] | null | undefined, team: Team | undefined) =>
-              ids?.length ? ids.map((pid) => playerName(team, pid).split(" ").slice(-1)[0]).join(" / ") : "—";
+              ids?.length ? ids.map((pid) => playerName(team, pid).split(" ").slice(-1)[0]).join(" / ") : r.rubber_type === "D" ? "to be named" : "—";
             return (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-1">
-                <span className="w-28 text-xs font-semibold text-muted">{RUBBER_LABELS[r.rubber_type as RubberType]}</span>
+                <span className="w-28 text-xs font-semibold text-muted">
+                  {RUBBER_LABELS[r.rubber_type as RubberType]}
+                  {tournament.scoring_config?.matchRules?.[r.id]?.matchTiebreak && <span className="block font-normal" title="Reg 51: two sets and a 10-point match tie-break">2 sets + MTB</span>}
+                </span>
                 <span className="flex-1">
                   {side(r.team_a_player_ids, a)} <span className="text-muted">v</span> {side(r.team_b_player_ids, b)}
                 </span>
@@ -111,7 +133,8 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
         {a && b && (
           <details>
             <summary className="cursor-pointer text-xs font-semibold text-muted">
-              Line-ups {tie.lineup_locked_at ? "· locked" : "· open"}
+              Line-ups {tie.lineup_locked_at ? "· singles locked" : "· open"}
+              {rubbers.some((r) => r.rubber_type === "D" && !(r.team_a_player_ids?.length && r.team_b_player_ids?.length)) ? " · doubles to be named" : ""}
             </summary>
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               <LineupForm
@@ -119,20 +142,22 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
                 tieId={tie.id}
                 side="A"
                 nation={a.team_name}
-                squad={(a.players ?? []).map((p) => ({ id: p.id, name: p.full_name }))}
+                squad={squadOf(a)}
                 current={lineup("team_a_player_ids")}
                 locked={Boolean(tie.lineup_locked_at)}
                 started={tie.status === "completed"}
+                warning={retiredWarning("A", a)}
               />
               <LineupForm
                 tournamentId={id}
                 tieId={tie.id}
                 side="B"
                 nation={b.team_name}
-                squad={(b.players ?? []).map((p) => ({ id: p.id, name: p.full_name }))}
+                squad={squadOf(b)}
                 current={lineup("team_b_player_ids")}
                 locked={Boolean(tie.lineup_locked_at)}
                 started={tie.status === "completed"}
+                warning={retiredWarning("B", b)}
               />
             </div>
             {!tie.lineup_locked_at && !started && <div className="mt-2"><LockForm tournamentId={id} tieId={tie.id} /></div>}
@@ -175,7 +200,7 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
       {groupTies.length > 0 && (
         <section className="space-y-3">
           <h3 className="font-bold">Placement draws</h3>
-          <PlacementControls tournamentId={id} drawn={placementTies.length > 0} ready={groupsDone} />
+          <PlacementControls tournamentId={id} drawn={placementTies.length > 0} ready={groupsDone} groupCount={groups.length} />
           {[...new Set(placementTies.map((t) => `${t.draw_from}-${t.draw_to}`))].map((draw) => {
             const inDraw = placementTies.filter((t) => `${t.draw_from}-${t.draw_to}` === draw);
             const rounds = [...new Set(inDraw.map((t) => t.round_no))].sort();

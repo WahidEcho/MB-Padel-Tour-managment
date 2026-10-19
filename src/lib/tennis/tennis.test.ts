@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { isoToZonedInput, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome, withNominees, zonedToIso, type RubberResult } from "./ties";
-import { calculateTieStandings } from "./tieStandings";
+import { isoToZonedInput, lineupFor, lineupProblems, retiredInTie, rubberPlan, shiftTime, tieOutcome, withNominees, zonedToIso, type RubberResult } from "./ties";
+import { calculateTieStandings, fullScore } from "./tieStandings";
 import { firstRoundLines, placementPlan, sourceLabel } from "./placement";
 import { nationByCode, normalizeNationCode } from "./nations";
 import type { MatchSnapshot } from "../types";
@@ -44,8 +44,30 @@ describe("line-ups", () => {
   it("refuses one player in both singles, a short doubles and an outsider", () => {
     expect(lineupProblems({ S1: "p1", S2: "p1", D: ["p2", "x"] }, squad)).toEqual([
       "One player cannot play both singles.",
-      "Choose two players for the doubles.",
+      "Choose two players for the doubles, or leave it to be named.",
     ]);
+    expect(lineupProblems({ S1: "p1", S2: "p2", D: ["p2", null] }, squad)).toEqual([
+      "Choose two players for the doubles, or leave it to be named.",
+    ]);
+  });
+  it("leaves the doubles to be named until after the singles (Reg 43)", () => {
+    expect(lineupProblems({ S1: "p1", S2: "p3", D: [null, null] }, squad)).toEqual([]);
+    expect(lineupProblems({ S1: "p1", S2: "p3", D: [] }, squad)).toEqual([]);
+    expect(lineupFor("D", { S1: "p1", S2: "p3", D: [null, null] })).toBeNull();
+  });
+  it("the No. 1 singles must rank above the No. 2 in the order of merit", () => {
+    expect(lineupProblems({ S1: "p3", S2: "p1" }, squad)).toEqual([
+      "The No. 1 singles player must be ranked above the No. 2 in the nation's order of merit.",
+    ]);
+    expect(lineupProblems({ S1: "p2", S2: "p3" }, squad)).toEqual([]);
+  });
+  it("a player who retired is barred from the rest of the tie (Reg 50)", () => {
+    const rubbers = [
+      { status: "retired" as const, winner: "B" as const, playersA: ["a2"], playersB: ["b2"] },
+      { status: "completed" as const, winner: "B" as const, playersA: ["a1"], playersB: ["b1"] },
+    ];
+    expect(retiredInTie(rubbers, "A")).toEqual(["a2"]);
+    expect(retiredInTie(rubbers, "B")).toEqual([]);
   });
   it("hands each rubber its players", () => {
     const l = { S1: "p1", S2: "p2", D: ["p1", "p3"] };
@@ -152,20 +174,34 @@ describe("ITF group ranking", () => {
     expect(s.map((x) => x.team_id)).toEqual(["USA", "JPN", "ROU", "EGY"]);
   });
 
-  it("three level, two still level after rubbers: those two go to head to head", () => {
-    // USA, ROU and JPN all win two ties. Rubbers: USA 7/9, ROU 5/9, JPN 5/9, so
-    // USA is first and ROU v JPN is settled by their tie (ROU won it), even
-    // though JPN has the better sets.
+  it("three level, two still level on matches: sets decide, never head to head (Reg 38)", () => {
+    // USA, ROU and JPN all win two ties. Matches won: USA 7, ROU 5, JPN 5. ROU
+    // beat JPN, but JPN took a set off EGY in a rubber it lost, so JPN has the
+    // better percentage of sets and is second.
     const s = group([
       ["USA", "ROU", [W, W, W]],
       ["ROU", "JPN", [W, W, L]],
       ["JPN", "USA", [W, W, L]],
       ["USA", "EGY", [W, W, W]],
       ["ROU", "EGY", [W, W, W]],
-      ["JPN", "EGY", [W, W, L]],
+      ["JPN", "EGY", [W, W, [[6, 4], [4, 6], [4, 6]]]],
     ]);
-    expect(s.map((x) => x.team_id)).toEqual(["USA", "ROU", "JPN", "EGY"]);
+    expect(s.map((x) => x.team_id)).toEqual(["USA", "JPN", "ROU", "EGY"]);
     expect(s.find((x) => x.team_id === "JPN")!.rubbers_won).toBe(5);
+    expect(s.find((x) => x.team_id === "ROU")!.rubbers_won).toBe(5);
+  });
+
+  it("counts a retirement at its full score and a match tie-break as a set and a game (Reg 38)", () => {
+    const best3 = { setsToWinMatch: 2, gamesToWinSet: 6 };
+    // The regulation's example: 6-1 2-0 ret. counts 6-1 6-0.
+    expect(fullScore([{ teamAGames: 6, teamBGames: 1 }], { a: 2, b: 0 }, "A", best3)).toEqual({ a: 12, b: 1, setsA: 2, setsB: 0 });
+    // Retiring while ahead 5-3 in the set: it still goes to the winner, 7-5.
+    expect(fullScore([{ teamAGames: 6, teamBGames: 1 }], { a: 3, b: 5 }, "A", best3)).toEqual({ a: 13, b: 6, setsA: 2, setsB: 0 });
+    // Retiring before a point, a set down: the opponent wins 6-0 6-0.
+    expect(fullScore([], { a: 0, b: 0 }, "B", best3)).toEqual({ a: 0, b: 12, setsA: 0, setsB: 2 });
+    // Doubles at one set all: the match tie-break goes to the winner as 1-0.
+    const doubles = { ...best3, matchTiebreak: true };
+    expect(fullScore([{ teamAGames: 6, teamBGames: 4 }, { teamAGames: 3, teamBGames: 6 }], { a: 0, b: 0 }, "B", doubles)).toEqual({ a: 9, b: 11, setsA: 1, setsB: 2 });
   });
 });
 
@@ -212,6 +248,18 @@ describe("placement draws", () => {
     expect(byKey.get(po.loserTo!.key)!.roundName).toBe("7th place play-off");
     // Final ties send nobody anywhere.
     expect(plan.filter((t) => t.placesFrom !== null).every((t) => !t.winnerTo && !t.loserTo)).toBe(true);
+  });
+  it("the drawn lots swap the runners-up into the other positions (Reg 36)", () => {
+    const drawn = placementPlan(4, 4, { "1": { top: true, bottom: true }, "9": { bottom: true } });
+    const qf = drawn.filter((t) => t.drawFrom === 1 && t.roundNo === 1);
+    expect(qf.map((t) => `${sourceLabel(t.a)}-${sourceLabel(t.b)}`)).toEqual(["A1-D2", "C2-B1", "C1-B2", "A2-D1"]);
+    const low = drawn.filter((t) => t.drawFrom === 9 && t.roundNo === 1);
+    expect(low.map((t) => `${sourceLabel(t.a)}-${sourceLabel(t.b)}`)).toEqual(["A3-C4", "D4-B3", "C3-B4", "A4-D3"]);
+  });
+  it("full singles in the main draw and the 15th/16th play-off; two sets and a match tie-break elsewhere (Reg 51)", () => {
+    const full = plan.filter((t) => t.fullSingles).map((t) => t.roundName);
+    expect(full.sort()).toEqual(["15th place play-off", "Final", "Quarter-finals", "Quarter-finals", "Quarter-finals", "Quarter-finals", "Semi-finals", "Semi-finals", "Third place"].sort());
+    expect(plan.filter((t) => !t.fullSingles)).toHaveLength(15);
   });
   it("two groups make one draw of four per pair of positions", () => {
     const small = placementPlan(2, 4);

@@ -13,7 +13,11 @@ export interface SquadPlayer {
   name: string;
 }
 
-/** One captain's nominations for one tie. */
+/**
+ * One captain's nominations for one tie: the two singles before play, the
+ * doubles pair now or after the second singles (Reg 43). The squad is in the
+ * nation's order of merit, No. 1 first.
+ */
 export function LineupForm({
   tournamentId,
   tieId,
@@ -23,6 +27,7 @@ export function LineupForm({
   current,
   locked,
   started,
+  warning,
 }: {
   tournamentId: string;
   tieId: string;
@@ -32,15 +37,17 @@ export function LineupForm({
   current: { S1: string | null; S2: string | null; D: string[] };
   locked: boolean;
   started: boolean;
+  /** Shown above the button, e.g. a retired player named again. */
+  warning?: string | null;
 }) {
   const [state, action, pending] = useActionState(saveLineupAction, null);
-  const pick = (name: string, value: string | null | undefined, label: string) => (
+  const pick = (name: string, value: string | null | undefined, label: string, empty = "—") => (
     <label className="flex items-center gap-2 text-xs">
       <span className="w-12 font-semibold text-muted">{label}</span>
       <select name={name} defaultValue={value ?? ""} className="input py-1 text-sm" disabled={pending}>
-        <option value="">—</option>
-        {squad.map((p) => (
-          <option key={p.id} value={p.id}>{p.name}</option>
+        <option value="">{empty}</option>
+        {squad.map((p, i) => (
+          <option key={p.id} value={p.id}>{i + 1}. {p.name}</option>
         ))}
       </select>
     </label>
@@ -53,13 +60,14 @@ export function LineupForm({
       <p className="text-xs font-bold">{nation}</p>
       {pick("S1", current.S1, "S1")}
       {pick("S2", current.S2, "S2")}
-      {pick("D1", current.D[0], "D")}
-      {pick("D2", current.D[1], "D")}
+      {pick("D1", current.D[0], "D", "To be named")}
+      {pick("D2", current.D[1], "D", "To be named")}
+      {warning && <p className="text-xs font-semibold text-danger">{warning}</p>}
       {locked && (
-        <input name="reason" required className="input py-1 text-xs" placeholder="Reason for the late change (recorded)" />
+        <input name="reason" className="input py-1 text-xs" placeholder="Reason, for a singles change after the lock (recorded)" />
       )}
       <button type="submit" className="btn-secondary w-full py-1 text-xs" disabled={pending || started}>
-        {locked ? "Save late change" : "Save line-up"}
+        {locked ? "Save doubles or late change" : "Save line-up"}
       </button>
       <Notice state={state} />
     </form>
@@ -72,20 +80,48 @@ export function LockForm({ tournamentId, tieId }: { tournamentId: string; tieId:
     <form action={action} className="flex items-center gap-2">
       <input type="hidden" name="tournament_id" value={tournamentId} />
       <input type="hidden" name="tie_id" value={tieId} />
-      <button type="submit" className="btn-primary py-1 text-xs" disabled={pending}>Lock line-ups</button>
+      <button type="submit" className="btn-primary py-1 text-xs" disabled={pending} title="The doubles can still be named after the second singles">Lock line-ups</button>
       <Notice state={state} />
     </form>
   );
 }
 
-export function PlacementControls({ tournamentId, drawn, ready }: { tournamentId: string; drawn: boolean; ready: boolean }) {
+/**
+ * The placement draws. Group winners (and third-placed nations) have fixed
+ * lines; the runners-up (and fourth-placed) are drawn by lot at the venue
+ * (Reg 36), and the desk enters how the lots fell before making the draws.
+ */
+export function PlacementControls({ tournamentId, drawn, ready, groupCount }: { tournamentId: string; drawn: boolean; ready: boolean; groupCount: number }) {
   const [drawState, draw, drawing] = useActionState(drawPlacementAction, null);
   const [resetState, reset, resetting] = useActionState(resetPlacementAction, null);
+  const lot = (name: string, first: string, second: string, at: string) => (
+    <label className="flex items-center gap-2 text-xs">
+      <span className="w-28 text-muted">Positions {at}</span>
+      <select name={name} className="input py-1 text-xs" defaultValue="">
+        <option value="">{first}, then {second}</option>
+        <option value="swap">{second}, then {first}</option>
+      </select>
+    </label>
+  );
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!drawn ? (
-        <form action={draw}>
+        <form action={draw} className="space-y-2">
           <input type="hidden" name="tournament_id" value={tournamentId} />
+          {groupCount === 4 && (
+            <div className="grid gap-3 sm:grid-cols-2" data-testid="placement-lots">
+              <div className="space-y-1">
+                <p className="text-xs font-bold">Places 1–8: runners-up drawn by lot</p>
+                {lot("lot_1_top", "C2", "D2", "2 and 3")}
+                {lot("lot_1_bottom", "A2", "B2", "6 and 7")}
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-bold">Places 9–16: fourth places drawn by lot</p>
+                {lot("lot_9_top", "C4", "D4", "2 and 3")}
+                {lot("lot_9_bottom", "A4", "B4", "6 and 7")}
+              </div>
+            </div>
+          )}
           <button type="submit" className="btn-primary" disabled={drawing || !ready} data-testid="draw-placement">
             Make the placement draws
           </button>
