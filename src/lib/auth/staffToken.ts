@@ -37,13 +37,15 @@ export const MAX_CARRY_MATCHES = 25;
  *   switched courts, the old court's code keeps reaching only these matches (the
  *   ones the phone still had unsent points or an unfinished match on), never a
  *   new one. Absent on every ordinary code token.
- * - reserved for the referee PIN (planned): `p`, the signed-in referee's id, so the
- *   server knows which referee is on which court. Not read or written yet; a token
- *   with any unknown field is still verified on the fields it knows.
+ * - `p` and `s` (referee PINs, migration 0035): the signed-in referee (referees.id)
+ *   and their sign-in (referee_sessions.id). Required for a court code and a master
+ *   referee code: the server re-reads both on every request (removed, PIN reset or
+ *   signed out = refused). A token with any unknown field is still verified on the
+ *   fields it knows.
  */
 export type StaffTokenPayload =
   | { v: 1; k: "m"; u: string; o: string; r: OrgRole; iat: number; exp: number }
-  | { v: 1; k: "c"; c: string; o: string; r: "referee" | "operator"; t: string | null; m?: string[]; iat: number; exp: number };
+  | { v: 1; k: "c"; c: string; o: string; r: "referee" | "operator"; t: string | null; m?: string[]; p?: string; s?: string; iat: number; exp: number };
 
 /** The secret new staff tokens are signed with. Fails closed in production. */
 export function staffSecret(env: Record<string, string | undefined> = process.env): string {
@@ -94,11 +96,14 @@ export function verifyStaffToken(token: string | null | undefined, secret: strin
   if (p.k === "c") {
     if (!isUuid(p.c) || !isCodeRole(p.r)) return null;
     if (p.t !== null && !isUuid(p.t)) return null;
+    // The referee and their sign-in come together, or not at all.
+    if ((p.p !== undefined || p.s !== undefined) && !(isUuid(p.p) && isUuid(p.s))) return null;
+    const who = isUuid(p.p) && isUuid(p.s) ? { p: p.p, s: p.s } : {};
     if (p.m !== undefined) {
       if (!Array.isArray(p.m) || p.m.length === 0 || p.m.length > MAX_CARRY_MATCHES || !p.m.every((x) => isUuid(x))) return null;
-      return { v: 1, k: "c", c: p.c, o: p.o, r: p.r, t: p.t as string | null, m: p.m as string[], iat, exp };
+      return { v: 1, k: "c", c: p.c, o: p.o, r: p.r, t: p.t as string | null, m: p.m as string[], ...who, iat, exp };
     }
-    return { v: 1, k: "c", c: p.c, o: p.o, r: p.r, t: p.t as string | null, iat, exp };
+    return { v: 1, k: "c", c: p.c, o: p.o, r: p.r, t: p.t as string | null, ...who, iat, exp };
   }
   return null;
 }

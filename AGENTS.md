@@ -240,3 +240,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   code in the #fragment) is a universal link (`/r` in AASA, Android `path: "/r"`); `/r` on the web never signs a browser in. Switching
   courts is never blocked: `issueCarry` (staff.ts) returns a carry-over token (`m` match list in the code token; app header
   `X-Staff-Carry`, web cookie `mb_carry`) for the old court's unsent/unfinished matches only. Gate: `npm run e2e:court-codes` (stand-in).
+- Referee PINs, master referees, calls for assistance (migration `0035_referees.sql`, not yet on the live project; apply before
+  deploying: audit rows write `actor_name`): `docs/referees.md`. Roster `referees` (PIN = HMAC under `EVENT_CODE_PEPPER`,
+  `src/lib/referees/pin.ts`), sign-ins `referee_sessions`, `assistance_calls`. A court code or a master code (`organization_codes.role
+  = 'master_referee'`, `referee_id`) signs in only with a PIN (`checkRefereePin`: per-code lock + per-address brake, failed attempts
+  only); tokens carry `p`/`s`, re-checked every request (`refereeForToken`). 1.0.1 types `<code> <PIN>` in its one field
+  (`splitCodeAndPin`). Master referees: `scopeTournamentIds` + `MASTER_REFEREE_PERMISSIONS` (src/lib/auth.ts); web `/referee/master`,
+  `/referee/tournaments/[id]/desk`; app `referee/master`, `referee/pin`, `AssistanceCard`. Admin `admin/org/referees` (+ `/live`,
+  `/calls`). Calls route `api/mobile/v1/referee/assistance` (staff only, never public). Gate `npm run e2e:referees` (stand-in,
+  `PUSH_DRY_RUN=1`).

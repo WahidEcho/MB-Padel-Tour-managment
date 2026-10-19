@@ -30,6 +30,8 @@ import { useLease } from "../../../referee/useLease";
 import type { RefereeBootstrap } from "../../../referee/types";
 import type { SyncState } from "../../../referee/sync";
 import { useCall } from "../../../referee/useCall";
+import { AssistanceCard } from "../../../referee/AssistanceCard";
+import { signInWithCode } from "../../../referee/courtSignIn";
 import { CallCard } from "../../../referee/CallCard";
 import { FinalScore } from "../../../referee/FinalScore";
 import { Sheet as Sheetish } from "../../../referee/Sheet";
@@ -86,26 +88,33 @@ function SyncPill({ s, online }: { s: SyncState; online: boolean }) {
   );
 }
 
-/** Re-enters the referee code without leaving the match: the points on this phone stay queued. */
+/**
+ * Re-enters the referee code without leaving the match: the points on this phone stay
+ * queued. A court code then asks for the referee's PIN too (migration 0035).
+ */
 function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string }) {
   const { t } = useTheme();
   const [code, setCode] = useState("");
+  const [pin, setPin] = useState("");
+  const [needPin, setNeedPin] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true);
     setErr(null);
-    try {
-      const r = await api<{ token: string; role: string; expiresAt: string }>("/api/mobile/v1/staff/session", { body: { code: code.trim() } });
-      await saveStaff({ token: r.token, role: r.role, expiresAt: r.expiresAt });
+    const r = await signInWithCode(code.trim(), needPin ? pin : undefined);
+    setBusy(false);
+    if (r.ok) {
       setCode("");
+      setPin("");
+      setNeedPin(false);
       onDone?.();
-    } catch (e) {
-      setErr(e instanceof ApiError && e.status !== 0 ? e.message : "No connection. Points stay on this phone; try again with signal.");
-    } finally {
-      setBusy(false);
+      return;
     }
+    if (r.pinRequired || r.wrongPin) setNeedPin(true);
+    setErr(r.pinRequired ? `${r.court ?? "This code"}: enter your 4-digit referee PIN.` : r.message);
   };
+  const input = { backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 14, color: t.ink, fontSize: 18 } as const;
   return (
     <View style={{ gap: 10 }}>
       {note ? <Body tone="ink2" size={13}>{note}</Body> : null}
@@ -119,10 +128,24 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
         placeholderTextColor={t.ink3}
         accessibilityLabel="Referee access code"
         onSubmitEditing={() => void submit()}
-        style={{ backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 14, color: t.ink, fontSize: 18 }}
+        style={input}
       />
+      {needPin && (
+        <TextInput
+          value={pin}
+          onChangeText={(v) => setPin(v.replace(/\D/g, "").slice(0, 4))}
+          secureTextEntry
+          keyboardType="number-pad"
+          maxLength={4}
+          placeholder="Your 4-digit PIN"
+          placeholderTextColor={t.ink3}
+          accessibilityLabel="Referee PIN"
+          onSubmitEditing={() => void submit()}
+          style={{ ...input, letterSpacing: 8, textAlign: "center" }}
+        />
+      )}
       {err ? <Body tone="live" size={13}>{err}</Body> : null}
-      <Button label={busy ? "Checking…" : "Sign in again"} disabled={!code || busy} onPress={() => void submit()} />
+      <Button label={busy ? "Checking…" : "Sign in again"} disabled={!code || busy || (needPin && pin.length !== 4)} onPress={() => void submit()} />
     </View>
   );
 }
@@ -211,6 +234,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
   const resultAllowed = finalResultAllowed(mode);
   const resultOnly = mode === "final_score";
   const organiser = staff?.role === "admin" || staff?.role === "manager";
+  const courtReferee = Boolean(staff?.referee && staff.referee.role === "referee" && staff.court);
   const call = useCall(boot, { deviceId, matchStatus: status, onMatchDecided: () => void c.reload() });
   const [form, setForm] = useState<ResultForm | null>(null);
   const [formKey, setFormKey] = useState(0);
@@ -413,6 +437,12 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         {scoreRow("B")}
         <Body tone="ink3" size={11}>{describeMatchRules(boot.config)}</Body>
       </Card>
+      {/* A court referee signed in with their PIN can call the master referees (migration 0035). */}
+      {courtReferee && (
+        <View style={{ marginTop: 8 }}>
+          <AssistanceCard matchId={m.id} />
+        </View>
+      )}
 
       {(expired || expiringSoon) && (
         <Card style={{ marginTop: 10, gap: 6, borderColor: expired ? t.live : t.warning, borderWidth: 1 }}>

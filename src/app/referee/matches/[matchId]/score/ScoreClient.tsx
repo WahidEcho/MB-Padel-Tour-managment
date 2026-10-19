@@ -102,6 +102,7 @@ export default function ScoreClient({
   matchDay = null,
   initialCall = null,
   canCorrect = false,
+  assistance = null,
 }: {
   match: Match;
   tournamentName: string;
@@ -124,6 +125,8 @@ export default function ScoreClient({
   initialCall?: CallSnapshot | null;
   /** The organiser's staff (admin, manager) correct a finished result; a referee does not (append.ts correctionCut). */
   canCorrect?: boolean;
+  /** A court referee's "Call for assistance" (migration 0035), under the header. */
+  assistance?: React.ReactNode;
 }) {
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
@@ -825,6 +828,7 @@ export default function ScoreClient({
           </Link>
         </div>
       </div>
+      {assistance && <div className="pb-2">{assistance}</div>}
       {syncError && (
         <p className="mb-2 rounded-xl bg-danger/15 px-3 py-2 text-xs font-semibold text-danger">
           {syncError}

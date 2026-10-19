@@ -31,6 +31,8 @@ import { MOVE_BEYOND_SLUG, isUuid, permissionRole, type OrgRole, type OrgStatus 
 import type { Role } from "../types";
 import type { CourtScope } from "../orgs/courtScope";
 import { resolveCourtScope } from "../orgs/courtCodes";
+import { checkRefereePin, codeNeedsPin, endRefereeSession, masterTournamentIds, refereeForToken, startRefereeSession, type RefereeIdentity } from "../referees/server";
+import { splitCodeAndPin } from "../referees/rules";
 import {
   STAFF_APP_HOURS,
   STAFF_WEB_HOURS,
@@ -70,11 +72,32 @@ export interface StaffPrincipal {
    * unfinished match on the old court), never a new one. src/lib/orgs/scope.ts.
    */
   scopeMatchIds?: string[] | null;
+  /**
+   * A master referee code (migration 0035): every tournament of its event group (or
+   * its one tournament, or the organisation's open events), read on every request.
+   */
+  scopeTournamentIds?: string[] | null;
+  /**
+   * The referee signed in with their PIN (court and master codes, migration 0035):
+   * re-read on every request. Audit rows and score events carry their name and id.
+   */
+  referee?: RefereeIdentity | null;
   /** May use Move Beyond's platform pages (Discover, merging profiles). */
   platformAdmin: boolean;
 }
 
-export type StaffRefusal = "signed_out" | "code_revoked" | "code_expired" | "membership_ended" | "org_suspended" | "org_pending" | "unavailable";
+export type StaffRefusal =
+  | "signed_out"
+  | "code_revoked"
+  | "code_expired"
+  | "membership_ended"
+  | "org_suspended"
+  | "org_pending"
+  | "unavailable"
+  // Referee PINs (migration 0035): a court or master token without a referee (signed before
+  // PINs), or whose referee was removed, had their PIN reset or signed out.
+  | "pin_required"
+  | "referee_ended";
 
 export const REFUSAL_MESSAGE: Record<StaffRefusal, string> = {
   signed_out: "Sign in to continue.",
@@ -84,6 +107,8 @@ export const REFUSAL_MESSAGE: Record<StaffRefusal, string> = {
   org_suspended: "This organisation is suspended. Contact Move Beyond.",
   org_pending: "This organisation is not approved yet.",
   unavailable: "Staff sign-in is not available right now.",
+  pin_required: "Sign in again with the court code and your 4-digit referee PIN.",
+  referee_ended: "Your referee sign-in has ended. Sign in again with the court code and your PIN.",
 };
 
 export type StaffResolution = { ok: true; staff: StaffPrincipal } | { ok: false; reason: StaffRefusal };
@@ -119,11 +144,12 @@ export async function isPlatformAdmin(userId: string): Promise<boolean> {
   return Boolean(data);
 }
 
-const CODE_ROW = "id, organization_id, role, tournament_id, event_group_id, court_name, label, expires_at, revoked_at";
+const CODE_ROW = "id, organization_id, role, tournament_id, event_group_id, court_name, referee_id, label, expires_at, revoked_at";
 interface CodeRow {
   id: string;
   organization_id: string;
-  role: "referee" | "operator";
+  role: "referee" | "operator" | "master_referee";
+  referee_id: string | null;
   tournament_id: string | null;
   event_group_id: string | null;
   court_name: string | null;
@@ -179,19 +205,32 @@ export async function resolveStaffToken(token: string, now = Date.now()): Promis
     if (!code || code.organization_id !== p.o) return refused("signed_out");
     if (code.revoked_at) return refused("code_revoked");
     if (code.expires_at && Date.parse(code.expires_at) <= now) return refused("code_expired");
-    const scopeCourt = code.court_name ? await resolveCourtScope(code) : null;
+    // A court or master code (migration 0035): the referee the token names, re-checked.
+    let referee: RefereeIdentity | null = null;
+    if (codeNeedsPin(code)) {
+      referee = await refereeForToken(p, code, now);
+      if (!referee) return refused(p.p ? "referee_ended" : "pin_required");
+    }
+    const master = code.role === "master_referee";
+    const [scopeCourt, scopeTournamentIds] = await Promise.all([
+      code.court_name ? resolveCourtScope(code) : Promise.resolve(null),
+      master ? masterTournamentIds(code) : Promise.resolve(null),
+    ]);
+    const consoleRole: "referee" | "operator" = code.role === "operator" ? "operator" : "referee";
     return {
       ok: true,
       staff: {
         kind: "code",
         ...base,
-        orgRole: code.role,
-        role: code.role,
+        orgRole: consoleRole,
+        role: consoleRole,
         userId: null,
         codeId: code.id,
         scopeTournamentId: code.tournament_id,
         scopeCourt,
         scopeMatchIds: p.m ?? null,
+        scopeTournamentIds,
+        referee,
         platformAdmin: false,
       },
     };
@@ -319,12 +358,19 @@ export async function finishStaffSignIn(
   }
 }
 
-type Reach = Pick<StaffPrincipal, "orgId" | "scopeTournamentId" | "scopeCourt">;
+type Reach = Pick<StaffPrincipal, "orgId" | "scopeTournamentId" | "scopeCourt" | "scopeTournamentIds">;
 
 export interface CourtSignIn {
   name: string;
   eventGroupId: string | null;
   tournamentIds: string[];
+}
+
+export interface SignedInReferee {
+  id: string;
+  name: string;
+  role: "referee" | "master_referee";
+  sessionId: string;
 }
 
 export type CodeSignIn =
@@ -344,14 +390,41 @@ export type CodeSignIn =
       label: string | null;
       expiresAt: string;
       codeId: string | null;
+      /** The referee signed in with their PIN (court and master codes, migration 0035). */
+      referee: SignedInReferee | null;
     }
-  | { ok: false; error: string; reason: "wrong_code" | StaffRefusal };
+  | {
+      ok: false;
+      error: string;
+      reason: "wrong_code" | "wrong_pin" | "pin_locked" | StaffRefusal;
+      /** pin_required: the code is right; its court (null for a master code). */
+      court?: string | null;
+      master?: boolean;
+      retryAfterSeconds?: number;
+    };
+
+export interface AccessCodeOptions {
+  /** The referee PIN typed with a court or master code (or inside the code: 1.0.1). */
+  pin?: unknown;
+  /** For the PIN brakes (src/lib/referees/server.ts). */
+  ip?: string;
+  via?: "web" | "app";
+  /** The phone (the app's install token), recorded on a referee's sign-in. */
+  installationId?: string | null;
+}
+
+export const PIN_MESSAGES = {
+  pin_required: "This court code needs your 4-digit referee PIN.",
+  pin_required_legacy: "This court code needs your 4-digit referee PIN: type the court code, a space, then your PIN.",
+  wrong_pin: "Wrong PIN. Check the 4 digits the organiser gave you.",
+  pin_locked: "Too many wrong PINs for this code. It is locked for a few minutes.",
+} as const;
 
 /**
  * An access code typed on the web login or in the app: a shared role password
  * (Move Beyond only) or an organisation's event code. The caller rate-limits.
  */
-export async function signInWithAccessCode(raw: string, hours: number, now = Date.now()): Promise<CodeSignIn> {
+export async function signInWithAccessCode(raw: string, hours: number, opts: AccessCodeOptions = {}, now = Date.now()): Promise<CodeSignIn> {
   const wrong: CodeSignIn = { ok: false, error: "Wrong access code.", reason: "wrong_code" };
   const input = raw.trim().slice(0, 200);
   if (!input) return wrong;
@@ -375,10 +448,14 @@ export async function signInWithAccessCode(raw: string, hours: number, now = Dat
       label: null,
       expiresAt: new Date(now + hours * 3600_000).toISOString(),
       codeId: null,
+      referee: null,
     };
   }
 
-  const code = normalizeEventCode(input);
+  // Move Score 1.0.1 has one field: "<court code> <PIN>" or "<court code>-<PIN>".
+  const combined = normalizeEventCode(input) ? null : splitCodeAndPin(input);
+  const code = combined?.code ?? normalizeEventCode(input);
+  const pin = combined?.pin ?? opts.pin;
   if (!code) return wrong;
   let codeHash: string;
   try {
@@ -400,11 +477,39 @@ export async function signInWithAccessCode(raw: string, hours: number, now = Dat
   const org = await orgWhere("id", row.organization_id);
   const blocked = orgRefusal(org);
   if (blocked) return { ok: false, error: REFUSAL_MESSAGE[blocked], reason: blocked };
-  const scopeCourt = row.court_name ? await resolveCourtScope(row) : null;
+  const master = row.role === "master_referee";
+  // A court or master code is useless without a referee PIN (migration 0035).
+  let referee: SignedInReferee | null = null;
   const exp = Math.min(now + hours * 3600_000, codeExpiry);
+  if (codeNeedsPin(row)) {
+    const typedPin = typeof pin === "string" || typeof pin === "number" ? String(pin).trim() : "";
+    if (!typedPin) {
+      return { ok: false, error: opts.via === "app" ? PIN_MESSAGES.pin_required_legacy : PIN_MESSAGES.pin_required, reason: "pin_required", court: row.court_name, master };
+    }
+    const checked = await checkRefereePin(row, typedPin, opts.ip ?? "unknown");
+    if (!checked.ok) {
+      if (checked.reason === "unavailable") return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
+      return { ok: false, error: PIN_MESSAGES[checked.reason], reason: checked.reason, retryAfterSeconds: checked.retryAfterSeconds, court: row.court_name, master };
+    }
+    const sessionId = await startRefereeSession(row, checked.referee, {
+      via: opts.via === "app" ? (combined ? "app_legacy" : "app") : "web",
+      expiresAt: new Date(exp).toISOString(),
+      installationId: opts.installationId ?? null,
+    });
+    if (!sessionId) return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
+    referee = { id: checked.referee.id, name: checked.referee.name, role: master ? "master_referee" : "referee", sessionId };
+  }
+  const [scopeCourt, scopeTournamentIds] = await Promise.all([
+    row.court_name ? resolveCourtScope(row) : Promise.resolve(null),
+    master ? masterTournamentIds(row) : Promise.resolve(null),
+  ]);
+  const consoleRole: "referee" | "operator" = row.role === "operator" ? "operator" : "referee";
   let token: string;
   try {
-    token = signStaffToken({ v: 1, k: "c", c: row.id, o: row.organization_id, r: row.role, t: row.tournament_id, iat: now, exp }, staffSecret());
+    token = signStaffToken(
+      { v: 1, k: "c", c: row.id, o: row.organization_id, r: consoleRole, t: row.tournament_id, ...(referee ? { p: referee.id, s: referee.sessionId } : {}), iat: now, exp },
+      staffSecret(),
+    );
   } catch (err) {
     console.error("staff sessions unavailable:", (err as Error).message);
     return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
@@ -414,16 +519,17 @@ export async function signInWithAccessCode(raw: string, hours: number, now = Dat
     ok: true,
     token,
     kind: "code",
-    role: row.role,
+    role: consoleRole,
     orgId: org!.id,
     orgName: org!.name,
     orgSlug: org!.slug,
     scopeTournamentId: row.tournament_id,
     court: scopeCourt ? { name: scopeCourt.name, eventGroupId: scopeCourt.eventGroupId, tournamentIds: scopeCourt.tournamentIds } : null,
-    reach: { orgId: row.organization_id, scopeTournamentId: row.tournament_id, scopeCourt },
+    reach: { orgId: row.organization_id, scopeTournamentId: row.tournament_id, scopeCourt, scopeTournamentIds },
     label: row.label,
     expiresAt: new Date(exp).toISOString(),
     codeId: row.id,
+    referee,
   };
 }
 
@@ -469,7 +575,8 @@ export async function issueCarry(
   const exp = now + CARRY_HOURS * 3600_000;
   let token: string;
   try {
-    token = signStaffToken({ v: 1, k: "c", c: previous.codeId, o: previous.orgId, r: "referee", t: previous.scopeTournamentId, m: keep, iat: now, exp }, staffSecret());
+    const who = previous.referee ? { p: previous.referee.id, s: previous.referee.sessionId } : {};
+    token = signStaffToken({ v: 1, k: "c", c: previous.codeId, o: previous.orgId, r: "referee", t: previous.scopeTournamentId, m: keep, ...who, iat: now, exp }, staffSecret());
   } catch (err) {
     console.error("staff sessions unavailable:", (err as Error).message);
     return null;
@@ -525,6 +632,16 @@ export async function principalForMatch(primary: StaffPrincipal, matchId: string
   if (principalReaches(primary, scope)) return primary;
   for (const c of await currentCarries()) if (principalReaches(c, scope)) return c;
   return null;
+}
+
+/**
+ * A referee's previous sign-in ends when they sign in again elsewhere (switching
+ * courts); a carry-over keeps naming it for the old court's matches, so it is only
+ * marked replaced when nothing is carried.
+ */
+export async function replacePreviousReferee(previous: StaffPrincipal | null, carried: boolean): Promise<void> {
+  if (!previous?.referee || carried) return;
+  await endRefereeSession(previous.referee.sessionId, "replaced");
 }
 
 export { STAFF_APP_HOURS, STAFF_WEB_HOURS };

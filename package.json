@@ -32,7 +32,8 @@
     "localdb:seed-app": "tsx --env-file=.env.localdb scripts/localdb/seed-app-demo.ts",
     "e2e:registration": "tsx --env-file=.env.localdb scripts/e2e/registration.ts",
     "e2e:messaging": "tsx --env-file=.env.e2e-messaging scripts/e2e/messaging.ts",
-    "e2e:court-codes": "tsx --env-file=.env.localdb scripts/e2e/court-codes.ts"
+    "e2e:court-codes": "tsx --env-file=.env.localdb scripts/e2e/court-codes.ts",
+    "e2e:referees": "tsx --env-file=.env.localdb scripts/e2e/referees.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

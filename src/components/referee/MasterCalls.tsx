@@ -1,0 +1,171 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CallStatus } from "@/lib/referees/rules";
+
+interface Call {
+  id: string;
+  court: string;
+  tournamentId: string | null;
+  matchId: string | null;
+  status: CallStatus;
+  requestedBy: string;
+  requestedAt: string;
+  acknowledgedBy: string | null;
+  acknowledgedAt: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+}
+
+const API = "/api/mobile/v1/referee/assistance";
+const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—");
+
+/** A short two-tone alarm (Web Audio). Browsers allow sound only after a tap on the page. */
+function alarm(ctx: AudioContext | null) {
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  for (const [i, f] of [880, 660, 880, 660].entries()) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = f;
+    o.type = "square";
+    g.gain.setValueAtTime(0.0001, now + i * 0.22);
+    g.gain.exponentialRampToValueAtTime(0.25, now + i * 0.22 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.22 + 0.2);
+    o.connect(g).connect(ctx.destination);
+    o.start(now + i * 0.22);
+    o.stop(now + i * 0.22 + 0.21);
+  }
+}
+
+/**
+ * The master referee's calls for assistance (migration 0035): a live banner (sound and
+ * vibration on every new call) with "On my way" and "Resolved". `banner`: only the open
+ * calls, for the top of every referee page; otherwise the full list with recent ones.
+ */
+export default function MasterCalls({ banner = false }: { banner?: boolean }) {
+  const [open, setOpen] = useState<Call[]>([]);
+  const [recent, setRecent] = useState<Call[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [sound, setSound] = useState(false);
+  const ctx = useRef<AudioContext | null>(null);
+  const known = useRef<Set<string> | null>(null);
+  const pathname = usePathname();
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(API, { cache: "no-store" });
+      if (!res.ok) return;
+      const body = (await res.json()) as { role?: string; open?: Call[]; recent?: Call[] };
+      if (body.role !== "master" && body.role !== "organiser") return;
+      const list = body.open ?? [];
+      // A new open call since the last look: sound and vibration.
+      const fresh = list.filter((c) => c.status === "open" && known.current && !known.current.has(c.id));
+      if (fresh.length) {
+        alarm(ctx.current);
+        try {
+          navigator.vibrate?.([300, 120, 300, 120, 300]);
+        } catch {
+          /* not supported */
+        }
+      }
+      known.current = new Set(list.map((c) => c.id));
+      setOpen(list);
+      setRecent(body.recent ?? []);
+    } catch {
+      /* offline */
+    }
+  }, []);
+
+  useEffect(() => {
+    const first = setTimeout(() => void load(), 0);
+    const id = setInterval(() => document.visibilityState === "visible" && void load(), 4000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [load]);
+
+  const act = async (callId: string, action: "acknowledge" | "resolve") => {
+    setError(null);
+    const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, callId }) });
+    if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Not saved.");
+    await load();
+  };
+
+  const enableSound = () => {
+    try {
+      ctx.current ??= new AudioContext();
+      void ctx.current.resume();
+      setSound(true);
+      alarm(ctx.current);
+    } catch {
+      setSound(false);
+    }
+  };
+
+  // The master page lists the calls itself: no banner on top of it.
+  if (banner && (open.length === 0 || pathname === "/referee/master")) return null;
+  return (
+    <section className={banner ? "space-y-2" : "space-y-3"} data-testid={banner ? "assistance-banner" : "master-calls"}>
+      {!banner && (
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-bold">Calls for assistance</h2>
+          {!sound && (
+            <button type="button" onClick={enableSound} className="btn-secondary text-xs" data-testid="enable-sound">
+              🔔 Turn on the alarm sound
+            </button>
+          )}
+        </div>
+      )}
+      {open.map((c) => (
+        <div
+          key={c.id}
+          className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-3 ${c.status === "open" ? "animate-pulse border-danger bg-danger/15" : "border-warning/60 bg-warning/10"}`}
+          data-testid="open-call"
+          data-call-id={c.id}
+        >
+          <div>
+            <p className="text-base font-black">
+              {c.status === "open" ? "🆘 " : "🏃 "}Referee {c.requestedBy} is calling for assistance at {c.court}
+            </p>
+            <p className="text-xs text-muted">
+              Called {time(c.requestedAt)}
+              {c.status === "acknowledged" ? ` · ${c.acknowledgedBy} on the way since ${time(c.acknowledgedAt)}` : ""}
+              {c.matchId ? (
+                <>
+                  {" · "}
+                  <Link href={`/referee/matches/${c.matchId}/score`} className="underline">open the match</Link>
+                </>
+              ) : null}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {c.status === "open" && (
+              <button type="button" onClick={() => void act(c.id, "acknowledge")} className="btn-primary" data-testid="on-my-way">
+                On my way
+              </button>
+            )}
+            <button type="button" onClick={() => void act(c.id, "resolve")} className="btn-secondary" data-testid="resolve-call">
+              Resolved
+            </button>
+          </div>
+        </div>
+      ))}
+      {!banner && open.length === 0 && <p className="card p-4 text-center text-sm text-muted">No court is calling right now.</p>}
+      {!banner && recent.length > 0 && (
+        <div className="space-y-1">
+          <h3 className="label">Closed in the last half hour</h3>
+          {recent.map((c) => (
+            <p key={c.id} className="text-xs text-muted">
+              {c.court} · {c.requestedBy} · called {time(c.requestedAt)} · {c.status === "resolved" ? `resolved by ${c.resolvedBy ?? "—"} at ${time(c.resolvedAt)}` : "cancelled"}
+            </p>
+          ))}
+        </div>
+      )}
+      {error && <p className="text-xs font-semibold text-danger" role="alert">{error}</p>}
+    </section>
+  );
+}

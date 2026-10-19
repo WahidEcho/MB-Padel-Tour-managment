@@ -29,6 +29,7 @@ import { stateFromFinalScore } from "../../src/lib/scoring/finalScore";
 import type { ScoreState, TeamKey } from "../../src/lib/scoring/engine";
 import type { ScoringConfig } from "../../src/lib/types";
 import { generateEventCode, hashEventCode } from "../../src/lib/orgs/codes";
+import { hashRefereePin } from "../../src/lib/referees/pin";
 import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
 import { newTournamentMatchDayRules } from "../../src/lib/matchday/rules";
 import { matchScreenCode, rotatingCode } from "../../src/lib/pass/venueCode";
@@ -304,7 +305,7 @@ async function main() {
   // staff sign-in, new installs, player-code sign-in and cheers. This run's own calls count again.
   for (const prefix of ["staff-", "devices", "pcsignin", "pcode", "cheer"]) await db().from("request_counters").delete().like("bucket_key", `${prefix}%`);
   const tag = randomUUID().slice(0, 6);
-  const made = { tournaments: [] as string[], groups: [] as string[], installs: [] as string[], users: [] as string[], codes: [] as string[] };
+  const made = { tournaments: [] as string[], groups: [] as string[], installs: [] as string[], users: [] as string[], codes: [] as string[], referees: [] as string[] };
 
   // ---- fixtures: a featured nations event (tennis ties) and a padel event, both Move Beyond's
   const { data: group } = await db().from("event_groups").insert({ slug: `e2e-old-${tag}`, name: `E2E Old App ${tag}`, featured_rank: 1, country_code: null }).select("*").single();
@@ -551,7 +552,7 @@ async function main() {
     const signedOut = await new OldPhone().api(`/api/mobile/v1/referee/tournaments/${tid}/matches`, { who: "staff" });
     check([401, 403].includes(signedOut.status) && typeof signedOut.json?.error === "string", "Without a token: 401 (1.0.1 handles 401 and 403 alike) with a message", signedOut.status);
 
-    section("A court referee code (migration 0034) typed by hand into 1.0.1");
+    section("A court referee code (migration 0034) typed by hand into 1.0.1, with the referee's PIN (migration 0035)");
     {
       const { data: c2 } = await db().from("courts").insert({ tournament_id: tid, court_name: "Court 2", court_order: 2 }).select("*").single();
       const { data: other } = await db()
@@ -569,9 +570,18 @@ async function main() {
       const courtRef = new OldPhone();
       made.installs.push(courtRef.installationId);
       courtRef.installToken = (await courtRef.register(null, false)).json?.installToken ?? null;
+      const PIN = "5839";
+      const { data: rr } = await db().from("referees").insert({ organization_id: mb!.id, name: `E2E Old Ref ${tag}`, pin_hash: hashRefereePin(mb!.id, PIN) }).select("id").single();
+      made.referees.push(rr!.id);
       const typedCourt = `${courtCode.slice(0, 4)}-${courtCode.slice(4, 8)}-${courtCode.slice(8)}`;
-      const signed = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: typedCourt } });
-      check(signed.status === 200 && typeof signed.json?.token === "string" && signed.json.role === "referee" && typeof signed.json.expiresAt === "string", "A court code: { token, role: referee, expiresAt } as 1.0.1 reads it", signed.json && Object.keys(signed.json));
+      const bare = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: typedCourt } });
+      check(bare.status === 401 && typeof bare.json?.error === "string" && /court code, a space, then your PIN/.test(bare.json.error), "The court code alone: 401 with the message 1.0.1 shows (type the court code, a space, then your PIN)", bare.json);
+      const dashed = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: `${typedCourt}-${PIN}` } });
+      check(dashed.status === 200 && typeof dashed.json?.token === "string", "<COURT-CODE>-<PIN> in the one field signs in", dashed.status);
+      const wrongPin = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: `${typedCourt} 0007` } });
+      check(wrongPin.status === 401 && typeof wrongPin.json?.error === "string", "A wrong PIN: 401 with a message", wrongPin.status);
+      const signed = await courtRef.api("/api/mobile/v1/staff/session", { body: { code: `${typedCourt} ${PIN}` } });
+      check(signed.status === 200 && typeof signed.json?.token === "string" && signed.json.role === "referee" && typeof signed.json.expiresAt === "string", "<COURT-CODE> <PIN>: { token, role: referee, expiresAt } as 1.0.1 reads it", signed.json && Object.keys(signed.json));
       courtRef.staff = { token: signed.json?.token, role: signed.json?.role, expiresAt: signed.json?.expiresAt };
       const cl = await courtRef.api("/api/mobile/v1/referee/tournaments", { who: "staff" });
       const crow = cl.json?.tournaments?.[0];
@@ -846,7 +856,10 @@ async function main() {
       await db().from("app_user_deletions").delete().eq("auth_user_id", id);
     }
     await db().from("push_devices").delete().in("installation_id", made.installs);
+    await db().from("referee_sessions").delete().in("referee_id", made.referees);
+    await db().from("audit_logs").delete().in("actor_referee_id", made.referees);
     await db().from("organization_codes").delete().in("id", made.codes);
+    await db().from("referees").delete().in("id", made.referees);
     await db().from("audit_logs").delete().in("tournament_id", made.tournaments);
     await db().from("notification_events").delete().in("tournament_id", made.tournaments);
     await db().from("tournaments").delete().in("id", made.tournaments);

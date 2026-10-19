@@ -29,6 +29,8 @@ export async function audit(entry: {
    * (accepting an invite they were sent, say), checked by the caller.
    */
   actor_user_id?: string | null;
+  /** The referee who did it when no staff credential of this request says so (their sign-in). */
+  actor_referee?: { id: string; name: string } | null;
   action: string;
   entity_type?: string;
   entity_id?: string | null;
@@ -70,6 +72,8 @@ export async function audit(entry: {
       : staff?.platformAdmin && organizationId && organizationId !== staff.orgId
         ? "platform"
         : (staff?.orgRole ?? entry.actor_role ?? null),
+    // The referee signed in with their PIN (court and master codes, migration 0035).
+    ...((staff?.referee ?? entry.actor_referee) ? { actor_name: (staff?.referee ?? entry.actor_referee)!.name, actor_referee_id: (staff?.referee ?? entry.actor_referee)!.id } : {}),
     action: entry.action,
     entity_type: entry.entity_type ?? null,
     entity_id: isUuid ? id : null,

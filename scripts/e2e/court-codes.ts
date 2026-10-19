@@ -35,12 +35,15 @@ import { zonedToIso } from "../../src/lib/tennis/ties";
 import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
 import { BASE_URL, assertStandIn, bearer, check, cookie, finish, fixtures, http, lastEvent, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
 import { actionOk, callAction, form } from "./lib/actions";
+import { hashRefereePin } from "../../src/lib/referees/pin";
 
 assertStandIn("court-codes");
 
 const tag = randomUUID().slice(0, 6);
 const f = fixtures(tag);
-const made = { group: null as string | null, codes: [] as string[] };
+const made = { group: null as string | null, codes: [] as string[], referee: null as string | null };
+// Referee PINs (migration 0035): a court code signs in only with a referee's PIN.
+const PIN = "4826";
 
 const TZ = "Africa/Cairo";
 const today = eventDay(TZ);
@@ -135,9 +138,17 @@ async function main() {
   }
   check(Boolean(link) && new URL(link).pathname === "/r" && parseCourtLink(link) === C1.code, "Court 1's QR encodes <public site>/r#<its code>", link.replace(/#.*/, "#…"));
 
+  const { data: refRow, error: refErr } = await db()
+    .from("referees")
+    .insert({ organization_id: MB, name: `E2E Court Ref ${tag}`, role: "referee", pin_hash: hashRefereePin(MB, PIN) })
+    .select("id")
+    .single();
+  if (refErr) throw new Error(`referees: ${refErr.message}`);
+  made.referee = (refRow as { id: string }).id;
+
   /* ---------------- a Court 1 referee in the app (typed code) ---------------- */
   section("App: a Court 1 code typed by hand");
-  const s1 = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C1.code.toLowerCase() });
+  const s1 = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C1.code.toLowerCase(), pin: PIN });
   check(s1.status === 200 && typeof s1.json?.token === "string" && s1.json.role === "referee" && (s1.json.court as { name: string } | null)?.name === "Court 1" && s1.json.scope === null, "staff/session: token, role referee, court Court 1 (scope null: the group, not one tournament)", s1.json);
   const REF: Who = bearer(String(s1.json?.token));
   const list = await http("GET", "/api/mobile/v1/referee/tournaments", REF);
@@ -165,7 +176,7 @@ async function main() {
   check(renew.status === 200, "renew-lease", renew.status);
   const callG = await http("POST", `/api/matches/${G1.id}/call`, REF, { action: "call", deviceId: dev });
   check([200, 201, 409].includes(callG.status), "call the girls' Court 1 match to court (reaches it)", `${callG.status} ${callG.text.slice(0, 160)}`);
-  const audit = await db().from("audit_logs").select("actor_user_id, action").eq("actor_user_id", `code:${C1.id}`).limit(20);
+  const audit = await db().from("audit_logs").select("actor_user_id, action, actor_name").eq("actor_user_id", `code:${C1.id}`).limit(20);
   check(((audit.data ?? []) as { action: string }[]).length > 0, "scoring actions are audited with the code's id (code:<id>)", (audit.data ?? []).map((a) => (a as { action: string }).action));
   const webScore = await http("GET", `/referee/matches/${B0.id}/score`, cookie(String(s1.json?.token)));
   check(webScore.status === 200, "the web score page opens for the Court 1 match", webScore.status);
@@ -230,7 +241,7 @@ async function main() {
   const gone = await http("POST", "/api/referee/sign-in", { Origin: BASE_URL }, { code: C1.code });
   check(gone.status === 404 || gone.status === 405, "there is no browser sign-in from the QR", gone.status);
   // The app opens the link and signs in with the code (POST staff/session), as typed codes do.
-  const web = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C1.code });
+  const web = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C1.code, pin: PIN });
   const webToken = String(web.json?.token ?? "");
   const home = await http("GET", "/referee", cookie(webToken));
   const listed = [...home.text.matchAll(/data-match-id="([0-9a-f-]{36})"/g)].map((x) => x[1]);
@@ -251,7 +262,7 @@ async function main() {
   check(days[0]?.day === shift(today, -1) && days[0].matches.some((x) => x.id === BY.id && x.score === "6-4 6-3"), "app: ?earlier=1 adds earlier[] { day, matches[] with score }", days);
 
   section("Switching courts is never blocked: the old court keeps its unsent / unfinished matches only");
-  const sw = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, previousToken: String(s1.json?.token), pendingMatchIds: [B0.id], openMatchIds: [B0.id, BF.id] });
+  const sw = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, pin: PIN, previousToken: String(s1.json?.token), pendingMatchIds: [B0.id], openMatchIds: [B0.id, BF.id] });
   const carry = sw.json?.carry as { token: string; matchIds: string[]; court: string } | null;
   check(sw.status === 200 && (sw.json?.court as { name: string } | null)?.name === "Court 2" && carry?.court === "Court 1" && JSON.stringify(carry?.matchIds) === JSON.stringify([B0.id]), "app: Court 2's code signs in, with a carry-over for Court 1's unfinished match only (not the finished one)", sw.json);
   const T2: Who = bearer(String(sw.json?.token));
@@ -278,10 +289,10 @@ async function main() {
   check(webCarry.status === 200, "web: the carry-over cookie opens the old court's match", webCarry.status);
   const webCarryHome = await http("GET", "/referee", { Cookie: `mb_session=${String(sw.json?.token)}; mb_carry=${String(carry?.token)}` });
   check(webCarryHome.text.includes('data-testid="carried"') && webCarryHome.text.includes(B0.id), "web: the court list shows 'Still yours from your last court'", webCarryHome.status);
-  const none = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, previousToken: String(s1.json?.token), pendingMatchIds: [], openMatchIds: [BF.id, B1.id] });
+  const none = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, pin: PIN, previousToken: String(s1.json?.token), pendingMatchIds: [], openMatchIds: [BF.id, B1.id] });
   check(none.status === 200 && none.json?.carry === null, "nothing to carry (finished, or reached by the new code): no carry-over", none.json?.carry);
-  const old = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code });
-  check(old.status === 200 && old.json?.carry === null, "1.0.1's call (code only) is unchanged", old.status);
+  const old = await http("POST", "/api/mobile/v1/staff/session", {}, { code: `${C2.code} ${PIN}` });
+  check(old.status === 200 && old.json?.carry === null, "1.0.1's call (code and PIN in its one field) signs in, no carry", old.status);
   await db().from("matches").update({ status: "completed", ended_at: new Date(Date.now() - 31 * 60_000).toISOString() }).eq("id", B0.id);
   const lapsed = await http("GET", `/api/mobile/v1/referee/matches/${B0.id}/bootstrap`, withCarry);
   check(lapsed.status === 404, "the carry-over lapses by itself 30 minutes after the match finished", lapsed.status);
@@ -315,7 +326,12 @@ main()
       await db().from("audit_logs").delete().in("entity_id", made.codes);
       await db().from("audit_logs").delete().in("actor_user_id", made.codes.map((id) => `code:${id}`));
     }
+    if (made.referee) {
+      await db().from("audit_logs").delete().eq("actor_referee_id", made.referee);
+      await db().from("referee_sessions").delete().eq("referee_id", made.referee);
+    }
     await db().from("organization_codes").delete().eq("event_group_id", made.group ?? "00000000-0000-4000-8000-000000000000");
+    if (made.referee) await db().from("referees").delete().eq("id", made.referee);
     const ok = await f.cleanup();
     if (made.group) await db().from("event_groups").delete().eq("id", made.group);
     await db().from("request_counters").delete().like("bucket_key", "staff-%");

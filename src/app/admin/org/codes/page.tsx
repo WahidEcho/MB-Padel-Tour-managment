@@ -92,7 +92,7 @@ export default async function EventCodesPage() {
               return (
                 <tr key={c.id} className={`border-t border-border ${dead ? "opacity-60" : ""}`}>
                   <td className="px-3 py-2">
-                    <span className="font-semibold">{c.role === "operator" ? "Screen operator" : "Referee"}</span>
+                    <span className="font-semibold">{c.role === "operator" ? "Screen operator" : c.role === "master_referee" ? "Master referee" : "Referee"}</span>
                     {c.label && <span className="text-muted"> · {c.label}</span>}
                   </td>
                   <td className="px-3 py-2 text-xs">

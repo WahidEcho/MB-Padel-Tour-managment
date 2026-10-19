@@ -22,6 +22,8 @@ export async function GET() {
   if (staff.scopeTournamentId) q = q.eq("id", staff.scopeTournamentId);
   // A court referee code (migration 0034): only the events that have its court.
   if (staff.scopeCourt) q = q.in("id", staff.scopeCourt.withCourt.length ? staff.scopeCourt.withCourt : ["00000000-0000-4000-8000-000000000000"]);
+  // A master referee (migration 0035): its events' tournaments, every court.
+  if (staff.scopeTournamentIds) q = q.in("id", staff.scopeTournamentIds.length ? staff.scopeTournamentIds : ["00000000-0000-4000-8000-000000000000"]);
   const { data } = await q
     .in("status", ["active", "draft"])
     .order("created_at", { ascending: false })
@@ -38,5 +40,7 @@ export async function GET() {
     });
   // `court` is new (null for every other credential); 1.0.1 ignores it.
   const court = staff.scopeCourt ? { name: staff.scopeCourt.name } : null;
-  return NextResponse.json({ role, organization: { name: staff.orgName, slug: staff.orgSlug }, court, tournaments }, { headers: { "Cache-Control": "private, no-store" } });
+  // New (migration 0035): the referee signed in with their PIN, and whether they are a master referee; 1.0.1 ignores both.
+  const referee = staff.referee ? { name: staff.referee.name, role: staff.referee.role } : null;
+  return NextResponse.json({ role, organization: { name: staff.orgName, slug: staff.orgSlug }, court, referee, tournaments }, { headers: { "Cache-Control": "private, no-store" } });
 }

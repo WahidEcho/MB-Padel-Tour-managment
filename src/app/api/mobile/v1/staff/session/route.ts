@@ -3,7 +3,10 @@ import { audit } from "@/lib/audit";
 import { clientIpFrom } from "@/lib/ratelimit";
 import { staffLoginAttempt } from "@/lib/staffLogin";
 import { readJson } from "@/lib/mobile/http";
-import { STAFF_APP_HOURS, issueCarry, resolveStaffToken, signInWithAccessCode } from "@/lib/auth/staff";
+import { STAFF_APP_HOURS, issueCarry, replacePreviousReferee, resolveStaffToken, signInWithAccessCode } from "@/lib/auth/staff";
+import { verifyInstallToken } from "@/lib/mobile/identity";
+import { bearerToken } from "@/lib/auth";
+import { endRefereeSession } from "@/lib/referees/server";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -14,9 +17,15 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * as `Authorization: Bearer`. Every request with it is checked again: a revoked
  * code fails the next call with 401 and a clear message, and the app keeps its
  * queued points until a new code is entered.
+ *
+ * Referee PINs (migration 0035): a court code or a master referee code also needs the
+ * referee's 4-digit PIN, `{ code, pin }` (newer apps), or typed into the one field after
+ * the code, "<code> <PIN>" / "<code>-<PIN>" (Move Score 1.0.1). Without one the answer is
+ * 401 `{ code: "pin_required", court, master }`; a wrong one 401 `wrong_pin`; too many
+ * wrong ones 429 `pin_locked`. The token then names the referee.
  */
 export async function POST(request: Request) {
-  const body = await readJson<{ code?: unknown; previousToken?: unknown; pendingMatchIds?: unknown; openMatchIds?: unknown }>(request);
+  const body = await readJson<{ code?: unknown; pin?: unknown; previousToken?: unknown; pendingMatchIds?: unknown; openMatchIds?: unknown }>(request);
   const code = typeof body?.code === "string" ? body.code.slice(0, 200) : "";
   // Switching courts (newer apps; 1.0.1 sends none of these): the token it had, and the
   // matches it still holds unsent points of (pending) or has unfinished (open). The old
@@ -32,15 +41,29 @@ export async function POST(request: Request) {
       { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), ...NO_STORE } },
     );
   }
-  const r = await signInWithAccessCode(code, STAFF_APP_HOURS);
+  const pin = typeof body?.pin === "string" || typeof body?.pin === "number" ? String(body.pin).slice(0, 12) : undefined;
+  const installationId = verifyInstallToken(request.headers.get("x-install-token"));
+  const r = await signInWithAccessCode(code, STAFF_APP_HOURS, { pin, ip, via: "app", installationId });
   if (!r.ok) {
-    // Only failures stay counted against the brakes (src/lib/staffLogin.ts).
-    if (r.reason === "unavailable") await gate.refund();
-    return NextResponse.json({ error: r.error }, { status: 401, headers: NO_STORE });
+    // Only failures stay counted against the brakes (src/lib/staffLogin.ts). A right court
+    // code without its PIN is not a failed guess: the PIN has brakes of its own.
+    if (r.reason === "unavailable" || r.reason === "pin_required" || r.reason === "wrong_pin" || r.reason === "pin_locked") await gate.refund();
+    if (r.reason === "pin_locked") {
+      return NextResponse.json(
+        { error: r.error, code: "pin_locked" },
+        { status: 429, headers: { "Retry-After": String(r.retryAfterSeconds ?? 600), ...NO_STORE } },
+      );
+    }
+    const pinCase = r.reason === "pin_required" || r.reason === "wrong_pin";
+    return NextResponse.json(
+      pinCase ? { error: r.error, code: r.reason, court: r.court ? { name: r.court } : null, master: Boolean(r.master) } : { error: r.error },
+      { status: 401, headers: NO_STORE },
+    );
   }
   await gate.refund();
   const previous = previousToken ? await resolveStaffToken(previousToken) : null;
   const carry = previous?.ok ? await issueCarry(previous.staff, r.reach, { pending: ids(body?.pendingMatchIds), open: ids(body?.openMatchIds) }) : null;
+  if (previous?.ok) await replacePreviousReferee(previous.staff, Boolean(carry));
   // Never the code itself: which code (by id) and which organisation.
   await audit({
     organization_id: r.orgId,
@@ -48,7 +71,8 @@ export async function POST(request: Request) {
     action: "LOGIN",
     entity_type: r.codeId ? "organization_code" : undefined,
     entity_id: r.codeId,
-    new_value: { via: "app", kind: r.kind, ...(r.court ? { court: r.court.name } : {}) },
+    actor_referee: r.referee,
+    new_value: { via: "app", kind: r.kind, ...(r.court ? { court: r.court.name } : {}), ...(r.referee ? { referee: r.referee.name, referee_id: r.referee.id, role: r.referee.role } : {}) },
   });
   return NextResponse.json(
     {
@@ -60,9 +84,22 @@ export async function POST(request: Request) {
       // New: a court referee code's court (null otherwise); 1.0.1 ignores it.
       court: r.court ? { name: r.court.name } : null,
       label: r.label,
+      // New (migration 0035): the referee signed in with their PIN; 1.0.1 ignores it.
+      referee: r.referee ? { name: r.referee.name, role: r.referee.role } : null,
       // New: the old court's code for the matches this phone still holds (null when none); 1.0.1 ignores it.
       carry: carry ? { token: carry.token, matchIds: carry.matchIds, court: carry.court, expiresAt: carry.expiresAt } : null,
     },
     { headers: NO_STORE },
   );
+}
+
+/**
+ * Signing out in the app (newer apps; 1.0.1 only forgets its token): a referee signed in
+ * with their PIN leaves "On court now" at once. The token itself still lapses on its own.
+ */
+export async function DELETE(request: Request) {
+  const token = bearerToken(request.headers);
+  const r = token ? await resolveStaffToken(token) : null;
+  if (r?.ok && r.staff.referee) await endRefereeSession(r.staff.referee.sessionId, "signed_out");
+  return NextResponse.json({ ok: true }, { headers: NO_STORE });
 }

@@ -10,6 +10,7 @@ import { matchScoringMode } from "@/lib/referee/bootstrap";
 import { autoCallOnOpen, getCall } from "@/lib/matchday/server";
 import { matchDayRules } from "@/lib/matchday/rules";
 import { chessCompetitionFor } from "@/lib/scoring/resultEntry";
+import AssistanceButton from "@/components/referee/AssistanceButton";
 
 export const dynamic = "force-dynamic";
 
@@ -124,6 +125,8 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       matchDay={matchDay}
       initialCall={initialCall}
       canCorrect={staff.role === "admin" || staff.role === "manager"}
+      // A court referee signed in with their PIN can call the master referees (migration 0035).
+      assistance={staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact /> : null}
     />
   );
 }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { refundRateLimit, takeRateLimit, type RateLimitOptions } from "./ratelimit";
 import { normalizeEventCode } from "./orgs/codes";
+import { splitCodeAndPin } from "./referees/rules";
 
 /**
  * Brake on guessing staff access codes (and Move Beyond's shared role passwords,
@@ -50,7 +51,8 @@ export function codePrefixKey(typed: string): string | null {
 /** The buckets one attempt counts against. `typedCode` is omitted for the email sign-in. */
 export function staffLoginBuckets(ip: string, typedCode?: string): RateLimitOptions[] {
   const bucket = typedCode ? codePrefixKey(typedCode) : null;
-  const notACode = typedCode !== undefined && typedCode.trim() !== "" && !normalizeEventCode(typedCode.trim());
+  // A court code with the referee PIN after it (Move Score 1.0.1's one field) is a code, not a password guess.
+  const notACode = typedCode !== undefined && typedCode.trim() !== "" && !normalizeEventCode(typedCode.trim()) && !splitCodeAndPin(typedCode.trim());
   return [
     { key: `staff-login:${ip}`, ...STAFF_LOGIN_PER_IP },
     ...(bucket ? [{ key: `staff-code:${bucket}`, ...STAFF_LOGIN_PER_PREFIX }] : []),

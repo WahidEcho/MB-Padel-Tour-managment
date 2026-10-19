@@ -80,6 +80,17 @@ async function channels() {
   try {
     await Notifications.setNotificationChannelAsync("matches", { name: "Matches you follow", importance: Notifications.AndroidImportance.HIGH, lightColor: "#FCFC00" });
     await Notifications.setNotificationChannelAsync("announcements", { name: "Tournament announcements", importance: Notifications.AndroidImportance.DEFAULT });
+    // Calls for assistance to master referees (migration 0035): loud, vibrating, through Do Not Disturb where allowed.
+    await Notifications.setNotificationChannelAsync("assistance", {
+      name: "Calls for assistance (master referees)",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "default",
+      vibrationPattern: [0, 400, 200, 400, 200, 400],
+      enableVibrate: true,
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      lightColor: "#FF3B30",
+    });
   } catch (e) {
     logAlerts("creating the Android notification channels failed", e);
   }
@@ -254,6 +265,11 @@ export async function alertsAllowed(): Promise<boolean> {
  */
 export function openLink(url: string | undefined) {
   if (!url) return;
+  // A master referee's call for assistance (migration 0035) opens their calls screen.
+  if (/^movescore:\/\/referee\/master\/?$/.test(url)) {
+    router.push("/referee/master");
+    return;
+  }
   const m = /^movescore:\/\/(match|tie|t|pass|discover|nation|player)\/?([^/?#]*)(?:\?([^#]*))?/.exec(url);
   if (!m) return;
   const [, kind, id, query] = m;

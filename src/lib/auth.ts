@@ -133,6 +133,8 @@ const PERMISSIONS = {
   send_messages: ["admin", "manager"],
   // Event codes for referees and TV operators (Admin → Event codes).
   manage_codes: ["admin", "manager"],
+  // The referee roster, PINs, master codes, "On court now" and calls for assistance (Admin → Referees).
+  manage_referees: ["admin", "manager"],
   // Leagues (Admin → Leagues): settings, divisions, members, nights and fixtures.
   manage_leagues: ["admin", "manager"],
   // Registrations (Admin → event → Registrations): settings, approve / refuse, paid at the venue.
@@ -161,9 +163,28 @@ export type Permission = keyof typeof PERMISSIONS;
  */
 export const PERSONAL_ACCOUNT_ONLY: ReadonlySet<Permission> = new Set<Permission>(["manage_members", "manage_org_profile", "manage_platform", "refund_registrations"]);
 
+/**
+ * A master referee (migration 0035) signs in with a referee's console role plus the
+ * admin desk's match tools for its events: add matches, generate them from the draw
+ * (group stage, bracket, tennis ties and placement draws). Never anything about
+ * people, settings, codes or money; and only inside its events (src/lib/orgs/scope.ts).
+ */
+export const MASTER_REFEREE_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
+  "score_match",
+  "check_in",
+  "edit_bracket",
+  "generate_matches",
+  "manage_groups",
+]);
+
 /** Whether a staff principal (its role and kind of credential) may do an action. */
-export function staffCan(staff: { role: Role | OrgRole; kind: string } | null | undefined, action: Permission): boolean {
-  if (!staff || !can(staff.role, action)) return false;
+export function staffCan(
+  staff: { role: Role | OrgRole; kind: string; referee?: { role: string } | null } | null | undefined,
+  action: Permission,
+): boolean {
+  if (!staff) return false;
+  if (staff.kind === "code" && staff.referee?.role === "master_referee") return MASTER_REFEREE_PERMISSIONS.has(action);
+  if (!can(staff.role, action)) return false;
   return !PERSONAL_ACCOUNT_ONLY.has(action) || staff.kind === "member";
 }
 

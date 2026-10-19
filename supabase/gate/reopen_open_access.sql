@@ -9,7 +9,8 @@
 --   leagues, league_divisions, league_members, league_fixtures, league_points,
 --   league_code_holders,
 --   match_calls, live_activity_start_tokens, live_activity_starts,
---   registration_settings, registrations, registration_payments, move_tick_events
+--   registration_settings, registrations, registration_payments, move_tick_events,
+--   referees, referee_sessions, assistance_calls
 -- They hold event-code hashes, member emails, platform admins, organisations'
 -- private player notes, invite and one-time-code hashes and their status, league
 -- invite-code hashes, the organisers' membership decisions and who holds a code, referee devices and
@@ -45,7 +46,10 @@ declare
     'registration_settings',
     'registrations',
     'registration_payments',
-    'move_tick_events'
+    'move_tick_events',
+    'referees',
+    'referee_sessions',
+    'assistance_calls'
   ];
 begin
   for t in select tablename from pg_tables where schemaname = 'public' and not (tablename = any (private_tables)) loop

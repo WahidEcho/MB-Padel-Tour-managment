@@ -6,7 +6,7 @@ import { parseCourtLink } from "@core";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display } from "../ui/Text";
 import { Button } from "../ui/Bits";
-import { signInWithCode } from "../referee/courtSignIn";
+import { pendingCode, signInWithCode } from "../referee/courtSignIn";
 
 /**
  * A court QR link (https://tour.mbeg.org/r#<code>, or movescore://r#<code> from the
@@ -24,6 +24,11 @@ export default function CourtLink() {
     let live = true;
     void signInWithCode(code).then((r) => {
       if (!live) return;
+      if (!r.ok && r.pinRequired) {
+        pendingCode.set(code, r.court ?? null, Boolean(r.master));
+        router.replace("/referee/pin");
+        return;
+      }
       if (r.ok) {
         setMsg(`${r.court ? `Signed in · ${r.court}` : "Signed in"}${r.carried ? ` · you keep the old court's ${r.carried === 1 ? "match" : `${r.carried} matches`} until sent and finished` : ""}`);
         setTimeout(() => router.replace("/referee"), 900);

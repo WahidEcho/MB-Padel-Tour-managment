@@ -22,7 +22,7 @@ async function codeLabel(codeId: string | null, orgId: string): Promise<string |
 export default async function RefereePicker() {
   const staff = await requireStaff(["referee", "admin", "manager"], "/referee");
   // A court referee code (migration 0034): today's matches on its court, nothing else.
-  if (staff.scopeCourt) return <CourtList scope={staff.scopeCourt} label={await codeLabel(staff.codeId, staff.orgId)} />;
+  if (staff.scopeCourt) return <CourtList scope={staff.scopeCourt} label={await codeLabel(staff.codeId, staff.orgId)} assistance={Boolean(staff.referee)} />;
   // This organisation's only, and only the one tournament an event code is scoped to.
   let tq = db()
     .from("tournaments")
@@ -31,9 +31,11 @@ export default async function RefereePicker() {
     .eq("kind", "tournament")
     .in("status", ["active", "draft"]);
   if (staff.scopeTournamentId) tq = tq.eq("id", staff.scopeTournamentId);
-  const sessionTournaments = (await orgTournamentIds(staff.orgId, ["friendly_session"])).filter(
-    (id) => !staff.scopeTournamentId || id === staff.scopeTournamentId,
-  );
+  // A master referee (migration 0035): its events only, and no friendly sessions.
+  if (staff.scopeTournamentIds) tq = tq.in("id", staff.scopeTournamentIds.length ? staff.scopeTournamentIds : ["00000000-0000-4000-8000-000000000000"]);
+  const sessionTournaments = staff.scopeTournamentIds
+    ? []
+    : (await orgTournamentIds(staff.orgId, ["friendly_session"])).filter((id) => !staff.scopeTournamentId || id === staff.scopeTournamentId);
   const [tournamentsRes, sessionsRes] = await Promise.all([
     tq.order("status", { ascending: true }).order("created_at", { ascending: false }),
     // Only sessions with a schedule are worth showing a referee.
@@ -48,11 +50,21 @@ export default async function RefereePicker() {
   ]);
 
   const tournaments = (tournamentsRes.data ?? []) as Tournament[];
+  const master = staff.referee?.role === "master_referee";
   const sessions = (sessionsRes.data ?? []) as FriendlySession[];
 
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">What are you scoring?</h1>
+      {master && (
+        <Link href="/referee/master" className="card flex items-center justify-between border-accent/60 hover:border-accent" data-testid="master-home">
+          <span>
+            <span className="block text-lg font-bold">Master referee: calls &amp; courts</span>
+            <span className="text-xs text-muted">Every court of {tournaments.length === 1 ? "the event" : "your events"}: open calls for assistance, any court&apos;s matches, the match desk.</span>
+          </span>
+          <span className="text-accent">→</span>
+        </Link>
+      )}
 
       <section className="space-y-2">
         <h2 className="label">Tournaments</h2>

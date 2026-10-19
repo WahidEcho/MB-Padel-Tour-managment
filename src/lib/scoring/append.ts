@@ -76,6 +76,8 @@ export interface AppendOptions {
   role: Role | string;
   /** Work after the response (the route's `after`); runs in the background when omitted. */
   defer?: (task: () => Promise<void> | void) => void;
+  /** score_events.created_by: "referee:<id>" for a referee signed in with their PIN (migration 0035). */
+  createdBy?: string | null;
 }
 
 function winnerTeamId(match: Match, state: EngineStateLike): string | null {
@@ -407,6 +409,7 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
       previous_state_json: e.previous_state,
       new_state_json: e.new_state,
       created_by_role: role,
+      created_by: opts.createdBy ?? null,
       created_at_client: e.created_at_client,
       sync_status: "synced",
       note: e.payload ? JSON.stringify(e.payload) : null,

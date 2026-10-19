@@ -23,7 +23,10 @@ const ORG_ADMIN_SECTIONS = [
   { href: "/admin/org/members", label: "Members" },
   { href: "/admin/org/profile", label: "Profile" },
 ];
-const ORG_SECTIONS = [{ href: "/admin/org/codes", label: "Event codes" }];
+const ORG_SECTIONS = [
+  { href: "/admin/org/codes", label: "Event codes" },
+  { href: "/admin/org/referees", label: "Referees" },
+];
 
 /** Move Beyond's own settings for the whole app: platform admins only. */
 const PLATFORM_SECTIONS = [

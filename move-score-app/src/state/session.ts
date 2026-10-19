@@ -34,7 +34,11 @@ export interface Session {
     refreshToken: string;
     expiresAt: number | null;
   } | null;
-  staff: { role: string; token: string; expiresAt: string } | null;
+  /**
+   * The staff sign-in. `referee` and `court` (referee PINs, migration 0035): who signed in
+   * with their PIN, as a court referee ("Court 1") or a master referee (court null).
+   */
+  staff: { role: string; token: string; expiresAt: string; referee?: { name: string; role: "referee" | "master_referee" } | null; court?: string | null } | null;
   /**
    * After switching courts (court codes): the old court's carry-over tokens, each for
    * the matches this phone still had unsent points or an unfinished match on. Sent

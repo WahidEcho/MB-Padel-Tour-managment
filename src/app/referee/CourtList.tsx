@@ -6,6 +6,7 @@ import type { Match, Team } from "@/lib/types";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import AutoRefresh from "@/components/AutoRefresh";
 import PendingPoints from "./PendingPoints";
+import AssistanceButton from "@/components/referee/AssistanceButton";
 import { currentCarries } from "@/lib/auth/staff";
 import { principalReaches, resolveEntity } from "@/lib/orgs/scope";
 
@@ -26,7 +27,7 @@ const clock = (iso: string | null, timeZone: string) =>
  * event of the venue in one list. Moved matches appear and disappear on the next
  * refresh; the scoring routes check the court again on every request anyway.
  */
-export default async function CourtList({ scope, label }: { scope: CourtScope; label: string | null }) {
+export default async function CourtList({ scope, label, assistance = false }: { scope: CourtScope; label: string | null; assistance?: boolean }) {
   const [day, carried] = await Promise.all([courtDay(scope), carriedMatches()]);
   const teams = new Map<string, Team>();
   const tids = [...day.tournaments.keys()];
@@ -81,6 +82,7 @@ export default async function CourtList({ scope, label }: { scope: CourtScope; l
           <a href="/login?switch=1&next=/referee" className="underline" data-testid="switch-court">Switch court</a> (type the other court&apos;s code; a match you have not finished or sent stays yours).
         </p>
       </div>
+      {assistance && <AssistanceButton />}
       <PendingPoints />
       {carried.length > 0 && (
         <section className="space-y-2" data-testid="carried">

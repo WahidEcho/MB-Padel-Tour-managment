@@ -52,7 +52,7 @@ interface DeviceRow {
   prefs: Partial<MAlertPrefs> | null;
 }
 
-interface Ticket {
+export interface Ticket {
   status: string;
   id?: string;
   message?: string;
@@ -134,9 +134,20 @@ function expoHeaders(): Record<string, string> {
   return headers;
 }
 
-type ExpoMessage = { to: string; title: string; body: string; data: Record<string, unknown>; sound: "default"; channelId: string };
+export type ExpoMessage = {
+  to: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  sound: "default";
+  channelId: string;
+  /** Calls for assistance (migration 0035): delivered at once, through Focus where the app may. */
+  priority?: "default" | "normal" | "high";
+  interruptionLevel?: "active" | "time-sensitive";
+  ttl?: number;
+};
 
-async function sendExpo(messages: ExpoMessage[]): Promise<Ticket[]> {
+export async function sendExpo(messages: ExpoMessage[]): Promise<Ticket[]> {
   if (pushDryRun()) return messages.map((m) => ({ status: "ok", id: m.data.self ? "dry-run:self" : "dry-run" }));
   const res = await fetch(EXPO_URL, { method: "POST", headers: expoHeaders(), body: JSON.stringify(messages) });
   if (!res.ok) throw new Error(`Expo push ${res.status}`);

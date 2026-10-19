@@ -62,10 +62,12 @@ export default async function CourtQrSheet({ searchParams }: { searchParams: Pro
           <div dangerouslySetInnerHTML={{ __html: p.svg }} />
           <p className="font-mono text-3xl font-bold tracking-widest" data-testid="court-sheet-code">{p.shown}</p>
           <ol className="max-w-[150mm] list-decimal space-y-1 pl-6 text-left text-base">
-            <li>Scan this code with the phone camera: Move Score opens the referee console on {p.court}. (No app yet? The page that opens has the download links.)</li>
-            <li>Already in Move Score: Referee → Scan court QR.</li>
-            <li>No camera? In Move Score → Referee, type the code above.</li>
-            <li>Changing referees: the referee leaving taps Sign out; the new referee scans this code on their own phone.</li>
+            <li>Scan this code with the phone camera: Move Score opens the referee console on {p.court}, then asks for <strong>your own 4-digit referee PIN</strong>. (No app yet? The page that opens has the download links.)</li>
+            <li>Already in Move Score: Referee → Scan court QR, then your PIN.</li>
+            <li>No camera? In Move Score → Referee, type the code above, then your PIN.</li>
+            <li data-testid="legacy-pin-note"><strong>Move Score 1.0.1:</strong> type the court code, then your 4-digit PIN, in the one field: <span className="font-mono">{p.shown} ••••</span> (a space, then your PIN).</li>
+            <li>Changing referees: the referee leaving taps Sign out; the new referee scans this code on their own phone and types their own PIN. The PIN is personal: never share it.</li>
+            <li>Need help on court? Tap <strong>Call for assistance</strong> on the scoring screen: the master referees are alerted.</li>
             <li>Moving to another court: scan that court&apos;s code. A match you have not finished or sent stays yours until it is.</li>
             <li>You see only this court&apos;s matches today. Keep this sheet at the referee table; if it goes missing, tell the tournament desk.</li>
           </ol>

@@ -4,8 +4,9 @@ import { router, useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { session, saveStaff } from "../../state/session";
-import { pruneCarry, signInWithCode } from "../../referee/courtSignIn";
+import { pendingCode, pruneCarry, signInWithCode, signOutReferee } from "../../referee/courtSignIn";
 import { queue } from "../../referee/queue";
+import { AssistanceCard } from "../../referee/AssistanceCard";
 import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
@@ -51,6 +52,14 @@ export default function RefereeHome() {
     setBusy(false);
     if (r.ok) {
       setCode("");
+      if (r.master) router.push("/referee/master");
+      return;
+    }
+    if (r.pinRequired) {
+      // A court (or master) code: the PIN next, the code kept in memory only.
+      pendingCode.set(typed, r.court ?? null, Boolean(r.master));
+      setCode("");
+      router.push("/referee/pin");
       return;
     }
     setErr(r.message);
@@ -79,7 +88,7 @@ export default function RefereeHome() {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="Code from the tournament desk"
+            placeholder="Court code or code from the desk"
             placeholderTextColor={t.ink3}
             accessibilityLabel="Referee access code"
             onSubmitEditing={() => void signIn()}
@@ -93,16 +102,27 @@ export default function RefereeHome() {
       ) : (
         <>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
-            <Body tone="ink2" size={13}>{court ? `Signed in · ${court}` : `Signed in · ${staff.role}`}</Body>
-            <Body tone="blue" weight="semi" size={13} onPress={() => (pendingMatches.length ? setConfirmSignOut(true) : void saveStaff(null))}>Sign out</Body>
+            <Body tone="ink2" size={13}>
+              {staff.referee ? `${staff.referee.name} · ` : ""}
+              {court ? `Signed in · ${court}` : staff.referee?.role === "master_referee" ? "Master referee" : `Signed in · ${staff.role}`}
+            </Body>
+            <Body tone="blue" weight="semi" size={13} onPress={() => (pendingMatches.length ? setConfirmSignOut(true) : void signOutReferee())}>Sign out</Body>
           </View>
           {confirmSignOut && (
             <Card style={{ marginTop: 10, gap: 8, borderColor: t.live, borderWidth: 1 }}>
               <Body weight="semi">{`Points from ${pendingMatches.length === 1 ? "a match" : `${pendingMatches.length} matches`} have not reached the server yet.`}</Body>
               <Body tone="ink2" size={13}>Signed out, this phone cannot send them. They stay on the phone and send after the next sign-in.</Body>
-              <Button kind="danger" label="Sign out anyway" onPress={() => { setConfirmSignOut(false); void saveStaff(null); }} />
+              <Button kind="danger" label="Sign out anyway" onPress={() => { setConfirmSignOut(false); void signOutReferee(); }} />
               <Button kind="ghost" label="Stay signed in" onPress={() => setConfirmSignOut(false)} />
             </Card>
+          )}
+          {staff.referee?.role === "master_referee" && (
+            <Button label="Calls for assistance & courts" onPress={() => router.push("/referee/master")} />
+          )}
+          {court && staff.referee && (
+            <View style={{ marginTop: 10 }}>
+              <AssistanceCard />
+            </View>
           )}
           <Button kind="ghost" label="Scan court QR (switch court)" onPress={() => router.push("/referee/scan")} />
           {carries.flatMap((c) => c.matchIds.map((id) => ({ id, court: c.court }))).length > 0 && (

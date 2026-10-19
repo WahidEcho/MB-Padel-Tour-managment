@@ -8,7 +8,7 @@ import { parseCourtLink } from "@core";
 import { BALL } from "../../theme/palette";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button } from "../../ui/Bits";
-import { signInWithCode } from "../../referee/courtSignIn";
+import { pendingCode, signInWithCode } from "../../referee/courtSignIn";
 
 /**
  * "Scan court QR": the QR on a court's referee table (https://tour.mbeg.org/r#<code>,
@@ -38,6 +38,13 @@ export default function ScanCourt() {
     const r = await signInWithCode(code);
     busy.current = false;
     if (r.ok) return done(r.court, r.carried);
+    if (r.pinRequired) {
+      // The court is right; who is on it comes next (migration 0035).
+      pendingCode.set(code, r.court ?? null, Boolean(r.master));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      router.replace("/referee/pin");
+      return;
+    }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     setMsg(r.message);
   };

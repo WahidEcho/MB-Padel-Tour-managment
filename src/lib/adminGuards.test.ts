@@ -159,6 +159,7 @@ const ORG_LEVEL: Record<string, string> = {
   createEventCode: "new code in the caller's organisation (its tournament is scope-checked)",
   inviteMember: "new invite into the caller's organisation (never one named in the form)",
   createLeagueAction: "new league in the caller's organisation",
+  createRefereeAction: "new referee in the caller's organisation (its event group is scope-checked)",
 };
 
 /** Data helpers that read or write rows, besides db() itself. */

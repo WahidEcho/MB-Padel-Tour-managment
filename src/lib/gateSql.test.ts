@@ -55,6 +55,10 @@ const MUST_STAY_CLOSED = [
   "registrations",
   "registration_payments",
   "move_tick_events",
+  // 0035 (referees): the roster (PIN hashes, phones), who is signed in where, calls for assistance.
+  "referees",
+  "referee_sessions",
+  "assistance_calls",
 ];
 
 /** Tables from 0022 on that may be reopened (none yet): table → why it holds nothing private. */

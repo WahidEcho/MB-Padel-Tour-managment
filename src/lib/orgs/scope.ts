@@ -32,7 +32,10 @@ export type EntityRef =
   | { leagueMember: string }
   | { fixture: string }
   // Registrations (migration 0028): through their event.
-  | { registration: string };
+  | { registration: string }
+  // Referees (migration 0035): the roster and calls for assistance belong to an organisation.
+  | { referee: string }
+  | { assistanceCall: string };
 
 export interface EntityScope {
   orgId: string;
@@ -118,7 +121,11 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
                 ? ["organization_invites", "organization_id", ref.invite]
                 : "league" in ref
                   ? ["leagues", "organization_id", ref.league]
-                  : ["organization_codes", "organization_id, tournament_id", ref.code];
+                  : "referee" in ref
+                    ? ["referees", "organization_id", ref.referee]
+                    : "assistanceCall" in ref
+                      ? ["assistance_calls", "organization_id, tournament_id", ref.assistanceCall]
+                      : ["organization_codes", "organization_id, tournament_id", ref.code];
   const [table, columns, id] = direct;
   if (!isUuid(id)) return null;
   const row = await one<{ organization_id: string; tournament_id?: string | null }>(table, columns, id);
@@ -133,7 +140,7 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
  * court code refused on another court's match gets the same answer as a missing one.
  */
 export function principalReaches(
-  staff: Pick<StaffPrincipal, "orgId" | "scopeTournamentId"> & { scopeCourt?: CourtScope | null; scopeMatchIds?: string[] | null },
+  staff: Pick<StaffPrincipal, "orgId" | "scopeTournamentId"> & { scopeCourt?: CourtScope | null; scopeMatchIds?: string[] | null; scopeTournamentIds?: string[] | null },
   scope: EntityScope | null,
   nowMs = Date.now(),
 ): scope is EntityScope {
@@ -144,6 +151,11 @@ export function principalReaches(
     if (!carryStillReaches({ status: scope.matchStatus, endedAt: scope.matchEndedAt }, nowMs)) return false;
   }
   if (staff.scopeTournamentId && scope.tournamentId !== staff.scopeTournamentId) return false;
+  // A master referee (migration 0035): its events' tournaments and their matches, every court.
+  if (staff.scopeTournamentIds) {
+    if (!scope.tournamentId || !staff.scopeTournamentIds.includes(scope.tournamentId)) return false;
+    if (scope.ref !== "tournament" && scope.ref !== "match") return false;
+  }
   const court = staff.scopeCourt;
   if (court) {
     if (!scope.tournamentId || !court.tournamentIds.includes(scope.tournamentId)) return false;
@@ -155,8 +167,10 @@ export function principalReaches(
 }
 
 /** A code limited to part of the organisation (one tournament, or one court): no organisation-level work. */
-export function isScopedCode(staff: Pick<StaffPrincipal, "scopeTournamentId"> & { scopeCourt?: CourtScope | null; scopeMatchIds?: string[] | null }): boolean {
-  return Boolean(staff.scopeTournamentId || staff.scopeCourt || staff.scopeMatchIds);
+export function isScopedCode(
+  staff: Pick<StaffPrincipal, "scopeTournamentId"> & { scopeCourt?: CourtScope | null; scopeMatchIds?: string[] | null; scopeTournamentIds?: string[] | null },
+): boolean {
+  return Boolean(staff.scopeTournamentId || staff.scopeCourt || staff.scopeMatchIds || staff.scopeTournamentIds);
 }
 
 /** The row's scope when the principal may reach it; null otherwise (not found and not yours alike). */
