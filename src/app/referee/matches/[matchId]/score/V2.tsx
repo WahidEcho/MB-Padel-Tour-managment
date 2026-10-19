@@ -47,6 +47,7 @@ export function BoardV2({
   onSunlight,
   doubles,
   aces,
+  aceNow = false,
   banner,
 }: {
   state: ScoreState;
@@ -58,6 +59,8 @@ export function BoardV2({
   doubles: boolean;
   /** Aces per side, when the organiser shows them. */
   aces?: { A: number; B: number } | null;
+  /** Right after an ace: the short "ACE" moment. */
+  aceNow?: boolean;
   /** The 25 s banner, drawn over the top of the card. */
   banner?: React.ReactNode;
 }) {
@@ -69,8 +72,13 @@ export function BoardV2({
       {banner}
       <div className="flex items-center justify-between gap-2">
         <p className="truncate text-[11px] font-bold uppercase tracking-widest text-muted">{eyebrow}</p>
+        {aceNow && (
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-black uppercase tracking-widest text-black" style={{ background: SERVING_YELLOW }} data-testid="ace-moment">
+            Ace
+          </span>
+        )}
         <button type="button" onClick={onSunlight} className={`badge ${sunlight ? "bg-warning/25 text-foreground" : "bg-background text-muted"}`} aria-pressed={sunlight} data-testid="sunlight">
-          ☀ SUNLIGHT
+          {sunlight ? "☀ SUNLIGHT ON" : "☀ SUNLIGHT"}
         </button>
       </div>
       {(["A", "B"] as TeamKey[]).map((k) => {
@@ -157,7 +165,7 @@ export function PadV2({
   const extras = [features.fault, features.ace, features.let].filter(Boolean).length;
   const off = disabled || paused;
   return (
-    <div className="mt-3 flex flex-1 flex-col gap-3">
+    <div className="mt-3 flex flex-col gap-3">
       {extras > 0 && (
         <div className="grid gap-2.5" style={{ gridTemplateColumns: `repeat(${extras}, minmax(0, 1fr))` }}>
           {features.fault && (
@@ -186,7 +194,7 @@ export function PadV2({
           )}
         </div>
       )}
-      <div className="grid flex-1 grid-cols-2 gap-2.5" style={{ minHeight: "38vh" }} data-testid="v2-points" data-swapped={swapped ? "1" : "0"}>
+      <div className="grid grid-cols-2 gap-2.5" style={{ height: "clamp(200px, 31dvh, 460px)" }} data-testid="v2-points" data-swapped={swapped ? "1" : "0"}>
         {order.map((k) => {
           const s = sides[k];
           const serving = server === k && !state.matchOver;
@@ -291,7 +299,7 @@ export function BetweenPointsBanner({ timer, now, onDismiss, onDecision }: { tim
   const v = timerView(timer.kind, now - timer.startedAt);
   return (
     <div
-      className={`absolute inset-x-0 -top-1 z-10 space-y-2 rounded-[20px] border-2 p-4 shadow-xl ${v.over ? "border-danger bg-danger text-white" : "border-accent bg-card"}`}
+      className={`absolute inset-x-0 -top-1 z-10 space-y-2 rounded-[20px] border-2 p-4 shadow-xl ${v.over ? "border-[#E5133A] bg-[#E5133A] text-white" : "border-accent bg-card"}`}
       data-testid="timer-25"
       data-over={v.over ? "1" : "0"}
     >
@@ -353,7 +361,7 @@ export function TimerCard({
   return (
     <div className="fixed inset-x-0 top-1/3 z-40 mx-auto w-[calc(100%-24px)] max-w-md" data-testid="timer-card" data-kind={timer.kind} data-over={v.over ? "1" : "0"}>
       <div
-        className={`space-y-3 rounded-[24px] border-2 p-5 text-center shadow-2xl ${red ? "border-danger bg-danger text-white" : amber ? "border-orange-500 bg-card text-orange-500" : "border-border bg-card"}`}
+        className={`space-y-3 rounded-[24px] border-2 p-5 text-center shadow-2xl ${red ? "border-[#E5133A] bg-[#E5133A] text-white" : amber ? "border-orange-500 bg-card text-orange-500" : "border-border bg-card"}`}
       >
         <p className="text-xs font-black uppercase tracking-widest">{red ? `${title} · Time` : title}</p>
         <p className="text-7xl font-black tabular-nums leading-none" data-testid="timer-text">
@@ -439,7 +447,7 @@ export function ServeOrderDialog({
 
 const CHIP_TONE: Record<string, string> = {
   ace: "bg-[#FFF500] text-black",
-  double_fault: "bg-danger text-white",
+  double_fault: "bg-[#E5133A] text-white",
   fault: "bg-orange-500 text-black",
   let: "bg-accent text-white",
   violation: "bg-orange-500 text-black",

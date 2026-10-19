@@ -988,13 +988,14 @@ export default function ScoreClient({
           <p className="text-xs text-muted">{tournamentName} · {courtName} · {match.round_name}</p>
           {/* The rules this match resolved to. Stage overrides mean two matches in
               the same tournament can differ, so the referee is told which applies. */}
-          <p className="text-[11px] text-muted" data-testid="resolved-rules">{describeMatchRules(scoringConfig)}</p>
+          {/* Once play is on, the scoreboard card carries the rules (and the Sunlight switch). */}
+          {!renderState && <p className="text-[11px] text-muted" data-testid="resolved-rules">{describeMatchRules(scoringConfig)}</p>}
           <p className="text-xs font-semibold capitalize">
             {renderStatus.replace("_", " ")}
             {elapsed && !renderFinished && <span className="ml-2 font-mono text-muted">⏱ {elapsed}</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 [&>*]:whitespace-nowrap">
           {!readOnly && (
             <button
               type="button"
@@ -1018,15 +1019,17 @@ export default function ScoreClient({
               {voice.settings.muted ? "🔇 Muted" : "🔇 Mute"}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setSunlight(!sunlight)}
-            className={`badge ${sunlight ? "bg-warning/20 text-foreground" : "bg-card text-muted"}`}
-            aria-pressed={sunlight}
-            data-testid="sunlight"
-          >
-            {sunlight ? "☀ Sunlight on" : "☀ Sunlight"}
-          </button>
+          {!renderState && (
+            <button
+              type="button"
+              onClick={() => setSunlight(!sunlight)}
+              className={`badge ${sunlight ? "bg-warning/20 text-foreground" : "bg-card text-muted"}`}
+              aria-pressed={sunlight}
+              data-testid="sunlight"
+            >
+              {sunlight ? "☀ Sunlight on" : "☀ Sunlight"}
+            </button>
+          )}
           <span className={`badge ${statusBadge[1]}`}>{statusBadge[0]}</span>
           <Link href={`/referee/tournaments/${match.tournament_id}/matches`} className="text-xs text-muted hover:text-foreground">
             ← Matches
@@ -1125,17 +1128,13 @@ export default function ScoreClient({
             onSunlight={() => setSunlight(!sunlight)}
             doubles={pairs}
             aces={features.ace && (renderState.stats?.aces.A || renderState.stats?.aces.B) ? aceCounts(renderState) : null}
+            aceNow={features.ace && aceMoment(renderState)}
             banner={
               timer && timer.kind === "between_points" && !readOnly && !renderState.matchOver ? (
                 <BetweenPointsBanner timer={timer} now={tick} onDismiss={endTimer} onDecision={askTimeTeam} />
               ) : null
             }
           />
-          {aceMoment(renderState) && features.ace && (
-            <p className="mt-1 text-center text-xs font-black uppercase tracking-widest" data-testid="ace-moment">
-              <span className="rounded-full px-2 py-0.5 text-black" style={{ background: "#FFF500" }}>Ace</span>
-            </p>
-          )}
           {renderState.isTiebreak && !renderState.matchOver && (
             <p className="mt-1 text-center text-xs font-bold uppercase tracking-widest text-accent" data-testid="tiebreak-banner">
               {renderState.isMatchTiebreak

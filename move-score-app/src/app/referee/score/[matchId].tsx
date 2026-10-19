@@ -467,7 +467,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         <View style={{ width: 12, alignItems: "center" }}>{server === k && !shown?.matchOver ? <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: t.ball, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk }} /> : null}</View>
         <Flag iso2={s.iso2} code={s.nation} size={28} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Body weight="bold" size={17} numberOfLines={1}>{s.name}</Body>
+          <Body weight="bold" size={17} numberOfLines={1}>{v2Sides[k].name}</Body>
           {(() => {
             // Doubles: who serves and who receives this point; aces when the organiser counts them.
             const rcv = shown && pairs && !shown.matchOver ? receivingPlayer(shown) : null;
@@ -519,7 +519,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         {scoreRow("B")}
         <Body tone="ink3" size={11}>{describeMatchRules(boot.config)}</Body>
         {f.ace && aceMoment(shown) ? (
-          <View testID="ace-moment" style={{ position: "absolute", right: 14, top: 8, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+          <View testID="ace-moment" style={{ position: "absolute", left: 16, top: -11, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
             <Eyebrow size={11} style={{ color: BALL_INK }}>Ace</Eyebrow>
           </View>
         ) : null}

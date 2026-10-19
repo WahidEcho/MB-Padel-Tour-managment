@@ -181,9 +181,7 @@ export function buildMatchLog(rows: LogEventRow[], teams: { A: { id: string | nu
         const label = kind ? TIMERS[kind].label : "Timer";
         const who = side(p.team);
         title = r.event_type === "TIMER_STARTED" ? `${label} started` : `${label} ended`;
-        detail = [who, r.event_type === "TIMER_STOPPED" && typeof p.seconds === "number" ? `ran ${clockText(p.seconds)}` : null, scoreTitle(next, names)]
-          .filter(Boolean)
-          .join(" · ");
+        detail = [who, r.event_type === "TIMER_STOPPED" && typeof p.seconds === "number" ? `ran ${clockText(p.seconds)}` : null].filter(Boolean).join(" · ") || "at " + scoreTitle(next, names).replace(/^Set \d+ · /, "");
         break;
       }
       case "TIME_DECISION": {
