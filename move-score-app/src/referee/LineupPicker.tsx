@@ -214,7 +214,7 @@ export function LineupPicker({ initial, onSaved }: { initial: LineupPickerModel;
       {showSingles || showDoubles ? (
         <Button label={busy ? "Saving…" : picker.tie.locked ? "Save the change" : showSingles ? "Confirm the singles" : "Confirm the doubles"} disabled={!canSave} onPress={() => void save()} />
       ) : null}
-      {!editAll && picker.rubbers.some((r) => r.editable) ? <Button kind="ghost" label="Change the line-up" onPress={() => setEditAll(true)} /> : null}
+      {!editAll && picker.step !== "singles" && picker.rubbers.some((r) => r.editable) ? <Button kind="ghost" label="Change the line-up" onPress={() => setEditAll(true)} /> : null}
       {editAll ? (
         <Button
           kind="ghost"

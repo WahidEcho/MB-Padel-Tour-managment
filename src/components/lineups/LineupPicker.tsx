@@ -257,7 +257,7 @@ export default function LineupPicker({ initial, compact = false }: { initial: Pi
             {busy ? "Saving…" : picker.tie.locked ? "Save the change" : showSingles ? "Confirm the singles" : "Confirm the doubles"}
           </button>
         )}
-        {!editAll && picker.rubbers.some((r) => r.editable) && (
+        {!editAll && picker.step !== "singles" && picker.rubbers.some((r) => r.editable) && (
           <button type="button" className="btn-secondary" onClick={() => setEditAll(true)} data-testid="change-lineup">
             Change the line-up
           </button>
