@@ -325,6 +325,49 @@ async function main() {
   // The console the old app runs: 0159033's own modules (scoring v2 changed today's).
   Console = await loadOldConsole();
   check(typeof Console.point === "function" && !("faultEvent" in Console), `1.0.1's scoring console, engine and conduct are loaded from ${OLD} (no v2 builders in them)`);
+  {
+    // Behaviour, not bytes: 1.0.1's event sequences (points, games, sets, tie-breaks, a match
+    // tie-break, violations, set ends, undo) give the very same states through 0159033's console
+    // and today's, so a phone running either agrees with the server on every 1.0.1 event.
+    const cfgs: [string, ScoringConfig][] = [
+      ["tennis singles", { setsToWinMatch: 2, gamesToWinSet: 6, tiebreakEnabled: true, tiebreakAtGames: 6, tiebreakTargetPoints: 7, tiebreakWinByTwo: true, walkoverScore: "6-0" } as ScoringConfig],
+      ["tennis doubles (no-ad, match tie-break)", { setsToWinMatch: 2, gamesToWinSet: 6, tiebreakEnabled: true, tiebreakAtGames: 6, tiebreakTargetPoints: 7, tiebreakWinByTwo: true, walkoverScore: "6-0", decidingPoint: true, matchTiebreak: true, matchTiebreakPoints: 10 } as ScoringConfig],
+    ];
+    let compared = 0;
+    let differ: string | null = null;
+    for (const [name, config] of cfgs) {
+      for (let seed = 1; seed <= 25 && !differ; seed++) {
+        let x = seed * 7919;
+        const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
+        const o = { config, confirmFirst: false, online: true, tennis: true, doubles: name.includes("doubles") };
+        let a = Console.startMatch("A").next;
+        let b = CurrentConsole.startMatch("A").next;
+        const ha: ScoreState[] = [];
+        const hb: ScoreState[] = [];
+        for (let i = 0; i < 400 && !a.matchOver; i++) {
+          const r = rnd();
+          const k: TeamKey = rnd() < 0.55 ? "A" : "B";
+          const step = (C: typeof CurrentConsole, s: ScoreState, h: ScoreState[]) =>
+            r < 0.03 ? C.violation(s, k, "racket_abuse", o) : r < 0.05 && h.length ? C.undo(h, false) : r < 0.055 ? C.endSet(s, k, o) : C.point(s, k, o);
+          const ea = step(Console, a, ha);
+          const eb = step(CurrentConsole, b, hb);
+          if (!ea || !eb) break;
+          if (ea.eventType !== "UNDO") ha.push(a);
+          else ha.pop();
+          if (eb.eventType !== "UNDO") hb.push(b);
+          else hb.pop();
+          a = ea.next;
+          b = eb.next;
+          compared++;
+          if (JSON.stringify(a) !== JSON.stringify(b) || ea.eventType !== eb.eventType || JSON.stringify(ea.payload) !== JSON.stringify(eb.payload)) {
+            differ = `${name} seed ${seed} step ${i}`;
+            break;
+          }
+        }
+      }
+    }
+    check(differ === null && compared > 1000, `1.0.1's events give identical states through ${OLD}'s console and today's (${compared} steps compared)`, differ);
+  }
   const lease = spawnSync("git", ["diff", "--quiet", OLD, "HEAD", "--", "src/lib/scoringLease.ts"]);
   check(lease.status === 0, `The lease view is unchanged since ${OLD}`, lease.status);
 
