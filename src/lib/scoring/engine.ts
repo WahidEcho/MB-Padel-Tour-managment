@@ -42,6 +42,29 @@ export interface ScoreState {
   doublesOrder?: { A: 0 | 1; B: 0 | 1 };
   /** Code violations recorded in this match, oldest first. See conduct.ts. */
   violations?: RecordedViolation[];
+  /**
+   * Scoring v2 (serve.ts): a first-serve fault, recorded at the score it was made
+   * at (`at` = scoreKey). Any point, or a score that moved on, makes it stale, so a
+   * console that does not know about faults (Move Score 1.0.1) can never leave a
+   * second serve standing.
+   */
+  serve?: { fault: 1; at: string } | null;
+  /** Scoring v2: aces and double faults per side. */
+  stats?: { aces: { A: number; B: number }; doubleFaults: { A: number; B: number } };
+  /** Scoring v2: the score key right after the last ace, for the screens' "ACE" moment. */
+  lastAce?: string | null;
+  /**
+   * Doubles: which player of each team receives in the deuce (right) court for the
+   * current set (0 = first-listed player). Absent means 0 for both.
+   */
+  receiveOrder?: { A: 0 | 1; B: 0 | 1 };
+  /** Doubles: the set whose serve and receive order the referee confirmed (SERVE_ORDER). */
+  orderSet?: number;
+  /**
+   * A timer the referee runs (changeover, set break, breaks: timing.ts), at the
+   * score key it started at. Screens show it only while that score stands.
+   */
+  clock?: { kind: string; startedAt: string; at: string; team?: TeamKey | null } | null;
   winner: TeamKey | null;
   matchOver: boolean;
 }
@@ -77,6 +100,8 @@ function clone(state: ScoreState): ScoreState {
 export function awardPoint(prev: ScoreState, scoringTeam: TeamKey, config: ScoringConfig): ScoreState {
   if (prev.matchOver) return prev;
   const state = clone(prev);
+  // A point ends the serve in progress: the next point starts on a first serve.
+  delete state.serve;
   if (state.isTiebreak) return awardTiebreakPoint(state, scoringTeam, config);
   return awardNormalPoint(state, scoringTeam, config);
 }
@@ -208,6 +233,7 @@ function winSet(state: ScoreState, winningTeam: TeamKey, config: ScoringConfig):
 export function manualEndSet(prev: ScoreState, winningTeam: TeamKey, config: ScoringConfig): ScoreState {
   if (prev.matchOver) return prev;
   const state = clone(prev);
+  delete state.serve;
   return winSet(state, winningTeam, config);
 }
 
@@ -308,6 +334,7 @@ export function scoreSummary(state: ScoreState): string {
 export function awardGame(prev: ScoreState, team: TeamKey, config: ScoringConfig): ScoreState {
   if (prev.matchOver) return prev;
   const state = clone(prev);
+  delete state.serve;
   if (state.isTiebreak) {
     if (state.isMatchTiebreak) {
       teamScore(state, team).games = 1;

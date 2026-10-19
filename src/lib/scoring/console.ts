@@ -22,7 +22,9 @@ import {
   type TeamKey,
 } from "./engine";
 import { applyViolation, nextPenalty, type Offence, type Penalty } from "./conduct";
-import { sameState } from "./eventGuard";
+import { pushesHistory, sameState } from "./eventGuard";
+import { ace as aceState, applyLet, fault as faultState, serveNumber, setServeOrder, type LetKind, type ServeOrder } from "./serve";
+import { afterScoreChange, startClock, stopClock, type AfterPoint, type TimeDecision, type TimerKind } from "./timing";
 import type { ScoringConfig } from "../types";
 
 export interface ConsoleEvent {
@@ -37,6 +39,8 @@ export interface ConsoleEvent {
   newStatus?: string;
   /** Tennis: a changeover or set break to time after this event. */
   ends?: EndsChange;
+  /** Scoring v2: the change of ends and the timer that follows a step that moved the score. */
+  after?: AfterPoint;
 }
 
 export interface ConsoleOptions {
@@ -66,14 +70,69 @@ export function pointNeedsConfirm(cur: ScoreState, team: TeamKey, o: ConsoleOpti
 
 export function point(cur: ScoreState, team: TeamKey, o: ConsoleOptions): ConsoleEvent {
   const next = awardPoint(cur, team, o.config);
+  return pointLike(cur, next, team, null, o);
+}
+
+function pointLike(cur: ScoreState, next: ScoreState, team: TeamKey, payload: Record<string, unknown> | null, o: ConsoleOptions): ConsoleEvent {
   const ended = next.matchOver && !o.confirmFirst;
   return {
     eventType: "POINT_AWARDED",
     next,
     team,
-    payload: null,
+    payload,
     newStatus: ended ? done(o.online, "completed") : undefined,
     ends: o.tennis ? endsChange(cur, next) : undefined,
+    after: afterScoreChange(cur, next),
+  };
+}
+
+/* ---------------- scoring v2 (serve.ts, timing.ts) ---------------- */
+
+/** Fault: a first fault goes to the second serve (FAULT); a second is a double fault, a point to the receiver. */
+export function faultEvent(cur: ScoreState, o: ConsoleOptions): ConsoleEvent | null {
+  const r = faultState(cur, o.config);
+  if (!r) return null;
+  if (!r.doubleFault) return { eventType: "FAULT", next: r.next, team: r.server, payload: { serve: 1 } };
+  return pointLike(cur, r.next, r.server === "A" ? "B" : "A", { double_fault: true }, o);
+}
+
+/** Ace: a point to the server, counted as an ace. */
+export function aceEvent(cur: ScoreState, o: ConsoleOptions): ConsoleEvent | null {
+  const r = aceState(cur, o.config);
+  if (!r) return null;
+  return pointLike(cur, r.next, r.server, { ace: true }, o);
+}
+
+/** Let: "serve" replays the serve (a second serve stays second), "point" replays the point from a first serve. */
+export function letEvent(cur: ScoreState, kind: LetKind): ConsoleEvent | null {
+  if (cur.matchOver) return null;
+  return { eventType: "LET", next: applyLet(cur, kind), team: null, payload: { kind, serve: serveNumber(cur) } };
+}
+
+/** Doubles: the serve and receive order for this set (the set-start question). */
+export function serveOrderEvent(cur: ScoreState, order: ServeOrder): ConsoleEvent | null {
+  const next = setServeOrder(cur, order);
+  if (!next) return null;
+  return { eventType: "SERVE_ORDER", next, team: null, payload: { ...order, set: cur.currentSet } };
+}
+
+/** A timer starts (changeover, set break, a break from More). `team`: whose break, when it is one side's. */
+export function timerStart(cur: ScoreState, kind: TimerKind, startedAt: string, team: TeamKey | null = null): ConsoleEvent {
+  return { eventType: "TIMER_STARTED", next: startClock(cur, kind, startedAt, team), team, payload: { timer: kind, started_at: startedAt, ...(team ? { team } : {}) } };
+}
+
+/** The running timer stops; `seconds` is how long it ran. */
+export function timerStop(cur: ScoreState, kind: string, seconds: number, team: TeamKey | null = null): ConsoleEvent {
+  return { eventType: "TIMER_STOPPED", next: stopClock(cur), team, payload: { timer: kind, seconds: Math.max(0, Math.round(seconds)), ...(team ? { team } : {}) } };
+}
+
+/** The referee's ruling on an overrun (a code violation is recorded as its own CODE_VIOLATION too). */
+export function timeDecision(cur: ScoreState, kind: TimerKind, decision: TimeDecision, seconds: number, team: TeamKey | null): ConsoleEvent {
+  return {
+    eventType: "TIME_DECISION",
+    next: cur,
+    team,
+    payload: { timer: kind, decision, seconds: Math.max(0, Math.round(seconds)), ...(team ? { team } : {}) },
   };
 }
 
@@ -120,6 +179,7 @@ export function violation(cur: ScoreState, offender: TeamKey, offence: Offence, 
     payload: { offence, penalty },
     newStatus: next.matchOver && !o.confirmFirst ? done(o.online, "completed") : undefined,
     ends: o.tennis ? endsChange(cur, next) : undefined,
+    after: afterScoreChange(cur, next),
   };
 }
 
@@ -143,6 +203,7 @@ export function endWith(cur: ScoreState, kind: EndKind, winner: TeamKey, online:
 
 /** The undo stack after an event, kept the way the web console keeps it (200 deep). */
 export function nextHistory(history: ScoreState[], prev: ScoreState | null, eventType: string): ScoreState[] {
+  if (eventType !== "UNDO" && !pushesHistory(eventType)) return history;
   return (eventType === "UNDO" ? history.slice(0, -1) : prev ? [...history, prev] : history).slice(-200);
 }
 

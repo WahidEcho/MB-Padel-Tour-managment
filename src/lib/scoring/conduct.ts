@@ -7,11 +7,13 @@
  * - Code violations: warning, point penalty, then a game penalty for each one
  *   after that. A default is always the chair's call, never automatic.
  * - Time violations (between points): a warning, then a point penalty each time.
- *   A server's second time violation is really a fault; the app records it as a
- *   point penalty only when the receiver is at fault, and as a fault otherwise,
- *   because the app does not score first and second serves.
+ *   A server's second time violation is a fault (loss of a serve): on a first
+ *   serve the server goes to a second serve, on a second serve it is a double
+ *   fault and the point goes to the receiver (serve.ts). The receiver's is a
+ *   point penalty.
  */
 import { awardGame, awardPoint, opponent, type ScoreState, type TeamKey } from "./engine";
+import { fault } from "./serve";
 import type { ScoringConfig } from "../types";
 
 export type Offence =
@@ -81,6 +83,7 @@ export function applyViolation(
   let next = state;
   if (violation.penalty === "point") next = awardPoint(state, beneficiary, config);
   else if (violation.penalty === "game") next = awardGame(state, beneficiary, config);
+  else if (violation.penalty === "fault") next = fault(state, config)?.next ?? state;
   // awardPoint/awardGame return copies; a warning or fault must not share the
   // caller's object either, or the history entry and the new state alias.
   if (next === state) next = JSON.parse(JSON.stringify(state)) as ScoreState;

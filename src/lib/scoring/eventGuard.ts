@@ -5,8 +5,11 @@
  * route all agree on what a valid batch is. The route still owns the sequence
  * check against the server's own numbering.
  */
-import { awardPoint, type ScoreState, type TeamKey } from "./engine";
+import { awardPoint, opponent, type ScoreState, type TeamKey } from "./engine";
+import { ace, applyLet, fault, setServeOrder, type ServeOrder } from "./serve";
+import { isTimerKind, startClock, stopClock, TIME_DECISIONS, type TimerKind } from "./timing";
 import type { ScoringConfig } from "../types";
+import type { ScoringFeatures } from "../matchday/rules";
 
 /** Every event type a scoring client may send. Anything else is refused. */
 export const SCORE_EVENT_TYPES = [
@@ -25,6 +28,15 @@ export const SCORE_EVENT_TYPES = [
   "RETIREMENT",
   // A final result entered in one go (resultEntry.ts); the server rebuilds its state.
   "RESULT_ENTERED",
+  // Scoring v2 (serve.ts, timing.ts). An ace and a double fault are POINT_AWARDED
+  // events with payload { ace: true } / { double_fault: true }, so everything that
+  // reads points (timelines, voice, screens, Move Score 1.0.1) keeps working.
+  "FAULT",
+  "LET",
+  "SERVE_ORDER",
+  "TIMER_STARTED",
+  "TIMER_STOPPED",
+  "TIME_DECISION",
   // Chess
   "MOVE_MADE",
   "RESIGN",
@@ -170,7 +182,30 @@ export function finishedMatchCut(
 export const RESULT_DECIDERS: readonly string[] = ["admin", "manager"];
 
 /** Event types that put no score on the match: a match with only these has nothing to correct yet. */
-export const NON_SCORING_EVENTS: ReadonlySet<string> = new Set(["MATCH_STARTED", "MATCH_PAUSED", "MATCH_RESUMED", "SERVER_CHANGED"]);
+export const NON_SCORING_EVENTS: ReadonlySet<string> = new Set([
+  "MATCH_STARTED",
+  "MATCH_PAUSED",
+  "MATCH_RESUMED",
+  "SERVER_CHANGED",
+  "FAULT",
+  "LET",
+  "SERVE_ORDER",
+  "TIMER_STARTED",
+  "TIMER_STOPPED",
+  "TIME_DECISION",
+]);
+
+/**
+ * Events only for the record: timers and the referee's ruling on an overrun. They
+ * never go on the undo stack (Undo takes back the last scoring action, not a timer),
+ * and timelines skip them.
+ */
+export const LOG_ONLY_EVENTS: ReadonlySet<string> = new Set(["TIMER_STARTED", "TIMER_STOPPED", "TIME_DECISION"]);
+
+/** Whether an event pushes the state before it onto the undo stack (everything but UNDO and the log-only ones). */
+export function pushesHistory(eventType: string): boolean {
+  return eventType !== "UNDO" && !LOG_ONLY_EVENTS.has(eventType);
+}
 
 /**
  * A final result over a match that already has a score (a finished match, or
@@ -305,7 +340,7 @@ export interface ShadowMismatch {
  * and every client agree before anything is rejected on its say-so.
  */
 export function shadowMismatches(
-  events: { event_number: number; event_type: string; team_id: string | null; previous_state: unknown; new_state: unknown }[],
+  events: { event_number: number; event_type: string; team_id: string | null; previous_state: unknown; new_state: unknown; payload?: Record<string, unknown> | null }[],
   opts: { snapshotState: unknown; teamA: string | null; config: ScoringConfig | null },
 ): ShadowMismatch[] {
   const out: ShadowMismatch[] = [];
@@ -317,7 +352,8 @@ export function shadowMismatches(
     if (e.event_type === "POINT_AWARDED" && opts.config && e.previous_state && e.team_id) {
       const key: TeamKey = e.team_id === opts.teamA ? "A" : "B";
       try {
-        const expected = awardPoint(e.previous_state as ScoreState, key, opts.config);
+        const v2 = isV2Event(e) ? expectedV2State(e, { teamA: opts.teamA, config: opts.config }) : null;
+        const expected = v2 && v2.ok ? v2.state : awardPoint(e.previous_state as ScoreState, key, opts.config);
         if (!sameState(expected, e.new_state)) out.push({ event_number: e.event_number, event_type: e.event_type, kind: "point" });
       } catch {
         out.push({ event_number: e.event_number, event_type: e.event_type, kind: "point" });
@@ -326,4 +362,146 @@ export function shadowMismatches(
     expectedPrev = e.new_state;
   }
   return out;
+}
+
+/* ---------------- scoring v2: checked on the server, never just trusted ---------------- */
+
+type V2Event = { event_type: string; team_id: string | null; previous_state: unknown; new_state?: unknown; payload?: Record<string, unknown> | null };
+
+const V2_TYPES = new Set(["FAULT", "LET", "SERVE_ORDER", "TIMER_STARTED", "TIMER_STOPPED", "TIME_DECISION"]);
+
+/** A v2 event: a new event type, or a point marked as an ace or a double fault. */
+export function isV2Event(e: { event_type: string; payload?: Record<string, unknown> | null }): boolean {
+  if (V2_TYPES.has(e.event_type)) return true;
+  return e.event_type === "POINT_AWARDED" && (e.payload?.ace === true || e.payload?.double_fault === true);
+}
+
+const bit = (v: unknown): 0 | 1 | null => (v === 0 || v === 1 ? v : null);
+const side = (v: unknown): TeamKey | null => (v === "A" || v === "B" ? v : null);
+
+export function parseServeOrder(p: Record<string, unknown> | null | undefined): ServeOrder | null {
+  if (!p) return null;
+  const servingTeam = side(p.servingTeam);
+  const server = bit(p.server);
+  const receiver = bit(p.receiver);
+  const otherServer = bit(p.otherServer);
+  const otherReceiver = bit(p.otherReceiver);
+  if (!servingTeam || server === null || receiver === null || otherServer === null || otherReceiver === null) return null;
+  return { servingTeam, server, receiver, otherServer, otherReceiver };
+}
+
+export type V2Expected = { ok: true; state: ScoreState } | { ok: false; error: string };
+
+/**
+ * The state a v2 event must come to, re-derived from its previous state with the
+ * shared engine (serve.ts, timing.ts), or why no honest console sends it. The
+ * events route refuses a v2 event whose new_state differs.
+ */
+export function expectedV2State(e: V2Event, opts: { teamA: string | null; config: ScoringConfig }): V2Expected {
+  const prev = e.previous_state as ScoreState | null;
+  if (!prev || typeof prev !== "object" || !prev.teamA || !prev.teamB) return { ok: false, error: `${e.event_type} needs the score before it` };
+  const key: TeamKey | null = e.team_id == null ? null : e.team_id === opts.teamA ? "A" : "B";
+  const p = e.payload ?? {};
+  switch (e.event_type) {
+    case "FAULT": {
+      const r = fault(prev, opts.config);
+      if (!r || r.doubleFault) return { ok: false, error: "A second fault is a double fault: a point to the receiver" };
+      if (key && key !== r.server) return { ok: false, error: "A fault belongs to the serving side" };
+      return { ok: true, state: r.next };
+    }
+    case "POINT_AWARDED": {
+      if (p.ace === true) {
+        const r = ace(prev, opts.config);
+        if (!r || key !== r.server) return { ok: false, error: "An ace is a point to the server" };
+        return { ok: true, state: r.next };
+      }
+      const r = fault(prev, opts.config);
+      if (!r || !r.doubleFault || key !== opponent(r.server)) return { ok: false, error: "A double fault comes after a fault: the point goes to the receiver" };
+      return { ok: true, state: r.next };
+    }
+    case "LET": {
+      if (p.kind !== "serve" && p.kind !== "point") return { ok: false, error: "A let is a serve let or a replayed point" };
+      if (prev.matchOver) return { ok: false, error: "The match is over" };
+      return { ok: true, state: applyLet(prev, p.kind) };
+    }
+    case "SERVE_ORDER": {
+      const order = parseServeOrder(p);
+      const next = order ? setServeOrder(prev, order) : null;
+      if (!next) return { ok: false, error: "The serve and receive order is set at the start of a set" };
+      return { ok: true, state: next };
+    }
+    case "TIMER_STARTED": {
+      const started = typeof p.started_at === "string" && Number.isFinite(Date.parse(p.started_at)) ? p.started_at : null;
+      if (!isTimerKind(p.timer) || !started) return { ok: false, error: "Unknown timer" };
+      return { ok: true, state: startClock(prev, p.timer as TimerKind, started, side(p.team)) };
+    }
+    case "TIMER_STOPPED":
+      return { ok: true, state: stopClock(prev) };
+    case "TIME_DECISION": {
+      if (!isTimerKind(p.timer) || !(TIME_DECISIONS as readonly string[]).includes(String(p.decision))) {
+        return { ok: false, error: "A time ruling names its timer and the decision" };
+      }
+      return { ok: true, state: prev };
+    }
+  }
+  return { ok: false, error: `Not a v2 event: ${e.event_type}` };
+}
+
+/** The admin setting a v2 event depends on, or null when it always may be sent (stopping a timer). */
+export function featureFor(e: { event_type: string; payload?: Record<string, unknown> | null }): keyof ScoringFeatures | null {
+  const p = e.payload ?? {};
+  const timerFeature = (t: unknown): keyof ScoringFeatures | null =>
+    t === "between_points"
+      ? "timerBetweenPoints"
+      : t === "changeover"
+        ? "timerChangeover"
+        : t === "set_break"
+          ? "timerSetBreak"
+          : t === "break"
+            ? "breakStopwatch"
+            : t === "bathroom"
+              ? "bathroom"
+              : t === "hydration"
+                ? "hydration"
+                : null;
+  switch (e.event_type) {
+    case "FAULT":
+      return "fault";
+    case "POINT_AWARDED":
+      return p.ace === true ? "ace" : p.double_fault === true ? "fault" : null;
+    case "LET":
+      return "let";
+    case "SERVE_ORDER":
+      return "doublesOrder";
+    case "TIMER_STARTED":
+    case "TIME_DECISION":
+      return timerFeature(p.timer);
+    default:
+      return null;
+  }
+}
+
+/**
+ * The first v2 event of a batch the tournament switched off, or whose state is not
+ * what the engine gives. Walked in order; returns the index and why, or null.
+ */
+export function v2Cut(
+  events: V2Event[],
+  opts: { teamA: string | null; config: ScoringConfig | null; features: ScoringFeatures },
+): (FinishedCut & { code: "feature_off" | "state_mismatch" }) | null {
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!isV2Event(e)) continue;
+    const feature = featureFor(e);
+    if (feature && !opts.features[feature]) {
+      return { index: i, code: "feature_off", error: `The organiser switched this off for the tournament (${feature}), so event ${e.event_type} was refused.` };
+    }
+    if (!opts.config) return { index: i, code: "state_mismatch", error: `${e.event_type} is for games scoring only` };
+    const want = expectedV2State(e, { teamA: opts.teamA, config: opts.config });
+    if (!want.ok) return { index: i, code: "state_mismatch", error: want.error };
+    if (!sameState(want.state, e.new_state)) {
+      return { index: i, code: "state_mismatch", error: `The score sent with ${e.event_type} is not what the rules give. Load the server's score and carry on.` };
+    }
+  }
+  return null;
 }

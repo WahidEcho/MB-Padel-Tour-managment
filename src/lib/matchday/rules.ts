@@ -34,6 +34,12 @@ export interface MatchDayRules {
   lockScreen: { liveActivities: boolean; startByPush: boolean; countdown: boolean; autoStartMine: boolean; autoStartStarred: boolean };
   widgets: { on: boolean };
   scoring: { mode: ScoringModeChoice };
+  /**
+   * Scoring v2 (games sports): each referee feature on or off, set by admins only
+   * (Admin → Scoring features). A tournament that saved the Match day tab before
+   * these existed gets them all on; an unsaved one has them all off.
+   */
+  features: ScoringFeatures;
   extras: {
     imAtCourt: boolean;
     qrCheckInPresent: boolean;
@@ -48,6 +54,93 @@ export interface MatchDayRules {
   };
 }
 
+export interface ScoringFeatures {
+  fault: boolean;
+  ace: boolean;
+  let: boolean;
+  timerBetweenPoints: boolean;
+  timerChangeover: boolean;
+  timerSetBreak: boolean;
+  breakStopwatch: boolean;
+  bathroom: boolean;
+  hydration: boolean;
+  autoSwap: boolean;
+  manualSwap: boolean;
+  matchLog: boolean;
+  doublesOrder: boolean;
+  callMaster: boolean;
+  tvTimers: boolean;
+  tvAces: boolean;
+}
+
+export const SCORING_FEATURES_ON: ScoringFeatures = {
+  fault: true,
+  ace: true,
+  let: true,
+  timerBetweenPoints: true,
+  timerChangeover: true,
+  timerSetBreak: true,
+  breakStopwatch: true,
+  bathroom: true,
+  hydration: true,
+  autoSwap: true,
+  manualSwap: true,
+  matchLog: true,
+  doublesOrder: true,
+  callMaster: true,
+  tvTimers: true,
+  tvAces: true,
+};
+
+export const SCORING_FEATURES_OFF: ScoringFeatures = Object.fromEntries(
+  Object.keys(SCORING_FEATURES_ON).map((k) => [k, false]),
+) as unknown as ScoringFeatures;
+
+/** The admin tab's rows, in order: [key, title, hint]. */
+export const SCORING_FEATURE_GROUPS: { title: string; rows: [keyof ScoringFeatures, string, string][] }[] = [
+  {
+    title: "Referee buttons",
+    rows: [
+      ["fault", "Fault button", "Two faults score a double fault."],
+      ["ace", "Ace button", "Point to the server, logged as an ace."],
+      ["let", "Let button", "Serve let or replay the point."],
+    ],
+  },
+  {
+    title: "Timers",
+    rows: [
+      ["timerBetweenPoints", "25-second timer", "Shown after each point; red after 0:25, with rulings."],
+      ["timerChangeover", "Changeover timer", "1:30 at a change of ends (Rule 29a)."],
+      ["timerSetBreak", "Set break timer", "2:00 between sets."],
+      ["breakStopwatch", "Break stopwatch", "Open stopwatch for other breaks."],
+      ["bathroom", "Bathroom break", "Stopwatch, warns at 10:00."],
+      ["hydration", "Hydration break", "Counts to 10:00."],
+    ],
+  },
+  {
+    title: "Sides & serve",
+    rows: [
+      ["autoSwap", "Auto swap sides at change of ends", "The point buttons swap when the players change ends."],
+      ["manualSwap", "Manual swap", "Swap left / right from More."],
+      ["doublesOrder", "Doubles server/receiver each set", "Asks the serve and receive order at the start of every set."],
+    ],
+  },
+  {
+    title: "Referee tools",
+    rows: [
+      ["matchLog", "Match log for referees", "Every point, call, violation and break."],
+      ["callMaster", "Call master referee", "Alerts every master referee on duty."],
+    ],
+  },
+  {
+    title: "TV & app",
+    rows: [
+      ["tvTimers", "Show timers on TV & app", "Changeover, set break and break clocks."],
+      ["tvAces", "Show aces on TV & app", "An ACE moment and the aces count."],
+    ],
+  },
+];
+
 /** New tournaments start with these. */
 export const DEFAULT_MATCH_DAY_RULES: MatchDayRules = {
   configured: true,
@@ -59,6 +152,7 @@ export const DEFAULT_MATCH_DAY_RULES: MatchDayRules = {
   lockScreen: { liveActivities: true, startByPush: true, countdown: true, autoStartMine: true, autoStartStarred: false },
   widgets: { on: true },
   scoring: { mode: "either" },
+  features: SCORING_FEATURES_ON,
   extras: {
     imAtCourt: true,
     qrCheckInPresent: true,
@@ -84,6 +178,7 @@ export const OFF_MATCH_DAY_RULES: MatchDayRules = {
   lockScreen: { liveActivities: false, startByPush: false, countdown: false, autoStartMine: false, autoStartStarred: false },
   widgets: { on: false },
   scoring: { mode: "point_by_point" },
+  features: SCORING_FEATURES_OFF,
   extras: {
     imAtCourt: false,
     qrCheckInPresent: false,
@@ -143,6 +238,7 @@ function forSport(r: MatchDayRules, sport: SportDef): MatchDayRules {
       : { liveActivities: false, startByPush: false, countdown: false, autoStartMine: false, autoStartStarred: false },
     widgets: s.liveActivity ? r.widgets : { on: false },
     scoring: s.finalScore ? r.scoring : { mode: "point_by_point" },
+    features: sport.engine === "games" ? r.features : SCORING_FEATURES_OFF,
     extras: s.voice ? r.extras : { ...r.extras, umpireVoiceCall: false },
   };
 }
@@ -166,6 +262,7 @@ export function matchDayRules(raw: unknown, sport?: { sport?: string | null } | 
     lockScreen: group(d.lockScreen, raw.lockScreen),
     widgets: group(d.widgets, raw.widgets),
     scoring: group(d.scoring, raw.scoring),
+    features: group(d.features, raw.features),
     extras: group(d.extras, raw.extras),
   };
   return forSport(rules, sportOf(sport));
