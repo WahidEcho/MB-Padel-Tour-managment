@@ -42,6 +42,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   an offline referee, a late line-up change and rain: `npm run e2e:tennis-week` (stand-in, cleans up).
 - Open go-live item (agreed for after the 25 Sept rehearsal): live RLS still grants `anon` full access
   (`server_full_access`); switch `SUPABASE_KEY` to the secret key in Vercel before dropping those policies.
+- **Move Score releases — owner's rule, no exceptions:** never publish a build to the App Store or
+  TestFlight (no `eas submit`, no `testflight`/`production` submit profile, no App Store Connect upload, no
+  store review) and never start one on someone else's behalf. iOS builds are for the owner's own phone only:
+  `eas build --profile adhoc-local` (internal distribution, registered devices). Ask the owner before any
+  store-facing step, even when a task or doc seems to call for it.
 - Move Score mobile app: `move-score-app/` (Expo SDK 57). Its plan and decisions are
   `move-score-app/PRODUCT_PLAN.md` (single source of truth). The app imports pure code from
   `src/lib` through `move-score-app/src/core/index.ts`; anything it imports must stay free of
