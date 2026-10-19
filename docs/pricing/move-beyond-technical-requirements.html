@@ -44,7 +44,7 @@
   <div class="meta">
     Issued by Move Beyond (Cairo, Egypt) · Version 1.0 · October 2026<br>
     Purpose: obtain development quotes for a functionally equivalent system.<br>
-    Every feature in this document is built and in use today and must be replicated.
+    This document describes the complete feature set to be delivered.
   </div>
 </section>
 
@@ -66,6 +66,8 @@
   <li>Registration and online payments</li>
   <li>Messaging: push, email and WhatsApp</li>
   <li>Event pass, venue check-in and wallet passes</li>
+  <li>Live video feed of selected courts</li>
+  <li>Professional referee system to international sport-code level</li>
   <li>Security, privacy and compliance</li>
   <li>Architecture, infrastructure and integrations</li>
   <li>Quality, testing and operations</li>
@@ -80,7 +82,7 @@
   <tr><td><b>Move Score (mobile app)</b></td><td>Fan and player companion: live scores, order of play, draws, alerts, following, event pass, lock-screen live scores, widgets, registration and payment, player profile. Also the referee/umpire scoring console for officials.</td></tr>
   <tr><td><b>Venue screens</b></td><td>Court-side TVs and big screens: live score, walk-on, line-ups, results, rankings, sponsor loops, QR codes — remotely controlled by an operator.</td></tr>
 </table>
-<p>Scope: <b>inside the court</b> (scoring, rules, umpiring, voice calls, court calls, no-shows) and <b>outside the court</b> (registration, payment, schedules, fans, alerts, screens, sponsors, rankings, leagues, organisations, messaging). Language: English UI. Time zone default Africa/Cairo, per-event time zone supported.</p>
+<p>Scope: <b>inside the court</b> (scoring, rules, umpiring, voice calls, court calls, no-shows) and <b>outside the court</b> (registration, payment, schedules, fans, alerts, screens, sponsors, rankings, leagues, organisations, messaging). Languages: English UI; Arabic/RTL as an option. Time zone default Africa/Cairo, per-event time zone supported.</p>
 
 <h2>2. Users, roles and organisations</h2>
 <h3>2.1 Multi-tenant organisations</h3>
@@ -182,6 +184,11 @@
   <li><b>Offline-first</b>: points queue on the device and sync in order when the signal returns; conflict handling (409) with "load the server's score".</li>
   <li><b>Scoring lease / device lock</b>: one device controls a match; request and hand over control between referees; lease renewal and release.</li>
   <li>Referee access by event code; list of assigned tournaments and matches.</li>
+</ul>
+<h3>5.2 Per-court referee access</h3>
+<ul>
+  <li>One access code per court; a referee who enters it sees only that court's matches in order; sign out and enter another court's code on handover.</li>
+  <li>QR code printed on each court's referee table: scanning with the app (or phone camera, which opens the app) switches the referee to that court instantly.</li>
 </ul>
 
 <h2>6. Match day operations</h2>
@@ -299,7 +306,39 @@
   <li>Match QR check-in for players.</li>
 </ul>
 
-<h2>17. Security, privacy and compliance</h2>
+<h2>17. Live video feed of selected courts</h2>
+<div class="box">The scoring data above must be overlaid on the video.</div>
+<ul>
+  <li>Live streaming of selected courts (e.g. centre court and court 1) to the app and public web, choosable per event and per court by the organiser.</li>
+  <li>Camera ingest: RTMP/SRT from fixed IP cameras or a mobile production kit; cloud transcoding to adaptive HLS/LL-HLS (target latency ≤ 5 s); CDN delivery; Egypt and international audiences.</li>
+  <li><b>Score overlay</b> (scorebug) driven live by the referee scoring data: players, flags, sets, games, points, serve, tie-break, match point; walk-on and result graphics matching the venue screens.</li>
+  <li>Picture-in-picture in the app match screen and Live Activities deep link; multi-court switcher; "now on court" from the showcase.</li>
+  <li>Recording and replays (VOD per match), highlight clipping (manual in/out points by an operator; automatic highlights as an option), share clips to social.</li>
+  <li>Access control: free / registered users / paid pass or subscription; geo-restriction option; DRM/token-protected streams.</li>
+  <li>Admin: stream keys per court, health dashboard (bitrate, viewers, drops), start/stop, schedule from the order of play.</li>
+  <li>Analytics: concurrent viewers, watch time, per court/match.</li>
+</ul>
+
+<h2>18. Professional referee system — international sport-code level</h2>
+<div class="box">Officiating tools that meet the standards of international federations (ITF / ATP / WTA for tennis, FIP / Premier Padel for padel, FIDE for chess) for sanctioned events.</div>
+<h3>18.1 Chair umpire console</h3>
+<ul>
+  <li>Full point-outcome capture: ace, double fault, service winner, winner (FH/BH/volley/smash), forced/unforced error, let, foot fault, net touch, hindrance.</li>
+  <li>Code of conduct: warnings and point/game penalties per the federation's point-penalty scale (time violations, ball/racket abuse, audible obscenity, coaching, unsportsmanlike conduct), default; automatic escalation.</li>
+  <li>Shot clock / serve clock (25 s), changeover and set-break timers (90/120 s), warm-up timer, medical time-out (3 min) and toilet/change-of-attire breaks with counters; rain/suspension and resumption with exact score.</li>
+  <li>Challenges / electronic line calling hooks (challenges remaining per set, overturned calls), ball changes schedule, new balls indicator.</li>
+  <li>Lucky loser / alternates, retirements and defaults with reasons; score corrections with umpire PIN and supervisor approval.</li>
+  <li>Sport-code templates: ITF Rules of Tennis, Davis Cup / Billie Jean King Cup / ITF Junior team formats, FIP padel rules (including golden point/star point variants), FIDE time controls for chess (clock integration).</li>
+</ul>
+<h3>18.2 Officiating team and supervision</h3>
+<ul>
+  <li>Roles: referee (tournament supervisor), chief umpire, chair umpires, line umpires, roving umpires; certification level (white/bronze/silver/gold badge) and assignments per court/match with conflict checks (nationality).</li>
+  <li>Referee's office dashboard: all courts live, alerts on delays, penalties, medical calls, disputes; incident reports and fines; signed scorecards (digital signature of umpire and captains).</li>
+  <li>Official match statistics (first-serve %, aces, break points, etc.) and official result submission/export to federations (e.g. ITF formats, CSV/XML/JSON API).</li>
+  <li>Audit trail suitable for appeals; offline-first with tamper-evident logs.</li>
+</ul>
+
+<h2>19. Security, privacy and compliance</h2>
 <ul>
   <li>Database row-level security: public keys can read nothing; all access server-side with a secret key.</li>
   <li>Tenant isolation enforced on every admin action, page and API (organisation resolved from the record, never from user input); automated attack test suite (~1,000 cross-organisation attacks).</li>
@@ -309,7 +348,7 @@
   <li>App Store / Google Play compliance (account deletion, privacy labels, Sign in with Apple).</li>
 </ul>
 
-<h2>18. Architecture, infrastructure and integrations</h2>
+<h2>20. Architecture, infrastructure and integrations</h2>
 <table>
   <tr><th style="width:26%">Layer</th><th>Current implementation (reference; equivalent alternatives acceptable)</th></tr>
   <tr><td>Web / API</td><td>Next.js (React, TypeScript), server actions, REST API for the app (versioned <code>/api/mobile/v1</code>), hosted on Vercel with CDN.</td></tr>
@@ -317,11 +356,11 @@
   <tr><td>Mobile</td><td>React Native / Expo (iOS &amp; Android), native widgets and Live Activities (Swift/WidgetKit/ActivityKit), offline storage.</td></tr>
   <tr><td>Shared logic</td><td>One pure TypeScript domain library (scoring engine, draws, standings, leagues, registration rules) used by server, web and app.</td></tr>
   <tr><td>Integrations</td><td>Apple Sign-in, Google OAuth, APNs, Expo push, Apple/Google Wallet, Resend email, WhatsApp Cloud API (Meta), XPay payments, Move Tick ticketing (partner API), Sentry (crash reporting).</td></tr>
-  <tr><td>Media</td><td>Image upload with server-side validation, compression, focal points; storage bucket.</td></tr>
+  <tr><td>Media</td><td>Image upload with server-side validation, compression, focal points; storage bucket; live video streaming stack.</td></tr>
   <tr><td>Scale targets</td><td>Events of 32+ nations / 100+ players, 8–16 courts live simultaneously, thousands of concurrent fans, sub-2 s score latency to apps and screens.</td></tr>
 </table>
 
-<h2>19. Quality, testing and operations</h2>
+<h2>21. Quality, testing and operations</h2>
 <ul>
   <li>Automated tests: ~1,700 unit tests and ~2,500 end-to-end checks (organisations, scoring, match day, leagues, nights, registration with both payment providers, messaging, sign-in, old-app compatibility, tennis week rehearsal).</li>
   <li>Local database stand-in for full end-to-end runs; dry-run modes for push, email, WhatsApp and payments.</li>
@@ -329,8 +368,8 @@
   <li>Health endpoints (database, wallet), audit logs, crash reporting, deployment checklist, rollback scripts.</li>
 </ul>
 
-<h2>20. Deliverables and quotation format</h2>
-<p>Please quote per module (A–J), with timeline, team composition and maintenance/support options:</p>
+<h2>22. Deliverables and quotation format</h2>
+<p>Please quote per module, with timeline, team composition and maintenance/support options:</p>
 <table>
   <tr><th>#</th><th>Module</th></tr>
   <tr><td>A</td><td>Core platform: organisations, roles, staff auth, audit, security</td></tr>
@@ -343,6 +382,10 @@
   <tr><td>H</td><td>Players identity, leagues, boards, social nights</td></tr>
   <tr><td>I</td><td>Registration and payments (XPay), refunds</td></tr>
   <tr><td>J</td><td>Messaging: push, email, WhatsApp</td></tr>
+  <tr><td>K</td><td>Per-court referee codes and court QR switching</td></tr>
+  <tr><td>L</td><td>Live video feed of selected courts with score overlay</td></tr>
+  <tr><td>M</td><td>Professional referee system to international sport-code level</td></tr>
+  <tr><td>N</td><td>Arabic language / RTL (option)</td></tr>
 </table>
 <p class="muted">Quotes should state: technology stack, hosting and third-party running costs per month, ownership of source code, IP transfer, warranty period, SLA for live event days, and team availability during tournaments.</p>
 
