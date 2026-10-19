@@ -258,3 +258,31 @@ export function restoreChoice(i: RestoreInput): "local" | "server" | "ask" {
   const atServer = have.get(i.serverNo);
   return i.serverNo <= i.localNo && atServer !== undefined && sameState(atServer.state, i.serverState) ? "local" : "ask";
 }
+
+/* ---------------- scoring v2: which timer follows, which stops first ---------------- */
+
+export interface FeatureSwitches {
+  timerBetweenPoints: boolean;
+  timerChangeover: boolean;
+  timerSetBreak: boolean;
+}
+
+/**
+ * The timer a step that moved the score starts: a changeover or set break is
+ * recorded (TIMER_STARTED, shown on screens); the 25 s between points runs on the
+ * console only (an overrun the referee rules on is recorded as TIME_DECISION).
+ * A switched-off changeover or set break falls back to the 25 s when that is on.
+ */
+export function followingTimer(after: AfterPoint | undefined, f: FeatureSwitches): { kind: TimerKind; record: boolean } | null {
+  if (!after?.timer) return null;
+  if (after.timer === "changeover" && f.timerChangeover) return { kind: "changeover", record: true };
+  if (after.timer === "set_break" && f.timerSetBreak) return { kind: "set_break", record: true };
+  return f.timerBetweenPoints ? { kind: "between_points", record: false } : null;
+}
+
+/** The recorded timer still running in this state (it must be stopped before the next scoring action), or null. */
+export function runningClock(s: ScoreState | null): { kind: TimerKind; startedAt: string; team: TeamKey | null } | null {
+  const c = s?.clock;
+  if (!s || !c || c.kind === "between_points") return null;
+  return { kind: c.kind as TimerKind, startedAt: c.startedAt, team: c.team ?? null };
+}

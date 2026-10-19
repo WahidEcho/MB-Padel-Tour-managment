@@ -131,7 +131,7 @@ async function main() {
   if (await anyway.isVisible()) await anyway.click();
   await page.getByText("Who serves first?").waitFor();
   await page.locator("button:has-text('🎾')").first().click();
-  await page.getByRole("button", { name: /\+ Point/ }).first().waitFor();
+  await page.getByTestId("v2-point-A").waitFor();
 
   const calls = () => page.evaluate(() => (window as unknown as { __calls: string[][] }).__calls);
   const plan = v3
@@ -143,7 +143,8 @@ async function main() {
   const heard: string[][] = [];
   for (const side of plan) {
     const before = (await calls()).length;
-    await page.getByRole("button", { name: /\+ Point/ }).nth(side === "A" ? 0 : 1).click();
+    // Scoring v2: the point columns are addressed by side (left and right can swap at a change of ends).
+    await page.getByTestId(`v2-point-${side}`).click();
     // The referee is asked to confirm a point that wins a game — except the match
     // point, which the Confirm result card checks instead.
     const outcome = pointOutcome(state, side, config);

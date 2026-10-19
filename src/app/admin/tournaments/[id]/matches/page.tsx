@@ -215,6 +215,11 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
                     <Link href={`/referee/matches/${m.id}/score`} className="btn-primary px-2 py-1 text-xs">
                       Score
                     </Link>
+                    {m.status !== "scheduled" && (
+                      <Link href={`/admin/tournaments/${id}/matches/${m.id}/log`} className="btn-secondary px-2 py-1 text-xs" data-testid="match-log-link">
+                        Log
+                      </Link>
+                    )}
                     {(() => {
                       const entry = resultEntry(m);
                       return entry ? (

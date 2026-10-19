@@ -136,11 +136,13 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       matchDay={matchDay}
       initialCall={initialCall}
       canCorrect={staff.role === "admin" || staff.role === "manager"}
-      // A court referee signed in with their PIN can call the master referees (migration 0035).
+      // A court referee signed in with their PIN can call the master referees (migration 0035):
+      // with scoring v2's "Call master referee" on, from More (with a confirm); the card shows an open call.
+      callMaster={Boolean(staff.scopeCourt && staff.referee) && matchDay.features.callMaster}
       assistance={
         (staff.scopeCourt && staff.referee) || (actor && ["scheduled", "ready"].includes(match.status)) ? (
           <div className="flex flex-wrap items-center gap-2">
-            {staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact /> : null}
+            {staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact statusOnly={matchDay.features.callMaster} /> : null}
             {/* Before the rubber starts its line-up can still change (with a reason once locked). */}
             {actor && ["scheduled", "ready"].includes(match.status) ? (
               <a href={`/referee/matches/${matchId}/lineup`} className="btn-secondary text-xs" data-testid="lineup-link">Line-up</a>

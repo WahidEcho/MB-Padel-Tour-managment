@@ -172,3 +172,22 @@ describe("match log", () => {
     expect(log[7].by).toBe("Sara (referee)");
   });
 });
+
+describe("which timer follows a point", () => {
+  const all = { timerBetweenPoints: true, timerChangeover: true, timerSetBreak: true };
+  it("records a changeover and a set break, runs the 25 s on the console only", () => {
+    expect(C.followingTimer({ changeEnds: true, timer: "changeover" }, all)).toEqual({ kind: "changeover", record: true });
+    expect(C.followingTimer({ changeEnds: false, timer: "set_break" }, all)).toEqual({ kind: "set_break", record: true });
+    expect(C.followingTimer({ changeEnds: false, timer: "between_points" }, all)).toEqual({ kind: "between_points", record: false });
+    expect(C.followingTimer({ changeEnds: false, timer: null }, all)).toBeNull();
+  });
+  it("falls back to the 25 s when a changeover timer is off; nothing when that is off too", () => {
+    expect(C.followingTimer({ changeEnds: true, timer: "changeover" }, { ...all, timerChangeover: false })).toEqual({ kind: "between_points", record: false });
+    expect(C.followingTimer({ changeEnds: true, timer: "changeover" }, { timerBetweenPoints: false, timerChangeover: false, timerSetBreak: true })).toBeNull();
+  });
+  it("a recorded timer must be stopped before play goes on", () => {
+    const s = C.timerStart(initialScoreState("A"), "bathroom", "2026-10-20T10:00:00.000Z", "B").next;
+    expect(C.runningClock(s)).toEqual({ kind: "bathroom", startedAt: "2026-10-20T10:00:00.000Z", team: "B" });
+    expect(C.runningClock(C.timerStop(s, "bathroom", 10).next)).toBeNull();
+  });
+});

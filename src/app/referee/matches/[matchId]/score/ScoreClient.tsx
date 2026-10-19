@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  awardPoint,
   changeServer,
   currentServer,
   endsChange,
@@ -17,10 +16,9 @@ import {
   type ScoreState,
   type TeamKey,
 } from "@/lib/scoring/engine";
-import { OFFENCE_LABELS, PENALTY_LABELS, applyViolation, nextPenalty, type Offence } from "@/lib/scoring/conduct";
+import { OFFENCE_LABELS, PENALTY_LABELS, nextPenalty, type Offence } from "@/lib/scoring/conduct";
 import type { MatchSnapshot, Match, PhotoFields, ScoringConfig } from "@/lib/types";
 import { offlineDb, getDeviceId, type LocalScoreEvent } from "@/lib/offline/db";
-import Avatar from "@/components/Avatar";
 import { describeMatchRules } from "@/lib/scoring/rules";
 import VoicePanel from "./VoicePanel";
 import ControlPanel from "./ControlPanel";
@@ -36,6 +34,14 @@ import { RESULT_ENTERED, finalResultAllowed, type ResultPayload, type ResultProb
 import { queueableResult, resultPayloadOf, resultRejection } from "@/lib/offline/finalResult";
 import type { ScoringModeChoice } from "@/lib/matchday/rules";
 import { useSunlight } from "@/components/referee/useSunlight";
+import * as C from "@/lib/scoring/console";
+import { pushesHistory } from "@/lib/scoring/eventGuard";
+import { aceMoment, defaultServeOrder, needsServeOrder, type ServeOrder } from "@/lib/scoring/serve";
+import { TIMERS, sidesSwapped, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
+import { aceCounts } from "@/lib/scoring/matchLog";
+import { nationByCode } from "@/lib/tennis/nations";
+import { SCORING_FEATURES_OFF } from "@/lib/matchday/rules";
+import { BetweenPointsBanner, BoardV2, MatchLogPanel, PadV2, ServeOrderDialog, TimerCard, shortCode, useNow, type RunningTimer, type V2Side } from "./V2";
 
 /** "RED TEAM" / "BLUE TEAM" in its colour, when the organiser uses red and blue teams. */
 function SideChip({ side }: { side: TeamKey }) {
@@ -60,7 +66,13 @@ interface TeamInfo {
 }
 
 type Modal =
-  | { kind: "confirm-point"; team: TeamKey; message: string }
+  | { kind: "confirm-point"; team: TeamKey; message: string; action?: "point" | "ace" | "fault" }
+  | { kind: "let" }
+  | { kind: "more" }
+  | { kind: "call" }
+  | { kind: "log" }
+  | { kind: "break-team"; timer: TimerKind }
+  | { kind: "time-team"; decision: TimeDecision; timer: TimerKind; seconds: number }
   | { kind: "confirm-undo" }
   | { kind: "end-menu" }
   | { kind: "force-end"; winner: TeamKey | null }
@@ -88,6 +100,9 @@ interface RestClock {
 
 const FINISHED = ["completed", "walkover", "disqualified", "retired", "cancelled"];
 
+/** The time now, for the referee's taps (timers start and stop on a tap, never during render). */
+const wallClock = () => Date.now();
+
 export default function ScoreClient({
   match,
   tournamentName,
@@ -104,6 +119,7 @@ export default function ScoreClient({
   initialCall = null,
   canCorrect = false,
   assistance = null,
+  callMaster = false,
 }: {
   match: Match;
   tournamentName: string;
@@ -128,6 +144,8 @@ export default function ScoreClient({
   canCorrect?: boolean;
   /** A court referee's "Call for assistance" (migration 0035), under the header. */
   assistance?: React.ReactNode;
+  /** Scoring v2: More → "Call master referee" (a court referee signed in with a PIN, the organiser's switch on). */
+  callMaster?: boolean;
 }) {
   // Follows the device's light/dark setting (the referee layout); "☀ Sunlight" is the high-contrast light extra.
   const [sunlight, setSunlight] = useSunlight();
@@ -141,7 +159,6 @@ export default function ScoreClient({
   const [pendingCount, setPendingCount] = useState(0);
   const [elapsed, setElapsed] = useState("");
   const [startWarningAck, setStartWarningAck] = useState(false);
-  const [popKey, setPopKey] = useState(0);
   const [rest, setRest] = useState<RestClock | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // Only the device holding the match speaks; a read-only page stays quiet.
@@ -208,6 +225,47 @@ export default function ScoreClient({
   const team = useCallback((k: TeamKey) => (k === "A" ? teamA : teamB), [teamA, teamB]);
   // Doubles in tennis: which player serves is tracked, not just which team.
   const doubles = tennis && teamA.players.length >= 2 && teamB.players.length >= 2;
+  /* ---------------- scoring v2 ---------------- */
+  // The organiser's switches (Admin → Scoring features); all off for a tournament that never set them.
+  const features = matchDay?.features ?? SCORING_FEATURES_OFF;
+  // Serve and receive order by player: every doubles match (padel too).
+  const pairs = teamA.players.length >= 2 && teamB.players.length >= 2;
+  const [timer, setTimer] = useState<RunningTimer | null>(null);
+  const timerRef = useRef<RunningTimer | null>(null);
+  const putTimer = useCallback((t: RunningTimer | null) => {
+    timerRef.current = t;
+    setTimer(t);
+  }, []);
+  const [manualSwap, setManualSwap] = useState(false);
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setManualSwap(localStorage.getItem(`ms.swap.${match.id}`) === "1");
+    } catch {
+      /* storage blocked */
+    }
+  }, [match.id]);
+  const toggleSwap = () => {
+    const v = !manualSwap;
+    setManualSwap(v);
+    try {
+      localStorage.setItem(`ms.swap.${match.id}`, v ? "1" : "0");
+    } catch {
+      /* storage blocked */
+    }
+  };
+  const [callNote, setCallNote] = useState<string | null>(null);
+  const tick = useNow(Boolean(timer));
+  // A recorded timer still running in the score (this console reloaded, or took the match over).
+  useEffect(() => {
+    if (timerRef.current || !state || state.matchOver) return;
+    const running = C.runningClock(state);
+    const started = running ? Date.parse(running.startedAt) : NaN;
+    if (running && Number.isFinite(started) && Date.now() - started < 30 * 60_000) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      putTimer({ kind: running.kind, startedAt: started, team: running.team, recorded: true });
+    }
+  }, [state, putTimer]);
 
   /* ---------------- sync loop ---------------- */
   const trySync = useCallback(async () => {
@@ -265,7 +323,7 @@ export default function ScoreClient({
           await offlineDb.events.bulkDelete(rejected.drop.map((e) => e.client_event_id));
           const restore = (rejected.restore as ScoreState | null) ?? null;
           let nextHistory = historyRef.current;
-          for (const e of [...rejected.drop].reverse()) if (e.event_type !== "UNDO") nextHistory = nextHistory.slice(0, -1);
+          for (const e of [...rejected.drop].reverse()) if (pushesHistory(e.event_type)) nextHistory = nextHistory.slice(0, -1);
           commit(restore, nextHistory);
           eventNumberRef.current = rejected.lastEventNumber;
           const status = (restore ? "live" : match.status) as Match["status"];
@@ -516,7 +574,7 @@ export default function ScoreClient({
           ? []
           : eventType === "UNDO"
           ? historyRef.current.slice(0, -1)
-          : prev
+          : prev && pushesHistory(eventType)
             ? [...historyRef.current, prev]
             : historyRef.current
       ).slice(-200);
@@ -524,7 +582,6 @@ export default function ScoreClient({
       if (opts.newStatus) setMatchStatus(opts.newStatus as Match["status"]);
       setPendingCount((c) => c + 1);
       setSyncStatus(navigator.onLine ? "syncing" : "pending");
-      setPopKey((k) => k + 1);
       await offlineDb.events.put(event);
       await offlineDb.matchState.put({
         match_id: match.id,
@@ -571,17 +628,154 @@ export default function ScoreClient({
   function applyPoint(teamKey: TeamKey) {
     const cur = stateRef.current;
     if (!cur) return;
-    const next = awardPoint(cur, teamKey, scoringConfig);
     // With confirmation on, the winning point records the score but does not end
     // the match: the referee confirms it first, so a mis-tap on match point is
     // caught before it reaches the standings, the bracket and the venue screen.
-    const ended = next.matchOver && !confirmFirst;
-    noteEnds(cur, next);
-    void pushEvent("POINT_AWARDED", next, {
-      teamId: team(teamKey).id,
-      newStatus: ended ? (navigator.onLine ? "completed" : "pending_sync") : undefined,
-    });
+    stopRecordedTimer();
+    const e = C.point(stateRef.current!, teamKey, consoleOpts());
+    noteEnds(cur, e.next);
+    recordV2(e);
+    follow(e);
     setModal(null);
+  }
+
+  /* ---------------- scoring v2: serve, lets, timers ---------------- */
+  const consoleOpts = (): C.ConsoleOptions => ({
+    config: scoringConfig,
+    confirmFirst,
+    online: typeof navigator === "undefined" ? true : navigator.onLine,
+    tennis,
+    doubles: pairs,
+  });
+
+  /** Records a shared-console event, exactly as the app does (console.ts). */
+  function recordV2(e: C.ConsoleEvent) {
+    const winner = e.winner ? team(e.winner).id : null;
+    void pushEvent(e.eventType, e.next, {
+      teamId: e.team ? team(e.team).id : null,
+      payload: winner ? { ...(e.payload ?? {}), winner_team_id: winner } : (e.payload ?? undefined),
+      newStatus: e.newStatus,
+    });
+  }
+
+  /** A recorded timer (changeover, set break, a break) still running stops before play goes on. */
+  function stopRecordedTimer() {
+    const cur = stateRef.current;
+    const running = C.runningClock(cur);
+    const t = timerRef.current;
+    if (cur && running && !cur.matchOver) {
+      const started = Date.parse(running.startedAt);
+      recordV2(C.timerStop(cur, running.kind, (wallClock() - (Number.isFinite(started) ? started : wallClock())) / 1000, running.team));
+    }
+    if (t) putTimer(null);
+  }
+
+  /** After a step that moved the score: the changeover / set break (recorded) or the 25 s (on this console). */
+  function follow(e: C.ConsoleEvent) {
+    const next = C.followingTimer(e.after, features);
+    if (!next || e.next.matchOver) return putTimer(null);
+    const at = wallClock();
+    if (next.record) recordV2(C.timerStart(stateRef.current!, next.kind, new Date(at).toISOString()));
+    putTimer({ kind: next.kind, startedAt: at, team: null, recorded: next.record });
+  }
+
+  /** Ace, or a fault that turns out to be a double fault: like a point, checked when it wins a game. */
+  function v2Point(action: "ace" | "fault") {
+    const cur = stateRef.current;
+    if (!cur || finished || matchStatus === "paused") return;
+    const e = action === "ace" ? C.aceEvent(cur, consoleOpts()) : C.faultEvent(cur, consoleOpts());
+    if (!e) return;
+    if (e.eventType === "POINT_AWARDED" && e.team) {
+      const what = C.pointNeedsConfirm(cur, e.team, consoleOpts());
+      if (what) {
+        setModal({ kind: "confirm-point", team: e.team, action, message: `${action === "ace" ? "Ace" : "Double fault"}: ${team(e.team).name} is about to win ${what}.` });
+        return;
+      }
+    }
+    applyV2(action);
+  }
+
+  function applyV2(action: "ace" | "fault") {
+    const cur = stateRef.current;
+    if (!cur) return;
+    stopRecordedTimer();
+    const e = action === "ace" ? C.aceEvent(stateRef.current!, consoleOpts()) : C.faultEvent(stateRef.current!, consoleOpts());
+    if (!e) return;
+    recordV2(e);
+    if (e.eventType === "POINT_AWARDED") {
+      noteEnds(cur, e.next);
+      follow(e);
+    } else if (timerRef.current && !timerRef.current.recorded) {
+      // A first fault: the 25 s is over, the second serve follows at once.
+      putTimer(null);
+    }
+    setModal(null);
+  }
+
+  function recordLet(kind: "serve" | "point") {
+    const cur = stateRef.current;
+    if (!cur || cur.matchOver) return;
+    const e = C.letEvent(cur, kind);
+    if (e) recordV2(e);
+    setModal(null);
+  }
+
+  function startBreak(kind: TimerKind, who: TeamKey | null) {
+    const cur = stateRef.current;
+    if (!cur || cur.matchOver) return;
+    stopRecordedTimer();
+    const at = wallClock();
+    recordV2(C.timerStart(stateRef.current!, kind, new Date(at).toISOString(), who));
+    putTimer({ kind, startedAt: at, team: who, recorded: true });
+    setModal(null);
+  }
+
+  function endTimer() {
+    const t = timerRef.current;
+    if (!t) return;
+    if (t.recorded) stopRecordedTimer();
+    else putTimer(null);
+  }
+
+  function decideTime(decision: TimeDecision, who: TeamKey | null) {
+    const t = timerRef.current;
+    const cur = stateRef.current;
+    if (!t || !cur) return setModal(null);
+    const seconds = (wallClock() - t.startedAt) / 1000;
+    recordV2(C.timeDecision(cur, t.kind, decision, seconds, who));
+    endTimer();
+    setModal(null);
+    if (decision === "code_violation" && who) recordViolation(who, "time");
+  }
+
+  function askTimeTeam(decision: TimeDecision) {
+    const t = timerRef.current;
+    if (!t) return;
+    if (decision === "no_action") return decideTime("no_action", null);
+    setModal({ kind: "time-team", decision, timer: t.kind, seconds: Math.round((wallClock() - t.startedAt) / 1000) });
+  }
+
+  /** The existing assistance call (migration 0035): every master referee on duty is alerted. */
+  async function callMasterNow() {
+    setCallNote("Calling…");
+    try {
+      const res = await fetch("/api/mobile/v1/referee/assistance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request", matchId: match.id }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setCallNote(res.ok ? "Master referee called. Their answer shows under the header." : (body.error ?? "The call could not be sent. Call the desk."));
+    } catch {
+      setCallNote("No connection. Call the desk.");
+    }
+  }
+
+  function confirmServeOrder(order: ServeOrder) {
+    const cur = stateRef.current;
+    if (!cur) return;
+    const e = C.serveOrderEvent(cur, order);
+    if (e) recordV2(e);
   }
 
   /** Makes a finished score official. Sends the same MATCH_ENDED the route already finalises. */
@@ -669,6 +863,8 @@ export default function ScoreClient({
     const prev = historyRef.current[historyRef.current.length - 1];
     void pushEvent("UNDO", prev, { newStatus: finished ? "live" : undefined });
     setRest(null);
+    // The 25 s belonged to the point taken back; a recorded timer stays until it is stopped.
+    if (timerRef.current && !timerRef.current.recorded) putTimer(null);
     setModal(null);
   }
 
@@ -693,19 +889,11 @@ export default function ScoreClient({
   function recordViolation(offender: TeamKey, offence: Offence) {
     const cur = stateRef.current;
     if (!cur || cur.matchOver) return;
-    const penalty = nextPenalty(cur, offender, offence, currentServer(cur) === offender);
-    const serving = servingPlayer(cur);
-    const next = applyViolation(
-      cur,
-      { team: offender, offence, penalty, player: doubles && serving?.team === offender ? serving.index : null },
-      scoringConfig,
-    );
-    noteEnds(cur, next);
-    void pushEvent("CODE_VIOLATION", next, {
-      teamId: team(offender).id,
-      payload: { offence, penalty },
-      newStatus: next.matchOver && !confirmFirst ? (navigator.onLine ? "completed" : "pending_sync") : undefined,
-    });
+    const e = C.violation(cur, offender, offence, { ...consoleOpts(), doubles });
+    if (!e) return;
+    noteEnds(cur, e.next);
+    recordV2(e);
+    if (e.after?.timer) follow(e);
     setModal(null);
   }
 
@@ -771,8 +959,6 @@ export default function ScoreClient({
   }
 
   const notStarted = renderStatus === "scheduled" || renderStatus === "ready" || !renderState;
-  // End match fills out the last row of the three-column controls grid.
-  const controlCells = 5 + (voice.status !== "off" ? 1 : 0) + (tennis ? 1 : 0) + (resultAllowed ? 1 : 0);
   // Recorded as a final result only: no points on this console.
   const resultOnly = scoringMode === "final_score";
   // A result entered now replaces points already scored (the server logs it as a correction).
@@ -783,9 +969,16 @@ export default function ScoreClient({
         renderState.teamA.points !== "0" ||
         renderState.teamB.points !== "0"),
   );
-  const endMatchSpan = ["", "col-span-3", "col-span-2"][controlCells % 3];
   const servingNow = doubles && renderState && !renderState.matchOver ? servingPlayer(renderState) : null;
   const bothCheckedIn = teamA.checkedIn && teamB.checkedIn;
+  const v2Sides: Record<TeamKey, V2Side> = {
+    A: { name: teamA.nation ? (nationByCode(teamA.nation)?.name ?? teamA.nation) : teamA.name, code: shortCode(teamA.name, teamA.nation), players: teamA.players.map((p) => p.name) },
+    B: { name: teamB.nation ? (nationByCode(teamB.nation)?.name ?? teamB.nation) : teamB.name, code: shortCode(teamB.name, teamB.nation), players: teamB.players.map((p) => p.name) },
+  };
+  // The referee's left and right: auto swap follows the change of ends; More → Swap flips it.
+  const swapped = sidesSwapped(renderState, { auto: features.autoSwap, manual: features.manualSwap && manualSwap });
+  const askOrder =
+    !readOnly && !finished && features.doublesOrder && pairs && matchStatus !== "paused" && renderState !== null && needsServeOrder(renderState, true);
 
   return (
     <div className={`${sunlight ? "theme-sunlight " : ""}mx-auto flex min-h-screen w-full max-w-3xl flex-col bg-background p-3 text-foreground`} data-theme-mode={sunlight ? "sunlight" : "auto"}>
@@ -922,44 +1115,27 @@ export default function ScoreClient({
         </div>
       ) : renderState ? (
         <>
-          {/* Scoreboard */}
-          <div className="grid grid-cols-2 gap-2">
-            {(["A", "B"] as TeamKey[]).map((k) => {
-              const info = team(k);
-              const ts = k === "A" ? renderState.teamA : renderState.teamB;
-              const serving = currentServer(renderState) === k;
-              const isWinner = renderState.winner === k;
-              return (
-                <div
-                  key={k}
-                  className={`card space-y-1 text-center ${isWinner ? "border-success" : ""}`}
-                  style={redBlue ? { borderColor: isWinner ? undefined : SIDES[k].hex, borderWidth: 2, background: sideTint(k, 0.12) } : undefined}
-                  data-side={redBlue ? SIDES[k].short.toLowerCase() : undefined}
-                >
-                  {redBlue && <SideChip side={k} />}
-                  <div className="flex items-center justify-center gap-1">
-                    {info.players.map((p) => (
-                      <Avatar key={p.name} name={p.name} person={p.photo} size={28} />
-                    ))}
-                  </div>
-                  <p className="truncate text-sm font-bold">
-                    {serving && <span className="mr-1">🎾</span>}
-                    {info.name}
-                    {isWinner && " 🏆"}
-                  </p>
-                  <p className="text-xs text-muted">
-                    Sets {ts.sets} · Games {ts.games}
-                    {renderState.completedSets.length > 0 && (
-                      <span className="block">{scoreSummary(renderState)}</span>
-                    )}
-                  </p>
-                  <p key={`${popKey}-${k}`} className="score-pop text-6xl font-bold tabular-nums">
-                    {pointLabel(k)}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+          {/* Scoreboard (v2) */}
+          <BoardV2
+            state={renderState}
+            sides={v2Sides}
+            eyebrow={[`${v2Sides.A.code} vs ${v2Sides.B.code}`, match.round_name, courtName].filter(Boolean).join(" · ")}
+            rules={describeMatchRules(scoringConfig)}
+            sunlight={sunlight}
+            onSunlight={() => setSunlight(!sunlight)}
+            doubles={pairs}
+            aces={features.ace && (renderState.stats?.aces.A || renderState.stats?.aces.B) ? aceCounts(renderState) : null}
+            banner={
+              timer && timer.kind === "between_points" && !readOnly && !renderState.matchOver ? (
+                <BetweenPointsBanner timer={timer} now={tick} onDismiss={endTimer} onDecision={askTimeTeam} />
+              ) : null
+            }
+          />
+          {aceMoment(renderState) && features.ace && (
+            <p className="mt-1 text-center text-xs font-black uppercase tracking-widest" data-testid="ace-moment">
+              <span className="rounded-full px-2 py-0.5 text-black" style={{ background: "#FFF500" }}>Ace</span>
+            </p>
+          )}
           {renderState.isTiebreak && !renderState.matchOver && (
             <p className="mt-1 text-center text-xs font-bold uppercase tracking-widest text-accent" data-testid="tiebreak-banner">
               {renderState.isMatchTiebreak
@@ -976,7 +1152,7 @@ export default function ScoreClient({
                 Deciding point · the receivers choose who receives
               </p>
             )}
-          {servingNow && (
+          {servingNow && !pairs && (
             <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm" data-testid="serving-player">
               <span>
                 🎾 Serving: <b>{team(servingNow.team).players[servingNow.index]?.name ?? team(servingNow.team).name}</b>
@@ -988,7 +1164,7 @@ export default function ScoreClient({
               )}
             </div>
           )}
-          {tennis && rest && !renderState.matchOver && (() => {
+          {tennis && rest && !renderState.matchOver && !features.timerChangeover && !features.timerSetBreak && (() => {
             const left = Math.max(0, Math.ceil((rest.endsAt - now) / 1000));
             const title =
               rest.kind === "set_break" ? "Set break" : rest.kind === "tiebreak" ? "Change ends" : left > 0 ? "Changeover" : "Change ends";
@@ -1068,83 +1244,23 @@ export default function ScoreClient({
             </button>
           )}
           {!readOnly && !finished && !renderState.matchOver && !resultOnly && (
-            <>
-              <div className="mt-3 grid flex-1 grid-cols-2 gap-3" style={{ minHeight: "34vh" }}>
-                {(["A", "B"] as TeamKey[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => tapScore(k)}
-                    disabled={matchStatus === "paused"}
-                    className="rounded-[20px] border-2 border-accent/50 bg-accent/10 text-xl font-bold transition active:scale-95 active:bg-accent/30 disabled:opacity-40"
-                    style={redBlue ? { borderColor: SIDES[k].hex, background: sideTint(k, 0.2) } : undefined}
-                    data-side={redBlue ? SIDES[k].short.toLowerCase() : undefined}
-                  >
-                    {redBlue && (
-                      <span className="mb-2 block">
-                        <SideChip side={k} />
-                      </span>
-                    )}
-                    + Point
-                    <span className="block text-sm font-semibold text-muted">{team(k).name}</span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Controls */}
-              <div className="mt-3 grid grid-cols-3 gap-2 pb-2">
-                <button
-                  className="btn-secondary py-3"
-                  onClick={() => setModal({ kind: "confirm-undo" })}
-                  disabled={history.length === 0}
-                >
-                  ↩ Undo
-                </button>
-                <button className="btn-secondary py-3" onClick={togglePause}>
-                  {matchStatus === "paused" ? "▶ Resume" : "⏸ Pause"}
-                </button>
-                <button
-                  className="btn-secondary py-3"
-                  onClick={switchServer}
-                  title={renderState.isTiebreak ? "Correct who is serving this tie-break point" : "Change serving team"}
-                >
-                  🎾 Server
-                </button>
-                <button className="btn-secondary py-3" onClick={() => setModal({ kind: "end-set", team: null })}>
-                  End set
-                </button>
-                {tennis && (
-                  <button
-                    className="btn-secondary py-3"
-                    onClick={() => setModal({ kind: "violation", team: null, offence: "time" })}
-                    data-testid="violation-button"
-                  >
-                    ⚠ Violation
-                  </button>
-                )}
-                {/* Within thumb's reach during play, whenever the voice is on. */}
-                {voice.status !== "off" && (
-                  <button
-                    className={`py-3 ${voice.settings.muted ? "btn-danger" : "btn-secondary"}`}
-                    onClick={() => voice.setSettings({ muted: !voice.settings.muted })}
-                    aria-pressed={voice.settings.muted}
-                    data-testid="voice-mute-control"
-                  >
-                    {voice.settings.muted ? "🔊 Unmute" : "🔇 Mute voice"}
-                  </button>
-                )}
-                {resultAllowed && (
-                  <button className="btn-secondary py-3" onClick={() => openResultEntry(scoredSoFar)} data-testid="final-result-button">
-                    Final result
-                  </button>
-                )}
-                <button
-                  className={`btn-danger py-3 ${endMatchSpan}`}
-                  onClick={() => setModal({ kind: "end-menu" })}
-                >
-                  End match…
-                </button>
-              </div>
-            </>
+            <PadV2
+              state={renderState}
+              sides={v2Sides}
+              features={features}
+              swapped={swapped}
+              disabled={false}
+              canUndo={history.length > 0}
+              paused={matchStatus === "paused"}
+              onPoint={tapScore}
+              onFault={() => v2Point("fault")}
+              onAce={() => v2Point("ace")}
+              onLet={() => setModal({ kind: "let" })}
+              onUndo={() => setModal({ kind: "confirm-undo" })}
+              onPause={togglePause}
+              onServe={switchServer}
+              onMore={() => setModal({ kind: "more" })}
+            />
           )}
           {tennis && (renderState.violations?.length ?? 0) > 0 && (
             <div className="card mt-2 space-y-1 text-sm" data-testid="violation-log">
@@ -1162,6 +1278,24 @@ export default function ScoreClient({
         <div className="flex flex-1 items-center justify-center text-muted">Waiting for match to start…</div>
       )}
 
+      {/* ------------- Scoring v2: timer card and the doubles set-start question ------------- */}
+      {timer && timer.kind !== "between_points" && !readOnly && renderState && !renderState.matchOver && !modal && (
+        <TimerCard timer={timer} now={tick} sides={v2Sides} onStop={endTimer} onDecision={askTimeTeam} />
+      )}
+      {askOrder && renderState && !modal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center">
+          <div className="w-full max-w-md rounded-[24px] border border-border bg-card p-5">
+            <ServeOrderDialog
+              key={renderState.currentSet}
+              set={renderState.currentSet}
+              sides={v2Sides}
+              initial={defaultServeOrder(renderState)}
+              onConfirm={confirmServeOrder}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ------------- Modals ------------- */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -1175,7 +1309,12 @@ export default function ScoreClient({
                 </p>
                 <div className="flex gap-2">
                   <button className="btn-secondary flex-1" onClick={() => setModal(null)}>Cancel</button>
-                  <button className="btn-primary flex-1" onClick={() => applyPoint(modal.team)}>Confirm</button>
+                  <button
+                    className="btn-primary flex-1"
+                    onClick={() => (modal.action === "ace" || modal.action === "fault" ? applyV2(modal.action) : applyPoint(modal.team))}
+                  >
+                    Confirm
+                  </button>
                 </div>
               </>
             )}
@@ -1224,6 +1363,161 @@ export default function ScoreClient({
                     Record
                   </button>
                 </div>
+              </>
+            )}
+            {modal.kind === "let" && (
+              <div className="space-y-2" data-testid="let-choice">
+                <h3 className="text-xl font-black uppercase">Let</h3>
+                <button className="w-full rounded-2xl border border-border bg-background p-4 text-left" onClick={() => recordLet("serve")} data-testid="let-serve">
+                  <span className="block font-bold">⊕ Serve let — replay this serve</span>
+                  <span className="block text-xs text-muted">
+                    Serve touched the net and landed in. Same serve again{renderState && renderState.serve && renderState.serve.fault ? ": still the 2nd serve." : "."}
+                  </span>
+                </button>
+                <button className="w-full rounded-2xl border border-border bg-background p-4 text-left" onClick={() => recordLet("point")} data-testid="let-point">
+                  <span className="block font-bold">↶ Replay point — interference</span>
+                  <span className="block text-xs text-muted">Something interfered with play. The whole point is replayed from the 1st serve.</span>
+                </button>
+                <button className="btn-secondary w-full py-3" onClick={() => setModal(null)}>Cancel</button>
+              </div>
+            )}
+            {modal.kind === "more" && (
+              <div className="max-h-[80vh] space-y-3 overflow-y-auto" data-testid="more-sheet">
+                <h3 className="text-xl font-black uppercase">More</h3>
+                {features.callMaster && callMaster && (
+                  <button className="w-full rounded-2xl py-3.5 text-base font-black text-white" style={{ background: "#e11d48" }} onClick={() => setModal({ kind: "call" })} data-testid="more-call-master">
+                    📣 Call master referee
+                  </button>
+                )}
+                {callNote && <p className="text-xs font-semibold text-muted">{callNote}</p>}
+                {(features.breakStopwatch || features.timerChangeover || features.timerSetBreak || features.bathroom || features.hydration) && (
+                  <div className="space-y-1.5">
+                    <p className="label">Breaks</p>
+                    {(
+                      [
+                        ["break", features.breakStopwatch, "⏱ Break", "Stopwatch"],
+                        ["changeover", features.timerChangeover, "◷ Changeover", "1:30"],
+                        ["set_break", features.timerSetBreak, "☕ Set break", "2:00"],
+                        ["bathroom", features.bathroom, "🚻 Bathroom break", "warns 10:00"],
+                        ["hydration", features.hydration, "💧 Hydration break", "10:00"],
+                      ] as [TimerKind, boolean, string, string][]
+                    )
+                      .filter(([, on]) => on)
+                      .map(([k, , label, hint]) => (
+                        <button
+                          key={k}
+                          className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-bold"
+                          onClick={() => (k === "bathroom" ? setModal({ kind: "break-team", timer: k }) : startBreak(k, null))}
+                          data-testid={`break-${k}`}
+                        >
+                          {label}
+                          <span className="font-mono text-xs font-normal text-muted">{hint}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+                {(features.manualSwap || features.matchLog || pairs) && (
+                  <div className="space-y-1.5">
+                    <p className="label">Court</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {features.manualSwap && (
+                        <button className="btn-secondary py-2.5" onClick={() => { toggleSwap(); setModal(null); }} data-testid="more-swap">
+                          Swap left / right
+                        </button>
+                      )}
+                      {features.matchLog && (
+                        <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "log" })} data-testid="more-log">
+                          Match log
+                        </button>
+                      )}
+                      {pairs && (
+                        <button className="btn-secondary py-2.5 text-xs" onClick={() => { swapServerInTeam("A"); setModal(null); }}>
+                          Other {v2Sides.A.name} player serves
+                        </button>
+                      )}
+                      {pairs && (
+                        <button className="btn-secondary py-2.5 text-xs" onClick={() => { swapServerInTeam("B"); setModal(null); }}>
+                          Other {v2Sides.B.name} player serves
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <p className="label">Match</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {tennis && (
+                      <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "violation", team: null, offence: "time" })} data-testid="violation-button">
+                        Code violation
+                      </button>
+                    )}
+                    {resultAllowed && (
+                      <button className="btn-secondary py-2.5" onClick={() => openResultEntry(scoredSoFar)} data-testid="final-result-button">
+                        Enter final result
+                      </button>
+                    )}
+                    <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "end-set", team: null })}>End the set</button>
+                    <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "retire", team: null })}>Retirement</button>
+                    <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "walkover", absent: null })}>Walkover</button>
+                    <button className="btn-secondary py-2.5 text-danger" onClick={() => setModal({ kind: "disqualify", team: null })}>Disqualification</button>
+                    <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "force-end", winner: null })}>End the match now</button>
+                    {voice.status !== "off" && (
+                      <button className="btn-secondary py-2.5" onClick={() => { voice.setSettings({ muted: !voice.settings.muted }); setModal(null); }} data-testid="voice-mute-control">
+                        {voice.settings.muted ? "🔊 Unmute voice" : "🔇 Mute voice"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <button className="btn-secondary w-full" onClick={() => setModal(null)}>Close</button>
+              </div>
+            )}
+            {modal.kind === "call" && (
+              <div className="space-y-3 text-center" data-testid="call-confirm">
+                <p className="mx-auto flex h-12 w-12 items-center justify-center rounded-full text-xl text-white" style={{ background: "#e11d48" }}>📣</p>
+                <h3 className="text-xl font-bold">Call the master referee to {courtName}?</h3>
+                <p className="text-sm text-muted">Every master referee on duty gets an alert.</p>
+                <button
+                  className="w-full rounded-2xl py-3 font-bold text-white"
+                  style={{ background: "#e11d48" }}
+                  data-testid="call-confirm-yes"
+                  onClick={() => {
+                    setModal(null);
+                    void callMasterNow();
+                  }}
+                >
+                  Call
+                </button>
+                <button className="btn-secondary w-full py-3" onClick={() => setModal(null)}>Cancel</button>
+              </div>
+            )}
+            {modal.kind === "log" && <MatchLogPanel matchId={match.id} onClose={() => setModal(null)} />}
+            {modal.kind === "break-team" && (
+              <>
+                <h3 className="font-bold">{TIMERS[modal.timer].label}: which side?</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["A", "B"] as TeamKey[]).map((k) => (
+                    <button key={k} className="btn-secondary py-3" onClick={() => startBreak(modal.timer, k)} data-testid={`break-team-${k}`}>
+                      {v2Sides[k].name}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-secondary w-full" onClick={() => setModal(null)}>Cancel</button>
+              </>
+            )}
+            {modal.kind === "time-team" && (
+              <>
+                <h3 className="font-bold">
+                  {modal.decision === "code_violation" ? "Code violation (time)" : "Warning"}: which side?
+                </h3>
+                <p className="text-sm text-muted">{TIMERS[modal.timer].label} · over by {Math.max(0, modal.seconds - (TIMERS[modal.timer].limit ?? 0))} s</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["A", "B"] as TeamKey[]).map((k) => (
+                    <button key={k} className="btn-secondary py-3" onClick={() => decideTime(modal.decision, k)} data-testid={`time-team-${k}`}>
+                      {v2Sides[k].name}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-secondary w-full" onClick={() => setModal(null)}>Cancel</button>
               </>
             )}
             {modal.kind === "voice" && (

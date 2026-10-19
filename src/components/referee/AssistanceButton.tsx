@@ -20,7 +20,16 @@ const API = "/api/mobile/v1/referee/assistance";
  * their name. Repeated taps join the open call (the server dedupes them). Polls every
  * five seconds while the page is visible.
  */
-export default function AssistanceButton({ matchId, compact = false }: { matchId?: string; compact?: boolean }) {
+export default function AssistanceButton({
+  matchId,
+  compact = false,
+  statusOnly = false,
+}: {
+  matchId?: string;
+  compact?: boolean;
+  /** Scoring v2: the call is made from More → "Call master referee"; here only an open call's status shows. */
+  statusOnly?: boolean;
+}) {
   const [call, setCall] = useState<Call | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +83,7 @@ export default function AssistanceButton({ matchId, compact = false }: { matchId
   };
 
   const open = call && (call.status === "open" || call.status === "acknowledged");
+  if (statusOnly && !open) return null;
   return (
     <div className={`rounded-2xl border ${open ? (call!.status === "acknowledged" ? "border-success/50 bg-success/10" : "border-warning/60 bg-warning/10") : "border-border bg-card"} ${compact ? "p-2" : "p-3"}`} data-testid="assistance">
       {!open ? (
