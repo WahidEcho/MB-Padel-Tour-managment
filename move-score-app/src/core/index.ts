@@ -78,3 +78,11 @@ export { checkLineup, changedRubbers, warningsForChange, needsReason, unaccepted
 export type { LineupDraft, LineupIssue, LineupIssueCode, LineupStep, LineupPickerModel, PickerSide, SquadMember } from "../../../src/lib/tennis/lineupRules";
 export { ITF_REGULATIONS_URL, ITF_TEAM_REGULATIONS, regulationPath, regulationLabel, regulationSummary } from "../../../src/lib/tennis/regulations";
 export type { RegulationSummary } from "../../../src/lib/tennis/regulations";
+export * from "../../../src/lib/scoring/serve";
+export * from "../../../src/lib/scoring/timing";
+export { buildMatchLog, scoreTitle, aceCounts } from "../../../src/lib/scoring/matchLog";
+export type { LogEntry, LogEventRow, LogTag } from "../../../src/lib/scoring/matchLog";
+export { pushesHistory, LOG_ONLY_EVENTS } from "../../../src/lib/scoring/eventGuard";
+export { SCORING_FEATURES_ON, SCORING_FEATURES_OFF } from "../../../src/lib/matchday/rules";
+export type { ScoringFeatures } from "../../../src/lib/matchday/rules";
+export { ITF_RULES_PDF as ITF_RULES_OF_TENNIS_PDF, rulePath, ruleSummary, ITF_TENNIS_RULES } from "../../../src/lib/tennis/rulesOfTennis";

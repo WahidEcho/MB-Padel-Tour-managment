@@ -5,7 +5,7 @@ import { db } from "@/lib/supabase";
 import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { refuse, tournamentOrSessionRefusal } from "@/lib/rowGuards";
-import { DEFAULT_MATCH_DAY_RULES, matchDayRules, type MatchDayRules } from "@/lib/matchday/rules";
+import { DEFAULT_MATCH_DAY_RULES, matchDayRules, storedFeatures, type MatchDayRules } from "@/lib/matchday/rules";
 
 const path = (id: string) => `/admin/tournaments/${id}/match-day`;
 
@@ -13,7 +13,8 @@ const path = (id: string) => `/admin/tournaments/${id}/match-day`;
 function rulesFromForm(formData: FormData): Record<string, unknown> {
   const raw: Record<string, unknown> = { configured: true };
   for (const [g, fields] of Object.entries(DEFAULT_MATCH_DAY_RULES)) {
-    if (typeof fields !== "object" || fields === null) continue;
+    // The scoring features have their own tab (admins only): never from this form.
+    if (typeof fields !== "object" || fields === null || g === "features") continue;
     const out: Record<string, unknown> = {};
     for (const [k, def] of Object.entries(fields)) {
       const v = formData.get(`${g}.${k}`);
@@ -40,10 +41,13 @@ export async function saveMatchDayRules(formData: FormData) {
   const row = t as { sport: string; match_day_rules: Record<string, unknown> | null } | null;
   if (!row) throw new Error("Tournament not found.");
   const intent = String(formData.get("intent") ?? "save");
-  const next: MatchDayRules | Record<string, never> =
+  // The scoring features are set on their own tab, by admins only: saving this tab keeps them.
+  const kept = storedFeatures(row.match_day_rules);
+  const built: MatchDayRules | Record<string, never> =
     intent === "off"
       ? {}
       : matchDayRules(intent === "defaults" ? DEFAULT_MATCH_DAY_RULES : rulesFromForm(formData), row.sport);
+  const next = kept ? { ...built, features: kept } : built;
   const { error } = await db()
     .from("tournaments")
     .update({ match_day_rules: next, updated_at: new Date().toISOString() })

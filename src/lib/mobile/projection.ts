@@ -12,6 +12,7 @@ import { rubberPlan } from "../tennis/ties";
 import { matchDayRules, publicMatchDay } from "../matchday/rules";
 import { scoringConfigForMatch, type BracketTier } from "../scoring/rules";
 import { sportOf } from "../sports/registry";
+import { LOG_ONLY_EVENTS } from "../scoring/eventGuard";
 import { SIDES, redBlueTeams } from "../sides";
 import { toPublicPlayer } from "../public";
 import { orgSkinDefaults } from "../orgs/profile";
@@ -428,6 +429,8 @@ export function buildTimeline(rows: TimelineRow[], teamA: string | null): MTimel
       stack.pop();
       continue;
     }
+    // Timers and time rulings are not undone by Undo, and are not points.
+    if (LOG_ONLY_EVENTS.has(r.event_type)) continue;
     stack.push({ ...r, kind: r.event_type });
   }
   const out: MTimelinePoint[] = [];

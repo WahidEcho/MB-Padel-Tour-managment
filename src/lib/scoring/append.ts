@@ -40,7 +40,11 @@ import {
   sameState,
   shadowMismatches,
   NON_SCORING_EVENTS,
+  LOG_ONLY_EVENTS,
+  isV2Event,
+  v2Cut,
 } from "./eventGuard";
+import { matchDayRules } from "../matchday/rules";
 import {
   RESULT_ENTERED,
   buildResultState,
@@ -246,8 +250,20 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
       { cut: correctionCut(String(role), scoredBefore, batch), conflict: "organiser_only" },
       { cut: sportOf(ownerRow ?? undefined).engine === "chess" ? chessDecisionCut(String(role), batch) : null, conflict: "organiser_only" },
     );
+    // Scoring v2 (faults, aces, lets, serve order, timers): the tournament must have the
+    // feature on, and each event's state must be what the shared engine gives. The
+    // server re-derives it rather than trusting the device.
+    if (batch.some((e) => isV2Event(e))) {
+      const ctx = sportOf(ownerRow ?? undefined).engine === "games" ? await resultContext(match, ownerRow) : null;
+      const features = matchDayRules(ownerRow?.match_day_rules, ownerRow ?? undefined).features;
+      const cut = v2Cut(batch, { teamA: match.team_a_id, config: ctx ? (ctx.rules as never) : null, features });
+      if (cut) roleCuts.push({ cut, conflict: cut.code });
+    }
     const early = roleCuts.map((c) => c.cut).find((c) => c?.index === 0);
-    if (early) return { status: 409, body: { error: early.error, conflict: "organiser_only", applied: [], event: batch[0]?.client_event_id ?? null } };
+    if (early) {
+      const conflict = roleCuts.find((c) => c.cut === early)?.conflict ?? "organiser_only";
+      return { status: 409, body: { error: early.error, conflict, applied: [], event: batch[0]?.client_event_id ?? null } };
+    }
   }
 
   // Same shape as before, translated to a lease: refuse a live lease held by
@@ -648,7 +664,7 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
           return t?.nation_code ?? t?.team_name ?? "";
         };
         const gameChanged =
-          fresh.some((e) => e.event_type !== "POINT_AWARDED") || (finalState?.teamA?.points === "0" && finalState?.teamB?.points === "0");
+          fresh.some((e) => e.event_type !== "POINT_AWARDED" && !LOG_ONLY_EVENTS.has(e.event_type) && e.event_type !== "FAULT" && e.event_type !== "LET") || (finalState?.teamA?.points === "0" && finalState?.teamB?.points === "0");
         await pushLiveActivities(
           matchId,
           liveState(toScore(match, latest), { a: label(match.team_a_id), b: label(match.team_b_id), court, status: ended ? "Final" : "Live" }),

@@ -193,6 +193,11 @@ export const OFF_MATCH_DAY_RULES: MatchDayRules = {
   },
 };
 
+/** The stored scoring features of a raw match_day_rules value, kept as they are when the Match day tab saves. */
+export function storedFeatures(raw: unknown): Record<string, unknown> | null {
+  return isRecord(raw) && isRecord(raw.features) ? raw.features : null;
+}
+
 export const MINUTES_RANGE = { min: 1, max: 30 } as const;
 export const EXTENSIONS_RANGE = { min: 0, max: 5 } as const;
 
@@ -250,7 +255,12 @@ function forSport(r: MatchDayRules, sport: SportDef): MatchDayRules {
  * 0–5, and anything the sport does not support switched off.
  */
 export function matchDayRules(raw: unknown, sport?: { sport?: string | null } | string | null): MatchDayRules {
-  if (!isRecord(raw) || raw.configured !== true) return OFF_MATCH_DAY_RULES;
+  if (!isRecord(raw) || raw.configured !== true) {
+    // The scoring features are the admins' own switches (Admin → Scoring features):
+    // saved ones count even while the rest of match day is off.
+    if (!isRecord(raw) || !isRecord(raw.features)) return OFF_MATCH_DAY_RULES;
+    return forSport({ ...OFF_MATCH_DAY_RULES, features: group(SCORING_FEATURES_OFF, raw.features) }, sportOf(sport));
+  }
   const d = DEFAULT_MATCH_DAY_RULES;
   const rules: MatchDayRules = {
     configured: true,

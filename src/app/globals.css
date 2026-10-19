@@ -131,6 +131,17 @@ body {
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
   }
+  /* An on/off switch drawn on a checkbox (Admin → Scoring features). */
+  .switch {
+    @apply relative h-7 w-12 shrink-0 cursor-pointer appearance-none rounded-full bg-muted/40 transition-colors checked:bg-success disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .switch::after {
+    content: "";
+    @apply absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform;
+  }
+  .switch:checked::after {
+    transform: translateX(20px);
+  }
 }
 
 @keyframes score-pop {

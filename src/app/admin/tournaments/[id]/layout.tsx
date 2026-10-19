@@ -15,6 +15,7 @@ const PADEL_TABS = [
   ["/bracket", "Bracket"],
   ["/screens", "Screens"],
   ["/match-day", "Match day"],
+  ["/scoring-features", "Scoring features"],
   ["/registrations", "Registrations"],
   ["/app", "App"],
   ["/settings", "Settings"],
@@ -32,6 +33,7 @@ const TIE_TABS = [
   ["/screens", "Screens"],
   ["/replay", "Replay"],
   ["/match-day", "Match day"],
+  ["/scoring-features", "Scoring features"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -56,6 +58,7 @@ const SESSION_TABS = [
   ["/settings", "Courts & branding"],
   ["/matches", "Scoring locks"],
   ["/match-day", "Match day"],
+  ["/scoring-features", "Scoring features"],
   ["/registrations", "Registrations"],
 ] as const;
 
