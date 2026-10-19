@@ -31,6 +31,7 @@ import { queueableResult, resultPayloadOf, resultRejection } from "@/lib/offline
 import type { ChessCompetition, ChessGameResult } from "@/lib/chess/result";
 import type { ScoringModeChoice } from "@/lib/matchday/rules";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/types";
+import { useSunlight } from "@/components/referee/useSunlight";
 
 interface TeamInfo {
   id: string;
@@ -97,6 +98,8 @@ export default function ChessScoreClient({
   /** The organiser's staff (admin, manager) decide who advances from a level pairing; a referee does not. */
   canDecide?: boolean;
 }) {
+  // Follows the device's light/dark setting (the referee layout); "☀ Sunlight" is the high-contrast light extra.
+  const [sunlight, setSunlight] = useSunlight();
   const [state, setState] = useState<ChessState | null>(null);
   const [history, setHistory] = useState<ChessState[]>([]);
   const [matchStatus, setMatchStatus] = useState(match.status);
@@ -460,7 +463,7 @@ export default function ChessScoreClient({
   const lastPairs = movePairs.slice(-6);
 
   return (
-    <div className="theme-dark mx-auto flex min-h-screen w-full max-w-md flex-col bg-background p-3 text-foreground">
+    <div className={`${sunlight ? "theme-sunlight " : ""}mx-auto flex min-h-screen w-full max-w-md flex-col bg-background p-3 text-foreground`} data-theme-mode={sunlight ? "sunlight" : "auto"}>
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
           <p className="text-xs text-muted">{tournamentName} · {boardName} · {match.round_name}</p>
@@ -469,6 +472,15 @@ export default function ChessScoreClient({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSunlight(!sunlight)}
+            className={`badge ${sunlight ? "bg-warning/20 text-foreground" : "bg-card text-muted"}`}
+            aria-pressed={sunlight}
+            data-testid="sunlight"
+          >
+            {sunlight ? "☀ Sunlight on" : "☀ Sunlight"}
+          </button>
           <span className={`badge ${statusBadge[1]}`}>{statusBadge[0]}</span>
           <Link href={`/referee/tournaments/${match.tournament_id}/matches`} className="text-xs text-muted hover:text-foreground">
             ← Matches

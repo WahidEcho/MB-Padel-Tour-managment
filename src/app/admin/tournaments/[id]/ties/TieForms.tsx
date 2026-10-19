@@ -1,6 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
+import { changedRubbers, checkLineup, needsReason, warningsForChange, type LineupDraft } from "@/lib/tennis/lineupRules";
+import type { RubberType } from "@/lib/types";
+import { IssueText, RegLink } from "@/components/lineups/RegLink";
 import { delayOrderOfPlayAction, scheduleTieAction, drawPlacementAction, lockLineupsAction, resetPlacementAction, saveLineupAction, type TieFormState } from "./actions";
 
 function Notice({ state }: { state: TieFormState }) {
@@ -16,7 +19,9 @@ export interface SquadPlayer {
 /**
  * One captain's nominations for one tie: the two singles before play, the
  * doubles pair now or after the second singles (Reg 43). The squad is in the
- * nation's order of merit, No. 1 first.
+ * nation's order of merit, No. 1 first. Checked as you pick (lineupRules.ts): a
+ * problem blocks, a warning (order of merit, Reg 43; a retired player, Reg 50) needs
+ * accepting, a change after the lock needs a reason; the server checks again.
  */
 export function LineupForm({
   tournamentId,
@@ -27,6 +32,8 @@ export function LineupForm({
   current,
   locked,
   started,
+  retired = [],
+  open = ["S1", "S2", "D"],
   warning,
 }: {
   tournamentId: string;
@@ -37,36 +44,87 @@ export function LineupForm({
   current: { S1: string | null; S2: string | null; D: string[] };
   locked: boolean;
   started: boolean;
-  /** Shown above the button, e.g. a retired player named again. */
+  /** This side's players who retired earlier in the tie (Reg 50). */
+  retired?: string[];
+  /** The rubbers still to play. */
+  open?: RubberType[];
+  /** A standing note above the button: a retired player named again (Reg 50). */
   warning?: string | null;
 }) {
   const [state, action, pending] = useActionState(saveLineupAction, null);
-  const pick = (name: string, value: string | null | undefined, label: string, empty = "—") => (
-    <label className="flex items-center gap-2 text-xs">
-      <span className="w-12 font-semibold text-muted">{label}</span>
-      <select name={name} defaultValue={value ?? ""} className="input py-1 text-sm" disabled={pending}>
-        <option value="">{empty}</option>
-        {squad.map((p, i) => (
-          <option key={p.id} value={p.id}>{i + 1}. {p.name}</option>
-        ))}
-      </select>
-    </label>
-  );
+  const saved: LineupDraft = { S1: current.S1, S2: current.S2, D: [current.D[0] ?? null, current.D[1] ?? null] };
+  const [draft, setDraft] = useState<LineupDraft>(saved);
+  const [accepted, setAccepted] = useState<Set<string>>(new Set());
+  const check = checkLineup(draft, squad, { retired, open });
+  const changed = changedRubbers(saved, draft);
+  const warnings = warningsForChange(check, changed);
+  const late = needsReason(locked, saved, draft);
+  const pick = (slot: "S1" | "S2" | "D1" | "D2", label: string, empty = "—") => {
+    const value = slot === "D1" ? draft.D[0] : slot === "D2" ? draft.D[1] : draft[slot];
+    return (
+      <label className="flex items-center gap-2 text-xs">
+        <span className="w-12 font-semibold text-muted">{label}</span>
+        <select
+          name={slot}
+          value={value ?? ""}
+          onChange={(e) => {
+            const v = e.target.value || null;
+            setDraft((d) => (slot === "D1" ? { ...d, D: [v, d.D[1] ?? null] } : slot === "D2" ? { ...d, D: [d.D[0] ?? null, v] } : { ...d, [slot]: v }));
+          }}
+          className="input py-1 text-sm"
+          disabled={pending}
+        >
+          <option value="">{empty}</option>
+          {squad.map((p, i) => (
+            <option key={p.id} value={p.id}>{i + 1}. {p.name}{retired.includes(p.id) ? " (retired earlier)" : ""}</option>
+          ))}
+        </select>
+      </label>
+    );
+  };
   return (
     <form action={action} className="space-y-1.5" data-testid={`lineup-${side}`}>
       <input type="hidden" name="tournament_id" value={tournamentId} />
       <input type="hidden" name="tie_id" value={tieId} />
       <input type="hidden" name="side" value={side} />
       <p className="text-xs font-bold">{nation}</p>
-      {pick("S1", current.S1, "S1")}
-      {pick("S2", current.S2, "S2")}
-      {pick("D1", current.D[0], "D", "To be named")}
-      {pick("D2", current.D[1], "D", "To be named")}
-      {warning && <p className="text-xs font-semibold text-danger">{warning}</p>}
-      {locked && (
-        <input name="reason" className="input py-1 text-xs" placeholder="Reason, for a singles change after the lock (recorded)" />
+      {pick("S1", "S1")}
+      {pick("S2", "S2")}
+      {pick("D1", "D", "To be named")}
+      {pick("D2", "D", "To be named")}
+      {changed.length > 0 &&
+        check.problems.map((p) => (
+          <p key={p.key} className="text-xs font-semibold text-danger"><IssueText issue={p} /></p>
+        ))}
+      {warnings.map((w) => (
+        <div key={w.key} className="rounded-xl border border-warning bg-warning/10 p-2 text-xs" data-testid="lineup-warning">
+          <p className="font-semibold">⚠ <IssueText issue={w} /></p>
+          <label className="mt-1 flex items-center gap-1.5 font-semibold">
+            <input
+              type="checkbox"
+              name="accept"
+              value={`${side}:${w.key}`}
+              checked={accepted.has(w.key)}
+              onChange={(e) => setAccepted((a) => {
+                const n = new Set(a);
+                if (e.target.checked) n.add(w.key);
+                else n.delete(w.key);
+                return n;
+              })}
+            />
+            Accept the exception (recorded; the master referees are told)
+          </label>
+        </div>
+      ))}
+      {warning && <p className="text-xs font-semibold text-danger">{warning} <RegLink reg="50" />.</p>}
+      {late && (
+        <input name="reason" className="input py-1 text-xs" placeholder="Reason for the change after the lock (recorded, ITF Reg. 46)" required />
       )}
-      <button type="submit" className="btn-secondary w-full py-1 text-xs" disabled={pending || started}>
+      <button
+        type="submit"
+        className="btn-secondary w-full py-1 text-xs"
+        disabled={pending || started || changed.length === 0 || check.problems.length > 0 || warnings.some((w) => !accepted.has(w.key))}
+      >
         {locked ? "Save doubles or late change" : "Save line-up"}
       </button>
       <Notice state={state} />

@@ -249,3 +249,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `/referee/tournaments/[id]/desk`; app `referee/master`, `referee/pin`, `AssistanceCard`. Admin `admin/org/referees` (+ `/live`,
   `/calls`). Calls route `api/mobile/v1/referee/assistance` (staff only, never public). Gate `npm run e2e:referees` (stand-in,
   `PUSH_DRY_RUN=1`).
+- Line-ups on match day (no migration): pure checks `src/lib/tennis/lineupRules.ts` (problems refuse; warnings — order of merit
+  Reg 43, retired player Reg 50 — need accepting; a change after the lock needs a reason), regulation summaries in our own words
+  `src/lib/tennis/regulations.ts` (page `/regulations/itf-junior-team/[reg]`, button to the ITF site), Excel sheet pure
+  `lineupSheet.ts` + server `lineupSheetServer.ts`, server `lineupServer.ts` (who: organiser, master referee, the tie's court
+  referee — `lineupActor`; accepted exceptions → audit `LINEUP_EXCEPTION_ACCEPTED`, push to masters on duty, banners from
+  `GET /api/mobile/v1/referee/notices`). Routes `referee/matches/[matchId]/lineup`, `referee/tournaments/[id]/lineups/{template,preview,apply}`.
+  Web picker `src/components/lineups/LineupPicker.tsx`, sheet `LineupSheet.tsx` (admin Ties page, master desk); app
+  `move-score-app/src/referee/LineupPicker.tsx`. Referee screens follow the device/app theme (`.theme-auto`; "☀ Sunlight" =
+  `.theme-sunlight` / app `SUNLIGHT`). Gate `npm run e2e:lineups` (stand-in, server with `PUSH_DRY_RUN=1`).

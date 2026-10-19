@@ -23,6 +23,64 @@
   --muted: #9aa6b2;
 }
 
+/*
+ * The referee console (every /referee page, the PIN step, the line-up pickers)
+ * follows the device's light/dark setting instead of forcing dark. Both sides are
+ * tuned for small text in daylight: accent, success, warning and danger are dark
+ * enough on white (>= 4.5:1) and light enough on black; a primary button's label is
+ * dark ink on the bright accent in dark mode (white on #00aeef is only 2.5:1).
+ * .theme-sunlight is the extra high-contrast light option ("☀ Sunlight").
+ */
+.theme-auto {
+  --background: #ffffff;
+  --foreground: #0b0b0b;
+  --card: #f4f6f8;
+  --border: #c9d0d6;
+  --muted: #4a535e;
+  --accent: #0072ad;
+  --accent-dark: #005a8a;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+}
+@media (prefers-color-scheme: dark) {
+  .theme-auto {
+    --background: #0b0b0b;
+    --foreground: #ffffff;
+    --card: #161a1e;
+    --border: #343c44;
+    --muted: #a7b2bd;
+    --accent: #2ec0f5;
+    --accent-dark: #66d3fa;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+  }
+  .theme-auto .btn-primary,
+  .theme-auto .btn-danger {
+    color: #05080b;
+  }
+}
+.theme-sunlight {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --border: #6b7580;
+  --muted: #2b323a;
+  --accent: #005485;
+  --accent-dark: #003d61;
+  --success: #0b5e2a;
+  --warning: #7a3a00;
+  --danger: #9b0d0d;
+}
+.theme-sunlight .card {
+  border-width: 2px;
+}
+.theme-sunlight .btn-primary,
+.theme-sunlight .btn-danger {
+  color: #ffffff;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireStaff } from "@/lib/guard";
 import AdminNav from "./AdminNav";
+import LineupNotices from "@/components/lineups/LineupNotices";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </header>
       <AdminNav canManageCodes={staff.role === "admin" || staff.role === "manager"} canManageOrg={staff.role === "admin" && staff.kind === "member"} platformAdmin={staff.platformAdmin} />
-      <main className="mx-auto w-full max-w-6xl flex-1 p-4">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 space-y-4 p-4">
+        {/* A court referee accepted a line-up exception (ITF Reg. 43 / 50): the organiser hears it at once. */}
+        <LineupNotices />
+        <div>{children}</div>
+      </main>
     </div>
   );
 }

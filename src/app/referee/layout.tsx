@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { requireStaff } from "@/lib/guard";
 import MasterCalls from "@/components/referee/MasterCalls";
+import LineupNotices from "@/components/lineups/LineupNotices";
 
 export const dynamic = "force-dynamic";
 
 export default async function RefereeLayout({ children }: { children: React.ReactNode }) {
   const staff = await requireStaff(["referee", "admin", "manager"], "/referee");
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="theme-auto flex min-h-screen flex-col bg-background text-foreground" data-testid="referee-console">
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <Link href="/referee" className="flex items-center gap-2">
           <span className="text-sm font-bold uppercase tracking-widest text-accent">{staff.orgName}</span>
@@ -30,6 +31,8 @@ export default async function RefereeLayout({ children }: { children: React.Reac
       <main className="mx-auto w-full max-w-4xl flex-1 space-y-4 p-4">
         {/* A master referee hears every court's call for assistance on every page (migration 0035). */}
         {staff.referee?.role === "master_referee" && <MasterCalls banner />}
+        {/* Accepted line-up exceptions (ITF Reg. 43 / 50), told to the master referees at once. */}
+        {(staff.referee?.role === "master_referee" || (staff.kind !== "code" && (staff.role === "admin" || staff.role === "manager"))) && <LineupNotices />}
         {children}
       </main>
     </div>

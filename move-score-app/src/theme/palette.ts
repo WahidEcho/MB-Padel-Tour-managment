@@ -89,6 +89,31 @@ export const LIGHT: Palette = {
   ballInk: BALL_INK,
 };
 
+/**
+ * "☀ Sunlight": the referee's extra high-contrast light theme for a court in full
+ * sun. Pure white, black ink, darker state colours and firmer lines than LIGHT;
+ * every text colour is at least 7:1 on the floor.
+ */
+export const SUNLIGHT: Palette = {
+  ...LIGHT,
+  floor: "#FFFFFF",
+  floor2: "#F1F3F6",
+  surface: "#FFFFFF",
+  surface2: "#ECEFF3",
+  line: "rgba(0,0,0,0.38)",
+  ink: "#000000",
+  ink2: "#1F252E",
+  ink3: "#384152",
+  blue: "#0038A8",
+  live: "#B00024",
+  liveFill: "#B00024",
+  warning: "#6E3B00",
+  success: "#075232",
+  chip: "rgba(0,0,0,0.07)",
+  btnBg: "#000000",
+  btnInk: BALL,
+};
+
 /* ---------------- colour maths for skins ---------------- */
 
 type Rgb = [number, number, number];

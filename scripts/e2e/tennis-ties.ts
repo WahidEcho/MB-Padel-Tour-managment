@@ -197,7 +197,7 @@ async function main() {
     const bad = await setLineup(ties[0].tournament_id, ties[0].id, "A", { S1: squad(ties[0].team_a_id!)[0], S2: squad(ties[0].team_a_id!)[0], D: [squad(ties[0].team_a_id!)[0], squad(ties[0].team_a_id!)[1]] }, "e2e");
     check("one player in both singles is refused", !bad.ok && bad.message.includes("both singles"), bad.ok ? "accepted" : bad.message);
     const merit = await setLineup(ties[0].tournament_id, ties[0].id, "A", { S1: squad(ties[0].team_a_id!)[2], S2: squad(ties[0].team_a_id!)[0], D: [] }, "e2e");
-    check("a No. 1 singles ranked below the No. 2 is refused (order of merit)", !merit.ok && merit.message.includes("order of merit"), merit.ok ? "accepted" : merit.message);
+    check("a No. 1 singles ranked below the No. 2 is a warning to accept (ITF Reg. 43), not saved without it", !merit.ok && merit.code === "warnings" && merit.message.includes("ITF Reg. 43"), merit.ok ? "accepted" : merit.message);
     const nominate = async (tie: Tie) => {
       for (const side of ["A", "B"] as const) {
         const s = squad((side === "A" ? tie.team_a_id : tie.team_b_id)!);

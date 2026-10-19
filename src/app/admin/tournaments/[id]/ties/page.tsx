@@ -1,11 +1,13 @@
 import { requireTournamentPage } from "@/lib/guard";
 import { getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament } from "@/lib/data";
 import { scoreSummary, type ScoreState } from "@/lib/scoring/engine";
-import { RUBBER_LABELS, isoToZonedInput, retiredInTie } from "@/lib/tennis/ties";
-import { finalPlacings, getTies, isTieFormat } from "@/lib/tennis/tieOps";
+import { EVENT_TIME_ZONE, RUBBER_LABELS, isoToZonedInput, retiredInTie } from "@/lib/tennis/ties";
+import { finalPlacings, getTies, isTieFormat, tieContext } from "@/lib/tennis/tieOps";
 import { ordinal } from "@/lib/tennis/placement";
 import type { Match, RubberType, Team, Tie } from "@/lib/types";
 import SessionRowNotice from "../SessionRowNotice";
+import LineupSheet from "@/components/lineups/LineupSheet";
+import { eventDay } from "@/lib/matchday/eventDay";
 import { generateTiesAction } from "./actions";
 import { DelayForm, LineupForm, LockForm, PlacementControls, ScheduleForm } from "./TieForms";
 
@@ -71,7 +73,7 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
       const named = rubbers.filter((r) => !["completed", "retired", "walkover", "disqualified", "cancelled"].includes(r.status)).flatMap((r) => r[field] ?? []);
       const barred = out.filter((pid) => named.includes(pid));
       return barred.length
-        ? `${barred.map((pid) => playerName(team, pid)).join(", ")} retired earlier in this tie: playing on needs the Referee's approval (Reg 50).`
+        ? `${barred.map((pid) => playerName(team, pid)).join(", ")} retired earlier in this tie: playing on needs the Referee's approval`
         : null;
     };
     return (
@@ -147,6 +149,7 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
                 locked={Boolean(tie.lineup_locked_at)}
                 started={tie.status === "completed"}
                 warning={retiredWarning("A", a)}
+                {...tieContext(rubbers, tie, "A")}
               />
               <LineupForm
                 tournamentId={id}
@@ -158,6 +161,7 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
                 locked={Boolean(tie.lineup_locked_at)}
                 started={tie.status === "completed"}
                 warning={retiredWarning("B", b)}
+                {...tieContext(rubbers, tie, "B")}
               />
             </div>
             {!tie.lineup_locked_at && !started && <div className="mt-2"><LockForm tournamentId={id} tieId={tie.id} /></div>}
@@ -179,6 +183,7 @@ export default async function TiesPage({ params }: { params: Promise<{ id: strin
         )}
       </div>
       {groups.length === 0 && <p className="text-sm text-muted">Draw the nations into groups first, on the Groups page.</p>}
+      {ties.some((x) => x.status !== "completed") && <LineupSheet tournamentId={id} defaultDay={eventDay(EVENT_TIME_ZONE)} />}
       {ties.some((x) => x.status !== "completed") && (
         <div className="card space-y-1">
           <p className="text-sm font-semibold">Rain or a long match?</p>

@@ -55,10 +55,8 @@ describe("line-ups", () => {
     expect(lineupProblems({ S1: "p1", S2: "p3", D: [] }, squad)).toEqual([]);
     expect(lineupFor("D", { S1: "p1", S2: "p3", D: [null, null] })).toBeNull();
   });
-  it("the No. 1 singles must rank above the No. 2 in the order of merit", () => {
-    expect(lineupProblems({ S1: "p3", S2: "p1" }, squad)).toEqual([
-      "The No. 1 singles player must be ranked above the No. 2 in the nation's order of merit.",
-    ]);
+  it("the order of merit is a warning to accept, not a problem (lineups.test.ts)", () => {
+    expect(lineupProblems({ S1: "p3", S2: "p1" }, squad)).toEqual([]);
     expect(lineupProblems({ S1: "p2", S2: "p3" }, squad)).toEqual([]);
   });
   it("a player who retired is barred from the rest of the tie (Reg 50)", () => {

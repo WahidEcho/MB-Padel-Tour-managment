@@ -31,6 +31,7 @@ import type { RefereeBootstrap } from "../../../referee/types";
 import type { SyncState } from "../../../referee/sync";
 import { useCall } from "../../../referee/useCall";
 import { AssistanceCard } from "../../../referee/AssistanceCard";
+import { LineupScreenBody } from "../../../referee/LineupScreen";
 import { signInWithCode } from "../../../referee/courtSignIn";
 import { CallCard } from "../../../referee/CallCard";
 import { FinalScore } from "../../../referee/FinalScore";
@@ -429,6 +430,12 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       <Card style={{ paddingVertical: 8 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Eyebrow size={10} numberOfLines={1} style={{ flex: 1 }}>{[m.round_name, boot.tournament.name].filter(Boolean).join(" · ")}</Eyebrow>
+          {/* A rubber not started yet: its tie's line-up can still change (with a reason once locked). */}
+          {m.tie_id && (status === "scheduled" || status === "ready") && (courtReferee || organiser || staff?.referee?.role === "master_referee") ? (
+            <Pressable onPress={() => router.push({ pathname: "/referee/lineup/[matchId]", params: { matchId: m.id } })} accessibilityRole="button" hitSlop={8} style={{ marginRight: 6 }}>
+              <Chip label="Line-up" />
+            </Pressable>
+          ) : null}
           <Pressable onPress={() => setSunlight(!sunlight)} accessibilityRole="switch" accessibilityState={{ checked: sunlight }} hitSlop={8}>
             <Chip label={sunlight ? "☀ Sunlight on" : "☀ Sunlight"} ball={sunlight} />
           </Pressable>
@@ -778,27 +785,31 @@ export default function ScoreRoute() {
   );
   if (!staff) {
     return (
-      <SchemeScope scheme={sunlight ? "light" : "dark"}>
+      <SchemeScope scheme={sunlight ? "sunlight" : null}>
         <SignInHere />
       </SchemeScope>
     );
   }
   if (!boot.data) {
     return (
-      <SchemeScope scheme={sunlight ? "light" : "dark"}>
+      <SchemeScope scheme={sunlight ? "sunlight" : null}>
         <Opening boot={boot} />
       </SchemeScope>
     );
   }
   if (waitingForLineups(boot.data)) {
     return (
-      <SchemeScope scheme={sunlight ? "light" : "dark"}>
-        <Waiting error={false} message={`${boot.data.waitingForLineups ?? "A nation"}'s captain has not nominated the players for this rubber yet. The tournament desk enters them on the Ties page. This page checks again every 10 seconds.`} />
+      <SchemeScope scheme={sunlight ? "sunlight" : null}>
+        <WaitingForLineups
+          matchId={matchId}
+          onSaved={() => void refetch()}
+          message={`${boot.data.waitingForLineups ?? "A nation"}'s captain has not nominated the players for this rubber yet. The court referee, a master referee or the tournament desk enters them. This page checks again every 10 seconds.`}
+        />
       </SchemeScope>
     );
   }
   return (
-    <SchemeScope scheme={sunlight ? "light" : "dark"}>
+    <SchemeScope scheme={sunlight ? "sunlight" : null}>
       <ConsoleScreen boot={boot.data} deviceId={deviceId} sunlight={sunlight} setSunlight={setSunlight} />
     </SchemeScope>
   );
@@ -824,6 +835,18 @@ function Opening({ boot }: { boot: LoadQuery }) {
       <LoadState queries={[boot]} what="the match" errorNote={boot.error instanceof ApiError && boot.error.status >= 400 && boot.error.status < 500 ? `${boot.error.message} Points already on this phone are safe.` : "Points already on this phone are safe. Try again in a moment."} />
       <Button kind="ghost" label="Back" onPress={() => router.back()} />
     </View>
+  );
+}
+
+/** No players for this rubber yet: the court referee (or a master referee) enters them right here. */
+function WaitingForLineups({ matchId, message, onSaved }: { matchId: string; message: string; onSaved: () => void }) {
+  const { t } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: t.floor }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24, gap: 12 }} keyboardShouldPersistTaps="handled">
+      <BackHeader label="Matches" />
+      <LineupScreenBody matchId={matchId} onSaved={onSaved} fallback={message} />
+    </ScrollView>
   );
 }
 

@@ -11,6 +11,8 @@ import { autoCallOnOpen, getCall } from "@/lib/matchday/server";
 import { matchDayRules } from "@/lib/matchday/rules";
 import { chessCompetitionFor } from "@/lib/scoring/resultEntry";
 import AssistanceButton from "@/components/referee/AssistanceButton";
+import LineupPicker from "@/components/lineups/LineupPicker";
+import { lineupActor, lineupPicker } from "@/lib/tennis/lineupServer";
 
 export const dynamic = "force-dynamic";
 
@@ -47,16 +49,25 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
     match.tie_id
       ? `${(t.players ?? []).map((p) => p.full_name.split(" ").slice(-1)[0]).join(" / ")} (${t.nation_code ?? t.team_name})`
       : t.team_name;
+  // Line-ups on match day: the court referee (or a master referee, or the organiser) enters them here.
+  const actor = match.tie_id ? lineupActor(staff) : null;
   if (!teamA || !teamB) {
+    const picker = actor ? await lineupPicker(matchId, actor) : null;
     return (
-      <div className="theme-dark mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-3 bg-background p-6 text-center text-foreground">
-        <p className="text-xs text-muted">{tournament.name} · {court?.court_name ?? "No court"} · {match.round_name}</p>
-        <h1 className="text-xl font-bold">Waiting for the line-ups</h1>
-        <p className="text-sm text-muted">
-          {!teamA ? nationA.team_name : nationB.team_name}&apos;s captain has not nominated the players for this rubber yet.
-          The tournament desk enters them on the Ties page.
-        </p>
-        <a href={`/referee/tournaments/${match.tournament_id}/matches`} className="btn-secondary">← Matches</a>
+      <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-3 bg-background p-4 text-foreground">
+        <p className="text-center text-xs text-muted">{tournament.name} · {court?.court_name ?? "No court"} · {match.round_name}</p>
+        {picker ? (
+          <LineupPicker initial={picker} />
+        ) : (
+          <div className="space-y-3 text-center">
+            <h1 className="text-xl font-bold">Waiting for the line-ups</h1>
+            <p className="text-sm text-muted">
+              {!teamA ? nationA.team_name : nationB.team_name}&apos;s captain has not nominated the players for this rubber yet.
+              The court referee, a master referee or the tournament desk enters them.
+            </p>
+          </div>
+        )}
+        <a href={`/referee/tournaments/${match.tournament_id}/matches`} className="btn-secondary self-center">← Matches</a>
       </div>
     );
   }
@@ -126,7 +137,17 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       initialCall={initialCall}
       canCorrect={staff.role === "admin" || staff.role === "manager"}
       // A court referee signed in with their PIN can call the master referees (migration 0035).
-      assistance={staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact /> : null}
+      assistance={
+        (staff.scopeCourt && staff.referee) || (actor && ["scheduled", "ready"].includes(match.status)) ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact /> : null}
+            {/* Before the rubber starts its line-up can still change (with a reason once locked). */}
+            {actor && ["scheduled", "ready"].includes(match.status) ? (
+              <a href={`/referee/matches/${matchId}/lineup`} className="btn-secondary text-xs" data-testid="lineup-link">Line-up</a>
+            ) : null}
+          </div>
+        ) : null
+      }
     />
   );
 }

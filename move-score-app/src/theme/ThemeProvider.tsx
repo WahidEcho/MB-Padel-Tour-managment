@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useColorScheme } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
-import { DARK, LIGHT, skinned, type Palette, type SkinSeeds } from "./palette";
+import { DARK, LIGHT, SUNLIGHT, skinned, type Palette, type SkinSeeds } from "./palette";
 import { createStore } from "../state/store";
 import { getJson, setJson } from "../state/kv";
 
@@ -46,9 +46,13 @@ export function useTheme(): ThemeValue {
   return useContext(Ctx);
 }
 
-/** Forces dark or light below it: the referee's sunlight mode. */
-export function SchemeScope({ scheme, children }: { scheme: "dark" | "light" | null; children: ReactNode }) {
+/**
+ * Forces a scheme below it, or (null) keeps the app's own light/dark setting. The
+ * referee's scoring screen follows the app's theme and uses "sunlight", the extra
+ * high-contrast light palette, when "☀ Sunlight" is on.
+ */
+export function SchemeScope({ scheme, children }: { scheme: "dark" | "light" | "sunlight" | null; children: ReactNode }) {
   const outer = useContext(Ctx);
-  const value = useMemo(() => (scheme ? { ...outer, t: scheme === "light" ? LIGHT : DARK } : outer), [outer, scheme]);
+  const value = useMemo(() => (scheme ? { ...outer, t: scheme === "sunlight" ? SUNLIGHT : scheme === "light" ? LIGHT : DARK } : outer), [outer, scheme]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

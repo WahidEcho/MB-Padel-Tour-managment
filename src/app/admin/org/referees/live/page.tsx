@@ -99,6 +99,9 @@ export default async function OnCourtNowPage() {
                     {a.entity_type === "match" && a.entity_id ? <Link href={`/referee/matches/${a.entity_id}/score`} className="underline">match</Link> : a.entity_type ?? ""}
                     {a.new_value && typeof a.new_value === "object" && "court" in a.new_value ? ` · ${String(a.new_value.court)}` : ""}
                     {a.new_value && typeof a.new_value === "object" && "applied" in a.new_value ? ` · ${String(a.new_value.applied)} points` : ""}
+                    {/* An accepted line-up exception (ITF Reg. 43 / 50) says what was accepted. */}
+                    {a.new_value && typeof a.new_value === "object" && "text" in a.new_value ? <span className="block text-foreground" data-testid="exception-text">{String(a.new_value.text)}</span> : null}
+                    {a.new_value && typeof a.new_value === "object" && "reason" in a.new_value && a.new_value.reason ? <span className="block">Reason: {String(a.new_value.reason)}</span> : null}
                   </td>
                 </tr>
               ))}

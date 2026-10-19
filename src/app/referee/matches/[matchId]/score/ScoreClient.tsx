@@ -35,6 +35,7 @@ import { enteredSetsFromState } from "@/lib/scoring/finalScore";
 import { RESULT_ENTERED, finalResultAllowed, type ResultPayload, type ResultProblem } from "@/lib/scoring/resultEntry";
 import { queueableResult, resultPayloadOf, resultRejection } from "@/lib/offline/finalResult";
 import type { ScoringModeChoice } from "@/lib/matchday/rules";
+import { useSunlight } from "@/components/referee/useSunlight";
 
 /** "RED TEAM" / "BLUE TEAM" in its colour, when the organiser uses red and blue teams. */
 function SideChip({ side }: { side: TeamKey }) {
@@ -128,6 +129,8 @@ export default function ScoreClient({
   /** A court referee's "Call for assistance" (migration 0035), under the header. */
   assistance?: React.ReactNode;
 }) {
+  // Follows the device's light/dark setting (the referee layout); "☀ Sunlight" is the high-contrast light extra.
+  const [sunlight, setSunlight] = useSunlight();
   const [state, setState] = useState<ScoreState | null>(null);
   const [history, setHistory] = useState<ScoreState[]>([]);
   const [matchStatus, setMatchStatus] = useState(match.status);
@@ -785,7 +788,7 @@ export default function ScoreClient({
   const bothCheckedIn = teamA.checkedIn && teamB.checkedIn;
 
   return (
-    <div className="theme-dark mx-auto flex min-h-screen w-full max-w-3xl flex-col bg-background p-3 text-foreground">
+    <div className={`${sunlight ? "theme-sunlight " : ""}mx-auto flex min-h-screen w-full max-w-3xl flex-col bg-background p-3 text-foreground`} data-theme-mode={sunlight ? "sunlight" : "auto"}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
@@ -822,6 +825,15 @@ export default function ScoreClient({
               {voice.settings.muted ? "🔇 Muted" : "🔇 Mute"}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setSunlight(!sunlight)}
+            className={`badge ${sunlight ? "bg-warning/20 text-foreground" : "bg-card text-muted"}`}
+            aria-pressed={sunlight}
+            data-testid="sunlight"
+          >
+            {sunlight ? "☀ Sunlight on" : "☀ Sunlight"}
+          </button>
           <span className={`badge ${statusBadge[1]}`}>{statusBadge[0]}</span>
           <Link href={`/referee/tournaments/${match.tournament_id}/matches`} className="text-xs text-muted hover:text-foreground">
             ← Matches

@@ -8,6 +8,7 @@
  * (`playDeadRubbersInPlacement: false`, the replay demo's real finals).
  */
 import type { MatchStatus, RubberType, TieFormatConfig } from "../types";
+import { checkLineup } from "./lineupRules";
 
 export const DEFAULT_RUBBERS: RubberType[] = ["S2", "S1", "D"];
 
@@ -87,30 +88,20 @@ export function tieOutcome(rubbers: RubberResult[], playDeadRubbers: boolean): T
 }
 
 /**
- * Validates a captain's line-up for one side (Reg 43). The two singles players
- * are named before play: different people, both from the team, and the No. 1
- * ranked above the No. 2 in the nation's order of merit (`squad` is in that
- * order, No. 1 first). The doubles pair may still be "to be named" — the
- * captain names it after the second singles — but once named it is two
- * different players from the team. Returns the problems, empty when good.
+ * The problems that refuse a captain's line-up for one side (Reg 43): both singles
+ * named, different people, from the team; the doubles pair "to be named" or two
+ * different players of the team. `squad` is in the order of merit, No. 1 first.
+ * A No. 1 singles ranked below the No. 2 is a warning, not a problem (checkLineup in
+ * lineupRules.ts: the referee may accept it). Returns the messages, empty when good.
  */
 export function lineupProblems(
   lineup: { S1?: string | null; S2?: string | null; D?: (string | null)[] | null },
   squad: string[],
 ): string[] {
-  const problems: string[] = [];
-  const inSquad = (id: string | null | undefined) => Boolean(id && squad.includes(id));
-  if (!inSquad(lineup.S1)) problems.push("Choose the No. 1 singles player.");
-  if (!inSquad(lineup.S2)) problems.push("Choose the No. 2 singles player.");
-  if (lineup.S1 && lineup.S1 === lineup.S2) problems.push("One player cannot play both singles.");
-  else if (inSquad(lineup.S1) && inSquad(lineup.S2) && squad.indexOf(lineup.S1!) > squad.indexOf(lineup.S2!)) {
-    problems.push("The No. 1 singles player must be ranked above the No. 2 in the nation's order of merit.");
-  }
-  const d = (lineup.D ?? []).filter(Boolean) as string[];
-  if (d.length === 0) return problems;
-  if (d.length !== 2 || !d.every(inSquad)) problems.push("Choose two players for the doubles, or leave it to be named.");
-  else if (d[0] === d[1]) problems.push("The doubles needs two different players.");
-  return problems;
+  return checkLineup(
+    { S1: lineup.S1 ?? null, S2: lineup.S2 ?? null, D: lineup.D ?? [] },
+    squad.map((id) => ({ id, name: id })),
+  ).problems.map((p) => p.message);
 }
 
 /**

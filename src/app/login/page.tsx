@@ -169,7 +169,8 @@ export default async function LoginPage({
     const master = pinCourt === "master";
     const court = !master && pinCourt ? pinCourt.slice(0, 60) : null;
     return (
-      <main className="flex flex-1 items-center justify-center p-6">
+      // The PIN step is the referee's: it follows the device's light/dark setting like the console.
+      <main className="theme-auto flex min-h-screen flex-1 items-center justify-center bg-background p-6 text-foreground">
         <form action={pinLogin} className="card w-full max-w-sm space-y-4 p-6" data-testid="pin-step">
           <div className="text-center">
             <p className="text-xs font-semibold uppercase tracking-widest text-accent">Move Score</p>

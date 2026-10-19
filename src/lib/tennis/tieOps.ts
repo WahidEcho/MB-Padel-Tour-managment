@@ -15,7 +15,8 @@ import { roundRobin } from "../roundrobin";
 import { applyQualification } from "../standings";
 import { scoringConfigForMatch } from "../scoring/rules";
 import type { Court, Group, GroupTeam, Match, MatchSnapshot, RubberType, Team, Tie, Tournament } from "../types";
-import { MAX_DELAY_MINUTES, RUBBER_GAP_MINUTES, RUBBER_LABELS, lineupFor, lineupProblems, rubberPlan, shiftTime, tieOutcome } from "./ties";
+import { MAX_DELAY_MINUTES, RUBBER_GAP_MINUTES, RUBBER_LABELS, lineupFor, retiredInTie, rubberPlan, shiftTime, tieOutcome } from "./ties";
+import { changedRubbers, checkLineup, issueText, needsReason, rubberEditable, unaccepted, warningsForChange, type LineupIssue } from "./lineupRules";
 import { calculateTieStandings } from "./tieStandings";
 import { placementPlan, type DrawLots, type PlannedTie } from "./placement";
 
@@ -201,17 +202,51 @@ export interface Lineup {
   D: (string | null)[];
 }
 
-export type LineupResult = { ok: true } | { ok: false; message: string };
+/** What a desk operation answers. */
+export type OpResult = { ok: true } | { ok: false; message: string };
+
+export type LineupRefusalCode = "not_here" | "side_unknown" | "problems" | "under_way" | "warnings" | "reason";
+
+export type LineupResult =
+  | { ok: true; changed: RubberType[]; accepted: LineupIssue[]; lateChange: boolean }
+  | { ok: false; code: LineupRefusalCode; message: string; problems?: LineupIssue[]; warnings?: LineupIssue[] };
 
 /** One answer for an unknown tie and another tournament's (the same words as rowGuards' ownershipRefusal). */
 export const TIE_NOT_HERE = "That tie is not part of this tournament. Reload the page.";
 
+export const REASON_NEEDED = "The line-ups are locked. A change now needs a reason; it is recorded as a late change (ITF Reg. 46).";
+
+/** A side's line-up as its rubbers hold it now. */
+export function lineupOfRubbers(rubbers: Pick<Match, "rubber_type" | "team_a_player_ids" | "team_b_player_ids">[], side: "A" | "B"): Lineup {
+  const field = side === "A" ? "team_a_player_ids" : "team_b_player_ids";
+  const of = (type: RubberType) => rubbers.find((r) => r.rubber_type === type)?.[field] ?? null;
+  const d = of("D");
+  return { S1: of("S1")?.[0] ?? null, S2: of("S2")?.[0] ?? null, D: d?.length ? [...d] : [null, null] };
+}
+
+/** A side's retired players (Reg 50) and the rubbers still to play, for checkLineup. */
+export function tieContext(rubbers: Pick<Match, "rubber_type" | "status" | "winner_team_id" | "team_a_player_ids" | "team_b_player_ids">[], tie: Pick<Tie, "team_a_id">, side: "A" | "B") {
+  const retired = retiredInTie(
+    rubbers.map((r) => ({
+      status: r.status,
+      winner: r.winner_team_id ? (r.winner_team_id === tie.team_a_id ? "A" : "B") : null,
+      playersA: r.team_a_player_ids,
+      playersB: r.team_b_player_ids,
+    })),
+    side,
+  );
+  const open = rubbers.filter((r) => rubberEditable(r.status) || r.status === "live" || r.status === "paused").map((r) => r.rubber_type as RubberType);
+  return { retired, open };
+}
+
 /**
- * A captain's nominations for one side of a tie. Free until the line-ups are
- * locked; after that only with a stated reason, which is audited as a late
- * change — except the doubles pair, which the captain names (or changes) after
- * the second singles as a matter of course (Reg 43). A rubber already under way
- * never changes its players.
+ * A captain's nominations for one side of a tie. Problems refuse it (lineupRules.ts);
+ * warnings (the order of merit, Reg 43; a retired player named again, Reg 50) let it
+ * through only when `accept` names them (keys `A:<key>` or `<key>`), and are recorded
+ * with it. Free until the line-ups are locked; after that every change of a named
+ * player needs a stated reason and is audited as a late change, except naming the
+ * doubles pair for the first time after the singles (Reg 43). A rubber already under
+ * way never changes its players. `dryRun` checks without writing.
  */
 export async function setLineup(
   tournamentId: string,
@@ -219,56 +254,72 @@ export async function setLineup(
   side: "A" | "B",
   lineup: Lineup,
   actorRole: string,
-  opts: { lateChangeReason?: string } = {},
+  opts: { lateChangeReason?: string; accept?: readonly string[]; dryRun?: boolean; via?: string } = {},
 ): Promise<LineupResult> {
   // By the tie's id and the tournament it must belong to: a tie of another
   // tournament (or organisation) and an unknown id get the same answer.
   const { data: tie } = await db().from("ties").select("*").eq("id", tieId).eq("tournament_id", tournamentId).maybeSingle();
-  if (!tie) return { ok: false, message: TIE_NOT_HERE };
+  if (!tie) return { ok: false, code: "not_here", message: TIE_NOT_HERE };
   const t = tie as Tie;
   const teamId = side === "A" ? t.team_a_id : t.team_b_id;
-  if (!teamId) return { ok: false, message: "That side of the tie is not known yet." };
-  const { data: players } = await db().from("players").select("id").eq("team_id", teamId).order("player_order");
-  const problems = lineupProblems(lineup, ((players ?? []) as { id: string }[]).map((p) => p.id));
-  if (problems.length) return { ok: false, message: problems.join(" ") };
+  if (!teamId) return { ok: false, code: "side_unknown", message: "That side of the tie is not known yet." };
+  const { data: players } = await db().from("players").select("id, full_name, player_order").eq("team_id", teamId).order("player_order");
+  const squad = ((players ?? []) as { id: string; full_name: string }[]).map((p) => ({ id: p.id, name: p.full_name }));
+  const next: Lineup = { S1: lineup.S1 || null, S2: lineup.S2 || null, D: (lineup.D ?? []).map((x) => x || null) };
 
   const rubbers = await tieRubbers(tieId);
+  const current = lineupOfRubbers(rubbers, side);
+  const check = checkLineup(next, squad, tieContext(rubbers, t, side));
+  if (check.problems.length) return { ok: false, code: "problems", message: check.problems.map(issueText).join(" "), problems: check.problems };
+
   const field = side === "A" ? "team_a_player_ids" : "team_b_player_ids";
-  const changes = rubbers.filter((r) => JSON.stringify(r[field] ?? []) !== JSON.stringify(lineupFor(r.rubber_type as RubberType, lineup) ?? []));
-  const doublesOnly = changes.length > 0 && changes.every((r) => r.rubber_type === "D");
-  if (t.lineup_locked_at && !doublesOnly && changes.length > 0 && !opts.lateChangeReason?.trim()) {
-    return { ok: false, message: "The singles are locked. A change now needs a reason, and is recorded as a late change." };
-  }
   for (const r of rubbers) {
-    const ids = lineupFor(r.rubber_type as RubberType, lineup);
-    const current = (r[field] ?? []) as string[];
-    const same = JSON.stringify(current) === JSON.stringify(ids ?? []);
-    if (!same && !["scheduled", "ready"].includes(r.status)) {
-      return { ok: false, message: `${RUBBER_LABELS[r.rubber_type as RubberType]} is already under way; its players cannot change.` };
+    const ids = lineupFor(r.rubber_type as RubberType, next);
+    const same = JSON.stringify(r[field] ?? []) === JSON.stringify(ids ?? []);
+    if (!same && !rubberEditable(r.status)) {
+      return { ok: false, code: "under_way", message: `${RUBBER_LABELS[r.rubber_type as RubberType]} is already under way; its players cannot change.` };
     }
   }
+  const changed = changedRubbers(current, next);
+  const warnings = warningsForChange(check, changed);
+  const pending = unaccepted(warnings, opts.accept, side);
+  if (pending.length) {
+    return { ok: false, code: "warnings", message: `${pending.map(issueText).join(" ")} Accept the exception to save it.`, warnings: pending };
+  }
+  const locked = Boolean(t.lineup_locked_at);
+  const reason = opts.lateChangeReason?.trim() || null;
+  if (needsReason(locked, current, next) && !reason) return { ok: false, code: "reason", message: REASON_NEEDED };
+  const lateChange = needsReason(locked, current, next);
+  if (opts.dryRun || changed.length === 0) return { ok: true, changed, accepted: warnings, lateChange };
+
   for (const r of rubbers) {
-    const ids = lineupFor(r.rubber_type as RubberType, lineup);
-    if (["scheduled", "ready"].includes(r.status)) {
-      await db().from("matches").update({ [field]: ids, updated_at: new Date().toISOString() }).eq("id", r.id);
+    if (rubberEditable(r.status)) {
+      await db().from("matches").update({ [field]: lineupFor(r.rubber_type as RubberType, next), updated_at: new Date().toISOString() }).eq("id", r.id);
     }
   }
   await audit({
     tournament_id: t.tournament_id,
     actor_role: actorRole,
-    action: !t.lineup_locked_at ? "LINEUP_SET" : doublesOnly ? "DOUBLES_NAMED" : "LINEUP_LATE_CHANGE",
+    action: !locked ? "LINEUP_SET" : lateChange ? "LINEUP_LATE_CHANGE" : "DOUBLES_NAMED",
     entity_type: "tie",
     entity_id: tieId,
-    new_value: { side, lineup, reason: opts.lateChangeReason ?? null },
+    old_value: { side, lineup: current },
+    new_value: {
+      side,
+      lineup: next,
+      reason,
+      via: opts.via ?? null,
+      accepted: warnings.map((w) => ({ code: w.code, reg: w.reg, key: w.key, message: w.message })),
+    },
   });
-  return { ok: true };
+  return { ok: true, changed, accepted: warnings, lateChange };
 }
 
 /**
  * Locks both line-ups. Refused until both singles have their players on both
  * sides; the doubles may still be to be named.
  */
-export async function lockLineups(tournamentId: string, tieId: string, actorRole: string): Promise<LineupResult> {
+export async function lockLineups(tournamentId: string, tieId: string, actorRole: string): Promise<OpResult> {
   const { data: own } = await db().from("ties").select("id").eq("id", tieId).eq("tournament_id", tournamentId).maybeSingle();
   if (!own) return { ok: false, message: TIE_NOT_HERE };
   const rubbers = await tieRubbers(tieId);
@@ -651,7 +702,7 @@ export async function scheduleTie(
   courtId: string | null,
   at: string | null,
   actorRole: string,
-): Promise<LineupResult> {
+): Promise<OpResult> {
   const { data: tie } = await db()
     .from("ties")
     .select("id, tournament_id, status, court_id, scheduled_time")

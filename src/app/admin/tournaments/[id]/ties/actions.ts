@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { requireTournamentPermission } from "@/lib/guard";
 import { entityRefusal, ownershipRefusal, refuse, tournamentRowRefusal } from "@/lib/rowGuards";
-import { delayOrderOfPlay, drawPlacement, generateGroupTies, lockLineups, resetPlacement, scheduleTie, setLineup } from "@/lib/tennis/tieOps";
+import { delayOrderOfPlay, drawPlacement, generateGroupTies, lockLineups, resetPlacement, scheduleTie } from "@/lib/tennis/tieOps";
+import { applyTieLineups, lineupActor } from "@/lib/tennis/lineupServer";
 import { zonedToIso } from "@/lib/tennis/ties";
 
 const path = (id: string) => `/admin/tournaments/${id}/ties`;
 
-export type TieFormState = { ok: boolean; message: string } | null;
+export type TieFormState = { ok: boolean; message: string; warnings?: { key: string; message: string; reg: string | null }[] } | null;
 
 export async function generateTiesAction(formData: FormData) {
   const id = String(formData.get("tournament_id"));
@@ -20,23 +21,27 @@ export async function generateTiesAction(formData: FormData) {
 
 export async function saveLineupAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
   const id = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("manage_teams", id)).staff.role;
+  const { staff } = await requireTournamentPermission("manage_teams", id);
   const tieId = String(formData.get("tie_id") ?? "");
   // The tie must be this tournament's: the posted tournament id alone proves nothing about it.
   const refusal = await entityRefusal(id, "ties", tieId);
   if (refusal) return { ok: false, message: refusal };
   const side = String(formData.get("side")) === "B" ? "B" : "A";
   const v = (k: string) => String(formData.get(k) ?? "") || null;
-  const result = await setLineup(
-    id,
+  const actor = lineupActor(staff) ?? { kind: "organiser" as const, label: "The tournament desk" };
+  const result = await applyTieLineups({
+    actor,
+    actorRole: staff.role,
+    tournamentId: id,
     tieId,
-    side,
-    { S1: v("S1"), S2: v("S2"), D: [v("D1"), v("D2")] },
-    role,
-    { lateChangeReason: String(formData.get("reason") ?? "").trim() || undefined },
-  );
+    lineups: { [side]: { S1: v("S1"), S2: v("S2"), D: [v("D1"), v("D2")] } },
+    accept: formData.getAll("accept").map(String).slice(0, 20),
+    reason: String(formData.get("reason") ?? "").trim() || null,
+    via: "desk",
+  });
   revalidatePath(path(id));
-  return result.ok ? { ok: true, message: "Line-up saved." } : { ok: false, message: result.message };
+  if (result.ok) return { ok: true, message: result.accepted.length ? "Line-up saved with the exception accepted; the master referees were told." : "Line-up saved." };
+  return { ok: false, message: result.message, warnings: result.warnings.map((w) => ({ key: w.key, message: w.message, reg: w.reg })) };
 }
 
 export async function lockLineupsAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {

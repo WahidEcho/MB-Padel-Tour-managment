@@ -12,6 +12,7 @@ import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, SectionHeader } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
+import { openRegulation } from "../../referee/LineupPicker";
 
 interface Call {
   id: string;
@@ -62,6 +63,19 @@ export default function MasterReferee() {
     if (fresh.length) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     known.current = new Set(open.map((c) => c.id));
   }, [open]);
+  // Line-up exceptions a court referee accepted (ITF Reg. 43 / 50): told here at once (and by push).
+  const notices = useQuery({
+    queryKey: ["lineup-notices", staff?.token],
+    queryFn: () => api<{ notices: { id: string; at: string; text: string; regs: string[] }[] }>("/api/mobile/v1/referee/notices", { who: "staff" }),
+    enabled: Boolean(staff),
+    refetchInterval: 8_000,
+  });
+  const seenNotices = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const list = notices.data?.notices ?? [];
+    if (seenNotices.current && list.some((n) => !seenNotices.current!.has(n.id))) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    if (notices.data) seenNotices.current = new Set(list.map((n) => n.id));
+  }, [notices.data]);
   const tournaments = useQuery({
     queryKey: ["ref-tournaments", staff?.token],
     queryFn: () => api<{ tournaments: { id: string; name: string }[] }>("/api/mobile/v1/referee/tournaments", { who: "staff" }),
@@ -135,6 +149,25 @@ export default function MasterReferee() {
         {calls.data && open.length === 0 && <Body tone="ink3" size={13}>No court is calling right now.</Body>}
         {err ? <Body tone="live" size={13}>{err}</Body> : null}
       </View>
+
+      {(notices.data?.notices.length ?? 0) > 0 && (
+        <>
+          <SectionHeader title="Line-up exceptions" />
+          <View style={{ gap: 8 }}>
+            {notices.data!.notices.slice(0, 8).map((n) => (
+              <Card key={n.id} style={{ gap: 6, borderWidth: 2, borderColor: t.warning }}>
+                <Body weight="bold" size={15}>{`⚠ ${n.text}`}</Body>
+                <Body tone="ink2" size={13}>
+                  {time(n.at)}
+                  {n.regs.map((r) => (
+                    <Body key={r} tone="blue" weight="semi" size={13} onPress={() => openRegulation(r)}>{`  ·  ITF Reg. ${r}`}</Body>
+                  ))}
+                </Body>
+              </Card>
+            ))}
+          </View>
+        </>
+      )}
 
       <SectionHeader title="Courts" />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
