@@ -13,6 +13,7 @@ import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, SectionHeader } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
 import { openRegulation } from "../../referee/LineupPicker";
+import { Glyph } from "../../ui/Glyph";
 
 interface Call {
   id: string;
@@ -156,7 +157,10 @@ export default function MasterReferee() {
           <View style={{ gap: 8 }}>
             {notices.data!.notices.slice(0, 8).map((n) => (
               <Card key={n.id} style={{ gap: 6, borderWidth: 2, borderColor: t.warning }}>
-                <Body weight="bold" size={15}>{`⚠ ${n.text}`}</Body>
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+                  <Glyph name="warning" color={t.warning} size={18} />
+                  <Body weight="bold" size={15} style={{ flex: 1 }}>{n.text}</Body>
+                </View>
                 <Body tone="ink2" size={13}>
                   {time(n.at)}
                   {n.regs.map((r) => (

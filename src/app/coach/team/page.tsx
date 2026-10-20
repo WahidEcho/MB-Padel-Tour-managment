@@ -24,7 +24,7 @@ export default async function MyTeam() {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">{v.event.group ? `${v.event.group} · ` : ""}{v.event.name}</p>
           <h1 className="text-3xl font-black"><TeamName team={v.team} /></h1>
           <p className="text-sm text-muted" data-testid="coach-landing">
-            {v.place ? `Final place: ${v.place}` : v.landing ? `After the groups: ${v.landing}` : v.group ? `Group ${v.group.name}` : ""}
+            {v.place ? `Final place: ${v.place}` : v.landing ? `After the groups: ${v.landing}` : v.group ? (/^group\b/i.test(v.group.name) ? v.group.name : `Group ${v.group.name}`) : ""}
           </p>
         </div>
         <form action="/coach/signout" method="post">
@@ -47,7 +47,7 @@ export default async function MyTeam() {
 
       {v.group && (
         <section className="space-y-2">
-          <h2 className="label">Group {v.group.name}</h2>
+          <h2 className="label">{/^group\b/i.test(v.group.name) ? v.group.name : `Group ${v.group.name}`}</h2>
           <GroupTable group={v.group} teamId={v.team.id} />
         </section>
       )}

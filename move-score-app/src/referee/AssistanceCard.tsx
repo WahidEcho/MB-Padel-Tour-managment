@@ -12,6 +12,7 @@ import { api, ApiError } from "../api/client";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "../ui/Text";
 import { Button, Card } from "../ui/Bits";
+import { Glyph } from "../ui/Glyph";
 
 interface Call {
   id: string;
@@ -89,7 +90,7 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
   if (!open) {
     return (
       <View style={{ gap: 4 }}>
-        <Button kind="danger" label={busy ? "Calling…" : "🆘 Call for assistance"} disabled={busy} onPress={() => void post({ action: "request", matchId })} accessibilityLabel="Call for assistance" />
+        <Button kind="danger" label={busy ? "Calling…" : "Call for assistance"} icon={busy ? undefined : <Glyph name="help" color="#FFFFFF" size={20} />} disabled={busy} onPress={() => void post({ action: "request", matchId })} accessibilityLabel="Call for assistance" />
         {call?.status === "resolved" ? <Body tone="ink3" size={12}>Last call: {callStatusLine({ status: call.status, resolved_by_name: call.resolvedBy })}</Body> : null}
         {err ? <Body tone="live" size={12}>{err}</Body> : null}
       </View>
@@ -99,7 +100,7 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
   return (
     <Card style={{ gap: 8, borderWidth: 1, borderColor: ack ? t.success : t.warning }}>
       <Body weight="bold" accessibilityRole="alert" style={{ color: ack ? t.success : t.warning }}>
-        {ack ? "✓ " : "⏳ "}
+        {ack ? "✓ " : ""}
         {callStatusLine({ status: call.status, acknowledged_by_name: call.acknowledgedBy })}
       </Body>
       <View style={{ flexDirection: "row", gap: 8 }}>

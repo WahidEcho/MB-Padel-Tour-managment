@@ -57,6 +57,7 @@ import { Body, Display, Eyebrow, Num } from "../../../ui/Text";
 import { Button, Card, Chip, Flag } from "../../../ui/Bits";
 import { BackHeader } from "../../../ui/Header";
 import { LoadState, type LoadQuery } from "../../../ui/LoadState";
+import { Glyph, type GlyphName } from "../../../ui/Glyph";
 
 type Sheet =
   | { kind: "confirm-point"; team: TeamKey; what: string }
@@ -525,7 +526,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
             </Pressable>
           ) : null}
           <Pressable onPress={() => setSunlight(!sunlight)} accessibilityRole="switch" accessibilityState={{ checked: sunlight }} hitSlop={8}>
-            <Chip label={sunlight ? "☀ Sunlight on" : "☀ Sunlight"} ball={sunlight} />
+            <Chip label={sunlight ? "Sunlight on" : "Sunlight"} ball={sunlight} icon={<Glyph name="sun" color={sunlight ? t.ballInk : t.ink2} size={13} />} />
           </Pressable>
         </View>
         {scoreRow("A")}
@@ -726,17 +727,17 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
 
       <Sheetish open={sheet?.kind === "more"} onClose={() => setSheet(null)} title="More">
         {callMaster ? (
-          <Button kind="danger" label="📣  Call master referee" onPress={() => setSheet({ kind: "call" })} />
+          <Button kind="danger" label="Call master referee" icon={<Glyph name="megaphone" color="#FFFFFF" size={20} />} onPress={() => setSheet({ kind: "call" })} />
         ) : null}
         {callNote ? <Body tone="ink2" size={12.5}>{callNote}</Body> : null}
         {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration ? <Eyebrow size={10} tone="ink3">Breaks</Eyebrow> : null}
         {(
           [
-            ["break", f.breakStopwatch, "⏱  Break", "Stopwatch"],
-            ["changeover", f.timerChangeover, "◷  Changeover", "1:30"],
-            ["set_break", f.timerSetBreak, "☕  Set break", "2:00"],
-            ["bathroom", f.bathroom, "🚻  Bathroom break", "warns 10:00"],
-            ["hydration", f.hydration, "💧  Hydration break", "10:00"],
+            ["break", f.breakStopwatch, "Break", "Stopwatch"],
+            ["changeover", f.timerChangeover, "Changeover", "1:30"],
+            ["set_break", f.timerSetBreak, "Set break", "2:00"],
+            ["bathroom", f.bathroom, "Bathroom break", "warns 10:00"],
+            ["hydration", f.hydration, "Hydration break", "10:00"],
           ] as [TimerKind, boolean, string, string][]
         )
           .filter(([, on]) => on)
@@ -749,7 +750,10 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
               onPress={() => guard(() => (k === "bathroom" ? setSheet({ kind: "break-team", timer: k }) : (void c.startBreak(k, null), setSheet(null))))}
               style={({ pressed }) => ({ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 13, borderRadius: 14, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, opacity: readOnly || finished ? 0.4 : pressed ? 0.7 : 1 })}
             >
-              <Body weight="bold">{label}</Body>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Glyph name={BREAK_GLYPH[k]} color={t.ink} size={20} />
+                <Body weight="bold">{label}</Body>
+              </View>
               <Num size={13} tone="ink2">{hint}</Num>
             </Pressable>
           ))}
@@ -922,6 +926,9 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
 }
 
 const waitingForLineups = (b: RefereeBootstrap | undefined) => Boolean(b && (b.waitingForLineups || !b.sideA || !b.sideB));
+
+/** The icon beside each break in More (drawn, not emoji: emoji can show as "?" boxes). */
+const BREAK_GLYPH: Record<string, GlyphName> = { break: "stopwatch", changeover: "clock", set_break: "cup", bathroom: "restroom", hydration: "drop" };
 
 export default function ScoreRoute() {
   const { matchId } = useLocalSearchParams<{ matchId: string }>();

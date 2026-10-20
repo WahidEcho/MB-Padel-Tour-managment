@@ -192,7 +192,7 @@ export default function PassTab() {
           )}
           {!calm && (
             <Eyebrow tone="ink3" style={{ textAlign: "center", letterSpacing: 1.5 }}>
-              {"📱  Tilt your phone"}
+              {"Tilt your phone"}
             </Eyebrow>
           )}
           <Button label={stampedToday ? `Stamped · ${dayLabel(today)} · Scan a match` : "Scan the venue code"} onPress={() => router.push("/scan")} />

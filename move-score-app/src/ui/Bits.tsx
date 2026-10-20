@@ -26,10 +26,11 @@ export function Card({ children, style, onPress, accessibilityLabel }: { childre
   );
 }
 
-export function Chip({ label, ball, style }: { label: string; ball?: boolean; style?: StyleProp<ViewStyle> }) {
+export function Chip({ label, ball, style, icon }: { label: string; ball?: boolean; style?: StyleProp<ViewStyle>; icon?: ReactNode }) {
   const { t } = useTheme();
   return (
-    <View style={[{ backgroundColor: ball ? t.ball : t.chip, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, alignSelf: "flex-start" }, style]}>
+    <View style={[{ backgroundColor: ball ? t.ball : t.chip, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5 }, style]}>
+      {icon}
       <Eyebrow size={10} tone={ball ? "onBall" : "ink2"} style={{ letterSpacing: 0.8 }}>
         {label}
       </Eyebrow>

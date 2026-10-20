@@ -120,7 +120,7 @@ export function CoachLineupPicker({ tieId, initial, tz, onDone }: { tieId: strin
             const on = accepted.has(w.key);
             return (
               <Card key={w.key} style={{ gap: 12, borderWidth: 2, borderColor: t.warning }}>
-                <IssueLine issue={{ ...w, message: `⚠ ${w.message}` }} />
+                <IssueLine issue={{ ...w, message: w.message }} />
                 <Pressable
                   onPress={() => setAccepted((a) => { const n = new Set(a); if (on) n.delete(w.key); else n.add(w.key); return n; })}
                   accessibilityRole="checkbox"

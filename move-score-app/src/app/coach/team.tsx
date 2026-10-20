@@ -40,7 +40,7 @@ export default function MyTeam() {
           <View style={{ gap: 6 }}>
             <Eyebrow tone="live">{`Team coach · ${v.event.name}`}</Eyebrow>
             <TeamLine team={v.team} size={30} />
-            <Body tone="ink2" size={13}>{v.place ? `Final place: ${v.place}` : v.landing ? `After the groups: ${v.landing}` : v.group ? `Group ${v.group.name}` : (v.event.group ?? "")}</Body>
+            <Body tone="ink2" size={13}>{v.place ? `Final place: ${v.place}` : v.landing ? `After the groups: ${v.landing}` : v.group ? (/^group\b/i.test(v.group.name) ? v.group.name : `Group ${v.group.name}`) : (v.event.group ?? "")}</Body>
           </View>
           {alertState !== "on" ? (
             <Card style={{ gap: 8 }}>
@@ -53,7 +53,7 @@ export default function MyTeam() {
           {live.map((x) => <TieCardCoach key={x.id} tie={x} tz={tz} team={v.team} open />)}
           {next ? <SectionHeader title="Next tie" /> : null}
           {next ? <TieCardCoach tie={next} tz={tz} team={v.team} open /> : null}
-          {v.group ? <SectionHeader title={`Group ${v.group.name}`} /> : null}
+          {v.group ? <SectionHeader title={(/^group\b/i.test(v.group.name) ? v.group.name : `Group ${v.group.name}`)} /> : null}
           {v.group ? <GroupCard group={v.group} teamId={v.team.id} /> : null}
           <SectionHeader title="All ties" />
           {rest.map((x) => <TieCardCoach key={x.id} tie={x} tz={tz} team={v.team} />)}
