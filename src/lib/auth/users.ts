@@ -114,11 +114,25 @@ export function openToken(sealed: string): string | null {
   }
 }
 
+/**
+ * The .p8 key however it was pasted into the environment: with real line breaks,
+ * with literal "\n", on one line, or as the bare base64 body. Rebuilt as a
+ * standard 64-column PEM so importPKCS8 accepts it.
+ */
+export function normalizePkcs8(raw: string): string {
+  const body = raw
+    .replace(/\\n/g, "\n")
+    .replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "")
+    .replace(/[^A-Za-z0-9+/=]/g, "");
+  const lines = body.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----\n`;
+}
+
 /** Sign in with Apple's client secret, a short-lived ES256 JWT (needs the Sign in with Apple key). */
 async function appleClientSecret(): Promise<string | null> {
   const { APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_SIGNIN_KEY_P8, APPLE_CLIENT_ID } = process.env;
   if (!APPLE_TEAM_ID || !APPLE_KEY_ID || !APPLE_SIGNIN_KEY_P8 || !APPLE_CLIENT_ID) return null;
-  const key = await importPKCS8(APPLE_SIGNIN_KEY_P8.replace(/\\n/g, "\n"), "ES256");
+  const key = await importPKCS8(normalizePkcs8(APPLE_SIGNIN_KEY_P8), "ES256");
   return new SignJWT({})
     .setProtectedHeader({ alg: "ES256", kid: APPLE_KEY_ID })
     .setIssuer(APPLE_TEAM_ID)
@@ -131,25 +145,43 @@ async function appleClientSecret(): Promise<string | null> {
 
 /** Exchanges Apple's one-time authorisation code for a refresh token, kept only to revoke it on deletion. */
 export async function appleRefreshToken(authorizationCode: string): Promise<string | null> {
-  const secret = await appleClientSecret();
-  if (!secret) return null;
-  const res = await fetch("https://appleid.apple.com/auth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: process.env.APPLE_CLIENT_ID!, client_secret: secret, code: authorizationCode, grant_type: "authorization_code" }),
-  });
-  if (!res.ok) return null;
-  const json = (await res.json()) as { refresh_token?: string };
-  return json.refresh_token ?? null;
+  // Optional: only used to revoke the Apple link when the account is deleted. A bad
+  // key, Apple being slow or down, or an odd answer must never fail the sign-in itself.
+  try {
+    const secret = await appleClientSecret();
+    if (!secret) return null;
+    const res = await fetch("https://appleid.apple.com/auth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: process.env.APPLE_CLIENT_ID!, client_secret: secret, code: authorizationCode, grant_type: "authorization_code" }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      console.warn(`[apple] refresh token exchange refused (${res.status})`);
+      return null;
+    }
+    const json = (await res.json()) as { refresh_token?: string };
+    return json.refresh_token ?? null;
+  } catch (err) {
+    console.warn(`[apple] refresh token exchange skipped: ${err instanceof Error ? err.message : "unknown error"}`);
+    return null;
+  }
 }
 
 export async function revokeApple(refreshToken: string): Promise<boolean> {
-  const secret = await appleClientSecret();
-  if (!secret) return false;
-  const res = await fetch("https://appleid.apple.com/auth/revoke", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: process.env.APPLE_CLIENT_ID!, client_secret: secret, token: refreshToken, token_type_hint: "refresh_token" }),
-  });
-  return res.ok;
+  // Best effort, like the exchange above: account deletion goes ahead whatever Apple answers.
+  try {
+    const secret = await appleClientSecret();
+    if (!secret) return false;
+    const res = await fetch("https://appleid.apple.com/auth/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: process.env.APPLE_CLIENT_ID!, client_secret: secret, token: refreshToken, token_type_hint: "refresh_token" }),
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn(`[apple] revoke skipped: ${err instanceof Error ? err.message : "unknown error"}`);
+    return false;
+  }
 }
