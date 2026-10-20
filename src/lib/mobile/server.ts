@@ -9,6 +9,7 @@
 import { db } from "../supabase";
 import type { BrandingConfig, Match, MatchSnapshot, ScoringConfig, Standing, Team, Tie } from "../types";
 import { activeLiveVideos, withLiveVideo } from "../stream/liveVideo";
+import { publicPlayStatus } from "../notices/playStatus";
 import type { ScoreState } from "../scoring/engine";
 import { getTeams } from "../data";
 import type {
@@ -264,6 +265,8 @@ export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | nu
         .filter((m) => m.status !== "cancelled" || m.tie_id)
         .map((m) => withLiveVideo(toMatch(m, snapOf.get(m.id) ?? null, scoreExtrasOf(t)), videos)),
       announcements: ann,
+      // Additive (1.0.1 ignores it): the organiser's rain delay / suspension banner.
+      playStatus: publicPlayStatus(t.branding_config?.playStatus),
     };
   });
 }

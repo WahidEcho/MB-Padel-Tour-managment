@@ -11,6 +11,7 @@ import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
 import { watchTargets } from "@/lib/watch";
 import { hasPublicVenue } from "@/lib/venue/server";
+import PlayNotice from "@/components/PlayNotice";
 
 // Rendered at most every 10s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -109,6 +110,8 @@ export default async function PublicLayout({
           </div>
         </div>
       </header>
+      {/* Rain delay / play suspended / resumed and the latest major announcement. */}
+      <PlayNotice tournament={tournament} />
       <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 p-4">{children}</main>
       {footer.length > 0 && (
         <footer className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-4">

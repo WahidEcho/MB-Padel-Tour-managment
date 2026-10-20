@@ -93,3 +93,8 @@ export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coa
 export { parseFromMap, parseToMap, embeddedMapUrl } from "../../../src/lib/venue/bridge";
 export type { FromMap, ToMap } from "../../../src/lib/venue/bridge";
 export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from "../../../src/lib/venue/types";
+// The order of play by day and court (Schedule tab) and the on-screen notices (rain delay, play suspended).
+export { TBC_DAY, NO_COURT_TITLE, NO_TIME_TITLE, dayKeyIn, clockIn, itemDay, scheduleDays, defaultScheduleDay, scheduleDayLabel, scheduleForDay } from "../../../src/lib/schedule/orderOfPlay";
+export type { ScheduleItem, ScheduleCourt, ScheduleGroup, ScheduleMode, ScheduleStatus, DaySchedule } from "../../../src/lib/schedule/orderOfPlay";
+export { PLAY_STATUS_TITLES, noticeBanners, currentMajorAnnouncement, publicPlayStatus, resumeLine } from "../../../src/lib/notices/playStatus";
+export type { NoticeBanner, NoticeTone, PlayStatusKind } from "../../../src/lib/notices/playStatus";

@@ -8,6 +8,9 @@
 
 import type { MatchRules, StageRuleKey } from "../types";
 import type { NightTable, NightTableLayout } from "../friendly/nightTable";
+import type { MPlayStatus } from "../notices/playStatus";
+
+export type { MPlayStatus } from "../notices/playStatus";
 
 export const API_VERSION = 1;
 
@@ -300,6 +303,12 @@ export interface MLive {
   ties: MTie[];
   matches: MMatch[];
   announcements: MAnnouncement[];
+  /**
+   * Rain delay, play suspended or play resumed, as the organiser set it (Admin →
+   * In the app → Play status; src/lib/notices/playStatus.ts). Null when play runs
+   * normally. Absent from older servers; 1.0.1 ignores it.
+   */
+  playStatus?: MPlayStatus | null;
 }
 
 export interface MStandingRow {

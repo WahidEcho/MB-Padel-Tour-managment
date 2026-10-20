@@ -4,9 +4,13 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requireScopedPermission, requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { notifyAnnouncement } from "@/lib/notify/hooks";
+import { notifyAnnouncement, notifyPlayStatus } from "@/lib/notify/hooks";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { zonedToIso } from "@/lib/tennis/ties";
+import { updateBranding } from "@/lib/backgroundStorage";
+import { formResult, refusal, type FormState } from "@/lib/refusal";
+import { playStatusProblem, playStatusPush, type PlayStatusConfig, type PlayStatusKind } from "@/lib/notices/playStatus";
+import { dayKeyIn } from "@/lib/schedule/orderOfPlay";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const path = (id: string) => `/admin/tournaments/${id}/app`;
@@ -143,4 +147,56 @@ export async function deleteAnnouncement(formData: FormData) {
   refuse(await tournamentRowRefusal(id));
   await db().from("announcements").delete().eq("id", announcementId);
   revalidatePath(path(id));
+}
+
+/**
+ * Play status (rain delay, play suspended, resumed): a banner on the tournament
+ * page in the app and on the public site, until the organiser sets it back to
+ * normal. Stored in `branding_config.playStatus` (no migration) with the
+ * compare-and-set of updateBranding, sent on the live feed as `playStatus`.
+ * "Push to followers" sends it as a major alert (never for "normal").
+ */
+export async function savePlayStatus(_prev: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get("tournament_id") ?? "");
+  const { staff } = await requireTournamentPermission("manage_tournament", id);
+  // A friendly session's hidden row has no app settings of its own.
+  refuse(await tournamentRowRefusal(id));
+  return formResult(async () => {
+    const kind = String(formData.get("kind") ?? "");
+    const message = String(formData.get("message") ?? "").trim();
+    const clock = String(formData.get("resume_at") ?? "").trim();
+    const { data: t } = await db().from("tournaments").select("name, timezone").eq("id", id).maybeSingle();
+    const tz = (t as { timezone?: string | null } | null)?.timezone || "Africa/Cairo";
+    const name = (t as { name?: string } | null)?.name ?? "the event";
+    let resumeAt: string | null = null;
+    if (clock) {
+      if (!/^\d{2}:\d{2}$/.test(clock)) refusal("Enter the resume time as HH:MM.");
+      // Today in the event's zone: "resume about 15:30" is always the same day.
+      resumeAt = zonedToIso(`${dayKeyIn(new Date().toISOString(), tz)}T${clock}`, tz);
+      if (!resumeAt) refusal("Enter the resume time as HH:MM.");
+    }
+    const problem = playStatusProblem({ kind, message, resumeAt });
+    if (problem) refusal(problem);
+    const typed = kind as PlayStatusKind;
+    const next: PlayStatusConfig = {
+      kind: typed,
+      ...(message && typed !== "normal" ? { message } : {}),
+      ...(resumeAt && (typed === "delayed" || typed === "suspended") ? { resumeAt } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    let before: PlayStatusConfig | null = null;
+    const written = await updateBranding(id, (current) => {
+      before = current.playStatus ?? null;
+      return { ...current, playStatus: next };
+    });
+    if (!written.ok) refusal("Could not save the play status. Reload the page and try again.");
+    await audit({ tournament_id: id, actor_role: staff.role, action: "PLAY_STATUS_SET", entity_type: "tournament", entity_id: id, old_value: before, new_value: next });
+    const push = formData.get("push") === "on" && typed !== "normal";
+    if (push) {
+      const words = playStatusPush({ kind: typed as Exclude<PlayStatusKind, "normal">, eventName: name, message: next.message ?? null, resumeClock: next.resumeAt ? clock : null });
+      await notifyPlayStatus({ tournamentId: id, title: words.title, body: words.body, updatedAt: next.updatedAt });
+    }
+    revalidatePath(path(id));
+    return typed === "normal" ? "Saved. The banner is off." : push ? "Saved. The banner is up and followers are being told." : "Saved. The banner is up.";
+  });
 }

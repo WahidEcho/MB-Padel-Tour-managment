@@ -5,6 +5,8 @@ import { getTies } from "@/lib/tennis/tieOps";
 import { RUBBER_SHORT } from "@/lib/tennis/ties";
 import AutoRefresh from "@/components/AutoRefresh";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
+import DayTabs from "@/components/DayTabs";
+import { clockIn, dayKeyIn, defaultScheduleDay, scheduleDayLabel, scheduleDays, scheduleForDay, type ScheduleItem } from "@/lib/schedule/orderOfPlay";
 import type { Match, MatchSnapshot, RubberType, Team, Tie } from "@/lib/types";
 
 // Rendered at most every 4s and shared by every visitor: at the venue a crowd
@@ -13,7 +15,9 @@ export const revalidate = 4;
 
 /**
  * Every tie of a nations event with its rubbers, in order of play: what a fan
- * without the app follows. Live ties first, then the day's order, then results.
+ * without the app follows. Live ties first, then the order of play for each day
+ * (a day picker, today first when it has play) grouped by court, the same
+ * grouping as the app's Schedule tab (src/lib/schedule/orderOfPlay.ts).
  */
 export default async function PublicTies({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -29,8 +33,54 @@ export default async function PublicTies({ params }: { params: Promise<{ slug: s
   const when = (iso: string | null) =>
     iso ? new Date(iso).toLocaleString("en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Time to be set";
   const live = ties.filter((t) => t.status === "live");
-  const upcoming = ties.filter((t) => t.status === "scheduled").sort((a, b) => (a.scheduled_time ?? "9").localeCompare(b.scheduled_time ?? "9"));
-  const done = ties.filter((t) => t.status === "completed").sort((a, b) => (b.ended_at ?? "").localeCompare(a.ended_at ?? ""));
+  const items: (ScheduleItem & { tie: Tie })[] = ties.map((t) => {
+    const rubbers = rubbersOf(t.id);
+    return {
+      id: t.id,
+      courtId: t.court_id,
+      scheduledTime: t.scheduled_time,
+      order: t.tie_order ?? 0,
+      status: t.status === "live" ? "live" : t.status === "completed" ? "done" : "scheduled",
+      startedAt: rubbers.map((m) => m.started_at).filter(Boolean).sort()[0] ?? null,
+      endedAt: t.ended_at ?? null,
+      tie: t,
+    };
+  });
+  const days = scheduleDays(items, tz);
+  const today = dayKeyIn(new Date().toISOString(), tz);
+  const initial = defaultScheduleDay(days, today);
+  const courtList = courts.map((c, i) => ({ id: c.id, name: c.court_name, order: c.court_order ?? i }));
+  const panels = Object.fromEntries(
+    days.map((day) => {
+      const plan = scheduleForDay(items, { day, timeZone: tz, courts: courtList, mode: "court" });
+      return [
+        day,
+        <div key={day} className="space-y-5">
+          {plan.groups.map((g) => (
+            <section key={g.key} className="space-y-2" data-testid={`court-${g.title}`}>
+              <h3 className="label">{g.title}</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                {g.items.map((x, i) => (
+                  <TieCard
+                    key={x.id}
+                    tie={x.tie}
+                    a={x.tie.team_a_id ? tm.get(x.tie.team_a_id) : undefined}
+                    b={x.tie.team_b_id ? tm.get(x.tie.team_b_id) : undefined}
+                    rubbers={rubbersOf(x.id)}
+                    snap={snap}
+                    teams={tm}
+                    court={g.courtId ? g.title : undefined}
+                    when={x.scheduledTime ? `Not before ${clockIn(x.scheduledTime, tz)}` : i > 0 ? "Followed by" : "Time to be set"}
+                    slug={slug}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>,
+      ];
+    }),
+  );
 
   const section = (title: string, list: Tie[]) =>
     list.length > 0 && (
@@ -49,8 +99,12 @@ export default async function PublicTies({ params }: { params: Promise<{ slug: s
       <AutoRefresh seconds={8} />
       <h1 className="text-2xl font-bold">Ties</h1>
       {section("Live", live)}
-      {section("Coming up", upcoming)}
-      {section("Results", done)}
+      {initial && (
+        <section className="space-y-2" data-testid="order-of-play">
+          <h2 className="label">Order of play</h2>
+          <DayTabs days={days.map((d) => ({ key: d, label: scheduleDayLabel(d), today: d === today }))} initial={initial} panels={panels} />
+        </section>
+      )}
       {ties.length === 0 && <p className="card p-6 text-center text-muted">The order of play is not out yet.</p>}
     </div>
   );

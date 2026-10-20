@@ -705,6 +705,31 @@ export function notifyAnnouncement(announcementId: string) {
 }
 
 /**
+ * The organiser set play delayed / suspended / resumed and asked for a push
+ * (Admin → In the app → Play status): everyone following the tournament or its
+ * event group. Once per saved status (dedupe on its time).
+ */
+export function notifyPlayStatus(o: { tournamentId: string; title: string; body: string; updatedAt: string }) {
+  return safely("play status", async () => {
+    const { data: t } = await db().from("tournaments").select("slug, event_group_id").eq("id", o.tournamentId).maybeSingle();
+    const row = t as { slug?: string; event_group_id?: string | null } | null;
+    await enqueue({
+      kind: "announcement",
+      tournamentId: o.tournamentId,
+      dedupeKey: `play_status:${o.tournamentId}:${o.updatedAt}`,
+      payload: composeAnnouncement({
+        id: `play-status-${o.updatedAt}`,
+        title: o.title,
+        body: o.body,
+        tournamentId: o.tournamentId,
+        tournamentSlug: row?.slug ?? null,
+        eventGroupId: row?.event_group_id ?? null,
+      }),
+    });
+  });
+}
+
+/**
  * A console announcement (Announcements → App push) to everyone following a
  * nation, or to every app user. Tournament audiences go through the in-app
  * announcement and notifyAnnouncement instead, so they also appear in the feed.

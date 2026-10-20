@@ -37,6 +37,7 @@
     "e2e:lineups": "tsx --env-file=.env.localdb scripts/e2e/lineups.ts",
     "e2e:scoring-v2": "tsx --env-file=.env.localdb scripts/e2e/scoring-v2.ts",
     "e2e:live-stream": "tsx --env-file=.env.localdb scripts/e2e/live-stream.ts",
+    "e2e:play-status": "tsx --env-file=.env.localdb scripts/e2e/play-status.ts",
     "e2e:coaches": "tsx --env-file=.env.localdb scripts/e2e/coaches.ts",
     "e2e:venue-map": "tsx --env-file=.env.localdb scripts/e2e/venue-map.ts"
   },

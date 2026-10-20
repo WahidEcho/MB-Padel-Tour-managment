@@ -283,3 +283,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app
   screen `move-score-app/src/app/venue/[slug].tsx` (WebView + expo-location). The public venue is an explicit projection (no
   underlay, no survey fixes). Gate `npm run e2e:venue-map` (stand-in). The sample layout's anchor is a placeholder.
+- Order of play + notices (no migration): pure `src/lib/schedule/orderOfPlay.ts` (days in the event's zone, by court / by time,
+  "followed by" ordering) and `src/lib/notices/playStatus.ts` (both via `@core`). App: Schedule tab (key `ties`) and the Matches tab
+  use `move-score-app/src/ui/Schedule.tsx`; banner `ui/NoticeBanner.tsx`. Play status (normal|delayed|suspended|resumed) is set on
+  Admin → In the app (`savePlayStatus`, `branding_config.playStatus` via `updateBranding`, optional push via `notifyPlayStatus`), sent
+  additively as `MLive.playStatus`; public web banner `src/components/PlayNotice.tsx`, web ties page day picker `DayTabs`.
+  Gate `npm run e2e:play-status` (stand-in).
