@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PublicVenue, MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
+import type { PublicEventInfo, PublicVenue, MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -149,6 +149,18 @@ export function useVenue(slug: string | undefined | null) {
     queryKey: ["venue", slug],
     queryFn: cached(`venue:${slug}`, () => api<PublicVenue>(`/api/mobile/v1/t/${encodeURIComponent(slug ?? "")}/venue`)),
     initialData: () => (slug ? initial<PublicVenue>(`venue:${slug}`) : undefined),
+    ...SAVED_IS_OLD,
+    enabled: Boolean(slug),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The event info for fans (entry, hours, directions, contacts, FAQ); 404 until the organiser publishes it. Kept on the phone for the venue's weak signal. */
+export function useEventInfo(slug: string | undefined | null) {
+  return useQuery<PublicEventInfo>({
+    queryKey: ["event-info", slug],
+    queryFn: cached(`event-info:${slug}`, () => api<PublicEventInfo>(`/api/mobile/v1/t/${encodeURIComponent(slug ?? "")}/info`)),
+    initialData: () => (slug ? initial<PublicEventInfo>(`event-info:${slug}`) : undefined),
     ...SAVED_IS_OLD,
     enabled: Boolean(slug),
     staleTime: 5 * 60_000,

@@ -19,6 +19,7 @@ const PADEL_TABS = [
   ["/scoring-features", "Scoring features"],
   ["/registrations", "Registrations"],
   ["/venue", "Venue map"],
+  ["/event-info", "Event info"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -38,6 +39,7 @@ const TIE_TABS = [
   ["/match-day", "Match day"],
   ["/scoring-features", "Scoring features"],
   ["/venue", "Venue map"],
+  ["/event-info", "Event info"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -52,6 +54,7 @@ const CHESS_TABS = [
   ["/screens", "Screens"],
   ["/match-day", "Match day"],
   ["/registrations", "Registrations"],
+  ["/event-info", "Event info"],
   ["/settings", "Settings"],
 ] as const;
 

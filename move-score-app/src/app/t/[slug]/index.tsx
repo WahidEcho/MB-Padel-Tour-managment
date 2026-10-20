@@ -17,6 +17,7 @@ import { toggleFollow, useFollowsOf } from "../../../state/follows";
 import { isNation, openOrg, openRegister, openTeam } from "../../../nav/links";
 import { NightTable } from "../../../ui/NightTable";
 import { nightTableOf } from "../../../night/table";
+import { EventInfoLink } from "../../../ui/EventInfoLink";
 
 type Tab = "ties" | "matches" | "groups" | "nations";
 const TABS: Tab[] = ["ties", "matches", "groups", "nations"];
@@ -86,6 +87,7 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
             <Body tone="blue" size={13} weight="semi">{`${tr.venue} ›`}</Body>
           </Pressable>
         ) : null}
+        <EventInfoLink slug={slug} />
         {tr.startsOn ? <Body tone="ink2" size={13}>{dateRange(tr.startsOn, tr.endsOn)}</Body> : null}
         {tr.organization ? (
           <Pressable

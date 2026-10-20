@@ -20,9 +20,11 @@ import { openMatch, openTie, openTournament } from "../../nav/links";
 import { startVenueLocation } from "../../venue/location";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A place the event info opens the map on ("poi:<id>"), as the map page accepts it. */
+const PLACE = /^poi:[A-Za-z0-9_-]{1,40}$/;
 
 export default function VenueMapScreen() {
-  const { slug, court } = useLocalSearchParams<{ slug: string; court?: string }>();
+  const { slug, court, focus } = useLocalSearchParams<{ slug: string; court?: string; focus?: string }>();
   const { t } = useTheme();
   const venue = useVenue(slug);
   const web = useRef<WebView>(null);
@@ -33,9 +35,9 @@ export default function VenueMapScreen() {
   const [attempt, setAttempt] = useState(0);
   // The URL is fixed for the screen's life: theme changes go over the bridge, not a reload.
   const url = useMemo(
-    () => embeddedMapUrl(config.apiBaseUrl, slug ?? "", { scheme: t.scheme, focus: court && UUID.test(court) ? `courtrow:${court}` : null }),
+    () => embeddedMapUrl(config.apiBaseUrl, slug ?? "", { scheme: t.scheme, focus: court && UUID.test(court) ? `courtrow:${court}` : focus && PLACE.test(focus) ? focus : null }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [slug, court],
+    [slug, court, focus],
   );
   const origin = useMemo(() => new URL(config.apiBaseUrl).origin, []);
 

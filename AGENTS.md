@@ -283,3 +283,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app
   screen `move-score-app/src/app/venue/[slug].tsx` (WebView + expo-location). The public venue is an explicit projection (no
   underlay, no survey fixes). Gate `npm run e2e:venue-map` (stand-in). The sample layout's anchor is a placeholder.
+- Event info for fans (no migration): stored in the owner tournament's `branding_config.eventInfo` (an event group's first
+  tournament holds the group's info, `eventInfoOwnerOf` in `src/lib/eventInfo/server.ts`; CAS via `updateBranding` plus the editor's
+  `updatedAt`). Pure `src/lib/eventInfo/{clean,hours,links,public}.ts` (sanitiser: plain text, https only, map hosts for map links,
+  E.164; the open-now chip on the venue's clock; via `@core`). `toPublicTournament` and cloning drop `eventInfo`. Admin tab
+  `admin/tournaments/[id]/event-info` (placeholders only, never invented facts), API `GET /api/mobile/v1/t/[slug]/info` (published
+  only, explicit keys, CDN 60 s), web `/t/[slug]/info` (nav "Info"), app `t/[slug]/info` (+ `ui/EventInfoLink` in the hub header;
+  `openVenueMap(slug, court, focus)` takes `poi:<id>`). Gate `npm run e2e:event-info` (stand-in).

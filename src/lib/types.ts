@@ -310,6 +310,12 @@ export interface BrandingConfig {
    * (toPublicTournament drops it), only as the active courts' `liveVideo`.
    */
   liveVideo?: LiveVideoConfig;
+  /**
+   * Event info for fans (admin Event info tab; src/lib/eventInfo/). Stored raw and
+   * read only through readEventInfoDoc; never sent to public pages as it is
+   * (toPublicTournament drops it), only through GET /api/mobile/v1/t/<slug>/info.
+   */
+  eventInfo?: unknown;
 }
 
 /** One court's live video. */

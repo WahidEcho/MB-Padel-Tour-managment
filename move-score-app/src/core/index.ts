@@ -93,3 +93,9 @@ export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coa
 export { parseFromMap, parseToMap, embeddedMapUrl } from "../../../src/lib/venue/bridge";
 export type { FromMap, ToMap } from "../../../src/lib/venue/bridge";
 export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from "../../../src/lib/venue/types";
+// Event info for fans: the open-now chip, labels and the buttons' links.
+export { openState, openLabel, todayHours, hoursLine, dayLabel as eventInfoDayLabel, dateSpan, wallClock, CLOSING_SOON_MINUTES } from "../../../src/lib/eventInfo/hours";
+export type { OpenState } from "../../../src/lib/eventInfo/hours";
+export { directionLinks, telLink, whatsAppLink, mailLink } from "../../../src/lib/eventInfo/links";
+export { EVENT_INFO_PLACES } from "../../../src/lib/eventInfo/types";
+export type { PublicEventInfo, EventInfoDay, EventInfoPlace, EventInfoContact, EventInfoFaq } from "../../../src/lib/eventInfo/types";

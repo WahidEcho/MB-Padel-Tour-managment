@@ -11,6 +11,7 @@ import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
 import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
 import { watchTargets } from "@/lib/watch";
 import { hasPublicVenue } from "@/lib/venue/server";
+import { hasPublicEventInfo } from "@/lib/eventInfo/server";
 
 // Rendered at most every 10s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -67,6 +68,8 @@ export default async function PublicLayout({
   const watch = await watchTargets(tournament.id);
   // The venue map, when the organiser has published one (its own full-screen page).
   const hasMap = await hasPublicVenue(slug);
+  // The event info for fans, once the organiser has published it.
+  const hasInfo = await hasPublicEventInfo(slug);
   const backdrop = backgroundFor(tournament.branding_config, "public");
 
   return (
@@ -99,7 +102,7 @@ export default async function PublicLayout({
           </div>
           <div className="flex items-center gap-2">
             <nav className="flex flex-wrap gap-1 text-xs font-semibold">
-              {(hasMap ? [...NAV, ["/map", "Map"] as const] : NAV).map(([path, label]) => (
+              {[...NAV, ...(hasMap ? [["/map", "Map"] as const] : []), ...(hasInfo ? [["/info", "Info"] as const] : [])].map(([path, label]) => (
                 <Link key={path} href={`/t/${slug}${path}`} className="rounded-lg px-2 py-1 text-muted hover:bg-card hover:text-foreground">
                   {label}
                 </Link>
