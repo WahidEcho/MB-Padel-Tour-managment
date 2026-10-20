@@ -14,7 +14,7 @@ function ServeMark() {
 }
 
 /** A live (or finished) match in two lines: who, sets, the game in play. */
-export function MatchMini({ m, v, width, withDay = false }: { m: MMatch; v: Model; width?: number; withDay?: boolean }) {
+export function MatchMini({ m, v, width, withDay = false, timeLabel }: { m: MMatch; v: Model; width?: number; withDay?: boolean; timeLabel?: string }) {
   const { t } = useTheme();
   // Over but not confirmed (or not yet synced from the referee's phone): the sets stand, nothing is in play.
   const awaiting = isAwaitingResult(m);
@@ -67,7 +67,7 @@ export function MatchMini({ m, v, width, withDay = false }: { m: MMatch; v: Mode
         ) : m.status === "cancelled" ? (
           <Chip label="Not played" />
         ) : (
-          <Num size={14} tone="ink2">{whenIn(m.scheduledTime, tz, withDay)}</Num>
+          <Num size={14} tone="ink2">{timeLabel ?? whenIn(m.scheduledTime, tz, withDay)}</Num>
         )}
         <Eyebrow size={10}>
           {[v.court(m.courtId), m.rubberType ? RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] : m.round].filter(Boolean).join(" · ")}
@@ -80,7 +80,11 @@ export function MatchMini({ m, v, width, withDay = false }: { m: MMatch; v: Mode
 }
 
 /** A tie in one line: nations either side, rubbers or time in the middle. */
-export function TieRow({ tie, v, onPress, withDay = false }: { tie: MTie; v: Model; onPress?: () => void; withDay?: boolean }) {
+/**
+ * `caption` replaces the court under a scheduled tie's time ("NOT BEFORE" in the
+ * order of play by court); `note` adds a line under the row (the round, places).
+ */
+export function TieRow({ tie, v, onPress, withDay = false, caption, note }: { tie: MTie; v: Model; onPress?: () => void; withDay?: boolean; caption?: string; note?: string | null }) {
   const a = v.team(tie.a);
   const b = v.team(tie.b);
   const tz = v.bundle.tournament.timezone;
@@ -93,11 +97,12 @@ export function TieRow({ tie, v, onPress, withDay = false }: { tie: MTie; v: Mod
         : "Time to be confirmed"
       : `${tie.status === "live" ? "Live" : "Final"}, rubbers ${tie.rubbersA}–${tie.rubbersB}`,
     court,
+    note,
   ]
     .filter(Boolean)
     .join(". ");
-  return (
-    <Card onPress={onPress ?? (() => openTie(tie.id))} style={{ flexDirection: "row", alignItems: "center", gap: 10 }} accessibilityLabel={label}>
+  const row = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
         <Flag iso2={a?.iso2} code={a?.code} />
         <Body weight="bold" size={14} numberOfLines={1}>{a?.code ?? "TBD"}</Body>
@@ -109,13 +114,23 @@ export function TieRow({ tie, v, onPress, withDay = false }: { tie: MTie; v: Mod
             ? "LIVE"
             : tie.status === "completed"
               ? "FINAL"
-              : [withDay && tie.scheduledTime ? dayIn(tie.scheduledTime, tz) : null, court ?? "Court TBC"].filter(Boolean).join(" · ")}
+              : (caption ?? [withDay && tie.scheduledTime ? dayIn(tie.scheduledTime, tz) : null, court ?? "Court TBC"].filter(Boolean).join(" · "))}
         </Eyebrow>
       </View>
       <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "flex-end", minWidth: 0 }}>
         <Body weight="bold" size={14} numberOfLines={1}>{b?.code ?? "TBD"}</Body>
         <Flag iso2={b?.iso2} code={b?.code} />
       </View>
+    </View>
+  );
+  return (
+    <Card onPress={onPress ?? (() => openTie(tie.id))} style={{ gap: 6 }} accessibilityLabel={label}>
+      {row}
+      {note ? (
+        <Body tone="ink2" size={12} numberOfLines={1} style={{ textAlign: "center" }}>
+          {note}
+        </Body>
+      ) : null}
     </Card>
   );
 }

@@ -2,14 +2,16 @@ import { useMemo, useState } from "react";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useBundle, useLive, useRegistrationInfo, useStandings, useVenue } from "../../../api/queries";
-import { dateRange, dayIn, finishedMatches, isAwaitingResult, liveMatches, makeView, needsDay, upcomingMatches } from "../../../api/model";
+import { dateRange, finishedMatches, isAwaitingResult, liveMatches, makeView } from "../../../api/model";
 import { SkinScope, useTheme } from "../../../theme/ThemeProvider";
 import { Screen } from "../../../ui/Screen";
 import { BackHeader } from "../../../ui/Header";
 import { Segments } from "../../../ui/Segments";
 import { Body, Display, Eyebrow, Num } from "../../../ui/Text";
 import { Card, Empty, Flag, LivePill, SectionHeader, ToggleButton } from "../../../ui/Bits";
-import { MatchMini, TieCard, TieRow } from "../../../ui/Cards";
+import { MatchMini } from "../../../ui/Cards";
+import { MatchSchedule, TieSchedule } from "../../../ui/Schedule";
+import { NoticeBanners } from "../../../ui/NoticeBanner";
 import { SponsorBand } from "../../../ui/Sponsors";
 import { StaleBanner } from "../../../ui/Offline";
 import { LoadState } from "../../../ui/LoadState";
@@ -53,28 +55,17 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
   }
   const tr = b.data.tournament;
   const ties = l.data?.ties ?? [];
-  const liveTies = ties.filter((x) => x.status === "live");
-  const nextTies = ties.filter((x) => x.status === "scheduled").sort((x, y) => (x.scheduledTime ?? "9").localeCompare(y.scheduledTime ?? "9"));
-  // One heading per day, so "Next · Tue 3 Nov" never sits over Wednesday's ties.
-  const nextByDay: { day: string; list: typeof nextTies }[] = [];
-  for (const x of nextTies.slice(0, 12)) {
-    const day = dayIn(x.scheduledTime, tr.timezone) || "Order of play";
-    const last = nextByDay[nextByDay.length - 1];
-    if (last && last.day === day) last.list.push(x);
-    else nextByDay.push({ day, list: [x] });
-  }
-  const upcoming = upcomingMatches(l.data);
-  const upcomingWithDay = needsDay(upcoming.slice(0, 30).map((m) => m.scheduledTime), tr.timezone);
   const liveCount = liveMatches(l.data).filter((m) => !isAwaitingResult(m)).length;
-  const doneTies = ties.filter((x) => x.status === "completed").reverse();
-  const current: Tab = !isTies && (tab === "ties" || tab === "brackets") ? "matches" : tab;
+  const current: Tab = !isTies && (tab === "ties" || tab === "brackets") ? "matches" : isTies && tab === "matches" ? "ties" : tab;
+  // The "ties" key stays (deep links ?tab=ties); the tab is the order of play by day and court.
   const tabs = isTies
-    ? ([{ key: "ties", label: "Ties" }, { key: "groups", label: "Groups" }, { key: "brackets", label: "Brackets" }, { key: "nations", label: "Nations" }] as const)
+    ? ([{ key: "ties", label: "Schedule" }, { key: "groups", label: "Groups" }, { key: "brackets", label: "Brackets" }, { key: "nations", label: "Nations" }] as const)
     : ([{ key: "matches", label: "Matches" }, { key: "groups", label: "Groups" }, { key: "nations", label: "Teams" }] as const);
   return (
     <Screen tabs={false} onRefresh={() => Promise.all([l.refetch(), b.refetch(), s.refetch()])}>
       <BackHeader label="Discover" />
       <StaleBanner queries={[l]} live />
+      <NoticeBanners live={l.data} timeZone={tr.timezone} />
       <Eyebrow>{[tr.sport, `${b.data.teams.length} ${isTies ? "nations" : "teams"}`].join(" · ")}</Eyebrow>
       <Display size={27} style={{ marginTop: 8, lineHeight: 30 }}>{tr.name}</Display>
       <View style={{ flexDirection: "row", columnGap: 16, rowGap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
@@ -115,48 +106,26 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
       </View>
       <Segments value={current} options={tabs as unknown as { key: Tab; label: string }[]} onChange={setTab} />
 
-      {current === "ties" && (
-        <View style={{ gap: 10 }}>
-          {liveTies.map((x) => (
-            <TieCard key={x.id} tie={x} v={v} linkTie />
-          ))}
-          {nextByDay.map((g, i) => (
-            <View key={g.day} style={{ gap: 10 }}>
-              <SectionHeader title={i === 0 ? `Next · ${g.day}` : g.day} />
-              {g.list.map((x) => (
-                <TieRow key={x.id} tie={x} v={v} />
-              ))}
-            </View>
-          ))}
-          {doneTies.length > 0 && <SectionHeader title="Results" />}
-          {doneTies.map((x) => (
-            <TieRow key={x.id} tie={x} v={v} />
-          ))}
-          {!ties.length && <Empty title="The order of play is not out yet" body="Ties appear here as soon as the groups are drawn." />}
-        </View>
-      )}
+      {current === "ties" && <TieSchedule ties={ties} v={v} />}
 
-      {current === "matches" && (
+      {current === "matches" && night && (
         <View style={{ gap: 8 }}>
           {liveMatches(l.data).map((m) => (
             <MatchMini key={m.id} m={m} v={v} />
           ))}
-          {night && night.matches > night.finished ? (
+          {night.matches > night.finished ? (
             <>
               <SectionHeader title={b.data.tournament.night?.publishedAt ? "Order of play" : "Order of play (draft)"} />
               <NightTable table={night} />
             </>
           ) : null}
-          {!night && upcoming.length > 0 && <SectionHeader title="Coming up" />}
-          {!night && upcoming.slice(0, 30).map((m) => (
-            <MatchMini key={m.id} m={m} v={v} withDay={upcomingWithDay} />
-          ))}
           {finishedMatches(l.data).length > 0 && <SectionHeader title="Results" />}
           {finishedMatches(l.data).map((m) => (
             <MatchMini key={m.id} m={m} v={v} />
           ))}
         </View>
       )}
+      {current === "matches" && !night && <MatchSchedule matches={l.data?.matches ?? []} v={v} />}
 
       {current === "groups" && (
         <View style={{ gap: 12 }}>

@@ -5,9 +5,18 @@ import { db } from "@/lib/supabase";
 import { getTournament } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { isoToZonedInput } from "@/lib/tennis/ties";
-import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup } from "./actions";
+import StateForm from "@/components/StateForm";
+import { MAX_PLAY_STATUS_MESSAGE, PLAY_STATUS_KINDS, PLAY_STATUS_LABELS, PLAY_STATUS_TITLES, publicPlayStatus, type PlayStatusKind } from "@/lib/notices/playStatus";
+import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup, savePlayStatus } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+const PLAY_STATUS_BADGE: Record<PlayStatusKind, string> = {
+  normal: "bg-border text-muted",
+  delayed: "bg-warning/15 text-warning",
+  suspended: "bg-danger/15 text-danger",
+  resumed: "bg-success/15 text-success",
+};
 
 interface GroupRow {
   id: string;
@@ -38,6 +47,10 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
   const allGroups = (groups ?? []) as GroupRow[];
   const group = allGroups.find((g) => g.id === tournament.event_group_id) ?? null;
   const skin = tournament.app_skin ?? {};
+  const playStatus = tournament.branding_config?.playStatus ?? null;
+  // What viewers see right now (a "resumed" banner fades by itself).
+  const shownStatus = publicPlayStatus(playStatus);
+  const resumeClock = playStatus?.resumeAt ? isoToZonedInput(playStatus.resumeAt, tournament.timezone || "Africa/Cairo").slice(11, 16) : "";
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -144,6 +157,44 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="card space-y-3" data-testid="play-status">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h2 className="font-bold">Play status</h2>
+          <span className={`badge ${PLAY_STATUS_BADGE[shownStatus?.kind ?? "normal"]}`} data-testid="play-status-badge">
+            {shownStatus ? PLAY_STATUS_TITLES[shownStatus.kind] : "Normal · no banner"}
+          </span>
+        </div>
+        <p className="text-sm text-muted">
+          A banner at the top of the tournament page in the app and on the public site: a rain delay (amber), play suspended (red) or play
+          resumed (green, gone after two hours). Set it back to Normal when play runs again.
+        </p>
+        <StateForm action={savePlayStatus} className="space-y-2" testId="play-status-form">
+          <input type="hidden" name="tournament_id" value={id} />
+          <div className="flex flex-wrap gap-3 text-sm">
+            {PLAY_STATUS_KINDS.map((k) => (
+              <label key={k} className="flex items-center gap-1">
+                <input type="radio" name="kind" value={k} defaultChecked={(playStatus?.kind ?? "normal") === k} /> {PLAY_STATUS_LABELS[k]}
+              </label>
+            ))}
+          </div>
+          <input name="message" maxLength={MAX_PLAY_STATUS_MESSAGE} defaultValue={playStatus?.message ?? ""} className="input" placeholder="Rain. Courts are being dried." />
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="block">
+              <span className="label">Resume about (today, {tournament.timezone || "Africa/Cairo"})</span>
+              <input name="resume_at" type="time" defaultValue={resumeClock} className="input w-32" />
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="push" /> Push to followers
+            </label>
+          </div>
+          <button className="btn-primary">Save play status</button>
+        </StateForm>
+        <p className="text-xs text-muted">
+          To move the times themselves, use &ldquo;Delay the order of play&rdquo; on the{" "}
+          <Link className="text-accent underline" href={`/admin/tournaments/${id}/ties`}>Ties</Link> tab.
+        </p>
       </section>
 
       <section className="card space-y-2">

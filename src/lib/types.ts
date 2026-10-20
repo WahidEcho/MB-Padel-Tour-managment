@@ -274,6 +274,8 @@ export interface EventBackground {
   showOnPublic: boolean;
 }
 
+import type { PlayStatusConfig } from "./notices/playStatus";
+
 export interface BrandingConfig {
   moveBeyondLogoUrl?: string;
   clientLogoUrl?: string;
@@ -310,6 +312,12 @@ export interface BrandingConfig {
    * (toPublicTournament drops it), only as the active courts' `liveVideo`.
    */
   liveVideo?: LiveVideoConfig;
+  /**
+   * Rain delay / play suspended / resumed, set on Admin → In the app (Play
+   * status). Public: sent on the live feed through publicPlayStatus
+   * (src/lib/notices/playStatus.ts).
+   */
+  playStatus?: PlayStatusConfig;
 }
 
 /** One court's live video. */

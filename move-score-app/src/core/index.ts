@@ -99,3 +99,8 @@ export type { BracketDraw, BracketRound, BracketBlock, BracketTie, BracketSide }
 // Fan stats (match and tie screens).
 export { computeMatchStats, tieStats, swapSides, statLines, durationText, STATS_NOTES } from "../../../src/lib/scoring/stats";
 export type { MatchStats, MatchStatsResult, SideStats, SetDuration, StatLine, TieStats, TieRubberStats, StatsUnavailable } from "../../../src/lib/scoring/stats";
+// The order of play by day and court (Schedule tab) and the on-screen notices (rain delay, play suspended).
+export { TBC_DAY, NO_COURT_TITLE, NO_TIME_TITLE, dayKeyIn, clockIn, itemDay, scheduleDays, defaultScheduleDay, scheduleDayLabel, scheduleForDay } from "../../../src/lib/schedule/orderOfPlay";
+export type { ScheduleItem, ScheduleCourt, ScheduleGroup, ScheduleMode, ScheduleStatus, DaySchedule } from "../../../src/lib/schedule/orderOfPlay";
+export { PLAY_STATUS_TITLES, noticeBanners, currentMajorAnnouncement, publicPlayStatus, resumeLine } from "../../../src/lib/notices/playStatus";
+export type { NoticeBanner, NoticeTone, PlayStatusKind } from "../../../src/lib/notices/playStatus";
