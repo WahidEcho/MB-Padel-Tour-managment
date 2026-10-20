@@ -16,8 +16,11 @@ export const openTie = (id: string) => router.push({ pathname: "/tie/[id]", para
 export const openTournament = (slug: string, tab?: "ties" | "matches" | "groups" | "nations") =>
   router.push({ pathname: "/t/[slug]", params: tab ? { slug, tab } : { slug } });
 /** An organisation's page (profile, its tournaments, follow). */
-/** The venue map, focused on a court (its courts.id) when given. */
-export const openVenueMap = (slug: string, court?: string | null) => router.push({ pathname: "/venue/[slug]", params: court ? { slug, court } : { slug } });
+/** The venue map, focused on a court (its courts.id) or a place ("poi:<id>", from the event info) when given. */
+export const openVenueMap = (slug: string, court?: string | null, focus?: string | null) =>
+  router.push({ pathname: "/venue/[slug]", params: { slug, ...(court ? { court } : {}), ...(focus ? { focus } : {}) } });
+/** The event info for fans: getting in, hours, directions, contacts, FAQ. */
+export const openEventInfo = (slug: string) => router.push({ pathname: "/t/[slug]/info", params: { slug } });
 export const openOrg = (slug: string) => router.push({ pathname: "/org/[slug]", params: { slug } });
 /** A league's page (divisions, joining, boards, nights and fixtures). */
 export const openLeague = (slug: string) => router.push({ pathname: "/league/[slug]", params: { slug } });

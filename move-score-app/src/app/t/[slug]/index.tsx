@@ -20,6 +20,7 @@ import { isNation, openOrg, openRegister, openTeam, openVenueMap } from "../../.
 import { Brackets } from "../../../ui/Bracket";
 import { NightTable } from "../../../ui/NightTable";
 import { nightTableOf } from "../../../night/table";
+import { EventInfoLink } from "../../../ui/EventInfoLink";
 
 type Tab = "ties" | "matches" | "groups" | "brackets" | "nations";
 const TABS: Tab[] = ["ties", "matches", "groups", "brackets", "nations"];
@@ -80,6 +81,7 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
             <Body tone="blue" size={13} weight="semi">{`${tr.venue} ›`}</Body>
           </Pressable>
         ) : null}
+        <EventInfoLink slug={slug} />
         {tr.startsOn ? <Body tone="ink2" size={13}>{dateRange(tr.startsOn, tr.endsOn)}</Body> : null}
         {tr.organization ? (
           <Pressable

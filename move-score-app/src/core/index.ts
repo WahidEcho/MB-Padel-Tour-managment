@@ -104,3 +104,9 @@ export { TBC_DAY, NO_COURT_TITLE, NO_TIME_TITLE, dayKeyIn, clockIn, itemDay, sch
 export type { ScheduleItem, ScheduleCourt, ScheduleGroup, ScheduleMode, ScheduleStatus, DaySchedule } from "../../../src/lib/schedule/orderOfPlay";
 export { PLAY_STATUS_TITLES, noticeBanners, currentMajorAnnouncement, publicPlayStatus, resumeLine } from "../../../src/lib/notices/playStatus";
 export type { NoticeBanner, NoticeTone, PlayStatusKind } from "../../../src/lib/notices/playStatus";
+// Event info for fans: the open-now chip, labels and the buttons' links.
+export { openState, openLabel, todayHours, hoursLine, dayLabel as eventInfoDayLabel, dateSpan, wallClock, CLOSING_SOON_MINUTES } from "../../../src/lib/eventInfo/hours";
+export type { OpenState } from "../../../src/lib/eventInfo/hours";
+export { directionLinks, telLink, whatsAppLink, mailLink } from "../../../src/lib/eventInfo/links";
+export { EVENT_INFO_PLACES } from "../../../src/lib/eventInfo/types";
+export type { PublicEventInfo, EventInfoDay, EventInfoPlace, EventInfoContact, EventInfoFaq } from "../../../src/lib/eventInfo/types";

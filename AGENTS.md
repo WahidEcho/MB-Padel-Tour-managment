@@ -295,3 +295,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Admin → In the app (`savePlayStatus`, `branding_config.playStatus` via `updateBranding`, optional push via `notifyPlayStatus`), sent
   additively as `MLive.playStatus`; public web banner `src/components/PlayNotice.tsx`, web ties page day picker `DayTabs`.
   Gate `npm run e2e:play-status` (stand-in).
+- Event info for fans (no migration): stored in the owner tournament's `branding_config.eventInfo` (an event group's first
+  tournament holds the group's info, `eventInfoOwnerOf` in `src/lib/eventInfo/server.ts`; CAS via `updateBranding` plus the editor's
+  `updatedAt`). Pure `src/lib/eventInfo/{clean,hours,links,public}.ts` (sanitiser: plain text, https only, map hosts for map links,
+  E.164; the open-now chip on the venue's clock; via `@core`). `toPublicTournament` and cloning drop `eventInfo`. Admin tab
+  `admin/tournaments/[id]/event-info` (placeholders only, never invented facts), API `GET /api/mobile/v1/t/[slug]/info` (published
+  only, explicit keys, CDN 60 s), web `/t/[slug]/info` (nav "Info"), app `t/[slug]/info` (+ `ui/EventInfoLink` in the hub header;
+  `openVenueMap(slug, court, focus)` takes `poi:<id>`). Gate `npm run e2e:event-info` (stand-in).
