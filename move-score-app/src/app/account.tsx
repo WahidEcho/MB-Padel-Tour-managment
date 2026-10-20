@@ -249,19 +249,21 @@ export default function Account() {
       {cfg.data?.flags.player_claim !== false && <PlayerSection />}
 
       <SectionHeader title="Staff" />
-      <Card onPress={() => router.push("/referee")} style={{ gap: 4 }}>
-        <Body weight="semi">{staff ? `Referee mode · ${staff.role}` : "Referee sign-in"}</Body>
-        <Body tone="ink2" size={12.5}>For officials scoring matches at the event.</Body>
-      </Card>
-      <Card onPress={() => router.push(coach ? "/coach/team" : "/coach")} style={{ gap: 4 }} accessibilityLabel={coach ? `My team, ${coach.team.name}` : "Coach sign-in"}>
-        <Body weight="semi">{coach ? `My team · ${coach.team.name}` : "Coach sign-in"}</Body>
-        <Body tone="ink2" size={12.5}>For national team coaches: your team&apos;s ties, line-ups, live scores and alerts, with the code on your team&apos;s card.</Body>
-      </Card>
+      <View style={{ gap: 12 }}>
+        <Card onPress={() => router.push("/referee")} style={{ gap: 6 }}>
+          <Body weight="semi">{staff ? `Referee mode · ${staff.role}` : "Referee sign-in"}</Body>
+          <Body tone="ink2" size={12.5}>For officials scoring matches at the event.</Body>
+        </Card>
+        <Card onPress={() => router.push(coach ? "/coach/team" : "/coach")} style={{ gap: 4 }} accessibilityLabel={coach ? `My team, ${coach.team.name}` : "Coach sign-in"}>
+          <Body weight="semi">{coach ? `My team · ${coach.team.name}` : "Coach sign-in"}</Body>
+          <Body tone="ink2" size={12.5}>For national team coaches: your team&apos;s ties, line-ups, live scores and alerts, with the code on your team&apos;s card.</Body>
+        </Card>
 
-      <Card onPress={() => void Linking.openURL(`${config.apiBaseUrl}/organizations/apply?via=app`)} accessibilityLabel="Run a club, academy or events? Apply to run them on Move Score" style={{ gap: 4 }}>
-        <Body weight="semi">Run a club, academy or events?</Body>
-        <Body tone="ink2" size={12.5}>Apply to run your tournaments on Move Score. Move Beyond reviews every application.</Body>
-      </Card>
+        <Card onPress={() => void Linking.openURL(`${config.apiBaseUrl}/organizations/apply?via=app`)} accessibilityLabel="Run a club, academy or events? Apply to run them on Move Score" style={{ gap: 4 }}>
+          <Body weight="semi">Run a club, academy or events?</Body>
+          <Body tone="ink2" size={12.5}>Apply to run your tournaments on Move Score. Move Beyond reviews every application.</Body>
+        </Card>
+      </View>
 
       <SectionHeader title="About" />
       <Card style={{ gap: 10 }}>

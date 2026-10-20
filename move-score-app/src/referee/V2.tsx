@@ -329,34 +329,100 @@ function ChoiceRow<V extends string | number>({ label, value, options, onPick }:
   );
 }
 
-/** Doubles, at the start of every set: who serves and receives first (ITF Rule 14). */
 /**
- * The doubles serve/receive order at a set start. `teamFree`: only the first set's toss
- * picks the serving team; later sets follow the rotation (audit L5) and the referee only
- * picks the partners.
+ * Doubles, at the start of every set: the serve and receive order (ITF Rule 14),
+ * asked one question at a time:
+ *   1. which country serves (first set only: the toss; later sets follow the rotation),
+ *   2. which of its players serves,
+ *   3. which player of the other side receives first,
+ * then the second game's order on one screen, already filled in, to confirm.
+ * Tapping an answer moves to the next question; Back goes one step back.
  */
+type OrderStep = "team" | "server" | "receiver" | "next";
+
 export function ServeOrderForm({ sides, initial, onConfirm, teamFree = true }: { sides: Record<TeamKey, V2Side>; initial: ServeOrder; onConfirm: (o: ServeOrder) => void; teamFree?: boolean }) {
+  const { t } = useTheme();
+  const steps: OrderStep[] = teamFree ? ["team", "server", "receiver", "next"] : ["server", "receiver", "next"];
   const [o, setO] = useState<ServeOrder>(initial);
+  const [i, setI] = useState(0);
+  const step = steps[i];
   const team = o.servingTeam;
   const other: TeamKey = team === "A" ? "B" : "A";
   const players = (k: TeamKey): [0 | 1, string][] => [
     [0, sides[k].players[0] ?? "Player 1"],
     [1, sides[k].players[1] ?? "Player 2"],
   ];
+  const pick = (patch: Partial<ServeOrder>) => {
+    setO({ ...o, ...patch });
+    setI(Math.min(i + 1, steps.length - 1));
+  };
+  const questions = steps.length - 1;
   return (
-    <View style={{ gap: 12 }} testID="serve-order">
-      {teamFree ? (
-        <ChoiceRow label="Which team serves?" value={team} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} onPick={(v) => setO({ ...o, servingTeam: v })} />
-      ) : (
-        <Body weight="bold" size={15}>{`${sides[team].name} serve first (the rotation)`}</Body>
-      )}
-      <ChoiceRow label={`Who serves for ${sides[team].name}?`} value={o.server} options={players(team)} onPick={(v) => setO({ ...o, server: v })} />
-      <ChoiceRow label={`Who receives first for ${sides[other].name}?`} value={o.receiver} options={players(other)} onPick={(v) => setO({ ...o, receiver: v })} />
-      <ChoiceRow label={`Who serves first for ${sides[other].name} (game 2)?`} value={o.otherServer} options={players(other)} onPick={(v) => setO({ ...o, otherServer: v })} />
-      <ChoiceRow label={`Who receives first for ${sides[team].name} (game 2)?`} value={o.otherReceiver} options={players(team)} onPick={(v) => setO({ ...o, otherReceiver: v })} />
-      <Pressable testID="serve-order-confirm" accessibilityRole="button" onPress={() => onConfirm(o)} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
-        <Body weight="bold" size={16} style={{ color: BALL_INK }}>Confirm</Body>
-      </Pressable>
+    <View style={{ gap: 16 }} testID="serve-order">
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Eyebrow size={11} tone="ink3">{step === "next" ? "Check and confirm" : `Question ${i + 1} of ${questions}`}</Eyebrow>
+        {i > 0 ? (
+          <Pressable accessibilityRole="button" onPress={() => setI(i - 1)} hitSlop={10}>
+            <Body tone="blue" weight="semi" size={14}>‹ Back</Body>
+          </Pressable>
+        ) : null}
+      </View>
+      {!teamFree && step === "server" ? (
+        <View style={{ backgroundColor: t.chip, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <Body weight="semi" size={14}>{`${sides[team].name} serve first this set (the rotation).`}</Body>
+        </View>
+      ) : null}
+      {step === "team" ? (
+        <BigChoice question="Which country serves first?" value={team} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} onPick={(v) => pick({ servingTeam: v })} />
+      ) : null}
+      {step === "server" ? (
+        <BigChoice question={`Which player serves for ${sides[team].name}?`} value={o.server} options={players(team)} onPick={(v) => pick({ server: v })} />
+      ) : null}
+      {step === "receiver" ? (
+        <BigChoice question={`Which player of ${sides[other].name} receives the serve?`} value={o.receiver} options={players(other)} onPick={(v) => pick({ receiver: v })} />
+      ) : null}
+      {step === "next" ? (
+        <View style={{ gap: 16 }}>
+          <View style={{ gap: 6 }}>
+            <Body size={14}>
+              <Body weight="bold" size={14}>{`${sides[team].players[o.server] ?? "Player"}`}</Body>
+              {` (${sides[team].name}) serves to `}
+              <Body weight="bold" size={14}>{`${sides[other].players[o.receiver] ?? "Player"}`}</Body>
+              {` (${sides[other].name}).`}
+            </Body>
+            <Body tone="ink2" size={13}>Game 2 (ITF Rule 14), filled in — change only if the players chose otherwise:</Body>
+          </View>
+          <ChoiceRow label={`${sides[other].name} serves in game 2`} value={o.otherServer} options={players(other)} onPick={(v) => setO({ ...o, otherServer: v })} />
+          <ChoiceRow label={`${sides[team].name} receives first in game 2`} value={o.otherReceiver} options={players(team)} onPick={(v) => setO({ ...o, otherReceiver: v })} />
+          <Pressable testID="serve-order-confirm" accessibilityRole="button" onPress={() => onConfirm(o)} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
+            <Body weight="bold" size={16} style={{ color: BALL_INK }}>Start the set</Body>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** One question with big answers stacked full width; tapping one answers it. */
+function BigChoice<V extends string | number>({ question, value, options, onPick }: { question: string; value: V; options: [V, string][]; onPick: (v: V) => void }) {
+  const { t } = useTheme();
+  return (
+    <View style={{ gap: 12 }}>
+      <Body weight="bold" size={19}>{question}</Body>
+      {options.map(([v, text]) => {
+        const on = v === value;
+        return (
+          <Pressable
+            key={String(v)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            onPress={() => onPick(v)}
+            style={({ pressed }) => ({ minHeight: 64, justifyContent: "center", paddingHorizontal: 18, borderRadius: 18, borderWidth: 2, borderColor: on ? t.blue : t.line, backgroundColor: on ? "rgba(77,155,255,0.14)" : t.chip, opacity: pressed ? 0.8 : 1 })}
+          >
+            <Body weight="bold" size={17} numberOfLines={1}>{text}</Body>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

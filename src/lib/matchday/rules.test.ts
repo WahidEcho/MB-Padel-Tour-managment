@@ -19,6 +19,19 @@ describe("matchDayRules", () => {
     expect(off.scoring.mode).toBe("point_by_point");
   });
 
+  it("an unsaved tennis row has the scoring features on, the rest of match day off", () => {
+    for (const raw of [{}, null, { configured: false }]) {
+      const r = matchDayRules(raw, "tennis");
+      expect(r.configured).toBe(false);
+      expect(r.alerts.on).toBe(false);
+      expect(r.features.doublesOrder && r.features.fault && r.features.callMaster).toBe(true);
+    }
+    // A switch the admins turned off stays off.
+    expect(matchDayRules({ features: { doublesOrder: false } }, "tennis").features).toMatchObject({ doublesOrder: false, fault: true });
+    // Padel keeps them off until switched on.
+    expect(matchDayRules({}, "padel").features.fault).toBe(false);
+  });
+
   it("keeps a saved row's known keys", () => {
     const r = matchDayRules({ ...DEFAULT_MATCH_DAY_RULES, alerts: { on: false }, scoring: { mode: "final_score" } }, "padel");
     expect(r.configured).toBe(true);

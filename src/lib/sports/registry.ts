@@ -44,6 +44,12 @@ export interface SportDef {
   defaultRules: ScoringConfig;
   nouns: SportNouns;
   supports: SportSupports;
+  /**
+   * The scoring features (Fault, Ace, Let, timers, doubles serve order…) are on for a
+   * tournament whose admins have not saved its Scoring features tab yet. Tennis only:
+   * the features follow the ITF rules; other sports keep them off until switched on.
+   */
+  scoringFeaturesByDefault?: boolean;
 }
 
 const GAMES_NOUNS: SportNouns = { side: "Team", sides: "Teams", match: "Match", matches: "Matches", court: "Court", courts: "Courts" };
@@ -64,6 +70,7 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     defaultRules: DEFAULT_TENNIS_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
     supports: { ties: true, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true },
+    scoringFeaturesByDefault: true,
   },
   chess: {
     id: "chess",

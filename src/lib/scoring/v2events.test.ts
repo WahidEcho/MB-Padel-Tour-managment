@@ -133,9 +133,10 @@ describe("v2 events from the console", () => {
 });
 
 describe("settings", () => {
-  it("a tournament that saved the Match day tab gets every v2 feature on; an unsaved one, none", () => {
+  it("a tournament that saved the Match day tab gets every v2 feature on; an unsaved one: on for tennis, off for padel", () => {
     expect(matchDayRules({ configured: true }, { sport: "tennis" }).features).toEqual(SCORING_FEATURES_ON);
-    expect(matchDayRules({}, { sport: "tennis" }).features.fault).toBe(false);
+    expect(matchDayRules({}, { sport: "tennis" }).features).toEqual(SCORING_FEATURES_ON);
+    expect(matchDayRules({}, { sport: "padel" }).features.fault).toBe(false);
     const saved = matchDayRules({ configured: true, features: { fault: false, tvAces: false, junk: true } }, { sport: "tennis" });
     expect(saved.features.fault).toBe(false);
     expect(saved.features.tvAces).toBe(false);

@@ -428,30 +428,74 @@ export function ServeOrderDialog({
   onConfirm: (o: ServeOrder) => void;
   teamFree?: boolean;
 }) {
+  // One question at a time: the country (first set only), its server, the other side's receiver;
+  // then the second game's order (ITF Rule 14), filled in, to confirm.
+  const steps = teamFree ? (["team", "server", "receiver", "next"] as const) : (["server", "receiver", "next"] as const);
   const [o, setO] = useState<ServeOrder>(initial);
+  const [i, setI] = useState(0);
+  const step = steps[i];
   const serving = o.servingTeam;
   const other: TeamKey = serving === "A" ? "B" : "A";
   const players = (k: TeamKey): [0 | 1, string][] => [
     [0, sides[k].players[0] ?? "Player 1"],
     [1, sides[k].players[1] ?? "Player 2"],
   ];
+  const pick = (patch: Partial<ServeOrder>) => {
+    setO({ ...o, ...patch });
+    setI(Math.min(i + 1, steps.length - 1));
+  };
   return (
-    <div className="space-y-3" data-testid="serve-order">
+    <div className="space-y-4" data-testid="serve-order">
       <h3 className="text-xl font-black uppercase">Start of set {set}</h3>
-      {teamFree ? (
-        <Choice label="Which team serves?" value={serving} onPick={(v: TeamKey) => setO({ ...o, servingTeam: v })} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} />
-      ) : (
-        <p className="text-sm font-semibold text-muted" data-testid="serve-order-team">
-          {sides[serving].name} serve first (the rotation)
+      <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted">
+        <span>{step === "next" ? "Check and confirm" : `Question ${i + 1} of ${steps.length - 1}`}</span>
+        {i > 0 && (
+          <button type="button" className="text-accent" onClick={() => setI(i - 1)}>
+            ‹ Back
+          </button>
+        )}
+      </div>
+      {!teamFree && step === "server" && (
+        <p className="rounded-xl bg-background px-3 py-2 text-sm font-semibold" data-testid="serve-order-team">
+          {sides[serving].name} serve first this set (the rotation)
         </p>
       )}
-      <Choice label={`Who serves for ${sides[serving].name}?`} value={o.server} onPick={(v: 0 | 1) => setO({ ...o, server: v })} options={players(serving)} />
-      <Choice label={`Who receives first for ${sides[other].name}?`} value={o.receiver} onPick={(v: 0 | 1) => setO({ ...o, receiver: v })} options={players(other)} />
-      <Choice label={`Who serves first for ${sides[other].name} (game 2)?`} value={o.otherServer} onPick={(v: 0 | 1) => setO({ ...o, otherServer: v })} options={players(other)} />
-      <Choice label={`Who receives first for ${sides[serving].name} (game 2)?`} value={o.otherReceiver} onPick={(v: 0 | 1) => setO({ ...o, otherReceiver: v })} options={players(serving)} />
-      <button type="button" onClick={() => onConfirm(o)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
-        Confirm
-      </button>
+      {step === "team" && <Big question="Which country serves first?" value={serving} onPick={(v: TeamKey) => pick({ servingTeam: v })} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} />}
+      {step === "server" && <Big question={`Which player serves for ${sides[serving].name}?`} value={o.server} onPick={(v: 0 | 1) => pick({ server: v })} options={players(serving)} />}
+      {step === "receiver" && <Big question={`Which player of ${sides[other].name} receives the serve?`} value={o.receiver} onPick={(v: 0 | 1) => pick({ receiver: v })} options={players(other)} />}
+      {step === "next" && (
+        <div className="space-y-4">
+          <p className="text-sm">
+            <b>{sides[serving].players[o.server] ?? "Player"}</b> ({sides[serving].name}) serves to <b>{sides[other].players[o.receiver] ?? "Player"}</b> ({sides[other].name}).
+          </p>
+          <p className="text-sm text-muted">Game 2 (ITF Rule 14), filled in — change only if the players chose otherwise:</p>
+          <Choice label={`${sides[other].name} serves in game 2`} value={o.otherServer} onPick={(v: 0 | 1) => setO({ ...o, otherServer: v })} options={players(other)} />
+          <Choice label={`${sides[serving].name} receives first in game 2`} value={o.otherReceiver} onPick={(v: 0 | 1) => setO({ ...o, otherReceiver: v })} options={players(serving)} />
+          <button type="button" onClick={() => onConfirm(o)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
+            Start the set
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One question with big answers stacked full width; picking one answers it. */
+function Big<V extends string | number>({ question, value, onPick, options }: { question: string; value: V; onPick: (v: V) => void; options: [V, string][] }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-lg font-bold">{question}</p>
+      {options.map(([v, text]) => (
+        <button
+          key={String(v)}
+          type="button"
+          onClick={() => onPick(v)}
+          className={`block w-full rounded-2xl border-2 px-4 py-4 text-left text-base font-bold ${value === v ? "border-accent bg-accent/15" : "border-border bg-background"}`}
+          aria-pressed={value === v}
+        >
+          {text}
+        </button>
+      ))}
     </div>
   );
 }

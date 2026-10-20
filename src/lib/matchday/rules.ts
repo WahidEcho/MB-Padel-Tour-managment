@@ -258,8 +258,11 @@ export function matchDayRules(raw: unknown, sport?: { sport?: string | null } | 
   if (!isRecord(raw) || raw.configured !== true) {
     // The scoring features are the admins' own switches (Admin → Scoring features):
     // saved ones count even while the rest of match day is off.
-    if (!isRecord(raw) || !isRecord(raw.features)) return OFF_MATCH_DAY_RULES;
-    return forSport({ ...OFF_MATCH_DAY_RULES, features: group(SCORING_FEATURES_OFF, raw.features) }, sportOf(sport));
+    // Tennis starts with them on (sportOf().scoringFeaturesByDefault) until an admin saves the tab.
+    const def = sportOf(sport);
+    const base = def.scoringFeaturesByDefault ? SCORING_FEATURES_ON : SCORING_FEATURES_OFF;
+    if (!isRecord(raw) || !isRecord(raw.features)) return def.scoringFeaturesByDefault ? forSport({ ...OFF_MATCH_DAY_RULES, features: base }, def) : OFF_MATCH_DAY_RULES;
+    return forSport({ ...OFF_MATCH_DAY_RULES, features: group(base, raw.features) }, def);
   }
   const d = DEFAULT_MATCH_DAY_RULES;
   const rules: MatchDayRules = {
