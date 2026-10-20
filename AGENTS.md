@@ -283,3 +283,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app
   screen `move-score-app/src/app/venue/[slug].tsx` (WebView + expo-location). The public venue is an explicit projection (no
   underlay, no survey fixes). Gate `npm run e2e:venue-map` (stand-in). The sample layout's anchor is a placeholder.
+- Fan stats (no migration): pure `src/lib/scoring/stats.ts` (via `@core`; replays the non-superseded, non-undone score events: the stored
+  state before each point gives the server and break points, never in a tie-break; only POINT_AWARDED counts as a point played),
+  server `src/lib/mobile/stats.ts` (explicit columns, a few JSON fields of each previous state, never `created_by`), routes
+  `api/mobile/v1/matches/[matchId]/stats` and `ties/[tieId]/stats` (public tournaments only, CDN 3 s live / 60 s done; aces only
+  when `tvAces` and `ace` are on). A final-score result has none ("Recorded point by point only"). App `ui/StatsCard.tsx` on the
+  match and tie screens, web `components/MatchStatsCard.tsx` on the public match page. Gate `npm run e2e:stats` (stand-in).

@@ -6,7 +6,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import { RUBBER_LABELS, clockText, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
 import { useTick } from "../../referee/V2";
-import { useBundle, useConfig, useLive, useMatch, useTimeline, useVenue } from "../../api/queries";
+import { useBundle, useConfig, useLive, useMatch, useMatchStats, useTimeline, useVenue } from "../../api/queries";
+import { StatsCard } from "../../ui/StatsCard";
 import { dayIn, isAwaitingResult, makeView, matchA11y, timeIn } from "../../api/model";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { CONTENT_MAX_WIDTH, Screen } from "../../ui/Screen";
@@ -159,6 +160,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const lockScreenOff = Boolean(md?.on && !md.liveActivities);
   // Fetched again whenever the match moves, so the last point lands after the match leaves "live".
   const tl = useTimeline(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
+  const st = useMatchStats(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
   const now = useTick(Boolean(m?.score?.clock));
   const starred = useFollowing("match", id);
   const [moment, setMoment] = useState<TakeoverMoment | null>(null);
@@ -270,7 +272,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const summary = `${matchA11y(m, v)}${hot || sit.kind === "break" ? `. ${callText}` : ""}`;
   return (
     <View style={{ flex: 1 }}>
-      <Screen tabs={false} stage={false} onRefresh={() => Promise.all([q.refetch(), tl.refetch()])}>
+      <Screen tabs={false} stage={false} onRefresh={() => Promise.all([q.refetch(), tl.refetch(), st.refetch()])}>
         <BackHeader
           label={tie ? `${v.team(tie.a)?.code ?? ""} v ${v.team(tie.b)?.code ?? ""}` : b.data.tournament.name.split(" ").slice(0, 2).join(" ")}
           fallback={tie ? { pathname: "/tie/[id]", params: { id: tie.id } } : { pathname: "/t/[slug]", params: { slug } }}
@@ -320,6 +322,17 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           <Eyebrow style={{ marginBottom: 10 }}>Game by game</Eyebrow>
           <Feed points={tl.data?.points ?? []} aCode={aCode} bCode={bCode} />
         </Card>
+        {st.data && (st.data.stats.available || st.data.stats.reason === "final_score") ? (
+          <StatsCard
+            testID="match-stats"
+            sides={st.data.stats.available ? st.data.stats.sides : null}
+            aLabel={aCode}
+            bLabel={bCode}
+            time={st.data.stats.available ? { label: "Match time", seconds: st.data.stats.durationSeconds } : null}
+            sets={st.data.stats.available ? st.data.stats.sets : undefined}
+            note={st.data.stats.available ? null : st.data.stats.note}
+          />
+        ) : null}
         <MatchLinks m={m} v={v} slug={slug} />
         {venue.data && m.courtId ? (
           <Button kind="ghost" label={`Show ${v.court(m.courtId) ?? "the court"} on the map`} onPress={() => openVenueMap(slug, m.courtId)} style={{ marginTop: 12 }} />

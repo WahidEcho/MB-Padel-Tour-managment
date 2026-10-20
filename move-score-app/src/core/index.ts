@@ -93,3 +93,5 @@ export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coa
 export { parseFromMap, parseToMap, embeddedMapUrl } from "../../../src/lib/venue/bridge";
 export type { FromMap, ToMap } from "../../../src/lib/venue/bridge";
 export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from "../../../src/lib/venue/types";
+export { computeMatchStats, tieStats, swapSides, statLines, durationText, STATS_NOTES } from "../../../src/lib/scoring/stats";
+export type { MatchStats, MatchStatsResult, SideStats, SetDuration, StatLine, TieStats, TieRubberStats, StatsUnavailable } from "../../../src/lib/scoring/stats";

@@ -8,6 +8,7 @@
 
 import type { MatchRules, StageRuleKey } from "../types";
 import type { NightTable, NightTableLayout } from "../friendly/nightTable";
+import type { MatchStatsResult, TieStats } from "../scoring/stats";
 
 export const API_VERSION = 1;
 
@@ -337,6 +338,28 @@ export interface MTimelinePoint {
 export interface MTimeline {
   matchId: string;
   points: MTimelinePoint[];
+}
+
+/**
+ * GET /api/mobile/v1/matches/[matchId]/stats: aces (only when the organiser shows
+ * them), double faults, break points, points won, games, longest run, match and set
+ * lengths, from the point-by-point record (scoring/stats.ts). Side A is `a`.
+ */
+export interface MMatchStats {
+  matchId: string;
+  a: string | null;
+  b: string | null;
+  status: string;
+  stats: MatchStatsResult;
+}
+
+/** GET /api/mobile/v1/ties/[tieId]/stats: the rubbers' stats summed per nation, plus the time on court. Side A is `a`. */
+export interface MTieStats {
+  tieId: string;
+  a: string | null;
+  b: string | null;
+  status: string;
+  stats: TieStats;
 }
 
 export interface MConfig {
