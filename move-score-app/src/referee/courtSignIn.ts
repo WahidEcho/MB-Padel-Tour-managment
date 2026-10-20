@@ -8,10 +8,12 @@
  * session and dropped once they are sent and finished (`pruneCarry`).
  *
  * Referee PINs (migration 0035): every referee code (court, whole-event, master) also needs the
- * referee's own 4-digit PIN. Without one the server answers `pin_required`; the screen
- * then keeps the code in memory only (`pendingCode`, never on disk or in a URL) and asks
- * for the PIN on /referee/pin.
+ * referee's own 4-digit PIN. Without one the server answers `pin_required` with the names to
+ * pick from (audit H1); the screen then keeps the code in memory only (`pendingCode`, never
+ * on disk or in a URL) and asks on /referee/pin who is signing in and their PIN, sent as
+ * `{ code, refereeId, pin }` so the server checks that referee's PIN only.
  */
+import type { RefereeChoice } from "@core";
 import { api, ApiError, OFFLINE_MESSAGE } from "../api/client";
 import { session, saveStaff, saveStaffCarry, type StaffCarry } from "../state/session";
 import { queue } from "./queue";
@@ -19,13 +21,13 @@ import { createSyncer } from "./sync";
 
 export type CodeSignInResult =
   | { ok: true; court: string | null; carried: number; referee: string | null; master: boolean }
-  | { ok: false; message: string; pinRequired?: boolean; wrongPin?: boolean; court?: string | null; master?: boolean };
+  | { ok: false; message: string; pinRequired?: boolean; wrongPin?: boolean; locked?: boolean; court?: string | null; master?: boolean; referees?: RefereeChoice[] };
 
-/** The code waiting for its PIN (memory only), set by the screen that read it. */
-let pending: { code: string; court: string | null; master: boolean } | null = null;
+/** The code waiting for its PIN (memory only), set by the screen that read it, with the names to pick from. */
+let pending: { code: string; court: string | null; master: boolean; referees: RefereeChoice[] } | null = null;
 export const pendingCode = {
-  set(code: string, court: string | null, master: boolean) {
-    pending = { code, court, master };
+  set(code: string, court: string | null, master: boolean, referees: RefereeChoice[] = []) {
+    pending = { code, court, master, referees };
   },
   get() {
     return pending;
@@ -62,7 +64,7 @@ export async function pruneCarry(): Promise<void> {
   else if (carries.some((c) => Date.parse(c.expiresAt) <= Date.now())) await saveStaffCarry(carries);
 }
 
-export async function signInWithCode(code: string, pin?: string): Promise<CodeSignInResult> {
+export async function signInWithCode(code: string, pin?: string, refereeId?: string | null): Promise<CodeSignInResult> {
   const pendingMatchIds = await sendQueuedNow().catch(() => queue().matchesWithPending());
   const openMatchIds = await queue().unfinished().catch(() => [] as string[]);
   const previous = session.get().staff;
@@ -76,7 +78,16 @@ export async function signInWithCode(code: string, pin?: string): Promise<CodeSi
       carry?: StaffCarry | null;
       referee?: { name: string; role: "referee" | "master_referee" } | null;
     }>("/api/mobile/v1/staff/session", {
-      body: { code: code.trim(), ...(pin ? { pin } : {}), previousToken: previous?.token ?? undefined, pendingMatchIds, openMatchIds },
+      body: {
+        code: code.trim(),
+        ...(pin ? { pin } : {}),
+        ...(refereeId ? { refereeId } : {}),
+        // The phone's scoring id (its leases): only matches it worked on are carried over.
+        deviceId: session.get().installationId ?? undefined,
+        previousToken: previous?.token ?? undefined,
+        pendingMatchIds,
+        openMatchIds,
+      },
       // The phone, so a master referee's calls for assistance reach it.
       headers: installToken ? { "X-Install-Token": installToken } : undefined,
     });
@@ -88,9 +99,20 @@ export async function signInWithCode(code: string, pin?: string): Promise<CodeSi
     await pruneCarry();
     return { ok: true, court: r.court?.name ?? null, carried: r.carry?.matchIds.length ?? 0, referee: r.referee?.name ?? null, master: r.referee?.role === "master_referee" };
   } catch (e) {
-    const body = e instanceof ApiError ? (e.body as { code?: string; court?: { name: string } | null; master?: boolean } | null) : null;
+    const body = e instanceof ApiError ? (e.body as { code?: string; court?: { name: string } | null; master?: boolean; referees?: RefereeChoice[] } | null) : null;
     if (body?.code === "pin_required" || body?.code === "wrong_pin") {
-      return { ok: false, message: e instanceof ApiError ? e.message : "", pinRequired: body.code === "pin_required", wrongPin: body.code === "wrong_pin", court: body.court?.name ?? null, master: Boolean(body.master) };
+      return {
+        ok: false,
+        message: e instanceof ApiError ? e.message : "",
+        pinRequired: body.code === "pin_required",
+        wrongPin: body.code === "wrong_pin",
+        court: body.court?.name ?? null,
+        master: Boolean(body.master),
+        referees: Array.isArray(body.referees) ? body.referees : undefined,
+      };
+    }
+    if (body?.code === "pin_locked" || body?.code === "pin_paused" || body?.code === "pin_busy") {
+      return { ok: false, message: e instanceof ApiError ? e.message : "", locked: true };
     }
     return { ok: false, message: e instanceof ApiError && e.status !== 0 ? e.message : `${OFFLINE_MESSAGE} The code is checked online once; scoring then works offline.` };
   }

@@ -33,6 +33,9 @@ class Query implements PromiseLike<{ data: unknown; error: null }> {
   order() {
     return this;
   }
+  limit() {
+    return this;
+  }
   maybeSingle() {
     this.single = true;
     return this;
@@ -136,7 +139,7 @@ describe("event codes", () => {
   it("a referee code (whole-event) is refused without a referee: every referee code needs a PIN", async () => {
     (tables.organization_codes[0] as Row).role = "referee";
     expect(await resolveStaffToken(codeToken())).toEqual({ ok: false, reason: "pin_required" });
-    expect(await signInWithAccessCode(code, 24)).toMatchObject({ ok: false, reason: "pin_required", master: false });
+    expect(await signInWithAccessCode(code, 24)).toMatchObject({ ok: false, reason: "pin_required", master: false, referees: [] });
   });
   it("a revoked code fails the next request, with its own reason", async () => {
     const token = codeToken();

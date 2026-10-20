@@ -18,15 +18,20 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * code fails the next call with 401 and a clear message, and the app keeps its
  * queued points until a new code is entered.
  *
- * Referee PINs (migration 0035): every referee code (court, whole-event, master) also needs the
- * referee's 4-digit PIN, `{ code, pin }` (newer apps), or typed into the one field after
- * the code, "<code> <PIN>" / "<code>-<PIN>" (Move Score 1.0.1). Without one the answer is
- * 401 `{ code: "pin_required", court, master }`; a wrong one 401 `wrong_pin`; too many
- * wrong ones 429 `pin_locked` (the code locked for 5 minutes). The token then names the referee.
+ * Referee PINs (migration 0035, audit H1): every referee code (court, whole-event, master)
+ * also needs a referee's 4-digit PIN. Newer apps send `{ code, refereeId, pin }`: the
+ * referee picked their own name from the list and the PIN is checked against theirs only.
+ * Without a PIN the answer is 401 `{ code: "pin_required", court, master, referees }`
+ * (`referees`: `{ id, name, photoUrl }` to pick from, never a phone); a wrong PIN 401
+ * `wrong_pin`; 429 `pin_locked` (that referee locked 5 minutes; others unaffected),
+ * `pin_paused` (the organisation's wrong-PIN budget, new devices only) or `pin_busy` (this
+ * address). Move Score 1.0.1 types "<code> <PIN>" / "<code>-<PIN>" in its one field (or
+ * an older build `{ code, pin }`): matched across the code's referees under the
+ * organisation's budget only (docs/referees.md). The token then names the referee.
  * Operator (TV) codes need no PIN.
  */
 export async function POST(request: Request) {
-  const body = await readJson<{ code?: unknown; pin?: unknown; previousToken?: unknown; pendingMatchIds?: unknown; openMatchIds?: unknown }>(request);
+  const body = await readJson<{ code?: unknown; pin?: unknown; refereeId?: unknown; deviceId?: unknown; previousToken?: unknown; pendingMatchIds?: unknown; openMatchIds?: unknown }>(request);
   const code = typeof body?.code === "string" ? body.code.slice(0, 200) : "";
   // Switching courts (newer apps; 1.0.1 sends none of these): the token it had, and the
   // matches it still holds unsent points of (pending) or has unfinished (open). The old
@@ -44,26 +49,35 @@ export async function POST(request: Request) {
   }
   const pin = typeof body?.pin === "string" || typeof body?.pin === "number" ? String(body.pin).slice(0, 12) : undefined;
   const installationId = verifyInstallToken(request.headers.get("x-install-token"));
-  const r = await signInWithAccessCode(code, STAFF_APP_HOURS, { pin, ip, via: "app", installationId });
+  const refereeId = typeof body?.refereeId === "string" ? body.refereeId.slice(0, 40) : undefined;
+  const r = await signInWithAccessCode(code, STAFF_APP_HOURS, { pin, refereeId, ip, via: "app", installationId, deviceKey: installationId ? `app:${installationId}` : null });
   if (!r.ok) {
     // Only failures stay counted against the brakes (src/lib/staffLogin.ts). A right court
     // code without its PIN is not a failed guess: the PIN has brakes of its own.
-    if (r.reason === "unavailable" || r.reason === "pin_required" || r.reason === "wrong_pin" || r.reason === "pin_locked") await gate.refund();
-    if (r.reason === "pin_locked") {
+    const pinBrake = r.reason === "pin_locked" || r.reason === "pin_paused" || r.reason === "pin_busy";
+    if (r.reason === "unavailable" || r.reason === "pin_required" || r.reason === "wrong_pin" || pinBrake) await gate.refund();
+    if (pinBrake) {
       return NextResponse.json(
-        { error: r.error, code: "pin_locked" },
+        { error: r.error, code: r.reason },
         { status: 429, headers: { "Retry-After": String(r.retryAfterSeconds ?? 300), ...NO_STORE } },
       );
     }
     const pinCase = r.reason === "pin_required" || r.reason === "wrong_pin";
     return NextResponse.json(
-      pinCase ? { error: r.error, code: r.reason, court: r.court ? { name: r.court } : null, master: Boolean(r.master) } : { error: r.error },
+      pinCase
+        ? { error: r.error, code: r.reason, court: r.court ? { name: r.court } : null, master: Boolean(r.master), ...(r.referees ? { referees: r.referees } : {}) }
+        : { error: r.error },
       { status: 401, headers: NO_STORE },
     );
   }
   await gate.refund();
-  const previous = previousToken ? await resolveStaffToken(previousToken) : null;
-  const carry = previous?.ok ? await issueCarry(previous.staff, r.reach, { pending: ids(body?.pendingMatchIds), open: ids(body?.openMatchIds) }) : null;
+  // A carry-over token is never a previous credential (audit L2): the app keeps its carries itself.
+  const resolved = previousToken ? await resolveStaffToken(previousToken) : null;
+  const previous = resolved?.ok && !resolved.staff.scopeMatchIds ? resolved : null;
+  const scoringId = typeof body?.deviceId === "string" && body.deviceId.length <= 80 ? body.deviceId : null;
+  const carry = previous?.ok
+    ? await issueCarry(previous.staff, r.reach, { pending: ids(body?.pendingMatchIds), open: ids(body?.openMatchIds) }, [installationId, scoringId])
+    : null;
   if (previous?.ok) await replacePreviousReferee(previous.staff, Boolean(carry));
   // Never the code itself: which code (by id) and which organisation.
   await audit({

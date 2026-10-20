@@ -31,8 +31,8 @@ import { MOVE_BEYOND_SLUG, isUuid, permissionRole, type OrgRole, type OrgStatus 
 import type { Role } from "../types";
 import type { CourtScope } from "../orgs/courtScope";
 import { resolveCourtScope } from "../orgs/courtCodes";
-import { checkRefereePin, codeNeedsPin, endRefereeSession, masterTournamentIds, refereeForToken, startRefereeSession, type RefereeIdentity } from "../referees/server";
-import { splitCodeAndPin } from "../referees/rules";
+import { checkRefereePin, codeNeedsPin, endRefereeSession, masterTournamentIds, refereeChoices, refereeForToken, startRefereeSession, type PinCheck, type RefereeIdentity } from "../referees/server";
+import { PIN_LOCK_MINUTES, splitCodeAndPin, type RefereeChoice } from "../referees/rules";
 import {
   STAFF_APP_HOURS,
   STAFF_WEB_HOURS,
@@ -82,6 +82,8 @@ export interface StaffPrincipal {
    * re-read on every request. Audit rows and score events carry their name and id.
    */
   referee?: RefereeIdentity | null;
+  /** When the presented code token lapses (ms; code tokens only): a carry-over never outlives it. */
+  tokenExpiresAt?: number | null;
   /** May use Move Beyond's platform pages (Discover, merging profiles). */
   platformAdmin: boolean;
 }
@@ -231,6 +233,7 @@ export async function resolveStaffToken(token: string, now = Date.now()): Promis
         scopeMatchIds: p.m ?? null,
         scopeTournamentIds,
         referee,
+        tokenExpiresAt: p.exp,
         platformAdmin: false,
       },
     };
@@ -396,16 +399,24 @@ export type CodeSignIn =
   | {
       ok: false;
       error: string;
-      reason: "wrong_code" | "wrong_pin" | "pin_locked" | StaffRefusal;
+      reason: "wrong_code" | "wrong_pin" | "pin_locked" | "pin_paused" | "pin_busy" | StaffRefusal;
       /** pin_required: the code is right; its court (null for a master code). */
       court?: string | null;
       master?: boolean;
       retryAfterSeconds?: number;
+      /** pin_required (and a wrong pick): the names to choose from on the PIN step (audit H1). */
+      referees?: RefereeChoice[];
+      /** wrong_pin with a picked name: wrong PINs left before that referee is locked. */
+      triesLeft?: number;
     };
 
 export interface AccessCodeOptions {
   /** The referee PIN typed with a court or master code (or inside the code: 1.0.1). */
   pin?: unknown;
+  /** The referee picked on the PIN step (audit H1); absent from Move Score 1.0.1. */
+  refereeId?: unknown;
+  /** "app:<installation id>" / "web:<browser id>": a device that signed this referee in today gets back in while they are locked. */
+  deviceKey?: string | null;
   /** For the PIN brakes (src/lib/referees/server.ts). */
   ip?: string;
   via?: "web" | "app";
@@ -413,12 +424,39 @@ export interface AccessCodeOptions {
   installationId?: string | null;
 }
 
+const minutes = (secs: number | undefined) => Math.max(1, Math.ceil((secs ?? PIN_LOCK_MINUTES * 60) / 60));
+
 export const PIN_MESSAGES = {
   pin_required: "This referee code needs your 4-digit referee PIN.",
   pin_required_legacy: "This referee code needs your 4-digit referee PIN: type the code, a space, then your PIN.",
+  pick_name: "Pick your name, then type your 4-digit referee PIN.",
+  unknown_referee: "That name is not on this code's list. Pick your name from the list.",
   wrong_pin: "Wrong PIN. Check the 4 digits the organiser gave you.",
-  pin_locked: "Too many wrong PINs for this code. It is locked for 5 minutes.",
+  pin_locked: "Too many wrong PINs. Wait 5 minutes and try again.",
 } as const;
+
+/** The words for a PIN that did not sign in (audit H1): who is locked, for how long, and what still works. */
+export function pinMessage(c: Extract<PinCheck, { ok: false }>): string {
+  const who = c.refereeName ?? null;
+  switch (c.reason) {
+    case "wrong_pin":
+      if (!who) return PIN_MESSAGES.wrong_pin;
+      if (c.triesLeft === 0) return `Wrong PIN for ${who}. ${who} is now locked for ${PIN_LOCK_MINUTES} minutes; other referees can still sign in.`;
+      return `Wrong PIN for ${who}.${c.triesLeft !== undefined ? ` ${c.triesLeft} ${c.triesLeft === 1 ? "try" : "tries"} left before ${who} is locked for ${PIN_LOCK_MINUTES} minutes.` : ""}`;
+    case "pin_locked":
+      return who
+        ? `Too many wrong PINs for ${who}: locked for ${minutes(c.retryAfterSeconds)} more minute${minutes(c.retryAfterSeconds) === 1 ? "" : "s"}. Other referees can still sign in, and a phone or browser ${who} signed in on today still works.`
+        : PIN_MESSAGES.pin_locked;
+    case "pin_paused":
+      return `Too many wrong referee PINs at this organisation: signing in with a PIN on a new device is paused for ${minutes(c.retryAfterSeconds)} minutes and the organiser has been told. A phone or browser you signed in on today still works.`;
+    case "pin_busy":
+      return `Too many PIN attempts from this network. Wait ${minutes(c.retryAfterSeconds)} minutes and try again.`;
+    case "unknown_referee":
+      return PIN_MESSAGES.unknown_referee;
+    default:
+      return REFUSAL_MESSAGE.unavailable;
+  }
+}
 
 /**
  * An access code typed on the web login or in the app: a shared role password
@@ -483,18 +521,31 @@ export async function signInWithAccessCode(raw: string, hours: number, opts: Acc
   const exp = Math.min(now + hours * 3600_000, codeExpiry);
   if (codeNeedsPin(row)) {
     const typedPin = typeof pin === "string" || typeof pin === "number" ? String(pin).trim() : "";
+    // The PIN step names the referee (audit H1). Move Score 1.0.1 (one field) never does.
+    const refereeId = combined ? null : typeof opts.refereeId === "string" && opts.refereeId ? opts.refereeId : null;
     if (!typedPin) {
-      return { ok: false, error: opts.via === "app" ? PIN_MESSAGES.pin_required_legacy : PIN_MESSAGES.pin_required, reason: "pin_required", court: row.court_name, master };
+      return {
+        ok: false,
+        error: opts.via === "app" ? PIN_MESSAGES.pin_required_legacy : PIN_MESSAGES.pin_required,
+        reason: "pin_required",
+        court: row.court_name,
+        master,
+        referees: await refereeChoices(row),
+      };
     }
-    const checked = await checkRefereePin(row, typedPin, opts.ip ?? "unknown");
+    const checked = await checkRefereePin(row, typedPin, { refereeId, ip: opts.ip ?? "unknown", deviceKey: opts.deviceKey ?? null }, now);
     if (!checked.ok) {
       if (checked.reason === "unavailable") return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
-      return { ok: false, error: PIN_MESSAGES[checked.reason], reason: checked.reason, retryAfterSeconds: checked.retryAfterSeconds, court: row.court_name, master };
+      if (checked.reason === "unknown_referee") {
+        return { ok: false, error: pinMessage(checked), reason: "pin_required", court: row.court_name, master, referees: await refereeChoices(row) };
+      }
+      return { ok: false, error: pinMessage(checked), reason: checked.reason, retryAfterSeconds: checked.retryAfterSeconds, triesLeft: checked.triesLeft, court: row.court_name, master };
     }
     const sessionId = await startRefereeSession(row, checked.referee, {
-      via: opts.via === "app" ? (combined ? "app_legacy" : "app") : "web",
+      via: opts.via === "app" ? (combined || !refereeId ? "app_legacy" : "app") : "web",
       expiresAt: new Date(exp).toISOString(),
       installationId: opts.installationId ?? null,
+      deviceHash: checked.deviceHash,
     });
     if (!sessionId) return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
     referee = { id: checked.referee.id, name: checked.referee.name, role: master ? "master_referee" : "referee", sessionId };
@@ -540,66 +591,148 @@ export interface Carry {
   matchIds: string[];
   court: string | null;
   expiresAt: string;
+  /** The old court's code (organization_codes.id) the carry-over speaks for. */
+  codeId: string;
+}
+
+/** What a carry-over may be made from: the credential the device had, and its earlier carries. */
+type CarrySource = Pick<StaffPrincipal, "kind" | "codeId" | "orgId" | "role" | "referee" | "scopeTournamentId" | "scopeCourt" | "scopeMatchIds" | "scopeTournamentIds" | "tokenExpiresAt">;
+
+/**
+ * Whether this device scored a match (audit L2): the referee's own score events
+ * (score_events.created_by "referee:<id>"), or the match's scoring lease held by one of
+ * the device's ids (the app's verified installation, the browser's scoring id).
+ */
+async function deviceWorkedOn(matchId: string, refereeId: string | null, deviceIds: string[]): Promise<boolean> {
+  if (refereeId) {
+    const { data } = await db().from("score_events").select("id").eq("match_id", matchId).eq("created_by", `referee:${refereeId}`).limit(1);
+    if (((data ?? []) as unknown[]).length) return true;
+  }
+  const ids = deviceIds.filter((d) => typeof d === "string" && d.length >= 8 && d.length <= 80);
+  if (!ids.length) return false;
+  const { data } = await db().from("scoring_leases").select("device_id").eq("match_id", matchId).in("device_id", ids).limit(1);
+  return ((data ?? []) as unknown[]).length > 0;
 }
 
 /**
  * Switching courts is never blocked (owner's decision, 19 Oct 2026). When the
- * previous credential is a referee code and the phone still holds unsent points
+ * previous credential is a referee code and the device still holds unsent points
  * (`pending`) or an unfinished match (`open`) that the new credential does not
  * reach, the old code keeps reaching exactly those matches through a carry-over
- * token (`m` in src/lib/auth/staffToken.ts), never a new one. It lapses by itself:
- * a match the server has finished drops out of it after CARRY_GRACE_MINUTES
- * (src/lib/orgs/courtScope.ts), the token after CARRY_HOURS, and revoking the old
- * code ends it at once. Null when nothing needs carrying.
+ * token (`m` in src/lib/auth/staffToken.ts), never a new one.
+ *
+ * - Only matches this device worked on: its referee's score events or its scoring
+ *   lease (deviceWorkedOn; audit L2), never every unfinished match of the old court.
+ * - Earlier carries (`existing`: the browser's carry cookies, a second or third switch)
+ *   are kept and re-checked, never dropped because the new switch carries nothing;
+ *   matches of the same code are merged into one token (audit M1).
+ * - A carry lapses by itself: a finished match drops out after CARRY_GRACE_MINUTES
+ *   (src/lib/orgs/courtScope.ts), the token after CARRY_HOURS but never later than the
+ *   token it came from nor the referee's sign-in row (audit L2), and revoking the old
+ *   code ends it at once. A carry token is never a `previous` credential itself.
  */
+export async function issueCarries(
+  opts: {
+    previous: StaffPrincipal | null;
+    existing?: StaffPrincipal[];
+    next: Reach;
+    matches: { pending?: string[]; open?: string[] };
+    deviceIds?: (string | null | undefined)[];
+  },
+  now = Date.now(),
+): Promise<Carry[]> {
+  const pending = new Set((opts.matches.pending ?? []).filter(isUuid));
+  const deviceIds = (opts.deviceIds ?? []).filter((d): d is string => typeof d === "string");
+  const byCode = new Map<string, { src: CarrySource; ids: string[]; exp: number }>();
+  const capOf = (src: CarrySource) =>
+    Math.min(now + CARRY_HOURS * 3600_000, src.tokenExpiresAt ?? now + CARRY_HOURS * 3600_000, src.referee?.sessionExpiresAt ?? Number.POSITIVE_INFINITY);
+  const add = (src: CarrySource, id: string) => {
+    const e = byCode.get(src.codeId!) ?? { src, ids: [], exp: capOf(src) };
+    e.exp = Math.min(e.exp, capOf(src));
+    if (!e.ids.includes(id) && e.ids.length < MAX_CARRY_MATCHES) e.ids.push(id);
+    byCode.set(src.codeId!, e);
+  };
+  const stillNeeded = async (src: CarrySource, id: string) => {
+    const scope = await resolveEntity({ match: id });
+    if (!scope || !principalReaches(src, scope, now)) return false;
+    if (principalReaches(opts.next, { ...scope }, now)) return false;
+    // An unfinished match is carried while it is unfinished; one with unsent points, whatever the server says.
+    return pending.has(id) || !FINISHED_STATUSES.has(scope.matchStatus ?? "");
+  };
+
+  // Earlier carries first (each already bound to the device when it was issued).
+  for (const c of opts.existing ?? []) {
+    if (c.kind !== "code" || !c.codeId || c.role !== "referee" || !c.scopeMatchIds?.length || c.orgId !== opts.next.orgId) continue;
+    for (const id of c.scopeMatchIds) if (await stillNeeded(c, id)) add(c, id);
+  }
+  const prev = opts.previous;
+  if (prev && prev.kind === "code" && prev.codeId && prev.role === "referee" && !prev.scopeMatchIds) {
+    const ids = [...new Set([...pending, ...(opts.matches.open ?? []).filter(isUuid)])].slice(0, MAX_CARRY_MATCHES);
+    for (const id of ids) {
+      if (!(await stillNeeded(prev, id))) continue;
+      if (!(await deviceWorkedOn(id, prev.referee?.id ?? null, deviceIds))) continue;
+      add(prev, id);
+    }
+  }
+
+  const out: Carry[] = [];
+  for (const { src, ids, exp } of byCode.values()) {
+    if (!ids.length || exp <= now + 60_000) continue;
+    try {
+      const who = src.referee ? { p: src.referee.id, s: src.referee.sessionId } : {};
+      const token = signStaffToken({ v: 1, k: "c", c: src.codeId!, o: src.orgId, r: "referee", t: src.scopeTournamentId, m: ids, ...who, iat: now, exp }, staffSecret());
+      out.push({ token, matchIds: ids, court: src.scopeCourt?.name ?? null, expiresAt: new Date(exp).toISOString(), codeId: src.codeId! });
+    } catch (err) {
+      console.error("staff sessions unavailable:", (err as Error).message);
+      return [];
+    }
+  }
+  return out.slice(0, MAX_WEB_CARRIES);
+}
+
+/** The newest carry of a switch made from `previous` (the app's answer has one). */
 export async function issueCarry(
   previous: StaffPrincipal | null,
   next: Reach,
   matches: { pending?: string[]; open?: string[] },
+  deviceIds: (string | null | undefined)[] = [],
   now = Date.now(),
 ): Promise<Carry | null> {
-  if (!previous || previous.kind !== "code" || !previous.codeId || previous.role !== "referee") return null;
-  const pending = new Set((matches.pending ?? []).filter(isUuid));
-  const ids = [...new Set([...pending, ...(matches.open ?? []).filter(isUuid)])].slice(0, MAX_CARRY_MATCHES);
-  const keep: string[] = [];
-  for (const id of ids) {
-    const scope = await resolveEntity({ match: id });
-    if (!scope || !principalReaches(previous, scope, now)) continue;
-    const newReaches: boolean = principalReaches(next, { ...scope }, now);
-    if (newReaches) continue;
-    // An unfinished match is carried while it is unfinished; one with unsent points, whatever the server says.
-    if (!pending.has(id) && FINISHED_STATUSES.has(scope.matchStatus ?? "")) continue;
-    keep.push(id);
-  }
-  if (!keep.length) return null;
-  const exp = now + CARRY_HOURS * 3600_000;
-  let token: string;
-  try {
-    const who = previous.referee ? { p: previous.referee.id, s: previous.referee.sessionId } : {};
-    token = signStaffToken({ v: 1, k: "c", c: previous.codeId, o: previous.orgId, r: "referee", t: previous.scopeTournamentId, m: keep, ...who, iat: now, exp }, staffSecret());
-  } catch (err) {
-    console.error("staff sessions unavailable:", (err as Error).message);
-    return null;
-  }
-  return { token, matchIds: keep, court: previous.scopeCourt?.name ?? null, expiresAt: new Date(exp).toISOString() };
+  if (!previous || previous.scopeMatchIds) return null;
+  const all = await issueCarries({ previous, next, matches, deviceIds }, now);
+  return all.find((c) => c.codeId === previous.codeId) ?? null;
 }
 
-/** The carry-over cookie of a browser (one; a second switch replaces it, carrying both courts' matches it still holds). */
+/** At most this many carry-over cookies in a browser (one per earlier court). */
+export const MAX_WEB_CARRIES = 3;
+
+/** The carry-over cookies of a browser: one per earlier court, `mb_carry`, `mb_carry_2`, `mb_carry_3` (`__Host-` off localhost). */
+export function carryCookieNames(host: string | null | undefined): string[] {
+  const { secure } = staffCookieFor(host);
+  const base = secure ? "__Host-mb_carry" : "mb_carry";
+  return Array.from({ length: MAX_WEB_CARRIES }, (_, i) => (i === 0 ? base : `${base}_${i + 1}`));
+}
+
 export function carryCookieFor(host: string | null | undefined): { name: string; secure: boolean } {
   const { secure } = staffCookieFor(host);
-  return { name: secure ? "__Host-mb_carry" : "mb_carry", secure };
+  return { name: carryCookieNames(host)[0], secure };
 }
 
-export async function setCarryCookie(carry: Carry | null) {
-  const { name, secure } = carryCookieFor((await headers()).get("host"));
+/** Writes the browser's carry-over cookies: one per carry, the rest cleared. */
+export async function setCarryCookies(carries: Carry[]) {
+  const host = (await headers()).get("host");
+  const { secure } = staffCookieFor(host);
   const store = await cookies();
-  if (!carry) store.set(name, "", { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 0 });
-  else store.set(name, carry.token, { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: CARRY_HOURS * 3600 });
+  carryCookieNames(host).forEach((name, i) => {
+    const c = carries[i];
+    if (!c) store.set(name, "", { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 0 });
+    else store.set(name, c.token, { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: Math.max(60, Math.floor((Date.parse(c.expiresAt) - Date.now()) / 1000)) });
+  });
 }
 
 /**
  * This request's carry-over credentials: the app's `X-Staff-Carry` header (up to
- * three tokens, comma-separated) and the browser's carry cookie. Only working
+ * three tokens, comma-separated) and the browser's carry cookies. Only working
  * carry-over tokens (with their match list) count; anything else is ignored.
  */
 export const currentCarries = cache(async (): Promise<StaffPrincipal[]> => {
@@ -607,12 +740,13 @@ export const currentCarries = cache(async (): Promise<StaffPrincipal[]> => {
   const raw = (h.get("x-staff-carry") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3);
   const store = await cookies();
   const host = h.get("host");
-  for (const name of [carryCookieFor(host).name, ...(isLocalHostName(host) ? ["__Host-mb_carry"] : [])]) {
+  const names = [...carryCookieNames(host), ...(isLocalHostName(host) ? carryCookieNames("example.org") : [])];
+  for (const name of names) {
     const v = store.get(name)?.value;
     if (v) raw.push(v);
   }
   const out: StaffPrincipal[] = [];
-  for (const t of raw.slice(0, 4)) {
+  for (const t of raw.slice(0, 6)) {
     if (!t.startsWith("mbs1.")) continue;
     const r = await resolveStaffToken(t);
     if (r?.ok && r.staff.scopeMatchIds?.length) out.push(r.staff);
@@ -640,6 +774,8 @@ export async function principalForMatch(primary: StaffPrincipal, matchId: string
  * marked replaced when nothing is carried.
  */
 export async function replacePreviousReferee(previous: StaffPrincipal | null, carried: boolean): Promise<void> {
+  // A carry-over token is not a sign-in of its own: it never ends the row it names.
+  if (previous?.scopeMatchIds) return;
   if (!previous?.referee || carried) return;
   await endRefereeSession(previous.referee.sessionId, "replaced");
 }

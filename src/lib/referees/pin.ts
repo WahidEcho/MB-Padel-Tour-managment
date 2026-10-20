@@ -25,3 +25,13 @@ export function generateRefereePin(orgId: string, taken: Set<string>, pepper = e
   }
   return null;
 }
+
+/**
+ * The stored form of a device a referee signed in on (referee_sessions.device_hash,
+ * migration 0041): "app:<installation id>" (from the verified install token) or
+ * "web:<random browser id>" (the HttpOnly device cookie). Peppered, so the table never
+ * holds an id a request could replay.
+ */
+export function hashRefereeDevice(deviceKey: string, pepper = eventCodePepper()): string {
+  return createHmac("sha256", pepper).update(`mb-referee-device:v1:${deviceKey}`).digest("hex");
+}

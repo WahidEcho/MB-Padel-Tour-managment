@@ -68,7 +68,7 @@ export function defaultParams(n: number, kind: "announcement" | "access_codes" |
 
 /* ---------------- transactional catalogue ---------------- */
 
-export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite" | "login_code" | "registration";
+export type TransactionalTemplate = "access_code" | "confirmation" | "new_tournament" | "announcement" | "staff_invite" | "login_code" | "registration" | "staff_alert";
 
 interface CatalogueEntry {
   email: (vars: Vars) => EmailInput;
@@ -144,6 +144,13 @@ export const TRANSACTIONAL: Record<TransactionalTemplate, CatalogueEntry> = {
   // the typed address and never stored (redacted). No name the registrant typed is
   // ever put in it: the words are the server's own and the event's name.
   registration: {
+    email: () => ({ title: "{title}", body: "Hello,\n\n{message}", cta: { label: "{cta_label}", url: "{link}" } }),
+    whatsapp: { name: "mb_registration", language: "en", params: ["title", "link"] },
+    text: () => "{title}: {link}",
+  },
+  // Security notices to an organisation's owners and admins (src/lib/referees/server.ts:
+  // too many wrong referee PINs). Email only; the words are the server's own.
+  staff_alert: {
     email: () => ({ title: "{title}", body: "Hello,\n\n{message}", cta: { label: "{cta_label}", url: "{link}" } }),
     whatsapp: { name: "mb_registration", language: "en", params: ["title", "link"] },
     text: () => "{title}: {link}",

@@ -36,6 +36,7 @@ import { MOVE_BEYOND_SLUG } from "../../src/lib/orgs/roles";
 import { BASE_URL, assertStandIn, bearer, check, cookie, finish, fixtures, http, lastEvent, scoreEvent, section, sendEvents, staff, type Who } from "./lib/fixtures";
 import { actionOk, callAction, form } from "./lib/actions";
 import { hashRefereePin } from "../../src/lib/referees/pin";
+import { getPage, jarCookie, webSignIn, type Jar } from "./lib/webLogin";
 
 assertStandIn("court-codes");
 
@@ -289,6 +290,26 @@ async function main() {
   check(webCarry.status === 200, "web: the carry-over cookie opens the old court's match", webCarry.status);
   const webCarryHome = await http("GET", "/referee", { Cookie: `mb_session=${String(sw.json?.token)}; mb_carry=${String(carry?.token)}` });
   check(webCarryHome.text.includes('data-testid="carried"') && webCarryHome.text.includes(B0.id), "web: the court list shows 'Still yours from your last court'", webCarryHome.status);
+  section("Carry-over: only matches this device worked on, never a carry as the previous token, never past its sign-in");
+  {
+    // G1 (the girls' Court 1) was called to court but never scored or claimed by this phone.
+    const l2 = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, pin: PIN, previousToken: String(s1.json?.token), pendingMatchIds: [], openMatchIds: [B0.id, G1.id] });
+    const l2c = l2.json?.carry as { matchIds: string[]; expiresAt: string } | null;
+    check(l2.status === 200 && JSON.stringify(l2c?.matchIds) === JSON.stringify([B0.id]), "an unfinished Court 1 match the phone never scored nor held: not carried", l2c?.matchIds);
+    const chained = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, pin: PIN, previousToken: String(carry?.token), pendingMatchIds: [B0.id], openMatchIds: [B0.id] });
+    check(chained.status === 200 && chained.json?.carry === null, "a carry-over token as previousToken: signs in, carries nothing", chained.json?.carry);
+    const sesOf = (token: string) => (JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()) as { s: string }).s;
+    const s1Session = sesOf(String(s1.json?.token));
+    const soon = new Date(Date.now() + 2 * 3600_000).toISOString();
+    await db().from("referee_sessions").update({ expires_at: soon }).eq("id", s1Session);
+    const capped = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, pin: PIN, previousToken: String(s1.json?.token), pendingMatchIds: [B0.id], openMatchIds: [B0.id] });
+    const cappedAt = Date.parse(String((capped.json?.carry as { expiresAt: string } | null)?.expiresAt));
+    check(cappedAt <= Date.parse(soon) && cappedAt > Date.now(), "the carry-over never outlives the referee's sign-in row", { carry: new Date(cappedAt).toISOString(), session: soon });
+    await db().from("referee_sessions").update({ expires_at: new Date(Date.now() - 60_000).toISOString() }).eq("id", s1Session);
+    const ended = await http("GET", "/api/mobile/v1/referee/tournaments", REF);
+    check(ended.status === 401 && ended.json?.code === "referee_ended", "a sign-in row past its expires_at: 401 referee_ended", ended.json);
+    await db().from("referee_sessions").update({ expires_at: new Date(Date.now() + 24 * 3600_000).toISOString() }).eq("id", s1Session);
+  }
   const none = await http("POST", "/api/mobile/v1/staff/session", {}, { code: C2.code, pin: PIN, previousToken: String(s1.json?.token), pendingMatchIds: [], openMatchIds: [BF.id, B1.id] });
   check(none.status === 200 && none.json?.carry === null, "nothing to carry (finished, or reached by the new code): no carry-over", none.json?.carry);
   const old = await http("POST", "/api/mobile/v1/staff/session", {}, { code: `${C2.code} ${PIN}` });
@@ -297,6 +318,28 @@ async function main() {
   const lapsed = await http("GET", `/api/mobile/v1/referee/matches/${B0.id}/bootstrap`, withCarry);
   check(lapsed.status === 404, "the carry-over lapses by itself 30 minutes after the match finished", lapsed.status);
   await db().from("matches").update({ status: "live", ended_at: null }).eq("id", B0.id);
+
+  section("Web: a second court switch keeps the first switch's carry-over (and the name + PIN step)");
+  {
+    const C3w = codeOf("Court 3");
+    const jar: Jar = new Map();
+    const webDev = `web-${tag}`;
+    const one = await webSignIn(jar, C1.code, made.referee!, PIN);
+    check(one.first.status === 303 && Boolean(one.first.location?.includes("pin=1")), "the code: on to the name + PIN step", one.first);
+    check(Boolean(one.page?.html.includes('data-testid="referee-picker"')) && one.page!.html.includes(`value="${made.referee}"`) && one.page!.html.includes(`E2E Court Ref ${tag}`), "the step lists the referee's name to pick", one.page?.status);
+    check(one.done?.status === 303 && jar.has("mb_session") && jar.has("mb_device"), "name + PIN: signed in, with the browser's device cookie", one.done);
+    const G1claim = await http("POST", `/api/matches/${G1.id}/claim`, jarCookie(jar), { deviceId: webDev, deviceLabel: "browser" });
+    check(G1claim.status === 200, "the browser claims the girls' Court 1 match (its lease)", G1claim.status);
+    const two = await webSignIn(jar, C2.code, made.referee!, PIN, { open: [G1.id, BT.id].join(","), scoring_device: webDev });
+    check(two.done?.status === 303 && jar.has("mb_carry"), "switch to Court 2: a carry-over cookie for the claimed match", [...jar.keys()]);
+    const three = await webSignIn(jar, C3w.code, made.referee!, PIN, { open: "", scoring_device: webDev });
+    check(three.done?.status === 303, "switch again to Court 3 (nothing new to carry)", three.done?.status);
+    const keep = await getPage(jar, `/referee/matches/${G1.id}/score`);
+    check(keep.status === 200 && [...jar.keys()].some((k) => k.startsWith("mb_carry")), "…the first carry-over is still there: Court 1's match still opens", { status: keep.status, cookies: [...jar.keys()] });
+    const untouched = await getPage(jar, `/referee/matches/${BT.id}/score`);
+    check(untouched.status === 404, "a Court 1 match the browser never worked on was never carried", untouched.status);
+    await http("POST", `/api/matches/${G1.id}/release-lease`, jarCookie(jar), { deviceId: webDev });
+  }
 
   section("Admin: a new code for one court");
   const C3 = codes.find((c) => c.court_name === "Court 3")!;

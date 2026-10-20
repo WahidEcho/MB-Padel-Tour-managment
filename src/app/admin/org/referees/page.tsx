@@ -4,7 +4,7 @@ import { db } from "@/lib/supabase";
 import { requireStaff } from "@/lib/guard";
 import { can } from "@/lib/auth";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
-import { rosterOf } from "@/lib/referees/server";
+import { PIN_BRAKE_AUDIT, rosterOf } from "@/lib/referees/server";
 import { REFEREE_ROLE_LABELS } from "@/lib/referees/rules";
 import { removeRefereeAction } from "./actions";
 import { MasterCodeForm, NewRefereeForm, ResetPinForm } from "./RefereeForms";
@@ -12,6 +12,7 @@ import { MasterCodeForm, NewRefereeForm, ResetPinForm } from "./RefereeForms";
 export const dynamic = "force-dynamic";
 
 const working = (c: { revoked_at: string | null; expires_at: string | null }) => !c.revoked_at && !(c.expires_at && Date.parse(c.expires_at) <= Date.now());
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB", { timeZone: "Africa/Cairo", dateStyle: "medium", timeStyle: "short" }) : "—");
 
 /**
@@ -22,7 +23,7 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB"
 export default async function RefereesPage() {
   const staff = await requireStaff(["admin", "manager"], "/admin/org/referees");
   if (!can(staff.role, "manage_referees")) notFound();
-  const [roster, { data: gRows }, { data: codeRows }] = await Promise.all([
+  const [roster, { data: gRows }, { data: codeRows }, { data: brakeRows }] = await Promise.all([
     rosterOf(staff.orgId),
     db().from("event_groups").select("id, name").eq("organization_id", staff.orgId).order("created_at", { ascending: false }).limit(50),
     db()
@@ -32,7 +33,17 @@ export default async function RefereesPage() {
       .eq("role", "master_referee")
       .order("created_at", { ascending: false })
       .limit(200),
+    // Wrong-PIN alerts of the last day (src/lib/referees/server.ts alertOrgPinBrake).
+    db()
+      .from("audit_logs")
+      .select("created_at, new_value")
+      .eq("organization_id", staff.orgId)
+      .eq("action", PIN_BRAKE_AUDIT)
+      .gte("created_at", hoursAgo(24))
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
+  const brakes = (brakeRows ?? []) as { created_at: string; new_value: { wrong_pins?: number; window_minutes?: number; paused_until?: string } | null }[];
   const groups = (gRows ?? []) as { id: string; name: string }[];
   const groupName = new Map(groups.map((g) => [g.id, g.name]));
   const codes = (codeRows ?? []) as { id: string; referee_id: string; event_group_id: string | null; expires_at: string | null; revoked_at: string | null; last_used_at: string | null }[];
@@ -54,6 +65,17 @@ export default async function RefereesPage() {
           <Link href="/admin/org/codes" className="btn-secondary">Court codes</Link>
         </div>
       </div>
+
+      {brakes.length > 0 && (
+        <section className="rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm" data-testid="pin-brake-banner" role="alert">
+          <p className="font-bold text-danger">Too many wrong referee PINs</p>
+          <p className="text-muted">
+            {brakes[0].new_value?.wrong_pins ?? "Many"} wrong PINs within {brakes[0].new_value?.window_minutes ?? "?"} minutes (last {when(brakes[0].created_at)}). PIN sign-in on new devices was paused until{" "}
+            {when(brakes[0].new_value?.paused_until ?? null)}; referees&apos; own devices from today kept working. If these were not your referees, give the affected referees a new PIN below.
+          </p>
+          {brakes.length > 1 && <p className="mt-1 text-xs text-muted">{brakes.length} alerts in the last 24 hours.</p>}
+        </section>
+      )}
 
       <NewRefereeForm groups={groups} />
 

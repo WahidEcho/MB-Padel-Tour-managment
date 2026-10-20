@@ -40,7 +40,7 @@ export default function ScanCourt() {
     if (r.ok) return done(r.court, r.carried);
     if (r.pinRequired) {
       // The court is right; who is on it comes next (migration 0035).
-      pendingCode.set(code, r.court ?? null, Boolean(r.master));
+      pendingCode.set(code, r.court ?? null, Boolean(r.master), r.referees ?? []);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       router.replace("/referee/pin");
       return;

@@ -25,7 +25,7 @@ export default function CourtLink() {
     void signInWithCode(code).then((r) => {
       if (!live) return;
       if (!r.ok && r.pinRequired) {
-        pendingCode.set(code, r.court ?? null, Boolean(r.master));
+        pendingCode.set(code, r.court ?? null, Boolean(r.master), r.referees ?? []);
         router.replace("/referee/pin");
         return;
       }

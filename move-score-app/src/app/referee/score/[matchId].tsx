@@ -18,6 +18,8 @@ import {
   receivingPlayer,
   aceMoment,
   defaultServeOrder,
+  lockServeOrder,
+  tossDecidesServer,
   needsServeOrder,
   nationByCode,
   sidesSwapped,
@@ -45,6 +47,8 @@ import { BetweenPoints, MatchLogList, PadV2, ServeOrderForm, TimerCard, useTick,
 import { BALL, BALL_INK } from "../../../theme/palette";
 import { LineupScreenBody } from "../../../referee/LineupScreen";
 import { signInWithCode } from "../../../referee/courtSignIn";
+import { RefereeNamePicker } from "../../../referee/RefereeNamePicker";
+import type { RefereeChoice } from "@core";
 import { CallCard } from "../../../referee/CallCard";
 import { FinalScore } from "../../../referee/FinalScore";
 import { Sheet as Sheetish } from "../../../referee/Sheet";
@@ -116,12 +120,15 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
   const [code, setCode] = useState("");
   const [pin, setPin] = useState("");
   const [needPin, setNeedPin] = useState(false);
+  // The names on the code (audit H1): the referee picks theirs before the PIN.
+  const [referees, setReferees] = useState<RefereeChoice[]>([]);
+  const [refereeId, setRefereeId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true);
     setErr(null);
-    const r = await signInWithCode(code.trim(), needPin ? pin : undefined);
+    const r = await signInWithCode(code.trim(), needPin ? pin : undefined, needPin && referees.length ? refereeId : null);
     setBusy(false);
     if (r.ok) {
       setCode("");
@@ -131,7 +138,12 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
       return;
     }
     if (r.pinRequired || r.wrongPin) setNeedPin(true);
-    setErr(r.pinRequired ? `${r.court ?? "This code"}: enter your 4-digit referee PIN.` : r.message);
+    if (r.referees?.length) {
+      setReferees(r.referees);
+      if (r.referees.length === 1) setRefereeId(r.referees[0].id);
+    }
+    setPin("");
+    setErr(r.pinRequired && !needPin ? `${r.court ?? "This code"}: pick your name and enter your 4-digit referee PIN.` : r.message);
   };
   const input = { backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 14, color: t.ink, fontSize: 18 } as const;
   return (
@@ -149,6 +161,7 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
         onSubmitEditing={() => void submit()}
         style={input}
       />
+      {needPin && referees.length > 0 ? <RefereeNamePicker referees={referees} selected={refereeId} onSelect={setRefereeId} /> : null}
       {needPin && (
         <TextInput
           value={pin}
@@ -164,7 +177,7 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
         />
       )}
       {err ? <Body tone="live" size={13}>{err}</Body> : null}
-      <Button label={busy ? "Checking…" : "Sign in again"} disabled={!code || busy || (needPin && pin.length !== 4)} onPress={() => void submit()} />
+      <Button label={busy ? "Checking…" : "Sign in again"} disabled={!code || busy || (needPin && (pin.length !== 4 || (referees.length > 0 && !refereeId)))} onPress={() => void submit()} />
     </View>
   );
 }
@@ -527,7 +540,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       {/* A court referee signed in with their PIN can call the master referees (migration 0035). */}
       {courtReferee && (
         <View style={{ marginTop: 8 }}>
-          <AssistanceCard matchId={m.id} statusOnly={f.callMaster} />
+          <AssistanceCard matchId={m.id} statusOnly />
         </View>
       )}
 
@@ -812,7 +825,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       </Sheetish>
 
       <Sheetish tall open={askOrder && sheet === null} onClose={() => {}} title={`Start of set ${c.state?.currentSet ?? 1}`}>
-        {askOrder && c.state ? <ServeOrderForm key={c.state.currentSet} sides={v2Sides} initial={defaultServeOrder(c.state)} onConfirm={(o) => guard(() => void c.serveOrder(o))} /> : null}
+        {askOrder && c.state ? <ServeOrderForm key={c.state.currentSet} sides={v2Sides} teamFree={tossDecidesServer(c.state)} initial={c.state ? lockServeOrder(c.state, defaultServeOrder(c.state)) : defaultServeOrder(c.state)} onConfirm={(o) => guard(() => void c.serveOrder(c.state ? lockServeOrder(c.state, o) : o))} /> : null}
       </Sheetish>
 
       <Sheetish open={sheet?.kind === "violation"} onClose={() => setSheet(null)} title="Code violation">

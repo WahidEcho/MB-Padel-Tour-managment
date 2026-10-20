@@ -30,26 +30,64 @@ court's **Call for assistance**. The organiser sees who is on which court right 
 
 ## Signing in
 
+After the code, the referee **picks their own name** from the list (the organisation's active referees open to the
+code's event group; on a master code only that code's master referee; a master referee may pick themselves on a court
+code and is then that court's referee), with their photo when the organiser added one and a search box for long lists,
+then types their PIN. The server checks the PIN **against that referee only** (`referee_id` + PIN, constant-time
+compare). Audit H1, owner-approved 20 Oct 2026.
+
 | Where | How |
 | --- | --- |
-| New app | Scan the court QR (or type the code) → PIN screen → court console. `POST /api/mobile/v1/staff/session { code, pin }`. |
-| Web console | `/login`: the code, then the PIN step (the code is held sealed in a 5-minute HttpOnly cookie, never in a URL). |
+| New app | Scan the court QR (or type the code) → name + PIN screen → court console. `POST /api/mobile/v1/staff/session { code, refereeId, pin }`. |
+| Web console | `/login`: the code, then the name + PIN step (the code is held sealed with its issued-at in a 5-minute HttpOnly cookie, never in a URL; the server refuses the seal after 5 minutes). |
 | **Move Score 1.0.1** | One field: `<code> <PIN>` or `<code>-<PIN>` (or both run together), for any referee code. Without the PIN it shows: "This referee code needs your 4-digit referee PIN: type the code, a space, then your PIN." |
-| Whole-event referee code | The code, then the PIN (web PIN step without a court; app PIN screen "Referee"). |
-| Master referee | Master code + their own PIN (another person's PIN is a wrong PIN). |
+| Whole-event referee code | The code, then name + PIN (web step without a court; app screen "Referee"). |
+| Master referee | Master code + their own PIN (the list holds only them). |
 
-Answers of `staff/session`: 401 `{ code: "pin_required", court, master }`, 401 `wrong_pin`, 429 `pin_locked`.
-Success adds `referee: { name, role }` (1.0.1 ignores it).
+Answers of `staff/session`: 401 `{ code: "pin_required", court, master, referees: [{ id, name, photoUrl }] }` (names
+and photos only, never phones; a name not on the list gets the same answer), 401 `wrong_pin` (the message says how many
+tries are left for that name), 429 `pin_locked` (that referee), `pin_paused` (the organisation's budget, new devices
+only), `pin_busy` (this address). Success adds `referee: { name, role }` (1.0.1 ignores it).
 
-**Brakes** (failed attempts only; a right PIN is refunded; `takeRateLimit`, atomic): per code 5 wrong PINs within 5
-minutes, then that code is **locked for 5 minutes** from the fifth wrong PIN (a right PIN too; `PIN_LOCK_MINUTES`);
-per address 20 per 15 minutes. A
-right court code without its PIN is not counted against the code brakes of `src/lib/staffLogin.ts`.
+**Brakes** (`src/lib/referees/rules.ts`, `checkRefereePin` in `server.ts`; failed attempts only, a right PIN is refunded;
+`takeRateLimit`, atomic; PINs never logged):
+
+- **Per referee**: 5 wrong PINs within 5 minutes lock **that referee** for 5 minutes from the fifth (`PIN_LOCK_MINUTES`).
+  Other referees, the court and its code are unaffected. There is **no per-court-code lock** any more.
+- **Per organisation**, growing backoff (`PIN_ORG_TIERS`): 25 wrong PINs in 10 minutes, 60 in an hour, 150 in a day. While a
+  tier is full, PIN sign-in on a new device pauses until it empties. The wrong PIN that fills a tier writes an audit row
+  `REFEREE_PIN_BRAKE` (banner on Admin → Referees for 24 h) and emails the organisation's active owners and admins
+  (`staff_alert` template; `MESSAGING_DRY_RUN=1` sends nothing).
+- **Known device**: a phone (verified install token, `app:<installation>`) or browser (HttpOnly random `__Host-mb_device`
+  cookie, `web:<id>`) that signed in as that referee in the last 24 h gets back in with the right PIN even while the referee
+  or the organisation is locked. Its own budget is 5 wrong PINs per 5 minutes; its wrong PINs still count for the
+  organisation. Only a peppered hash is stored (`referee_sessions.device_hash`, migration `0041_referee_pin_brakes.sql`).
+- **Per address**: a ceiling against scripts only (300 per 15 minutes): a venue's Wi-Fi or a mobile carrier puts every
+  referee behind one address.
+
+**Move Score 1.0.1 trade-off**: its one field cannot carry a name, so `<code> <PIN>` (and an older new-app build's
+`{ code, pin }` without `refereeId`) is matched against every referee the code lists (PINs are unique per organisation),
+under the organisation's tiers plus a tighter legacy budget of its own (`PIN_LEGACY_ORG_TIERS`: 10 wrong per 10 minutes,
+30 per day), and the address ceiling; never a per-referee lock and no known-device bypass. Each such guess is worth one
+guess at each listed referee, so with 40 referees the 30-a-day legacy budget still gives someone holding a court code
+roughly a 12 % chance a day (40 × 30 / ~9 800 PINs); the organiser is alerted when the organisation tier fills. Retire the legacy path (refuse a PIN without `refereeId`) once 1.0.1 is gone from referees' phones.
+
+A right court code without its PIN is not counted against the code brakes of `src/lib/staffLogin.ts`.
 
 **Token**: the court/master code token carries `p` (referees.id) and `s` (referee_sessions.id). Every request re-reads
-both (`refereeForToken`): removed referee, PIN reset after the token was signed, or an ended sign-in → 401
-`referee_ended`. A referee-code token without a referee (signed before PINs, or a whole-event code signed before PINs
-covered it) → 401 `pin_required`. Operator (TV) codes are unchanged and need no PIN.
+both (`refereeForToken`): removed referee, PIN reset after the token was signed, an ended sign-in, or a sign-in row past
+its own `expires_at` → 401 `referee_ended`. A referee-code token without a referee → 401 `pin_required`. Operator (TV)
+codes are unchanged and need no PIN.
+
+**Switching courts (carry-over)**: the old court's code keeps reaching only the matches this device worked on (its
+referee's own score events or its scoring lease) that the new code does not reach. A carry token never outlives the
+token it came from or the referee's sign-in row, is never accepted as `previousToken`, and earlier carries survive a
+second switch (the web keeps up to three, `mb_carry`, `mb_carry_2`, `mb_carry_3`).
+
+**Finished matches**: a court code (or its carry-over) writes to a finished match (an UNDO that reopens it, any score
+event) only within `CARRY_GRACE_MINUTES` (30) after it ended; afterwards 409 `conflict: "finished_locked"` (audit L4,
+`finishedLockCut` in `src/lib/scoring/append.ts`). Master referees, whole-event codes and the organiser's staff are not
+limited; a result correction stays the organiser's (`correctionCut`).
 
 ## Audit
 
@@ -62,8 +100,12 @@ covered it) → 401 `pin_required`. Operator (TV) codes are unchanged and need n
 Principal: console role `referee`, `referee.role = "master_referee"`, `scopeTournamentIds` = the code's event group
 tournaments (or its one tournament, or the organisation's open events), re-read on every request. Reach
 (`principalReaches`): those tournaments and their matches, every court; nothing else (no sessions, no other rows).
-Permissions (`MASTER_REFEREE_PERMISSIONS`, `src/lib/auth.ts`): `score_match`, `check_in`, `edit_bracket`,
-`generate_matches`, `manage_groups`; never codes, referees, teams, settings, messages or money; a scoped code, so no
+Permissions (`MASTER_REFEREE_PERMISSIONS`, `src/lib/auth.ts`): `score_match`, `check_in` and `master_desk` (audit L3):
+add a match, generate the group matches / ties and the placement draws, schedule a tie or match, delay the order of play,
+release a stuck scoring lock; line-ups and scoring through `score_match`. Deleting matches, resetting / publishing a
+bracket or its slots, creating / assigning / publishing groups and resetting the placement draws stay the organiser's
+(`generate_matches`, `edit_bracket`, `manage_groups`; source-scanned in `src/lib/adminGuards.test.ts`). Never codes,
+referees, teams, settings, messages or money; a scoped code, so no
 organisation-level action. A master referee's PIN on a court code is just that court's referee.
 
 Web: `/referee/master` (calls, court picker across both events, links to every event's match list) and
@@ -72,8 +114,11 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
 
 ## Call for assistance
 
-- Court referee (court code + PIN): big button on the web scoring screen, the web court list and the app console
-  (`AssistanceCard`). `POST /api/mobile/v1/referee/assistance { action: "request", matchId? }`.
+- Court referee (court code + PIN): big button on the web court list and the app console (`AssistanceCard`), and More →
+  Call master referee on the scoring screens. `POST /api/mobile/v1/referee/assistance { action: "request", matchId? }`.
+- Only while **Call master referee** (Admin → Scoring features, `features.callMaster`) is on for the match's event (or,
+  without a match, any of the court's events): otherwise 409 `feature_off` (audit L1); `GET` tells the court referee
+  `enabled` so the consoles hide the button.
 - One open call per physical court (unique index); a tap within 30 s is the same tap, later taps re-alert at most
   once a minute; new calls per court: 6 per 10 minutes (429).
 - Alert: Expo push to the phones of master referees on duty (their app sign-in records the phone from the install

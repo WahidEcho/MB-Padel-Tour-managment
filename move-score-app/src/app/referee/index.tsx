@@ -57,7 +57,7 @@ export default function RefereeHome() {
     }
     if (r.pinRequired) {
       // A court (or master) code: the PIN next, the code kept in memory only.
-      pendingCode.set(typed, r.court ?? null, Boolean(r.master));
+      pendingCode.set(typed, r.court ?? null, Boolean(r.master), r.referees ?? []);
       setCode("");
       router.push("/referee/pin");
       return;

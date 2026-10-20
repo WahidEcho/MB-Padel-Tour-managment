@@ -72,7 +72,7 @@ export {
   onlinePaymentLines,
 } from "../../../src/lib/registration/rules";
 export { parseCourtLink, courtLink, courtKey } from "../../../src/lib/orgs/courtScope";
-export { normalizePin, PIN_LENGTH, callStatusLine, assistanceMessage, isOpenCall, REFEREE_ROLE_LABELS } from "../../../src/lib/referees/rules";
+export { normalizePin, PIN_LENGTH, callStatusLine, assistanceMessage, isOpenCall, REFEREE_ROLE_LABELS, filterRefereeChoices, type RefereeChoice } from "../../../src/lib/referees/rules";
 export type { CallStatus, RefereeRole } from "../../../src/lib/referees/rules";
 export { checkLineup, changedRubbers, warningsForChange, needsReason, unaccepted, lineupStep, issueText, exceptionLine, doublesOf, rubberEditable, EMPTY_LINEUP } from "../../../src/lib/tennis/lineupRules";
 export type { LineupDraft, LineupIssue, LineupIssueCode, LineupStep, LineupPickerModel, PickerSide, SquadMember } from "../../../src/lib/tennis/lineupRules";
