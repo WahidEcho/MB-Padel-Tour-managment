@@ -9,9 +9,10 @@
  * person go to Supabase Auth's REST API with that person's access token.
  */
 import type { Session, User } from "@supabase/supabase-js";
-import { db } from "@/lib/supabase";
+import { db, mediaPublicUrl } from "@/lib/supabase";
 import { siteUrl } from "@/lib/messaging/links";
 import { openToken, sealToken } from "./users";
+import { checkDisplayName } from "./displayName";
 
 export type AppProvider = "apple" | "google" | "email" | "player_code";
 
@@ -132,6 +133,51 @@ export interface SessionReply {
  * so they start a fresh account), and the app gets its session. The app then
  * links its phone and syncs follows (move-score-app/src/auth/signIn.ts finish()).
  */
+/* ---------------- the name and photo a person chose (Account → Edit name and photo) ---------------- */
+
+/**
+ * Kept in the auth user's user_metadata (no column of ours). Supabase merges a
+ * provider's identity data into user_metadata on every OAuth sign-in (Google's
+ * full_name, name, avatar_url, picture), so the person's own choice also lives
+ * under keys no provider writes, and wins whenever its flag is set:
+ *   name_custom + custom_name          — the name they typed (full_name is set too)
+ *   avatar_custom + custom_avatar_url  — their uploaded photo (avatar_url is set too);
+ *                                        avatar_custom with no URL = "no photo", even
+ *                                        if Google offers one
+ */
+export interface AccountMeta {
+  full_name?: unknown;
+  name?: unknown;
+  avatar_url?: unknown;
+  picture?: unknown;
+  name_custom?: unknown;
+  custom_name?: unknown;
+  avatar_custom?: unknown;
+  custom_avatar_url?: unknown;
+}
+
+/** Where account photos live in the media bucket (never shared with player photos). */
+export const ACCOUNT_PHOTO_PREFIX = "accounts/";
+
+/** The name the person chose, or null when they never chose one. */
+export function chosenName(meta: AccountMeta | null | undefined): string | null {
+  if (meta?.name_custom !== true) return null;
+  const c = checkDisplayName(meta.custom_name);
+  return c.ok ? c.name : null;
+}
+
+/** An uploaded account photo of ours (only our own bucket path counts: metadata is user-writable). */
+export function isOwnAccountPhoto(url: unknown): url is string {
+  return typeof url === "string" && url.startsWith(mediaPublicUrl(ACCOUNT_PHOTO_PREFIX)) && !url.includes("..");
+}
+
+/** The photo to show: the person's own choice first, else the provider's https picture. */
+export function avatarFromMeta(meta: AccountMeta | null | undefined): string | null {
+  if (meta?.avatar_custom === true) return isOwnAccountPhoto(meta.custom_avatar_url) ? meta.custom_avatar_url : null;
+  const avatar = meta?.avatar_url || meta?.picture || null;
+  return typeof avatar === "string" && /^https:\/\//.test(avatar) ? avatar : null;
+}
+
 export async function finishSignIn(opts: {
   session: Session;
   user: User;
@@ -141,10 +187,16 @@ export async function finishSignIn(opts: {
   extraRow?: Record<string, unknown>;
 }): Promise<SessionReply> {
   const { session, user, provider } = opts;
-  const meta = (user.user_metadata ?? {}) as { full_name?: string; name?: string; avatar_url?: string; picture?: string };
-  const displayName = (opts.displayName || meta.full_name || meta.name || "").trim().slice(0, 60) || null;
-  const avatar = meta.avatar_url || meta.picture || null;
-  const avatarUrl = typeof avatar === "string" && /^https:\/\//.test(avatar) ? avatar : null;
+  const meta = (user.user_metadata ?? {}) as AccountMeta;
+  // A name the person chose wins over anything a provider sends. Apple sends the name
+  // only on the very first authorization, so a later sign-in falls back to the stored one.
+  const fromProvider = [opts.displayName, meta.full_name, meta.name].find((v): v is string => typeof v === "string" && v.trim() !== "");
+  let displayName = chosenName(meta) ?? (fromProvider ? fromProvider.trim().slice(0, 60) || null : null);
+  if (!displayName) {
+    const { data: existing } = await db().from("app_users").select("display_name").eq("auth_user_id", user.id).maybeSingle();
+    displayName = (existing as { display_name?: string | null } | null)?.display_name ?? null;
+  }
+  const avatarUrl = avatarFromMeta(meta);
   const registrationComplete = opts.registrationComplete ?? true;
   const row: Record<string, unknown> = {
     auth_user_id: user.id,
@@ -234,6 +286,8 @@ export interface AccountStatus {
   pendingEmail: string | null;
   provider: AppProvider | null;
   displayName: string | null;
+  /** Left out when Supabase Auth could not be asked (the app keeps what it has). */
+  avatarUrl?: string | null;
 }
 
 /**
@@ -255,7 +309,8 @@ export async function accountStatus(userId: string, accessToken: string): Promis
     email: live.ok ? (live.data.email || null) : null,
     pendingEmail: complete ? null : (live.ok ? live.data.new_email || null : null) || row?.pending_email || null,
     provider: after,
-    displayName: row?.display_name ?? null,
+    displayName: (live.ok ? chosenName(live.data.user_metadata as AccountMeta) : null) ?? row?.display_name ?? null,
+    ...(live.ok ? { avatarUrl: avatarFromMeta(live.data.user_metadata as AccountMeta) } : {}),
   };
 }
 

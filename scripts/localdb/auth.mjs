@@ -84,16 +84,26 @@ function newUser(fields) {
   return u;
 }
 
+/**
+ * The Google person for an email. As in GoTrue, every Google sign-in merges Google's
+ * identity data into user_metadata again (full_name, name, avatar_url, picture
+ * overwrite what is there; other keys stay), so a later sign-in can replace a name or
+ * photo kept under those keys.
+ */
 function userFor(email) {
+  const name = email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const google = { full_name: name, name, email, avatar_url: "https://lh3.googleusercontent.com/a/localdb-avatar", picture: "https://lh3.googleusercontent.com/a/localdb-avatar", email_verified: true };
   let u = byEmail(email);
   if (!u) {
-    const name = email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     u = newUser({
       email,
       email_confirmed_at: now(),
       app_metadata: { provider: "google", providers: ["google"] },
-      user_metadata: { full_name: name, name, email, avatar_url: "https://lh3.googleusercontent.com/a/localdb-avatar", email_verified: true },
+      user_metadata: google,
     });
+  } else {
+    u.user_metadata = { ...u.user_metadata, ...google };
+    u.updated_at = now();
   }
   return u;
 }
@@ -282,7 +292,15 @@ export function handleAuth({ req, url, body, res, send, port }) {
       if (user._pw === pwHash(b.password)) return err(send, res, 422, "same_password", "New password should be different from the old password."), true;
       user._pw = pwHash(b.password);
     }
-    if (b.data) user.user_metadata = { ...user.user_metadata, ...b.data };
+    if (b.data && typeof b.data === "object") {
+      // GoTrue merges `data` into user_metadata; a null removes the key.
+      const next = { ...user.user_metadata };
+      for (const [k, v] of Object.entries(b.data)) {
+        if (v === null) delete next[k];
+        else next[k] = v;
+      }
+      user.user_metadata = next;
+    }
     user.updated_at = now();
     send(res, 200, publicUser(user));
     return true;

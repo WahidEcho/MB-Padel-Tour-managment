@@ -68,10 +68,11 @@ export async function unlinkPlayer(): Promise<void> {
 }
 
 /**
- * Takes or picks a photo, squares it in the system cropper, resizes it to about
- * 512 px JPEG on the phone and uploads it. Null when the person cancelled.
+ * Takes or picks a photo, squares it in the system cropper and resizes it to about
+ * 512 px JPEG on the phone. Base64, or null when the person cancelled. Used for the
+ * player photo and the account photo (Account → Edit name and photo).
  */
-export async function changePlayerPhoto(source: "camera" | "library"): Promise<MMyPlayer | null> {
+export async function pickSquarePhoto(source: "camera" | "library"): Promise<string | null> {
   const options: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 1, exif: false };
   if (source === "camera") {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -88,7 +89,14 @@ export async function changePlayerPhoto(source: "camera" | "library"): Promise<M
   const rendered = await ctx.renderAsync();
   const out = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.82, base64: true });
   if (!out.base64) throw new Error("Could not read that photo. Try another one.");
-  const r = await api<{ player: MMyPlayer }>("/api/mobile/v1/me/player/photo", { who: "me", body: { image: out.base64 }, timeoutMs: 30_000 });
+  return out.base64;
+}
+
+/** The player photo: picked, resized and uploaded. Null when the person cancelled. */
+export async function changePlayerPhoto(source: "camera" | "library"): Promise<MMyPlayer | null> {
+  const image = await pickSquarePhoto(source);
+  if (!image) return null;
+  const r = await api<{ player: MMyPlayer }>("/api/mobile/v1/me/player/photo", { who: "me", body: { image }, timeoutMs: 30_000 });
   const uid = session.get().user?.id;
   if (uid) remember(uid, r.player);
   return r.player;

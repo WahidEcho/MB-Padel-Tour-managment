@@ -4,7 +4,8 @@ import { privateJson } from "@/lib/mobile/http";
 import { accountStatus, bearerOf } from "@/lib/auth/accounts";
 
 /**
- * GET → { user: { id, displayName, email, provider, registrationComplete, pendingEmail } }.
+ * GET → { user: { id, displayName, email, avatarUrl, provider, registrationComplete, pendingEmail } }
+ * (avatarUrl left out when Supabase Auth could not be asked).
  *
  * registrationComplete is false only for a player who signed in with their code
  * and has not confirmed an email yet; the app shows "Complete your registration"

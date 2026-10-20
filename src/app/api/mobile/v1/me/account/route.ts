@@ -6,6 +6,9 @@ import { authClient, openToken, revokeApple } from "@/lib/auth/users";
 import { accountStatus, bearerOf, signOutAuth } from "@/lib/auth/accounts";
 import { privateJson } from "@/lib/mobile/http";
 import { unlinkMe } from "@/lib/players/claims";
+import { checkRateLimit } from "@/lib/ratelimit";
+import { checkDisplayName } from "@/lib/auth/displayName";
+import { accountUser, forgetAccountProfile, setAccountName } from "@/lib/auth/accountProfile";
 
 export async function GET(request: Request) {
   const { owner } = await ownerOf(request);
@@ -14,6 +17,36 @@ export async function GET(request: Request) {
   const { data } = await db().from("app_users").select("display_name, provider, created_at").eq("auth_user_id", owner.id).maybeSingle();
   const status = await accountStatus(owner.id, token);
   return privateJson({ user: { id: owner.id, ...(data ?? {}), registrationComplete: status.registrationComplete, pendingEmail: status.pendingEmail } });
+}
+
+/**
+ * PATCH { displayName } → { user } (the GET /me shape, with avatarUrl): the name the
+ * person chose on Account → Edit name and photo. Plain text, 1–60 characters
+ * (checkDisplayName); any other field is refused. Kept in app_users.display_name and
+ * the auth user's metadata, where a later Apple or Google sign-in never replaces it.
+ * Anonymous player-code accounts may set one too.
+ */
+export async function PATCH(request: Request) {
+  const { owner } = await ownerOf(request);
+  const token = bearerOf(request);
+  if (owner?.kind !== "user" || !token) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  let body: unknown = null;
+  try {
+    body = await request.json();
+  } catch {
+    body = null;
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return privateJson({ error: "Send { displayName }." }, 400);
+  const extra = Object.keys(body).filter((k) => k !== "displayName");
+  if (extra.length) return privateJson({ error: `Unknown field: ${extra[0].slice(0, 40)}` }, 400);
+  const name = checkDisplayName((body as { displayName?: unknown }).displayName);
+  if (!name.ok) return privateJson({ error: name.error }, 400);
+  const rl = await checkRateLimit({ key: `acctname:${owner.id}`, limit: 30, windowSeconds: 3600 });
+  if (!rl.allowed) return privateJson({ error: "Too many changes. Try again later." }, 429);
+  const done = await setAccountName(owner.id, token, name.name);
+  if (!done.ok) return privateJson({ error: done.error }, done.status);
+  await audit({ action: "APP_ACCOUNT_NAME_UPDATED", actor_role: "user", actor_user_id: owner.id, entity_type: "user", entity_id: owner.id, new_value: { length: [...name.name].length } });
+  return privateJson({ user: await accountUser(owner.id, token) });
 }
 
 /**
@@ -49,6 +82,8 @@ export async function DELETE(request: Request) {
   await db().from("registrations").update({ auth_user_id: null, updated_at: new Date().toISOString() }).eq("auth_user_id", owner.id);
   // Lets go of the linked player; a photo the player uploaded is deleted with it.
   await unlinkMe(owner.id);
+  // The account's own photo is deleted and its chosen name and photo cleared from the auth metadata.
+  await forgetAccountProfile(token).catch(() => undefined);
   await db().from("app_users").delete().eq("auth_user_id", owner.id);
 
   let identityDeleted = false;

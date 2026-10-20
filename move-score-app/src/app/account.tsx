@@ -19,6 +19,8 @@ import { Button, Card, SectionHeader } from "../ui/Bits";
 import { appVersion, config } from "../config";
 import { PlayerSection } from "../player/PlayerSection";
 import { RegistrationBanner } from "../auth/RegistrationBanner";
+import { EditProfileSheet } from "../auth/EditProfileSheet";
+import { refreshAccount } from "../auth/email";
 import { openLeagues } from "../nav/links";
 
 // Where the legal pages live when the server's config has not loaded yet.
@@ -61,6 +63,7 @@ export default function Account() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   // A player-code account with no email yet cannot be signed back into except with the code
   // (as a new account): say so before signing out.
   const unregistered = user?.registrationComplete === false;
@@ -68,6 +71,8 @@ export default function Account() {
     void refreshAlerts();
     void refreshPrefs();
     void appleAvailable().then(setApple);
+    // The name and photo may have been changed on another phone.
+    if (session.get().user) void refreshAccount().catch(() => undefined);
   }, []);
   const run = async (fn: () => Promise<void>) => {
     setMsg(null);
@@ -145,7 +150,7 @@ export default function Account() {
         <>
           <SectionHeader title="Sign in" />
           {user ? (
-            <Card style={{ gap: 10 }}>
+            <Card style={{ gap: 12 }}>
               <Pressable
                 onPress={() => {
                   setMenuOpen((o) => !o);
@@ -154,7 +159,7 @@ export default function Account() {
                 }}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: menuOpen }}
-                accessibilityHint="Shows sign out and delete account"
+                accessibilityHint="Shows edit name and photo, sign out and delete account"
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 10, margin: -4, borderRadius: 16, borderWidth: 1, borderColor: t.line, backgroundColor: t.chip, opacity: pressed ? 0.75 : 1 })}
               >
                 {user.avatarUrl ? (
@@ -176,8 +181,15 @@ export default function Account() {
                   ›
                 </Body>
               </Pressable>
+              {!user.name && (
+                <Card onPress={() => setEditOpen(true)} accessibilityLabel="Add your name" style={{ gap: 4, borderColor: t.ball, borderWidth: 1 }}>
+                  <Body weight="semi">Add your name</Body>
+                  <Body tone="ink2" size={12.5}>So your account shows who you are. You can add a photo too.</Body>
+                </Card>
+              )}
               {menuOpen && (
                 <View style={{ gap: 8 }}>
+                  <Button kind="ghost" label="Edit name and photo" onPress={() => setEditOpen(true)} />
                   {confirmSignOut ? (
                     <View style={{ gap: 8 }}>
                       <Body size={13}>
@@ -206,6 +218,7 @@ export default function Account() {
                 </View>
               )}
               <RegistrationBanner />
+              <EditProfileSheet open={editOpen} onClose={() => setEditOpen(false)} />
               <Body tone="ink2" size={12.5}>Your follows and pass are saved to your account and come with you to a new phone. You stay signed in until you sign out.</Body>
             </Card>
           ) : (

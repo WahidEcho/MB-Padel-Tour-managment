@@ -133,6 +133,8 @@ async function main() {
     const me = await call("GET", "/api/mobile/v1/me/account", { headers: bearer });
     check(me.status === 200 && me.json?.user?.id === userId, "The access token is accepted on personal routes", me.json?.user);
 
+    await accountProfile(userId!, bearer, installToken);
+
     // ---- linked to the phone, as after Apple sign-in (registerDevice with the session)
     const link = await call("POST", "/api/mobile/v1/devices", { headers: bearer, body: { installationId, platform: "ios" } });
     const { data: device } = await db().from("push_devices").select("user_id").eq("installation_id", installationId).maybeSingle();
@@ -167,6 +169,100 @@ async function main() {
 
 const cleanup: string[] = [];
 const AUTH = () => `${process.env.SUPABASE_URL}/auth/v1`;
+
+// A 1×1 PNG: passes the server's byte checks (type and size).
+const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+/** Signing in with Google again, the way the app does (no name sent, as with Apple after the first time). */
+async function signInAgain() {
+  const p = pkce();
+  const trip = await browse(startUrl("google", REDIRECT, p.challenge));
+  const code = readAuthRedirect(trip.landed ?? "").code;
+  return call("POST", "/api/mobile/v1/auth/session", { body: { provider: "google", code, codeVerifier: p.verifier } });
+}
+
+/**
+ * Account → Edit name and photo: PATCH /me/account { displayName }, POST/DELETE
+ * /me/account/photo. A later sign-in (Apple sends no name then; Google merges its own
+ * name and picture into the metadata) keeps what the person chose.
+ */
+async function accountProfile(userId: string, bearer: Record<string, string>, installToken: string) {
+  const authUser = async (token: string) => (await (await fetch(`${AUTH()}/user`, { headers: { Authorization: `Bearer ${token}` } })).json()) as { user_metadata?: Record<string, unknown> };
+  const token = bearer.Authorization.slice(7);
+
+  // ---- refused
+  const anon = await call("PATCH", "/api/mobile/v1/me/account", { body: { displayName: "Nobody" } });
+  const guest = await call("PATCH", "/api/mobile/v1/me/account", { headers: { "x-install-token": installToken }, body: { displayName: "Guest" } });
+  const anonPhoto = await call("POST", "/api/mobile/v1/me/account/photo", { headers: { "x-install-token": installToken }, body: { image: TINY_PNG } });
+  check(anon.status === 401 && guest.status === 401 && anonPhoto.status === 401, "Name and photo need a signed-in account (a guest phone is refused)", [anon.status, guest.status, anonPhoto.status]);
+  const bad: [unknown, string][] = [
+    [{ displayName: "" }, "an empty name"],
+    [{ displayName: "   " }, "a blank name"],
+    [{ displayName: "a".repeat(61) }, "61 characters"],
+    [{ displayName: "Mona\u202Eraf" }, "a bidi override"],
+    [{ displayName: "Mona\nFan" }, "a line break"],
+    [{ displayName: "<b>Mona</b>" }, "markup"],
+    [{ displayName: 42 }, "a number"],
+    [{ displayName: "Mona", email: "x@example.com" }, "an unknown field"],
+    [["Mona"], "an array body"],
+  ];
+  for (const [body, what] of bad) {
+    const r = await call("PATCH", "/api/mobile/v1/me/account", { headers: bearer, body });
+    check(r.status === 400 && typeof r.json?.error === "string", `Setting a name refuses ${what}`, r.json?.error);
+  }
+  for (const [body, what] of [
+    [{ image: Buffer.from("hello, not a photo").toString("base64") }, "bytes that are not an image"],
+    [{ image: TINY_PNG, avatarUrl: "https://evil.example/x.png" }, "an unknown field"],
+    [{}, "no image"],
+  ] as const) {
+    const r = await call("POST", "/api/mobile/v1/me/account/photo", { headers: bearer, body });
+    check(r.status === 400, `Setting a photo refuses ${what}`, r.json?.error);
+  }
+
+  // ---- set the name
+  const named = await call("PATCH", "/api/mobile/v1/me/account", { headers: bearer, body: { displayName: "  Wahid   Tester " } });
+  check(named.status === 200 && named.json?.user?.id === userId && named.json?.user?.displayName === "Wahid Tester", "PATCH /me/account sets the name (trimmed, spaces collapsed) and answers with the user", named.json?.user);
+  check(/^https:\/\//.test(named.json?.user?.avatarUrl ?? ""), "…the answer carries the avatar too (Google's, until a photo is chosen)", named.json?.user?.avatarUrl);
+  const { data: row } = await db().from("app_users").select("display_name").eq("auth_user_id", userId).maybeSingle();
+  const meta1 = (await authUser(token)).user_metadata ?? {};
+  check(row?.display_name === "Wahid Tester" && meta1.full_name === "Wahid Tester" && meta1.name_custom === true, "The name is in app_users and in the auth user's metadata", { row, full_name: meta1.full_name });
+
+  // ---- set the photo
+  const photo = await call("POST", "/api/mobile/v1/me/account/photo", { headers: bearer, body: { image: TINY_PNG } });
+  const prefix = `${process.env.SUPABASE_URL}/storage/v1/object/public/media/accounts/${userId}/`;
+  const photoUrl = photo.json?.user?.avatarUrl as string | undefined;
+  check(photo.status === 200 && !!photoUrl?.startsWith(prefix) && photo.json?.user?.displayName === "Wahid Tester", "POST /me/account/photo stores the photo under the account's own key and answers with it", { status: photo.status, url: photoUrl });
+  const meta2 = (await authUser(token)).user_metadata ?? {};
+  check(meta2.avatar_url === photoUrl && meta2.avatar_custom === true, "The photo URL is in the auth user's metadata (avatar_url), marked as the person's own", meta2);
+  const me = await call("GET", "/api/mobile/v1/me", { headers: bearer });
+  check(me.status === 200 && me.json?.user?.avatarUrl === photoUrl && me.json?.user?.displayName === "Wahid Tester", "GET /me carries the chosen name and avatarUrl", me.json?.user);
+
+  // ---- a later sign-in keeps them (no name sent; Google's own name and picture merged back in)
+  const again = await signInAgain();
+  const meta3 = (await authUser(again.json?.accessToken)).user_metadata ?? {};
+  check(meta3.full_name !== "Wahid Tester" || meta3.avatar_url !== photoUrl, "(The stand-in's Google sign-in wrote its own name and picture back into the metadata, as GoTrue does)", { full_name: meta3.full_name });
+  check(again.status === 200 && again.json?.userId === userId && again.json?.displayName === "Wahid Tester" && again.json?.avatarUrl === photoUrl, "Signing in again keeps the chosen name and photo", { name: again.json?.displayName, avatar: again.json?.avatarUrl });
+  const { data: row2 } = await db().from("app_users").select("display_name").eq("auth_user_id", userId).maybeSingle();
+  check(row2?.display_name === "Wahid Tester", "…and the account row keeps the chosen name", row2);
+
+  // ---- another account cannot change them
+  const other = await fetch(`${AUTH()}/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((r) => r.json() as Promise<{ access_token?: string; user?: { id: string } }>);
+  const otherBearer = { Authorization: `Bearer ${other.access_token}` };
+  const theirs = await call("PATCH", "/api/mobile/v1/me/account", { headers: otherBearer, body: { displayName: "Someone Else" } });
+  check(theirs.status === 200 && theirs.json?.user?.id === other.user?.id && theirs.json?.user?.displayName === "Someone Else", "An anonymous (player-code style) account sets its own name", theirs.json?.user);
+  const theirPhoto = await call("DELETE", "/api/mobile/v1/me/account/photo", { headers: otherBearer });
+  check(theirPhoto.status === 200 && theirPhoto.json?.user?.id === other.user?.id, "…and removing a photo with its token acts on that account only", theirPhoto.json?.user);
+  const mine = await call("GET", "/api/mobile/v1/me", { headers: bearer });
+  check(mine.json?.user?.displayName === "Wahid Tester" && mine.json?.user?.avatarUrl === photoUrl, "Another account's changes leave this account's name and photo alone", mine.json?.user);
+  const forged = await call("PATCH", "/api/mobile/v1/me/account", { headers: { Authorization: `Bearer ${token.slice(0, -4)}AAAA` }, body: { displayName: "Forged" } });
+  check(forged.status === 401, "A tampered access token is refused", forged.status);
+
+  // ---- remove the photo
+  const removed = await call("DELETE", "/api/mobile/v1/me/account/photo", { headers: bearer });
+  check(removed.status === 200 && removed.json?.user?.avatarUrl === null && removed.json?.user?.displayName === "Wahid Tester", "DELETE /me/account/photo removes the photo and keeps the name", removed.json?.user);
+  const again2 = await signInAgain();
+  check(again2.status === 200 && again2.json?.avatarUrl === null && again2.json?.displayName === "Wahid Tester", "After removing it, signing in with Google again does not bring Google's picture back", { avatar: again2.json?.avatarUrl, name: again2.json?.displayName });
+}
 
 interface Mail {
   to: string;

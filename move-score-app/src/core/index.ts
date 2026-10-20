@@ -22,6 +22,8 @@ export { normalizeAccessCode, formatAccessCode, isValidAccessCode, ACCESS_CODE_L
 export { toE164, displayPhone } from "../../../src/lib/players/phone";
 export { OTP_LENGTH, normalizeOneTimeCode } from "../../../src/lib/players/otp";
 export * from "../../../src/lib/auth/password";
+export { checkDisplayName, DISPLAY_NAME_MAX } from "../../../src/lib/auth/displayName";
+export type { DisplayNameCheck } from "../../../src/lib/auth/displayName";
 export { SITE_URL, SITE_HOST, APP_PAGE_URL } from "../../../src/lib/site";
 export { isSessionRevoked, REFRESH_AHEAD_SECONDS, SESSION_REVOKED } from "../../../src/lib/auth/sessionRules";
 export { SPORTS, sportOf } from "../../../src/lib/sports/registry";

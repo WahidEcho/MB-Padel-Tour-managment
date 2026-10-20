@@ -9,7 +9,7 @@
  * - Player code: the code the tournament sent signs the player in at once; the app
  *   then asks them to complete their registration by adding an email.
  */
-import type { MMyPlayer } from "@core";
+import type { MAccountUser, MMyPlayer } from "@core";
 import { api, ApiError } from "../api/client";
 import { patchUser, session } from "../state/session";
 import { remember } from "../player/me";
@@ -73,7 +73,7 @@ export async function completeRegistration(email: string, password: string): Pro
 }
 
 interface MeReply {
-  user: { id: string; displayName: string | null; email: string | null; pendingEmail: string | null; provider: SessionReply["provider"] | null; registrationComplete: boolean };
+  user: MAccountUser;
 }
 
 /** Where the account stands on the server (registration, email); kept on the phone. */
@@ -87,5 +87,8 @@ export async function refreshAccount() {
     pendingEmail: r.user.pendingEmail,
     email: r.user.email ?? u.email ?? null,
     provider: r.user.provider ?? u.provider ?? null,
+    // The name and photo set on another phone (Edit name and photo) arrive here too.
+    ...(r.user.displayName ? { name: r.user.displayName } : {}),
+    ...(r.user.avatarUrl !== undefined ? { avatarUrl: r.user.avatarUrl } : {}),
   });
 }

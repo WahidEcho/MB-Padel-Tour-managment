@@ -923,7 +923,22 @@ export interface MLinkSuggestion {
   entries: string[];
 }
 
-/** Photo upload limits, shared so the app resizes to what the server accepts. */
+/**
+ * GET /me, and the answer of PATCH /me/account and POST|DELETE /me/account/photo
+ * (Account → Edit name and photo): `{ user: MAccountUser }`. avatarUrl is left out
+ * of GET /me when Supabase Auth could not be asked.
+ */
+export interface MAccountUser {
+  id: string;
+  displayName: string | null;
+  email: string | null;
+  avatarUrl?: string | null;
+  provider: "apple" | "google" | "email" | "player_code" | null;
+  registrationComplete: boolean;
+  pendingEmail: string | null;
+}
+
+/** Photo upload limits, shared so the app resizes to what the server accepts (player and account photos). */
 export const PLAYER_PHOTO = { maxBytes: 1_500_000, maxSide: 2048, targetSide: 512, types: ["image/jpeg", "image/png", "image/webp"] } as const;
 
 export const DEFAULT_ALERT_PREFS: MAlertPrefs = {
