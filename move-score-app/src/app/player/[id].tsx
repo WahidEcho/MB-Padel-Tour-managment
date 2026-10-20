@@ -1,29 +1,68 @@
 import { useMemo } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { isDoneStatus } from "@core";
+import { Image } from "expo-image";
+import { isDoneStatus, playerRecord, playerSide, type MMatch, type WonLost } from "@core";
 import { useBundle, useLive } from "../../api/queries";
 import { isOnCourt, makeView, needsDay } from "../../api/model";
-import { SkinScope } from "../../theme/ThemeProvider";
+import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
-import { Card, Empty, Flag, LinkChip, SectionHeader, ToggleButton } from "../../ui/Bits";
+import { Button, Card, Chip, Empty, Flag, LinkChip, SectionHeader } from "../../ui/Bits";
 import { MatchMini } from "../../ui/Cards";
 import { StaleBanner } from "../../ui/Offline";
 import { LoadState } from "../../ui/LoadState";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { isNation, openTeam, openTournament } from "../../nav/links";
 import { useMyPlayer } from "../../player/me";
-import { PlayerAvatar } from "../../player/ui";
+
+/** The player's photo, cropped on its focal point; their flag when there is none. */
+function Portrait({ name, photoUrl, focalX, focalY, iso2, code, size }: { name: string; photoUrl: string | null; focalX?: number; focalY?: number; iso2: string | null; code: string; size: number }) {
+  const { t } = useTheme();
+  if (!photoUrl) {
+    return (
+      <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.surface2, borderColor: t.line, borderWidth: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <Flag iso2={iso2} code={code} size={size * 0.56} />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri: photoUrl }}
+      style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip }}
+      contentFit="cover"
+      contentPosition={{ left: `${Math.round((focalX ?? 0.5) * 100)}%`, top: `${Math.round((focalY ?? 0.35) * 100)}%` }}
+      accessibilityLabel={`Photo of ${name}`}
+    />
+  );
+}
+
+function RecordCard({ label, rec }: { label: string; rec: WonLost }) {
+  return (
+    <Card style={{ flex: 1, gap: 2 }} accessibilityLabel={`${label}: won ${rec.won}, lost ${rec.lost}`}>
+      <Num size={26}>{`${rec.won}–${rec.lost}`}</Num>
+      <Eyebrow size={10}>{label}</Eyebrow>
+    </Card>
+  );
+}
+
+/**
+ * Where per-player match stats (aces, first serve, points won…) go once matches
+ * carry them. Nothing to show yet: renders nothing.
+ */
+function PlayerStatsSlot(_: { playerId: string; matches: MMatch[] }) {
+  return null;
+}
 
 function PlayerScreen({ id, slug }: { id: string; slug: string }) {
+  const { t } = useTheme();
   const b = useBundle(slug);
   const l = useLive(slug, 10_000);
   const following = useFollowing("player", id);
   // A player looking at their own page sees their own photo, whatever the event shows everyone else.
   const me = useMyPlayer().data;
-  const ownPhoto = me?.entries.some((e) => e.playerId === id) ? me.photoUrl : null;
+  const own = Boolean(me?.entries.some((e) => e.playerId === id));
   const v = useMemo(() => (b.data ? makeView(b.data, l.data) : null), [b.data, l.data]);
   const p = v?.player(id);
   if (!v || !p || !b.data) {
@@ -39,64 +78,90 @@ function PlayerScreen({ id, slug }: { id: string; slug: string }) {
       </Screen>
     );
   }
-  const ms = (l.data?.matches ?? []).filter((m) => m.aPlayers.includes(id) || m.bPlayers.includes(id) || (!m.tieId && (m.a === p.teamId || m.b === p.teamId)));
-  const mySide = (m: (typeof ms)[number]) => (m.a === p.teamId ? m.a : m.b);
+  const tr = b.data.tournament;
+  const ms = (l.data?.matches ?? []).filter((m) => playerSide(m, id, p.teamId) !== null);
   const done = ms.filter((m) => isDoneStatus(m.status));
-  const won = done.filter((m) => m.winner === mySide(m)).length;
-  const sets = done.reduce(
-    (acc, m) => {
-      const isA = m.a === p.teamId;
-      for (const s of m.score?.sets ?? []) {
-        if ((isA ? s.a : s.b) > (isA ? s.b : s.a)) acc.w++;
-        else acc.l++;
-      }
-      return acc;
-    },
-    { w: 0, l: 0 },
-  );
-  const singles = ms.filter((m) => m.rubberType && m.rubberType !== "D").length;
-  const doubles = ms.filter((m) => m.rubberType === "D").length;
+  const rec = playerRecord(ms, id, p.teamId);
   const next = ms.filter((m) => !isDoneStatus(m.status) && m.status !== "cancelled").sort((a, c) => (a.scheduledTime ?? "9").localeCompare(c.scheduledTime ?? "9"));
-  const nextWithDay = needsDay(next.slice(0, 3).filter((m) => !isOnCourt(m)).map((m) => m.scheduledTime), b.data.tournament.timezone);
+  const nextWithDay = needsDay(next.slice(0, 3).filter((m) => !isOnCourt(m)).map((m) => m.scheduledTime), tr.timezone);
+  const photoUrl = own && me?.photoUrl ? me.photoUrl : p.photoUrl;
+  const facts = [
+    typeof p.itfRank === "number" ? { label: `ITF junior #${p.itfRank}`, a11y: `ITF junior ranking ${p.itfRank}` } : null,
+    typeof p.age === "number" ? { label: `Age ${p.age}`, a11y: `${p.age} years old this year` } : null,
+  ].filter((x): x is { label: string; a11y: string } => Boolean(x));
+  const firstName = p.name.split(/\s+/)[0] ?? p.name;
+
   return (
-    <Screen tabs={false} onRefresh={() => l.refetch()}>
-      <BackHeader label="Players" fallback="/players" right={<ToggleButton compact on={following} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("player", id, b.data!.tournament.id)} />} />
+    <Screen tabs={false} onRefresh={() => Promise.all([b.refetch(), l.refetch()])}>
+      <BackHeader label="Players" fallback="/players" />
       <StaleBanner queries={[l]} live />
-      <View style={{ flexDirection: "row", gap: 12, alignItems: "center", marginTop: 4 }}>
-        {ownPhoto || p.photoUrl ? <PlayerAvatar player={{ name: p.name, photoUrl: ownPhoto ?? p.photoUrl }} size={56} /> : <Flag iso2={p.team.iso2} code={p.team.code} size={40} />}
-        <View style={{ flex: 1 }}>
-          <Display size={24}>{p.name}</Display>
-          <Body tone="ink2" size={13}>{`${p.team.name} · ${b.data.tournament.name}`}</Body>
+
+      <Card style={{ marginTop: 4, gap: 14, padding: 18 }}>
+        <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
+          <Portrait name={p.name} photoUrl={photoUrl} focalX={own ? undefined : p.focalX} focalY={own ? undefined : p.focalY} iso2={p.team.iso2} code={p.team.code} size={84} />
+          <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+            <Display size={24}>{p.name}</Display>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Flag iso2={p.team.iso2} code={p.team.code} size={20} />
+              <Body tone="ink2" size={13.5} numberOfLines={1} style={{ flexShrink: 1 }}>{p.team.name}</Body>
+            </View>
+          </View>
         </View>
+        {facts.length > 0 && (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {facts.map((f) => (
+              <View key={f.label} accessibilityLabel={f.a11y}>
+                <Chip label={f.label} />
+              </View>
+            ))}
+          </View>
+        )}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          <LinkChip
+            label={p.team.name}
+            accessibilityLabel={`${p.team.name}, ${isNation(p.team, tr.isTies) ? "nation" : "team"} page`}
+            onPress={() => openTeam(p.team, slug, tr.isTies)}
+            leading={<Flag iso2={p.team.iso2} code={p.team.code} size={18} />}
+          />
+          <LinkChip label={tr.name} accessibilityLabel={`${tr.name}, tournament page`} onPress={() => openTournament(slug)} />
+        </View>
+      </Card>
+
+      <Card style={{ marginTop: 12, gap: 10, borderColor: following ? t.ball : t.line, borderWidth: following ? 1.5 : 1 }}>
+        <Body weight="bold" size={16}>{following ? `You follow ${firstName}` : `Follow ${firstName}`}</Body>
+        <Body tone="ink2" size={13}>
+          {following
+            ? `Alerts when ${firstName}'s match is next on court, starts and finishes.`
+            : `Get an alert when ${firstName}'s match is next on court, starts and finishes.`}
+        </Body>
+        <Button kind={following ? "ghost" : "primary"} label={following ? "✓ Following" : `+ Follow ${firstName}`} onPress={() => void toggleFollow("player", id, tr.id)} />
+      </Card>
+
+      <SectionHeader title="At this event" />
+      <View style={{ flexDirection: "row", gap: 12 }}>
+        <Card style={{ flex: 1, gap: 2 }}>
+          <Num size={26}>{String(done.length)}</Num>
+          <Eyebrow size={10}>Played</Eyebrow>
+        </Card>
+        <RecordCard label="Won–lost" rec={rec.all} />
+        <RecordCard label="Sets" rec={rec.sets} />
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-        <LinkChip
-          label={p.team.name}
-          accessibilityLabel={`${p.team.name}, ${isNation(p.team, b.data.tournament.isTies) ? "nation" : "team"} page`}
-          onPress={() => openTeam(p.team, slug, b.data!.tournament.isTies)}
-          leading={<Flag iso2={p.team.iso2} code={p.team.code} size={18} />}
-        />
-        <LinkChip label={b.data.tournament.name} accessibilityLabel={`${b.data.tournament.name}, tournament page`} onPress={() => openTournament(slug)} />
-      </View>
-      <View style={{ flexDirection: "row", gap: 8, marginTop: 18 }}>
-        {[
-          [String(done.length), "Played"],
-          [`${won}–${done.length - won}`, "Won–lost"],
-          [`${sets.w}–${sets.l}`, "Sets"],
-        ].map(([n, label]) => (
-          <Card key={label} style={{ flex: 1, gap: 2 }}>
-            <Num size={26}>{n}</Num>
-            <Eyebrow size={10}>{label}</Eyebrow>
-          </Card>
-        ))}
-      </View>
-      {b.data.tournament.isTies && (
-        <Body tone="ink2" size={12.5} style={{ marginTop: 8 }}>{`${singles} singles · ${doubles} doubles`}</Body>
+      {tr.isTies && (
+        <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+          <RecordCard label="Singles" rec={rec.singles} />
+          <RecordCard label="Doubles" rec={rec.doubles} />
+        </View>
       )}
+      <PlayerStatsSlot playerId={id} matches={done} />
+
       {next.length > 0 && <SectionHeader title={isOnCourt(next[0]!) ? "On court now" : "Next match"} />}
-      <View style={{ gap: 8 }}>{next.slice(0, 3).map((m) => <MatchMini key={m.id} m={m} v={v} withDay={nextWithDay} />)}</View>
-      {done.length > 0 && <SectionHeader title="Results" />}
-      <View style={{ gap: 8 }}>{done.map((m) => <MatchMini key={m.id} m={m} v={v} />)}</View>
+      <View style={{ gap: 12 }}>{next.slice(0, 3).map((m) => <MatchMini key={m.id} m={m} v={v} withDay={nextWithDay} />)}</View>
+      <SectionHeader title="Results" />
+      {done.length > 0 ? (
+        <View style={{ gap: 12 }}>{done.map((m) => <MatchMini key={m.id} m={m} v={v} />)}</View>
+      ) : (
+        <Body tone="ink2" size={13}>{`${firstName}'s results appear here once a match is finished.`}</Body>
+      )}
     </Screen>
   );
 }

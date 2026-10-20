@@ -390,6 +390,8 @@ async function main() {
     await playerIdentity({ tid, tag, egyId: egy.id, jpnId: jpn.id, inst });
     // ---- Phase 1 security review (0026): each finding's exploit, refused
     await identityHardening({ tid, tag, egyId: egy.id, jpnId: jpn.id, inst });
+    // ---- player pages: ITF ranking, ages only when published, player follows reach alerts
+    await playerPages({ tag, groupId: group!.id });
   } finally {
     // Profiles linking made from the test's entries (and the identity fixtures) go too.
     const { data: linkedProfiles } = await db().from("players").select("player_profile_id").in("tournament_id", [tid, ...((await db().from("tournaments").select("id").like("slug", "e2e-codes-%")).data ?? []).map((x) => x.id as string)]);
@@ -411,6 +413,86 @@ async function main() {
   }
   console.log(failed ? `\n${failed} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
   process.exit(failed ? 1 : 0);
+}
+
+/**
+ * Player pages (src/lib/players/publicInfo.ts): the bundle carries a player's ITF
+ * junior ranking; an age only once the organiser shows ages (juniors are minors),
+ * never the birth year; and a phone following the player is among the recipients
+ * of the player's alerts (match soon, live, result all target the player).
+ */
+async function playerPages(ctx: { tag: string; groupId: string }) {
+  const slug = `e2e-codes-pinfo-${ctx.tag}`;
+  const ties = { rubbers: ["S2", "S1", "D"] };
+  const { data: t } = await db()
+    .from("tournaments")
+    .insert({
+      name: `E2E Player pages ${ctx.tag}`,
+      slug,
+      sport: "tennis",
+      kind: "tournament",
+      status: "active",
+      public_access_enabled: true,
+      event_group_id: ctx.groupId,
+      starts_on: "2026-11-02",
+      format_config: { type: "group_knockout", ties },
+    })
+    .select("id")
+    .single();
+  const tid = (t as { id: string }).id;
+  const { data: team } = await db().from("teams").insert({ tournament_id: tid, team_name: "Egypt", nation_code: "EGY", iso2: "eg" }).select("id").single();
+  const teamId = (team as { id: string }).id;
+  const { data: profile } = await db().from("player_profiles").insert({ public_name: `Mona Age E2E ${ctx.tag}`, approval_status: "approved", birth_year: 2010 }).select("id").single();
+  const { data: rows } = await db()
+    .from("players")
+    .insert([
+      { tournament_id: tid, team_id: teamId, full_name: "Mona Ranked", player_order: 1, player_profile_id: (profile as { id: string }).id },
+      { tournament_id: tid, team_id: teamId, full_name: "Nour Unranked", player_order: 2 },
+    ])
+    .select("id, full_name");
+  const list = (rows ?? []) as { id: string; full_name: string }[];
+  const mona = list.find((r) => r.full_name === "Mona Ranked")!;
+  const nour = list.find((r) => r.full_name === "Nour Unranked")!;
+  await db()
+    .from("tournaments")
+    .update({ format_config: { type: "group_knockout", ties, itfJuniorRanks: { [mona.id]: 42, [`${nour.id}x`]: 7, bogus: "abc" } }, updated_at: new Date().toISOString() })
+    .eq("id", tid);
+  type B = { json: { tournament: { showAges?: boolean }; teams: { players: Record<string, unknown>[] }[] } };
+  const player = (b: B, id: string) => b.json.teams.flatMap((x) => x.players).find((p) => p.id === id);
+  const b1 = (await call("GET", `/api/mobile/v1/t/${slug}/bundle`)) as B & { status: number };
+  check(b1.status === 200 && player(b1, mona.id)?.itfRank === 42, "The bundle carries a player's ITF junior ranking", player(b1, mona.id));
+  check(player(b1, nour.id)?.itfRank === undefined, "…and nothing for a player without one");
+  check(player(b1, mona.id)?.age === undefined && b1.json.tournament.showAges === false, "Ages are off by default: no age for a minor", player(b1, mona.id));
+  check(!JSON.stringify(b1.json).includes("2010") && !/birth/i.test(JSON.stringify(b1.json)), "The bundle never carries a birth year");
+
+  await db().from("tournaments").update({ app_skin: { showAges: true }, updated_at: new Date().toISOString() }).eq("id", tid);
+  await sleep(10_500); // the bundle is memoised for 10 s
+  const b2 = (await call("GET", `/api/mobile/v1/t/${slug}/bundle`)) as B & { status: number };
+  check(player(b2, mona.id)?.age === 16 && b2.json.tournament.showAges === true, "With Show players' ages on, the age in the event's year (2026 − 2010)", player(b2, mona.id));
+  check(player(b2, nour.id)?.age === undefined, "…and no age where no birth year is known");
+  check(!JSON.stringify(b2.json).includes("2010") && !/birth/i.test(JSON.stringify(b2.json)), "Still no birth year once ages are shown");
+
+  // Following the player: a fresh phone (every alert type on) is among the recipients of the player's alerts.
+  const installationId = `e2e-${randomUUID()}`;
+  const reg = await call("POST", "/api/mobile/v1/devices", { body: { installationId, platform: "ios", expoPushToken: `ExponentPushToken[e2e${ctx.tag}pinfo1234]`, appVersion: "1.0.0" } });
+  const inst = { "x-install-token": reg.json?.installToken as string };
+  const fol = await call("POST", "/api/mobile/v1/me/follows", { headers: inst, body: { add: [{ kind: "player", key: mona.id, tournamentId: tid }] } });
+  check(fol.status === 200, "A phone follows a player", fol.status);
+  const { recipientsFor } = await import("../../src/lib/notify/drain");
+  const { composeMatchSoon } = await import("../../src/lib/notify/compose");
+  const soon = composeMatchSoon({ matchId: randomUUID(), a: "Mona Ranked (EGY)", b: "Someone (JPN)", court: "Court 1", label: "Group A", playerIds: [mona.id], starredFans: false });
+  const { data: dev } = await db().from("push_devices").select("id").eq("installation_id", installationId).maybeSingle();
+  const devId = (dev as { id: string } | null)?.id;
+  const reaches = async (category: "court" | "live" | "finished") =>
+    (await recipientsFor(category === "court" ? soon.targets : [{ kind: "player", key: mona.id }], category)).some((d) => d.id === devId && !d.self);
+  for (const category of ["court", "finished"] as const) {
+    check(Boolean(devId) && (await reaches(category)), `A player's follower is a recipient of their ${category} alerts (with the fans' wording)`);
+  }
+  // "Live now" is opt-in (DEFAULT_ALERT_PREFS.live = false): withheld until the phone turns it on.
+  check(!(await reaches("live")), "Live-now alerts wait for the phone's opt-in");
+  await call("PATCH", "/api/mobile/v1/me/prefs", { headers: inst, body: { live: true } });
+  check(await reaches("live"), "…and reach the player's follower once Live now is on");
+  await call("POST", "/api/mobile/v1/me/follows", { headers: inst, body: { remove: [{ kind: "player", key: mona.id, tournamentId: tid }] } });
 }
 
 /** The user id inside a Supabase access token (the stand-in's), without verifying it: test bookkeeping only. */

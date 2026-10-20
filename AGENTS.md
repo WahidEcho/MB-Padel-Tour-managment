@@ -283,6 +283,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   On: pure `src/lib/coaches/lineupEntry.ts`, server `src/lib/coaches/lineups.ts`; a submission is an audit row
   `COACH_LINEUP_SUBMITTED` (never written to the rubbers, so the opponent never sees it); officials' pickers get the additive
   `coach` field (prefilled, "Submitted by the coach at HH:MM"; confirming locks it).
+- Player pages (no migration): pure `src/lib/players/publicInfo.ts` (via `@core`: `playerRecord` singles/doubles W–L). ITF junior
+  ranking typed per player on admin Nations, stored in `format_config.itfJuniorRanks` (CAS on `updated_at`), sent as `MPlayer.itfRank`.
+  Ages: juniors are minors, so only with App tab "Show players' ages" (`app_skin.showAges`, default off) and only as `MPlayer.age`
+  computed from the linked profile's `birth_year` (`publicAges` in `src/lib/mobile/server.ts`; never the year, never for a profile
+  the organisation does not vouch for). Player follows get match soon / live / result (`composeMatchSoon` targets the players).
 - Venue map (migration `0039_venue_map.sql`, not yet on the live project; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
   geo, directions, navigation, DXF, scene/camera maths, bridge via `@core`), WebGL renderer + UI `src/components/venue/`, page
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app

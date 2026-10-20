@@ -11,7 +11,8 @@ import type { BrandingConfig, Match, MatchSnapshot, ScoringConfig, Standing, Tea
 import { activeLiveVideos, withLiveVideo } from "../stream/liveVideo";
 import { publicPlayStatus } from "../notices/playStatus";
 import type { ScoreState } from "../scoring/engine";
-import { getTeams } from "../data";
+import { getTeams, profilesWithoutPhoto } from "../data";
+import { eventYear, publicAge } from "../players/publicInfo";
 import type {
   MAnnouncement,
   MBundle,
@@ -196,7 +197,7 @@ export function getBundle(slug: string, scope: ReadScope = {}): Promise<MBundle 
   return memo(`bundle:${scopeKey(scope)}${slug}`, 10_000, async () => {
     const t = await tournamentBySlug(slug, true, scope);
     if (!t) return null;
-    const [teams, courts, groups, groupTeams, live, plate, orgs] = await Promise.all([
+    const [teams, courts, groups, groupTeams, live, plate, orgs, ages] = await Promise.all([
       getTeams(t.id),
       db().from("courts").select("id, court_name, court_order, is_active").eq("tournament_id", t.id).order("court_order"),
       db().from("groups").select("id, group_name, group_order").eq("tournament_id", t.id).order("group_order"),
@@ -204,6 +205,7 @@ export function getBundle(slug: string, scope: ReadScope = {}): Promise<MBundle 
       liveCounts([t.id]),
       plateBrackets([t.id]),
       publicOrgBranding(),
+      t.app_skin?.showAges === true ? publicAges(t) : Promise.resolve(null),
     ]);
     const groupOf = new Map(((groupTeams.data ?? []) as { team_id: string; group_id: string }[]).map((g) => [g.team_id, g.group_id]));
     const courtRows = (courts.data ?? []) as { id: string; court_name: string; court_order: number; is_active: boolean }[];
@@ -216,12 +218,35 @@ export function getBundle(slug: string, scope: ReadScope = {}): Promise<MBundle 
       live.get(t.id) ?? 0,
       plate.get(t.id) ?? [],
       orgs.get(t.organization_id ?? "") ?? null,
+      ages,
     );
     // Live video (Live stream tab): only on the courts streamed now. Additive: 1.0.1 ignores it.
     const videos = activeLiveVideos(t.branding_config, courtRows.map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active })));
     if (videos.size) bundle.courts = bundle.courts.map((c) => (videos.has(c.id) ? { ...c, liveVideo: videos.get(c.id)! } : c));
     return bundle;
   });
+}
+
+/**
+ * Players' ages for a tournament that shows them (App tab, "Show players' ages"):
+ * from the linked profile's birth year, read here and turned into an age so the
+ * year never reaches a payload. A profile the organisation does not vouch for
+ * lends no age, as it lends no photo (src/lib/orgs/personFields.ts).
+ */
+async function publicAges(t: TournamentRow): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const { data } = await db().from("players").select("id, player_profile_id, player_profiles(birth_year)").eq("tournament_id", t.id).not("player_profile_id", "is", null);
+  const rows = (data ?? []) as unknown as { id: string; player_profile_id: string; player_profiles: { birth_year: number | null } | { birth_year: number | null }[] | null }[];
+  if (!rows.length) return out;
+  const hidden = await profilesWithoutPhoto(t.id, rows.map((r) => r.player_profile_id));
+  const year = eventYear(t.starts_on);
+  for (const r of rows) {
+    if (hidden.has(r.player_profile_id)) continue;
+    const profile = Array.isArray(r.player_profiles) ? r.player_profiles[0] : r.player_profiles;
+    const age = publicAge(profile?.birth_year ?? null, year, true);
+    if (age !== null) out.set(r.id, age);
+  }
+  return out;
 }
 
 /** The Plate brackets of each tournament (the stage rules tell a Plate match by its bracket). */

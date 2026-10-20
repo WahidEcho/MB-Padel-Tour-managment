@@ -76,7 +76,7 @@ export { normalizePin, PIN_LENGTH, callStatusLine, assistanceMessage, isOpenCall
 export type { CallStatus, RefereeRole } from "../../../src/lib/referees/rules";
 export { checkLineup, changedRubbers, warningsForChange, needsReason, unaccepted, lineupStep, issueText, exceptionLine, doublesOf, rubberEditable, EMPTY_LINEUP } from "../../../src/lib/tennis/lineupRules";
 export type { LineupDraft, LineupIssue, LineupIssueCode, LineupStep, LineupPickerModel, PickerSide, PickerCoachSubmission, SquadMember } from "../../../src/lib/tennis/lineupRules";
-export { coachLineupSettings, coachLineupWindow, coachActorLabel, checkCoachLineup, sameLineup, clockIn, submittedNote, COACH_LINEUP_CLOSED_MESSAGE } from "../../../src/lib/coaches/lineupEntry";
+export { coachLineupSettings, coachLineupWindow, coachActorLabel, checkCoachLineup, sameLineup, submittedNote, COACH_LINEUP_CLOSED_MESSAGE } from "../../../src/lib/coaches/lineupEntry";
 export type { CoachLineupClosed, CoachLineupSettings } from "../../../src/lib/coaches/lineupEntry";
 export { ITF_REGULATIONS_URL, ITF_TEAM_REGULATIONS, regulationPath, regulationLabel, regulationSummary } from "../../../src/lib/tennis/regulations";
 export type { RegulationSummary } from "../../../src/lib/tennis/regulations";
@@ -112,3 +112,5 @@ export type { OpenState } from "../../../src/lib/eventInfo/hours";
 export { directionLinks, telLink, whatsAppLink, mailLink } from "../../../src/lib/eventInfo/links";
 export { EVENT_INFO_PLACES } from "../../../src/lib/eventInfo/types";
 export type { PublicEventInfo, EventInfoDay, EventInfoPlace, EventInfoContact, EventInfoFaq } from "../../../src/lib/eventInfo/types";
+export { playerRecord, playerSide, ITF_RANK_MAX } from "../../../src/lib/players/publicInfo";
+export type { PlayerRecord, WonLost } from "../../../src/lib/players/publicInfo";

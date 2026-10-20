@@ -97,6 +97,13 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
             </select>
           </label>
           <label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" name="show_photos" defaultChecked={skin.showPhotos === true} /> Show player photos</label>
+          <label className="col-span-2 flex items-start gap-2 text-sm">
+            <input type="checkbox" name="show_ages" defaultChecked={skin.showAges === true} className="mt-1" />
+            <span>
+              Show players&apos; ages
+              <span className="block text-xs text-muted">Off by default: junior players are minors. When on, a player page shows the age reached this year, from the birth year on the player&apos;s linked profile (never the birth year itself).</span>
+            </span>
+          </label>
           <label className="col-span-2"><span className="label">Hero artwork URL</span><input name="artwork_url" defaultValue={skin.artworkUrl ?? ""} className="input" /></label>
           <button className="btn-primary col-span-2">Save</button>
         </form>

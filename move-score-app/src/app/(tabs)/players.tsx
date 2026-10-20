@@ -12,6 +12,7 @@ import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Card, Empty, Flag, SectionHeader, ToggleButton } from "../../ui/Bits";
 import { toggleFollow, useFollowsOf } from "../../state/follows";
 import { openPlayer, openTournament } from "../../nav/links";
+import { FollowedPlayers } from "../../ui/FollowedPlayers";
 
 function initials(name: string) {
   return name
@@ -46,8 +47,10 @@ function PlayerList({ slug, query }: { slug: string; query: string }) {
   return (
     <View>
       <SectionHeader title={b.data.tournament.name} onTitlePress={() => openTournament(slug)} />
+      {!q && <FollowedPlayers bundle={b.data} slug={slug} title="You follow" />}
+      {!q && following.length > 0 && rows.some(({ p }) => following.includes(p.id)) && <Eyebrow style={{ marginBottom: 8 }}>All players</Eyebrow>}
       {rows.map(({ p, team }) => (
-        <Card key={p.id} onPress={() => openPlayer(p.id, slug)} accessibilityLabel={[p.name, team.name, next(p.id)].filter(Boolean).join(", ")} style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <Card key={p.id} onPress={() => openPlayer(p.id, slug)} accessibilityLabel={[p.name, team.name, next(p.id)].filter(Boolean).join(", ")} style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
           <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
             <View style={{ position: "absolute", opacity: 0.4 }}>
               <Flag iso2={team.iso2} code={team.code} size={60} />
@@ -57,7 +60,7 @@ function PlayerList({ slug, query }: { slug: string; query: string }) {
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Body weight="bold" numberOfLines={1}>{p.name}</Body>
-            <Body tone="ink2" size={12} numberOfLines={1}>{[team.code, next(p.id)].filter(Boolean).join(" · ")}</Body>
+            <Body tone="ink2" size={12} numberOfLines={1}>{[team.code, typeof p.itfRank === "number" ? `ITF #${p.itfRank}` : null, next(p.id)].filter(Boolean).join(" · ")}</Body>
           </View>
           <ToggleButton compact on={following.includes(p.id)} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("player", p.id, b.data!.tournament.id)} />
         </Card>

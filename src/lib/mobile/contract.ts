@@ -92,6 +92,17 @@ export interface MPlayer {
   teamId: string;
   /** Null when the event shows no photos (the Junior Finals). */
   photoUrl: string | null;
+  /** The photo's focal point (0–1), for crops; only with a photo. Absent from older servers. */
+  focalX?: number;
+  focalY?: number;
+  /** ITF junior ranking, when the organiser entered it (public ITF data). Absent otherwise and from older servers. */
+  itfRank?: number;
+  /**
+   * The age the player reaches in the event's year: only when the organiser shows
+   * ages (off by default: the players are minors) and a birth year is known.
+   * The birth year itself never leaves the server. Absent otherwise.
+   */
+  age?: number;
 }
 
 export interface MTeam {
@@ -172,6 +183,8 @@ export interface MBundle {
   tournament: MTournamentCard & {
     isTies: boolean;
     showPhotos: boolean;
+    /** The organiser shows players' ages (App tab; off by default). Absent from older servers. */
+    showAges?: boolean;
     /** Rubber order for team competitions: ["S2","S1","D"]. */
     rubberPlan: string[];
     lowerThird: string | null;

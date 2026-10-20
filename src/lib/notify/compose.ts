@@ -273,15 +273,16 @@ export interface CourtMatch {
 
 /**
  * The match before this one on its court is one game from the end. Sent to this
- * match's own players (`self`); starred fans (the match's followers) only when
- * the organiser turned that on, so `targets` is empty otherwise.
+ * match's own players (`self`) and to the people who follow one of them (a
+ * player follow is a choice to hear about that player's matches); starred fans
+ * (the match's followers) only when the organiser turned that on.
  */
 export function composeMatchSoon(o: CourtMatch & { playerIds: string[]; starredFans: boolean }): AlertPayload {
   return {
     title: `Next on ${o.court}: ${o.a} v ${o.b}`,
     body: `The match on court is one game from the end · ${o.label}`,
     url: `movescore://match/${o.matchId}`,
-    targets: o.starredFans ? [{ kind: "match", key: o.matchId }] : [],
+    targets: [...(o.starredFans ? [{ kind: "match" as const, key: o.matchId }] : []), ...o.playerIds.map((key) => ({ kind: "player" as const, key }))],
     category: CATEGORY.match_soon,
     self: {
       playerIds: o.playerIds,

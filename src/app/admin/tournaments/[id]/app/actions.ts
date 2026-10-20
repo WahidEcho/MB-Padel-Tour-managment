@@ -74,6 +74,8 @@ export async function saveAppSettings(formData: FormData) {
       mode: mode === "light" || mode === "dark" ? mode : null,
       artworkUrl: text(formData, "artwork_url", 500),
       showPhotos: formData.get("show_photos") === "on",
+      // Off unless ticked: junior players are minors (src/lib/players/publicInfo.ts).
+      showAges: formData.get("show_ages") === "on",
     },
     updated_at: new Date().toISOString(),
   };

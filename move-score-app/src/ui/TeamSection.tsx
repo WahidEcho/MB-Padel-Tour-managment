@@ -67,16 +67,19 @@ export function TeamSection({ slug, pick }: { slug: string; pick: (t: MTeam) => 
       {team.players.length > 0 && (
         <>
           <Eyebrow style={{ marginTop: 16, marginBottom: 8 }}>{`Players · ${team.players.length}`}</Eyebrow>
-          <View style={{ gap: 8 }}>
+          <View style={{ gap: 12 }}>
             {team.players.map((p) => (
               <Card key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingRight: 10 }}>
                 <Pressable
                   accessibilityRole="link"
-                  accessibilityLabel={`${p.name}, player page`}
+                  accessibilityLabel={`${p.name}${typeof p.itfRank === "number" ? `, ITF junior ranking ${p.itfRank}` : ""}, player page`}
                   onPress={() => openPlayer(p.id, slug)}
                   style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40 }, pressed && { opacity: 0.6 }]}
                 >
-                  <Body weight="semi" numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</Body>
+                  <View style={{ flexShrink: 1 }}>
+                    <Body weight="semi" numberOfLines={1}>{p.name}</Body>
+                    {typeof p.itfRank === "number" ? <Body tone="ink2" size={12}>{`ITF junior #${p.itfRank}`}</Body> : null}
+                  </View>
                   <Body tone="ink3" weight="bold">›</Body>
                 </Pressable>
                 <ToggleButton compact on={followingPlayers.includes(p.id)} onLabel="✓ Following" offLabel="+ Follow" onPress={() => void toggleFollow("player", p.id, tr.id)} />

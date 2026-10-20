@@ -35,14 +35,25 @@ describe("alert wording", () => {
 
 describe("match-day wording", () => {
   const base = { matchId: "m2", a: "Team A", b: "Team B", court: "Court 2", label: "Group A" };
-  it("match soon: the players' own wording; fans only when starred fans is on", async () => {
+  it("match soon: the players' own wording; their followers always, the match's starred fans only when that is on", async () => {
     const { composeMatchSoon, CATEGORY } = await import("./compose");
     const off = composeMatchSoon({ ...base, playerIds: ["p1"], starredFans: false });
     expect(off.category).toBe("court");
     expect(CATEGORY.match_soon).toBe("court");
-    expect(off.targets).toEqual([]);
+    expect(off.targets).toEqual([{ kind: "player", key: "p1" }]);
     expect(off.self).toEqual({ playerIds: ["p1"], title: "You're next on Court 2", body: expect.stringContaining("one game from the end") });
-    expect(composeMatchSoon({ ...base, playerIds: ["p1"], starredFans: true }).targets).toEqual([{ kind: "match", key: "m2" }]);
+    expect(composeMatchSoon({ ...base, playerIds: ["p1"], starredFans: true }).targets).toEqual([
+      { kind: "match", key: "m2" },
+      { kind: "player", key: "p1" },
+    ]);
+    expect(composeMatchSoon({ ...base, playerIds: [], starredFans: false }).targets).toEqual([]);
+  });
+  it("live and finished alerts reach the followers of every player in the match", async () => {
+    const { composeMatchLive, composeMatchFinished } = await import("./compose");
+    const live = composeMatchLive({ matchId: "m2", tieId: "t1", label: "Group A", a: "EGY", b: "USA", court: "Court 2", playerIds: ["p1", "p2"], nations: [] });
+    expect(live.targets).toEqual(expect.arrayContaining([{ kind: "player", key: "p1" }, { kind: "player", key: "p2" }]));
+    const done = composeMatchFinished({ matchId: "m2", tieId: null, label: "Group A", winner: "EGY", loser: "USA", score: "6–3 6–4", playerIds: ["p1", "p2"] });
+    expect(done.targets).toEqual(expect.arrayContaining([{ kind: "player", key: "p1" }, { kind: "player", key: "p2" }]));
   });
   it("called to court and the reminder give the deadline in the event's zone", async () => {
     const { composeCalledToCourt, composeCallReminder } = await import("./compose");
