@@ -7,6 +7,8 @@ import LiveMatchCard from "@/components/LiveMatchCard";
 import YouTubeLivePlayer from "@/components/stream/YouTubeLivePlayer";
 import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessTheater from "@/components/ChessTheater";
+import MatchStatsCard from "@/components/MatchStatsCard";
+import { getMatchStats } from "@/lib/mobile/stats";
 // ChessLiveCard is used elsewhere (live/overview/TV); the match page uses the theater view.
 import {
   currentGame,
@@ -37,11 +39,13 @@ export default async function PublicMatch({
   if (!tournament) notFound();
   const match = await getMatch(matchId);
   if (!match || match.tournament_id !== tournament.id) notFound();
-  const [teams, snapshot, courts, venue] = await Promise.all([
+  const [teams, snapshot, courts, venue, stats] = await Promise.all([
     getTeams(tournament.id),
     getSnapshot(matchId),
     getCourts(tournament.id),
     match.court_id ? hasPublicVenue(slug) : Promise.resolve(false),
+    // Fans' stats (public tournaments only; aces only when the organiser shows them).
+    getMatchStats(matchId).catch(() => null),
   ]);
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
@@ -101,6 +105,7 @@ export default async function PublicMatch({
         big
         liveVideo={Boolean(video)}
       />
+      {stats && <MatchStatsCard stats={stats.stats} aName={teamA?.team_name ?? "TBD"} bName={teamB?.team_name ?? "TBD"} />}
       {venue && match.court_id && (
         <Link href={`/t/${slug}/map?court=${match.court_id}`} className="btn-secondary inline-flex text-sm" data-testid="show-on-map">
           Show on map

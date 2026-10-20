@@ -96,3 +96,6 @@ export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from ".
 // Cup and Plate brackets of a nations event (tournament page → Brackets).
 export { placementBrackets } from "../../../src/lib/tennis/bracketView";
 export type { BracketDraw, BracketRound, BracketBlock, BracketTie, BracketSide } from "../../../src/lib/tennis/bracketView";
+// Fan stats (match and tie screens).
+export { computeMatchStats, tieStats, swapSides, statLines, durationText, STATS_NOTES } from "../../../src/lib/scoring/stats";
+export type { MatchStats, MatchStatsResult, SideStats, SetDuration, StatLine, TieStats, TieRubberStats, StatsUnavailable } from "../../../src/lib/scoring/stats";

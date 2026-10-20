@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring } from "react-native-reanimated";
 import { ApiError, api } from "../../api/client";
-import { isOffline, useBundle, useCheers, useConfig, useLive } from "../../api/queries";
+import { isOffline, useBundle, useCheers, useConfig, useLive, useTieStats } from "../../api/queries";
+import { StatsCard } from "../../ui/StatsCard";
 import { dayIn, makeView, timeIn } from "../../api/model";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -141,6 +142,7 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
   const cfg = useConfig();
   const starred = useFollowing("tie", id);
   const tie = l.data?.ties.find((x) => x.id === id);
+  const st = useTieStats(id, tie?.status === "live");
   if (!b.data || !tie) {
     // Back is always there: loading, gone, or no signal.
     const gone = <Empty title="This tie is not available" body="It may have been moved or removed from the order of play." />;
@@ -156,7 +158,7 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
   const bb = v.team(tie.b);
   const tz = b.data.tournament.timezone;
   return (
-    <Screen tabs={false} onRefresh={() => l.refetch()}>
+    <Screen tabs={false} onRefresh={() => Promise.all([l.refetch(), st.refetch()])}>
       <BackHeader label={b.data.tournament.name.split(" ").slice(0, 3).join(" ")} fallback={{ pathname: "/t/[slug]", params: { slug } }} right={<ToggleButton compact on={starred} onLabel="★ Following" offLabel="☆ Follow tie" onPress={() => void toggleFollow("tie", id, b.data!.tournament.id)} />} />
       <StaleBanner queries={[l]} live={tie.status === "live"} />
       <Eyebrow>{[tie.roundName ?? (tie.stage === "group" ? "Group stage" : "Placement"), v.court(tie.courtId), tie.scheduledTime ? `${dayIn(tie.scheduledTime, tz)} ${timeIn(tie.scheduledTime, tz)}` : null].filter(Boolean).join(" · ")}</Eyebrow>
@@ -168,6 +170,17 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
         )}
         <LinkChip label={b.data.tournament.name} accessibilityLabel={`${b.data.tournament.name}, tournament page`} onPress={() => openTournament(slug)} />
       </View>
+      {st.data && (st.data.stats.available || st.data.stats.rubbers.some((r) => !r.stats.available && r.stats.reason === "final_score")) ? (
+        <StatsCard
+          title="Tie stats"
+          testID="tie-stats"
+          sides={st.data.stats.sides}
+          aLabel={a?.code ?? "A"}
+          bLabel={bb?.code ?? "B"}
+          time={st.data.stats.available ? { label: "Time on court", seconds: st.data.stats.timeOnCourtSeconds } : null}
+          note={st.data.stats.note}
+        />
+      ) : null}
       <Button kind="ghost" label={tie.status === "completed" ? "Share the result" : "Share · I'm here"} onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: id, kind: "tie", slug } })} style={{ marginTop: 12 }} />
       {cfg.data?.flags.supporter_mode && a && bb && tie.status !== "completed" && (
         <>

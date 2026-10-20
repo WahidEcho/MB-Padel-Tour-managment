@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PublicVenue, MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
+import type { PublicVenue, MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMatchStats, MTieStats, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -322,6 +322,40 @@ export function useTimeline(id: string | undefined, live: boolean, version?: str
     if (!first) void refetch();
   }, [id, version, refetch]);
   return q;
+}
+
+/**
+ * A match's stats (aces only when the organiser shows them). Like the timeline,
+ * fetched again whenever the match moves (`version`), and every 15 s while live.
+ */
+export function useMatchStats(id: string | undefined, live: boolean, version?: string) {
+  const focused = useScreenFocused();
+  const q = useQuery<MMatchStats>({
+    queryKey: ["match-stats", id],
+    queryFn: () => api<MMatchStats>(`/api/mobile/v1/matches/${id}/stats`),
+    enabled: Boolean(id),
+    refetchInterval: focused && live ? 15_000 : false,
+  });
+  const { refetch } = q;
+  const seen = useRef(version);
+  useEffect(() => {
+    if (!id || version === undefined || seen.current === version) return;
+    const first = seen.current === undefined;
+    seen.current = version;
+    if (!first) void refetch();
+  }, [id, version, refetch]);
+  return q;
+}
+
+/** A tie's stats: its rubbers summed per nation, plus the time on court. */
+export function useTieStats(tieId: string | undefined, live: boolean) {
+  const focused = useScreenFocused();
+  return useQuery<MTieStats>({
+    queryKey: ["tie-stats", tieId],
+    queryFn: () => api<MTieStats>(`/api/mobile/v1/ties/${tieId}/stats`),
+    enabled: Boolean(tieId),
+    refetchInterval: focused && live ? 20_000 : false,
+  });
 }
 
 export function useCheers(tieId: string | undefined, live: boolean) {
