@@ -18,6 +18,7 @@ import { TIMERS, liveClock } from "../scoring/timing";
 import type { ScoreState } from "../scoring/engine";
 import { SIDES, redBlueTeams } from "../sides";
 import { toPublicPlayer } from "../public";
+import { itfRanksOf } from "../players/publicInfo";
 import { orgSkinDefaults } from "../orgs/profile";
 import type {
   AppSkin,
@@ -49,7 +50,7 @@ export type TournamentRow = Tournament & {
   timezone?: string | null;
   starts_on?: string | null;
   ends_on?: string | null;
-  app_skin?: (AppSkin & { showPhotos?: boolean }) | null;
+  app_skin?: (AppSkin & { showPhotos?: boolean; showAges?: boolean }) | null;
   organization_id?: string | null;
 };
 
@@ -106,7 +107,17 @@ function sponsor(s: { name: string; logoUrl: string; aspect?: number; tier?: str
   return { name: s.name, logoUrl: sizedImageSrc(s.logoUrl, 480) ?? s.logoUrl, aspect: s.aspect ?? null, tier: s.tier ?? null };
 }
 
-export function toTeam(t: Team, groupId: string | null, showPhotos: boolean): MTeam {
+/**
+ * What a player row may add beyond the name and the photo (src/lib/players/publicInfo.ts):
+ * ITF junior rankings by player id, and ages by player id (only ever filled when the
+ * organiser shows ages; the birth year is never passed in).
+ */
+export interface PlayerExtras {
+  ranks?: Record<string, number>;
+  ages?: Map<string, number>;
+}
+
+export function toTeam(t: Team, groupId: string | null, showPhotos: boolean, extras: PlayerExtras = {}): MTeam {
   return {
     id: t.id,
     name: t.team_name,
@@ -117,12 +128,21 @@ export function toTeam(t: Team, groupId: string | null, showPhotos: boolean): MT
     status: t.team_status,
     players: [...(t.players ?? [])]
       .sort((a, b) => a.player_order - b.player_order)
-      .map((p) => ({
-        id: p.id,
-        name: p.full_name,
-        teamId: t.id,
-        photoUrl: showPhotos ? sizedImageSrc(portraitSrc(resolvePortrait(p)), 320) : null,
-      })),
+      .map((p) => {
+        const portrait = resolvePortrait(p);
+        const photoUrl = showPhotos ? sizedImageSrc(portraitSrc(portrait), 320) : null;
+        const rank = extras.ranks?.[p.id];
+        const age = extras.ages?.get(p.id);
+        return {
+          id: p.id,
+          name: p.full_name,
+          teamId: t.id,
+          photoUrl,
+          ...(photoUrl ? { focalX: portrait.focalX, focalY: portrait.focalY } : {}),
+          ...(typeof rank === "number" ? { itfRank: rank } : {}),
+          ...(typeof age === "number" ? { age } : {}),
+        };
+      }),
   };
 }
 
@@ -217,8 +237,11 @@ export function toBundle(
   liveCount: number,
   plateBrackets: string[] = [],
   org: OrgBranding | null = null,
+  ages: Map<string, number> | null = null,
 ): MBundle {
   const showPhotos = t.app_skin?.showPhotos === true;
+  const showAges = t.app_skin?.showAges === true;
+  const extras: PlayerExtras = { ranks: itfRanksOf(t.format_config), ages: showAges && ages ? ages : undefined };
   const { main, footer } = resolveSponsors(t.branding_config);
   const isTies = Boolean(t.format_config?.ties);
   return {
@@ -227,12 +250,13 @@ export function toBundle(
       ...toCard(t, liveCount, teams.length, org),
       isTies,
       showPhotos,
+      showAges,
       rubberPlan: isTies ? rubberPlan(t.format_config?.ties) : [],
       lowerThird: t.lower_third_text || null,
       matchDay: publicMatchDay(matchDayRules(t.match_day_rules, t)),
       ...(t.kind === "friendly_session" ? { night: { publishedAt: t.format_config?.nightTable?.publishedAt ?? null, layout: NIGHT_TABLE_LAYOUT } } : {}),
     },
-    teams: teams.map((tm) => toTeam(tm, groupOf.get(tm.id) ?? null, showPhotos)),
+    teams: teams.map((tm) => toTeam(tm, groupOf.get(tm.id) ?? null, showPhotos, extras)),
     courts: courts.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.court_name, order: c.court_order })),
     groups: groups.map((g) => ({ id: g.id, name: g.group_name, order: g.group_order })),
     sponsors: { main: main ? sponsor(main) : null, footer: footer.map(sponsor) },

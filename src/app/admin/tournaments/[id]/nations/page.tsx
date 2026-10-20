@@ -1,6 +1,7 @@
 import { requireTournamentPage } from "@/lib/guard";
 import { getTeams, getTournament } from "@/lib/data";
 import { NATIONS } from "@/lib/tennis/nations";
+import { itfRanksOf } from "@/lib/players/publicInfo";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import PlayerPhotoField from "@/components/PlayerPhotoField";
 import SessionRowNotice from "../SessionRowNotice";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 const SLOTS = [1, 2, 3, 4];
 
-function NationFields({ team, tournamentId }: { team?: Team; tournamentId: string }) {
+function NationFields({ team, tournamentId, ranks }: { team?: Team; tournamentId: string; ranks: Record<string, number> }) {
   const players = team?.players ?? [];
   const idSuffix = team?.id ?? "new";
   return (
@@ -45,7 +46,10 @@ function NationFields({ team, tournamentId }: { team?: Team; tournamentId: strin
         <label className="label" htmlFor={`captain-${idSuffix}`}>Captain</label>
         <input id={`captain-${idSuffix}`} name="captain_name" defaultValue={team?.captain_name ?? ""} className="input" />
       </div>
-      <p className="text-xs text-muted">Players in the nation&apos;s order of merit, No. 1 first: the No. 1 singles player must rank above the No. 2.</p>
+      <p className="text-xs text-muted">
+        Players in the nation&apos;s order of merit, No. 1 first: the No. 1 singles player must rank above the No. 2. The ITF junior ranking is
+        optional and shown on the player&apos;s page in the app.
+      </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {SLOTS.map((n) => {
           const p = players.find((x) => x.player_order === n);
@@ -56,6 +60,18 @@ function NationFields({ team, tournamentId }: { team?: Team; tournamentId: strin
                 {n <= 2 ? " *" : n === 4 ? " (reserve)" : ""}
               </label>
               <input id={`p${n}-${idSuffix}`} name={`player_${n}_name`} required={!team && n <= 2} defaultValue={p?.full_name ?? ""} className="input" />
+              <div>
+                <label className="label" htmlFor={`p${n}-rank-${idSuffix}`}>ITF junior ranking</label>
+                <input
+                  id={`p${n}-rank-${idSuffix}`}
+                  name={`player_${n}_itf_rank`}
+                  inputMode="numeric"
+                  pattern="#?[0-9]{1,4}"
+                  defaultValue={p && ranks[p.id] ? String(ranks[p.id]) : ""}
+                  className="input"
+                  placeholder="Optional, e.g. 42"
+                />
+              </div>
               <PlayerPhotoField
                 name={`player_${n}`}
                 folder="tournament-player"
@@ -78,6 +94,7 @@ export default async function NationsPage({ params }: { params: Promise<{ id: st
   await requireTournamentPage(id, ["admin", "manager"], `/admin/tournaments/${id}/nations`);
   const [tournament, teams] = await Promise.all([getTournament(id), getTeams(id)]);
   if (tournament && tournament.kind !== "tournament") return <SessionRowNotice tournamentId={id} tool="Nations" />;
+  const ranks = itfRanksOf(tournament?.format_config);
   const sorted = [...teams].sort((a, b) => (a.seed_number ?? 999) - (b.seed_number ?? 999) || a.team_name.localeCompare(b.team_name));
 
   return (
@@ -95,7 +112,7 @@ export default async function NationsPage({ params }: { params: Promise<{ id: st
       <details className="card space-y-3" open={teams.length === 0}>
         <summary className="cursor-pointer font-bold">+ Add a nation</summary>
         <form action={addNation} className="mt-3 space-y-3">
-          <NationFields tournamentId={id} />
+          <NationFields tournamentId={id} ranks={ranks} />
           <button type="submit" className="btn-primary">Add nation</button>
         </form>
       </details>
@@ -113,7 +130,7 @@ export default async function NationsPage({ params }: { params: Promise<{ id: st
               </span>
             </summary>
             <form action={updateNation} className="mt-3 space-y-3">
-              <NationFields team={t} tournamentId={id} />
+              <NationFields team={t} tournamentId={id} ranks={ranks} />
               <button type="submit" className="btn-primary">Save</button>
             </form>
             <form action={deleteNation} className="mt-2">

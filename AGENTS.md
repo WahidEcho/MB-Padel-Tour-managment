@@ -278,6 +278,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (explicit columns only, another team's rows = 404), pure rules `rules.ts` (via `@core`), alerts `alerts.ts` (target
   `coach_team`). Admin `admin/org/coaches` (admins only, `manage_coaches`), cards `/qr/coaches`, web `/coach/*`, QR `/c`,
   app `move-score-app/src/app/coach/*` + `c.tsx`. Gate: `npm run e2e:coaches` (stand-in, `PUSH_DRY_RUN=1`).
+- Player pages (no migration): pure `src/lib/players/publicInfo.ts` (via `@core`: `playerRecord` singles/doubles W–L). ITF junior
+  ranking typed per player on admin Nations, stored in `format_config.itfJuniorRanks` (CAS on `updated_at`), sent as `MPlayer.itfRank`.
+  Ages: juniors are minors, so only with App tab "Show players' ages" (`app_skin.showAges`, default off) and only as `MPlayer.age`
+  computed from the linked profile's `birth_year` (`publicAges` in `src/lib/mobile/server.ts`; never the year, never for a profile
+  the organisation does not vouch for). Player follows get match soon / live / result (`composeMatchSoon` targets the players).
 - Venue map (migration `0039_venue_map.sql`, not yet on the live project; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
   geo, directions, navigation, DXF, scene/camera maths, bridge via `@core`), WebGL renderer + UI `src/components/venue/`, page
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app

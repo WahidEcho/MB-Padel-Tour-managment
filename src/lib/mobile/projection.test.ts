@@ -77,6 +77,30 @@ describe("toTeam", () => {
     expect(out.players[0]!.photoUrl).toBeNull();
     expect(out.code).toBe("EGY");
   });
+  it("adds the ITF ranking and, only when given, the age; never a birth year", () => {
+    const team = {
+      id: "t",
+      team_name: "Egypt",
+      nation_code: "EGY",
+      iso2: "eg",
+      seed_number: 1,
+      team_status: "active",
+      players: [
+        { id: "p1", full_name: "A One", player_order: 1, photo_url: null, portrait_url: null, focal_x: 0.5, focal_y: 0.35, birth_year: 2010 },
+        { id: "p2", full_name: "B Two", player_order: 2, photo_url: null, portrait_url: null, focal_x: 0.5, focal_y: 0.35 },
+      ],
+    } as unknown as Team;
+    const plain = toTeam(team, null, false);
+    expect(plain.players.map((p) => Object.keys(p).sort())).toEqual([
+      ["id", "name", "photoUrl", "teamId"],
+      ["id", "name", "photoUrl", "teamId"],
+    ]);
+    const out = toTeam(team, null, false, { ranks: { p1: 42 }, ages: new Map([["p1", 16]]) });
+    expect(out.players[0]).toMatchObject({ itfRank: 42, age: 16 });
+    expect(out.players[1]).not.toHaveProperty("itfRank");
+    expect(out.players[1]).not.toHaveProperty("age");
+    expect(JSON.stringify(out)).not.toMatch(/birth|2010/);
+  });
   it("makes a short code from a pair name", () => {
     expect(shortCode("Taymour / Mohsen")).toBe("TM");
   });

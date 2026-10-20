@@ -16,6 +16,7 @@ import { LoadState } from "../../../ui/LoadState";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
 import { isNation, openOrg, openRegister, openTeam } from "../../../nav/links";
 import { NightTable } from "../../../ui/NightTable";
+import { FollowedPlayers } from "../../../ui/FollowedPlayers";
 import { nightTableOf } from "../../../night/table";
 
 type Tab = "ties" | "matches" | "groups" | "nations";
@@ -201,8 +202,9 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
         </View>
       )}
 
+      {current === "nations" && <FollowedPlayers bundle={b.data} slug={slug} />}
       {current === "nations" && (
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: 12 }}>
           {[...b.data.teams]
             .sort((x, y) => (x.seed ?? 99) - (y.seed ?? 99) || x.name.localeCompare(y.name))
             .map((team) => (

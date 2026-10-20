@@ -161,6 +161,11 @@ export interface FormatConfig {
    * the players and publishes it (src/lib/friendly/nights.ts).
    */
   nightTable?: { publishedAt: string; publishedBy: string };
+  /**
+   * ITF junior ranking per player id, typed on the Nations page (public ITF data,
+   * shown on player pages). Read through itfRanksOf (src/lib/players/publicInfo.ts).
+   */
+  itfJuniorRanks?: Record<string, number>;
 }
 
 /** The three rubbers of a tie, in the default order of play. See src/lib/tennis/ties.ts. */
@@ -358,7 +363,7 @@ export interface Tournament {
   timezone?: string | null;
   starts_on?: string | null;
   ends_on?: string | null;
-  app_skin?: { seedA?: string | null; seedB?: string | null; mode?: "dark" | "light" | null; artworkUrl?: string | null; logoUrl?: string | null; showPhotos?: boolean } | null;
+  app_skin?: { seedA?: string | null; seedB?: string | null; mode?: "dark" | "light" | null; artworkUrl?: string | null; logoUrl?: string | null; showPhotos?: boolean; showAges?: boolean } | null;
   /** Migration 0022. Raw: read through matchDayRules() in src/lib/matchday/rules.ts; `{}` = all off. */
   match_day_rules?: Record<string, unknown> | null;
   /** When the first match starts (refunds and "soon" are measured from it). */
