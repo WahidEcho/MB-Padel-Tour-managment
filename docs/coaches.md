@@ -34,13 +34,51 @@ master referee or organiser; the opponents' players of a rubber as soon as the t
 referee or the organiser: line-ups are public once published, owner's decision 20 Oct 2026) or the rubber is under way; live scores
 (our team first) and the match log of their own rubbers, without referee names; their players' schedule; after the
 groups, Cup or Plate and the next ties; the final place. Another team's tie, rubber, line-up or log answers 404 exactly
-like a missing one. Coaches cannot score, change line-ups or call the master referee.
+like a missing one. Coaches cannot score or call the master referee, and cannot change line-ups unless the event's
+coach line-up entry is switched on (below; off by default).
 
 API (all `private, no-store`): `POST|DELETE /api/mobile/v1/coach/session`, `GET coach/team`, `coach/ties/{id}`,
-`coach/ties/{id}/lineup`, `coach/matches/{id}`, `coach/matches/{id}/log`.
+`GET|POST coach/ties/{id}/lineup` (POST only with coach line-up entry on, else 409 `feature_off`), `coach/matches/{id}`,
+`coach/matches/{id}/log`.
 
 Sign-in brakes: failed attempts only (a right code is refunded), atomic `takeRateLimit`: 20 per address and 40 per code
 prefix per 15 minutes (`coach-login:*`, `coach-code:*`).
+
+## Coach line-up entry (off until officially confirmed)
+
+Owner, 20 Oct 2026: coaches may submit their own team's line-up, but the feature stays **off** ("on the shelf") until
+it is officially confirmed. While off, everything is exactly as above: coaches are read only, no "Enter line-up" in the
+app or on the web, `POST coach/ties/{id}/lineup` answers **409 `feature_off`**, and the officials' pickers say nothing
+about coaches.
+
+- **The switch** (admins only): Admin → Team coaches → the event → per event "Coaches enter their own team's line-up",
+  with an optional "Closes N min before the tie" (empty: open until the line-ups are confirmed). Stored in
+  `tournaments.format_config.ties.coachLineups` (`{ on, deadlineMinutes }`, no migration); not a scoring feature or a
+  match-day rule, so no default (`SCORING_FEATURES_ON`, `DEFAULT_MATCH_DAY_RULES`) ever turns it on. Audit
+  `COACH_LINEUPS_SWITCHED`. Pure rules `src/lib/coaches/lineupEntry.ts` (via `@core`), server `src/lib/coaches/lineups.ts`.
+- **What a coach does** (switch on): on their own tie (app `coach/tie/[id]` → "Enter line-up"; web `/coach/ties/[id]`)
+  they pick their two singles players from their squad (order of merit, No. 1 first) and, if they wish, the doubles pair
+  ("to be named" until after the singles, Reg 43). Same checks as the officials (`lineupRules.ts`): problems refuse
+  (400), warnings (Reg 43 order of merit, Reg 50 retired player) are submitted only once the coach ticks "I accept",
+  with the regulation link shown (409 `warnings` until then). They can change it until the court referee, a master
+  referee or the organiser confirms (locks) the line-ups, or until the deadline; after that 409 `locked` / `deadline` /
+  `under_way` and the form is view only: changes go through the officials as before.
+- **A submission is not the line-up.** It is kept as an audit row `COACH_LINEUP_SUBMITTED` (entity = the tie; side,
+  team, line-up, accepted warnings; `actor_role` `coach`, `actor_name` "Coach of Egypt"), never written to the
+  rubbers, so no public page, screen or the opponent's coach ever sees it; the opponent's coach sees only its own form.
+- **Officials** (court referee, master referee, organiser) see it in their line-up picker (web and app; additive
+  `coach` field of the picker answer): "Submitted by the coach at HH:MM" per side, prefilled while it is newer than what
+  the officials last saved and not confirmed yet. Confirming it ("Confirm the singles") writes it through `setLineup`
+  and locks the line-ups (the official accepts any warning again, as today). The court referee signed in on the tie's
+  court and the master referees on duty get a push when a coach submits or changes a line-up.
+- **An accepted exception** by a coach is audited `LINEUP_EXCEPTION_ACCEPTED` (actor `coach`, `actor_name` "Coach of
+  Egypt"), pushed to the master referees on duty, shown on the master's and organiser's live banners, and emailed to
+  the organisation's owners and admins (`staff_alert`; `MESSAGING_DRY_RUN=1` sends nothing).
+- **Security**: coach token only (`coachRoute`); another team's tie answers 404 like a missing one; brakes per sign-in
+  (20 / 10 min) and per team (40 / 10 min), atomic `takeRateLimit`; only the coach's own squad ids are accepted; explicit
+  columns (`lineupEntry.test.ts` scans the routes and the server).
+- **App and old app**: additive only — `MCoachTie.lineupEntry` (`{ open, submittedAt }`, present only while on) and the
+  line-up answer's `entry` (`MCoachLineupEntry`). Move Score 1.0.1 has no coach screens.
 
 ## Branding of printed and exported files
 
@@ -73,7 +111,9 @@ Without the app, `/c` shows the download links and, on request, opens My team in
 
 ## Gates
 
-Unit: `src/lib/coaches/coaches.test.ts`. E2E: `npm run e2e:coaches` (stand-in; server with `PUSH_DRY_RUN=1`).
+Unit: `src/lib/coaches/coaches.test.ts`, `src/lib/coaches/lineupEntry.test.ts`. E2E: `npm run e2e:coaches` (stand-in;
+server with `PUSH_DRY_RUN=1` and `MESSAGING_DRY_RUN=1`): coach line-up entry both off (refused, nothing visible) and on
+(the full flow).
 
 ## Deploy
 

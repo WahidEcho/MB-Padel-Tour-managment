@@ -1124,6 +1124,39 @@ export interface MCoachTie {
   /** The team's own singles are named. */
   lineupEntered: boolean;
   rubbers: MCoachRubber[];
+  /**
+   * Coach line-up entry (additive): present only while the event's switch is on (Admin →
+   * Team coaches). `open`: the coach may enter or change the line-up now.
+   */
+  lineupEntry?: { open: boolean; submittedAt: string | null };
+}
+
+/** A line-up as a coach enters it: player ids, the doubles pair or nulls ("to be named"). */
+export interface MCoachLineupDraft {
+  S1: string | null;
+  S2: string | null;
+  D: (string | null)[];
+}
+
+/** The coach's line-up form for one tie (GET/POST coach/ties/{id}/lineup, `entry`; only while the switch is on). */
+export interface MCoachLineupEntry {
+  open: boolean;
+  /** Why it is closed: locked | deadline | under_way | opponent_unknown | finished. */
+  closed: string | null;
+  closedMessage: string | null;
+  /** When the coaches' entry closes (a deadline set by the organiser), or null: until the line-ups are confirmed. */
+  deadline: string | null;
+  side: SideKey;
+  /** The team's squad in its order of merit, No. 1 first. */
+  squad: MCoachPlayer[];
+  /** Players of ours who retired earlier in this tie (Reg 50), and the rubbers still to play. */
+  retired: string[];
+  openRubbers: string[];
+  rubbers: { type: string; label: string; status: MatchStatusLite; editable: boolean }[];
+  /** What the rubbers hold for our side now (entered or confirmed by the officials). */
+  official: MCoachLineupDraft;
+  /** The coach's own latest submission, or null. `accepted`: the warning keys accepted with it. */
+  submitted: { lineup: MCoachLineupDraft; at: string; accepted: string[]; by: string } | null;
 }
 
 export interface MCoachStandingRow extends MStandingRow {

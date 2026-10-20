@@ -22,6 +22,11 @@ type Slot = "S1" | "S2" | "D1" | "D2";
 const SLOT_LABEL: Record<Slot, string> = { S1: "Singles 1", S2: "Singles 2", D1: "Doubles player 1", D2: "Doubles player 2" };
 
 const copy = (l: LineupDraft): LineupDraft => ({ S1: l.S1, S2: l.S2, D: [l.D[0] ?? null, l.D[1] ?? null] });
+/** What the picker starts from: each side's line-up, or the coach's submission waiting to be confirmed. */
+const startDrafts = (p: LineupPickerModel): Record<Side, LineupDraft> => ({
+  A: copy(p.coach?.A?.pending ? p.coach.A.lineup : p.sides.A.lineup),
+  B: copy(p.coach?.B?.pending ? p.coach.B.lineup : p.sides.B.lineup),
+});
 const get = (d: LineupDraft, s: Slot) => (s === "D1" ? (d.D[0] ?? null) : s === "D2" ? (d.D[1] ?? null) : d[s]);
 function put(d: LineupDraft, s: Slot, id: string | null): LineupDraft {
   const n = copy(d);
@@ -54,7 +59,7 @@ export function IssueLine({ issue, tone = "ink" }: { issue: Pick<LineupIssue, "m
 export function LineupPicker({ initial, onSaved }: { initial: LineupPickerModel; onSaved?: (p: LineupPickerModel) => void }) {
   const { t } = useTheme();
   const [picker, setPicker] = useState(initial);
-  const [drafts, setDrafts] = useState<Record<Side, LineupDraft>>({ A: copy(initial.sides.A.lineup), B: copy(initial.sides.B.lineup) });
+  const [drafts, setDrafts] = useState<Record<Side, LineupDraft>>(startDrafts(initial));
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState("");
   const [editAll, setEditAll] = useState(false);
@@ -64,7 +69,8 @@ export function LineupPicker({ initial, onSaved }: { initial: LineupPickerModel;
   const [done, setDone] = useState<string | null>(null);
 
   const editable = (type: "S1" | "S2" | "D") => picker.rubbers.find((r) => r.type === type)?.editable ?? false;
-  const showSingles = editAll || picker.step === "singles";
+  const coachPending = Boolean(picker.coach?.A?.pending || picker.coach?.B?.pending);
+  const showSingles = editAll || picker.step === "singles" || coachPending;
   const showDoubles = editAll || picker.step === "doubles" || (picker.step === "doubles_later" && doublesNow);
 
   const checks = useMemo(() => {
@@ -95,7 +101,7 @@ export function LineupPicker({ initial, onSaved }: { initial: LineupPickerModel;
         body: { lineups, accept: [...accepted], reason: reason.trim() || undefined },
       });
       setPicker(r.picker);
-      setDrafts({ A: copy(r.picker.sides.A.lineup), B: copy(r.picker.sides.B.lineup) });
+      setDrafts(startDrafts(r.picker));
       setAccepted(new Set());
       setReason("");
       setEditAll(false);
@@ -164,6 +170,16 @@ export function LineupPicker({ initial, onSaved }: { initial: LineupPickerModel;
         return (
           <Card key={s} style={{ gap: 10 }}>
             <Body weight="bold" size={16}>{`${side.code ? `${side.code} · ` : ""}${side.nation}`}</Body>
+            {picker.coach?.[s] ? (
+              <View style={{ gap: 4, padding: 12, borderRadius: 12, backgroundColor: picker.coach[s]!.pending ? t.chip : "transparent", borderWidth: picker.coach[s]!.pending ? 1 : 0, borderColor: t.line }}>
+                <Body weight={picker.coach[s]!.pending ? "bold" : "semi"} size={13} tone={picker.coach[s]!.pending ? "ink" : "ink3"}>
+                  {`${picker.coach[s]!.note}${picker.coach[s]!.pending ? " · prefilled: confirm it to lock the line-ups" : " · already confirmed or replaced"}`}
+                </Body>
+                {picker.coach[s]!.accepted.map((a, i) => (
+                  <IssueLine key={i} issue={{ ...a, message: `The coach accepted: ${a.message}` }} />
+                ))}
+              </View>
+            ) : null}
             {showSingles || showDoubles ? (
               <>
                 {showSingles && (["S1", "S2"] as Slot[]).map((x) => slot(s, x, side))}
@@ -221,7 +237,7 @@ export function LineupPicker({ initial, onSaved }: { initial: LineupPickerModel;
           label="Cancel"
           onPress={() => {
             setEditAll(false);
-            setDrafts({ A: copy(picker.sides.A.lineup), B: copy(picker.sides.B.lineup) });
+            setDrafts(startDrafts(picker));
           }}
         />
       ) : null}

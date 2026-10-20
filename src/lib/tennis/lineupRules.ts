@@ -228,4 +228,21 @@ export interface LineupPickerModel {
   sides: Record<"A" | "B", PickerSide>;
   step: LineupStep;
   actor: "organiser" | "master" | "court";
+  /**
+   * A coach's submitted line-up per side (coach line-up entry, only while the event's switch
+   * is on). `pending`: newer than what the officials last saved for that side and not yet
+   * confirmed (the picker prefills it; confirming it locks the line-ups). `note`: "Submitted
+   * by the coach at 10:32" (the event's time zone).
+   */
+  coach?: Partial<Record<"A" | "B", PickerCoachSubmission>>;
+}
+
+export interface PickerCoachSubmission {
+  lineup: LineupDraft;
+  at: string;
+  note: string;
+  by: string;
+  pending: boolean;
+  /** The warnings the coach accepted with it (the official accepts them again to confirm). */
+  accepted: { code: LineupIssueCode; reg: string | null; message: string }[];
 }

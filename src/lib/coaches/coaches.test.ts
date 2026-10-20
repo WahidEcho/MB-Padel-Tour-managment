@@ -171,7 +171,9 @@ describe("every coach route and page checks the coach itself", () => {
     it(r, () => {
       const text = readFileSync(p, "utf8");
       expect(text, `${r} must start with coachRoute()`).toMatch(/coachRoute\(\)/);
-      expect(text, `${r} is read only`).not.toMatch(/export async function (POST|PUT|PATCH|DELETE)/);
+      // Read only, except the coach's line-up submission (behind the event's switch, off by default: lineupEntry.test.ts).
+      if (!r.endsWith("coach/ties/[tieId]/lineup/route.ts")) expect(text, `${r} is read only`).not.toMatch(/export async function (POST|PUT|PATCH|DELETE)/);
+      else expect(text).not.toMatch(/export async function (PUT|PATCH|DELETE)/);
       expect(text, `${r} never reaches staff guards or data directly`).not.toMatch(/staffRoute\(|db\(\)/);
     });
   }

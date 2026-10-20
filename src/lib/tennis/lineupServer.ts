@@ -29,6 +29,7 @@ import type { Match, RubberType, Tie } from "../types";
 import { RUBBER_LABELS } from "./ties";
 import { exceptionLine, lineupStep, rubberEditable, type LineupIssue, type LineupPickerModel, type PickerSide } from "./lineupRules";
 import { lineupOfRubbers, lockLineups, setLineup, tieContext, type Lineup, type LineupRefusalCode } from "./tieOps";
+import { coachLineupSettings, sameLineup, submittedNote } from "../coaches/lineupEntry";
 
 export type LineupActorKind = "organiser" | "master" | "court";
 
@@ -104,7 +105,88 @@ export async function lineupPicker(matchId: string, actor: LineupActor): Promise
     sides: b.sides,
     step: lineupStep(b.rubbers.map((r) => ({ type: r.rubber_type as RubberType, status: r.status })), { A: b.sides.A.lineup, B: b.sides.B.lineup }),
     actor: actor.kind,
+    ...(await coachSubmissionsFor(b)),
   };
+}
+
+/** The audit action that holds a coach's submitted line-up (the submission itself: never written to the rubbers). */
+export const COACH_LINEUP_ACTION = "COACH_LINEUP_SUBMITTED";
+/** The officials' own line-up writes (setLineup), newest wins over an older coach submission. */
+const OFFICIAL_LINEUP_ACTIONS = ["LINEUP_SET", "LINEUP_LATE_CHANGE", "DOUBLES_NAMED"];
+
+export interface CoachSubmissionRow {
+  at: string;
+  side: "A" | "B";
+  teamId: string;
+  lineup: Lineup;
+  accepted: { code: LineupIssue["code"]; reg: string | null; message: string; key: string }[];
+  by: string;
+}
+
+/** The latest coach submission per side of a tie (only rows for the side's current team). */
+export async function latestCoachSubmissions(tieId: string, tournamentId: string, teams: Record<"A" | "B", string | null>): Promise<Partial<Record<"A" | "B", CoachSubmissionRow>>> {
+  const { data } = await db()
+    .from("audit_logs")
+    .select("created_at, actor_name, new_value")
+    .eq("tournament_id", tournamentId)
+    .eq("entity_id", tieId)
+    .eq("action", COACH_LINEUP_ACTION)
+    .order("created_at", { ascending: false })
+    .limit(40);
+  const out: Partial<Record<"A" | "B", CoachSubmissionRow>> = {};
+  for (const r of (data ?? []) as { created_at: string; actor_name: string | null; new_value: { side?: string; team_id?: string; lineup?: unknown; accepted?: CoachSubmissionRow["accepted"] } | null }[]) {
+    const side = r.new_value?.side === "A" || r.new_value?.side === "B" ? r.new_value.side : null;
+    if (!side || out[side] || !teams[side] || r.new_value?.team_id !== teams[side]) continue;
+    const lineup = lineupFromBody(r.new_value?.lineup);
+    if (!lineup) continue;
+    out[side] = { at: r.created_at, side, teamId: teams[side]!, lineup, accepted: Array.isArray(r.new_value?.accepted) ? r.new_value!.accepted! : [], by: r.actor_name ?? "The coach" };
+  }
+  return out;
+}
+
+/** When the officials last saved each side's line-up. */
+async function officialSavedAt(tieId: string, tournamentId: string): Promise<Partial<Record<"A" | "B", string>>> {
+  const { data } = await db()
+    .from("audit_logs")
+    .select("created_at, new_value")
+    .eq("tournament_id", tournamentId)
+    .eq("entity_id", tieId)
+    .in("action", OFFICIAL_LINEUP_ACTIONS)
+    .order("created_at", { ascending: false })
+    .limit(40);
+  const out: Partial<Record<"A" | "B", string>> = {};
+  for (const r of (data ?? []) as { created_at: string; new_value: { side?: string } | null }[]) {
+    const s = r.new_value?.side;
+    if ((s === "A" || s === "B") && !out[s]) out[s] = r.created_at;
+  }
+  return out;
+}
+
+/** The picker's `coach` field: nothing at all while the event's coach line-up switch is off. */
+async function coachSubmissionsFor(b: TieBundle): Promise<{ coach?: LineupPickerModel["coach"] }> {
+  const { data: t } = await db().from("tournaments").select("format_config, timezone").eq("id", b.tie.tournament_id).maybeSingle();
+  const tour = t as { format_config: unknown; timezone: string | null } | null;
+  if (!coachLineupSettings(tour?.format_config).on) return {};
+  const [subs, saved] = await Promise.all([
+    latestCoachSubmissions(b.tie.id, b.tie.tournament_id, { A: b.tie.team_a_id, B: b.tie.team_b_id }),
+    officialSavedAt(b.tie.id, b.tie.tournament_id),
+  ]);
+  const coach: NonNullable<LineupPickerModel["coach"]> = {};
+  const tz = tour?.timezone || "Africa/Cairo";
+  for (const s of ["A", "B"] as const) {
+    const sub = subs[s];
+    if (!sub) continue;
+    const newer = !saved[s] || Date.parse(sub.at) > Date.parse(saved[s]!);
+    coach[s] = {
+      lineup: sub.lineup,
+      at: sub.at,
+      note: submittedNote(sub.at, tz),
+      by: sub.by,
+      pending: !b.tie.lineup_locked_at && newer && !sameLineup(sub.lineup, b.sides[s].lineup),
+      accepted: sub.accepted.map((a) => ({ code: a.code, reg: a.reg, message: a.message })),
+    };
+  }
+  return { coach };
 }
 
 /** The tie a match is a rubber of (for the routes that take a match id). */
@@ -188,7 +270,7 @@ export async function applyTieLineups(input: {
     const l = await lockLineups(input.tournamentId, input.tieId, input.actorRole);
     locked = l.ok;
   }
-  const alerted = accepted.length && b ? await recordException(input.actor, input.actorRole, b, accepted) : 0;
+  const alerted = accepted.length && b ? await recordLineupException(input.actor, input.actorRole, b, accepted) : 0;
   return { ok: true, changed, locked, accepted, alerted, late };
 }
 
@@ -197,8 +279,18 @@ export function exceptionText(actor: Pick<LineupActor, "label">, court: string |
   return `${actor.label} accepted a line-up exception${court ? ` on ${court}` : ""}: ${issues.map(exceptionLine).join("; ")}`;
 }
 
-/** Audits an accepted exception (one row per tie) and alerts the master referees on duty. Returns the phones alerted. */
-async function recordException(actor: LineupActor, actorRole: string, b: TieBundle, issues: SideIssue[]): Promise<number> {
+/** Who accepted an exception: an official (lineupActor) or a team coach ("Coach of Egypt"). */
+export interface ExceptionActor {
+  kind: LineupActorKind | "coach";
+  label: string;
+}
+
+/**
+ * Audits an accepted exception (one row per tie) and alerts the master referees on duty.
+ * Returns the phones alerted. A coach's (`emailAdmins`) also emails the organisation's
+ * owners and admins; the organiser's live banner reads these rows either way.
+ */
+export async function recordLineupException(actor: ExceptionActor, actorRole: string, b: TieBundle, issues: SideIssue[], opts: { actorName?: string; emailAdmins?: boolean } = {}): Promise<number> {
   const text = exceptionText(actor, b.court, issues);
   const { data: t } = await db().from("tournaments").select("organization_id, event_group_id").eq("id", b.tie.tournament_id).maybeSingle();
   const tour = t as { organization_id: string; event_group_id: string | null } | null;
@@ -231,9 +323,11 @@ async function recordException(actor: LineupActor, actorRole: string, b: TieBund
       }
     }
   }
+  if (tour && opts.emailAdmins) await emailAdmins(tour.organization_id, "Line-up exception accepted", text, `exception:${b.tie.id}:${issues.map((i) => i.key).join(",")}`);
   await audit({
     tournament_id: b.tie.tournament_id,
     actor_role: actorRole,
+    actor_name: opts.actorName ?? null,
     action: EXCEPTION_ACTION,
     entity_type: "tie",
     entity_id: b.tie.id,
@@ -248,6 +342,33 @@ async function recordException(actor: LineupActor, actorRole: string, b: TieBund
     },
   });
   return alerted;
+}
+
+/** A short notice to the organisation's active owners and admins (staff_alert email; MESSAGING_DRY_RUN=1 sends nothing). Never throws. */
+export async function emailAdmins(orgId: string, title: string, message: string, key: string): Promise<number> {
+  try {
+    const { data } = await db().from("organization_members").select("id, invited_email").eq("organization_id", orgId).eq("status", "active").in("role", ["owner", "admin"]).limit(20);
+    const { sendTransactional } = await import("../messaging/queue");
+    const { siteUrl } = await import("../messaging/links");
+    const seen = new Set<string>();
+    for (const m of (data ?? []) as { id: string; invited_email: string | null }[]) {
+      const to = m.invited_email?.trim().toLowerCase();
+      if (!to || seen.has(to)) continue;
+      seen.add(to);
+      await sendTransactional({
+        to,
+        channel: "email",
+        template: "staff_alert",
+        vars: { title, message, cta_label: "Open the referees' desk", link: `${siteUrl()}/admin/org/referees/live` },
+        idempotencyKey: `lineup:${key}:${m.id}`.slice(0, 200),
+        recipient: { kind: "adhoc", name: null },
+      });
+    }
+    return seen.size;
+  } catch (err) {
+    console.error("[lineups] admin email not sent:", err instanceof Error ? err.message : err);
+    return 0;
+  }
 }
 
 /* ---------------- the live banner ---------------- */
