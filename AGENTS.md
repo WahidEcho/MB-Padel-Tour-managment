@@ -266,3 +266,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   the TV live feed. Web player `src/components/stream/YouTubeLivePlayer.tsx`; app `move-score-app/src/ui/LiveVideo.tsx`
   (needs `react-native-webview` 13.16.1, required lazily so older binaries fall back to "Open on YouTube"). Operator guide
   `docs/live-stream.md`. Gate `npm run e2e:live-stream` (stand-in).
+- Referee sign-in audit fixes (20 Oct 2026, `docs/referees.md`): after a court code the referee picks their name, the PIN is
+  checked against that referee only; brakes per referee / organisation (alert `REFEREE_PIN_BRAKE` + `staff_alert` email) / address,
+  known devices (`referee_sessions.device_hash`, migration `0041_referee_pin_brakes.sql`, not yet on the live project: apply it
+  before deploying), never per court code; 1.0.1's nameless "<code> <PIN>" runs on an org budget. Masters: `master_desk` only.
+  Scoring: v2 events must chain from the stored snapshot (409 `stale_state`), court codes cannot write to a match finished over
+  30 min ago (409 `finished_locked`).
