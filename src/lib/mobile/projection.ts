@@ -417,6 +417,10 @@ export function toTie(t: Tie): MTie {
     placesFrom: t.places_from,
     placesTo: t.places_to,
     lineupLocked: Boolean(t.lineup_locked_at),
+    drawFrom: t.draw_from ?? null,
+    drawTo: t.draw_to ?? null,
+    winnerTo: t.winner_to_tie_id ?? null,
+    loserTo: t.loser_to_tie_id ?? null,
   };
 }
 

@@ -282,6 +282,12 @@ export interface MTie {
   placesFrom: number | null;
   placesTo: number | null;
   lineupLocked: boolean;
+  /** Placement ties: the draw this tie belongs to (1–8 = the Cup, 9–16 = the Plate). Absent from older servers. */
+  drawFrom?: number | null;
+  drawTo?: number | null;
+  /** Placement ties: where the winner and the loser play next, for the bracket's "Winner of …" lines. */
+  winnerTo?: string | null;
+  loserTo?: string | null;
 }
 
 export interface MAnnouncement {

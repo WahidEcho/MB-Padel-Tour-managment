@@ -93,3 +93,6 @@ export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coa
 export { parseFromMap, parseToMap, embeddedMapUrl } from "../../../src/lib/venue/bridge";
 export type { FromMap, ToMap } from "../../../src/lib/venue/bridge";
 export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from "../../../src/lib/venue/types";
+// Cup and Plate brackets of a nations event (tournament page → Brackets).
+export { placementBrackets } from "../../../src/lib/tennis/bracketView";
+export type { BracketDraw, BracketRound, BracketBlock, BracketTie, BracketSide } from "../../../src/lib/tennis/bracketView";

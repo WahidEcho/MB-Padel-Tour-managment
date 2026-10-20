@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useBundle, useLive, useRegistrationInfo, useStandings } from "../../../api/queries";
+import { useBundle, useLive, useRegistrationInfo, useStandings, useVenue } from "../../../api/queries";
 import { dateRange, dayIn, finishedMatches, isAwaitingResult, liveMatches, makeView, needsDay, upcomingMatches } from "../../../api/model";
 import { SkinScope, useTheme } from "../../../theme/ThemeProvider";
 import { Screen } from "../../../ui/Screen";
@@ -14,12 +14,13 @@ import { SponsorBand } from "../../../ui/Sponsors";
 import { StaleBanner } from "../../../ui/Offline";
 import { LoadState } from "../../../ui/LoadState";
 import { toggleFollow, useFollowsOf } from "../../../state/follows";
-import { isNation, openOrg, openRegister, openTeam } from "../../../nav/links";
+import { isNation, openOrg, openRegister, openTeam, openVenueMap } from "../../../nav/links";
+import { Brackets } from "../../../ui/Bracket";
 import { NightTable } from "../../../ui/NightTable";
 import { nightTableOf } from "../../../night/table";
 
-type Tab = "ties" | "matches" | "groups" | "nations";
-const TABS: Tab[] = ["ties", "matches", "groups", "nations"];
+type Tab = "ties" | "matches" | "groups" | "brackets" | "nations";
+const TABS: Tab[] = ["ties", "matches", "groups", "brackets", "nations"];
 
 /** The venue in the phone's maps app. */
 function openMaps(place: string) {
@@ -34,6 +35,8 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
   // Registration (Phase 9): a "Register" link while the event takes entries in Move Score.
   const reg = useRegistrationInfo(slug);
   const s = useStandings(slug);
+  // The 3D venue map, once the organiser has published one (a 404 until then).
+  const venue = useVenue(slug);
   const isTies = b.data?.tournament.isTies ?? false;
   const [tab, setTab] = useState<Tab>(initialTab ?? "ties");
   const following = useFollowsOf("nation");
@@ -64,17 +67,17 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
   const upcomingWithDay = needsDay(upcoming.slice(0, 30).map((m) => m.scheduledTime), tr.timezone);
   const liveCount = liveMatches(l.data).filter((m) => !isAwaitingResult(m)).length;
   const doneTies = ties.filter((x) => x.status === "completed").reverse();
-  const current: Tab = !isTies && tab === "ties" ? "matches" : tab;
+  const current: Tab = !isTies && (tab === "ties" || tab === "brackets") ? "matches" : tab;
   const tabs = isTies
-    ? ([{ key: "ties", label: "Ties" }, { key: "groups", label: "Groups" }, { key: "nations", label: "Nations" }] as const)
+    ? ([{ key: "ties", label: "Ties" }, { key: "groups", label: "Groups" }, { key: "brackets", label: "Brackets" }, { key: "nations", label: "Nations" }] as const)
     : ([{ key: "matches", label: "Matches" }, { key: "groups", label: "Groups" }, { key: "nations", label: "Teams" }] as const);
   return (
     <Screen tabs={false} onRefresh={() => Promise.all([l.refetch(), b.refetch(), s.refetch()])}>
       <BackHeader label="Discover" />
-      <StaleBanner queries={[l, b]} live />
+      <StaleBanner queries={[l]} live />
       <Eyebrow>{[tr.sport, `${b.data.teams.length} ${isTies ? "nations" : "teams"}`].join(" · ")}</Eyebrow>
-      <Display size={27} style={{ marginTop: 6 }}>{tr.name}</Display>
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+      <Display size={27} style={{ marginTop: 8, lineHeight: 30 }}>{tr.name}</Display>
+      <View style={{ flexDirection: "row", columnGap: 16, rowGap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
         {tr.venue ? (
           <Pressable
             accessibilityRole="link"
@@ -96,6 +99,11 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
             style={({ pressed }) => pressed && { opacity: 0.6 }}
           >
             <Body tone="blue" size={13} weight="semi">{`by ${tr.organization.name} ›`}</Body>
+          </Pressable>
+        ) : null}
+        {venue.data ? (
+          <Pressable accessibilityRole="link" accessibilityLabel="Open the 3D venue map" onPress={() => openVenueMap(slug)} hitSlop={8} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Body tone="blue" size={13} weight="semi">{"Venue map ›"}</Body>
           </Pressable>
         ) : null}
         {liveCount ? <LivePill label={`${liveCount} LIVE`} /> : null}
@@ -154,10 +162,10 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
         <View style={{ gap: 12 }}>
           {(s.data?.groups ?? []).map((g) => (
             <View key={g.id} style={{ borderRadius: 20, overflow: "hidden", backgroundColor: t.surface, borderWidth: 1, borderColor: t.line }}>
-              <View style={{ flexDirection: "row", paddingHorizontal: 12, paddingVertical: 10 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12 }}>
                 <Eyebrow style={{ flex: 1 }}>{g.name}</Eyebrow>
-                <Eyebrow style={{ width: 52, textAlign: "right" }}>{isTies ? "Ties" : "W–L"}</Eyebrow>
-                {isTies && <Eyebrow style={{ width: 62, textAlign: "right" }}>Rubbers</Eyebrow>}
+                <Eyebrow style={{ width: 54, textAlign: "center" }}>{isTies ? "Ties" : "W–L"}</Eyebrow>
+                {isTies && <Eyebrow style={{ width: 84, textAlign: "center" }}>Rubbers</Eyebrow>}
                 <Eyebrow style={{ width: 40, textAlign: "right" }}>Pts</Eyebrow>
               </View>
               {g.rows.map((r) => {
@@ -170,15 +178,15 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
                     onPress={() => team && openTeam(team, slug, isTies)}
                     accessibilityRole="link"
                     accessibilityLabel={`${r.rank}. ${team?.name ?? "TBD"}, ${r.won} won, ${r.lost} lost, ${r.points} points${q ? ", qualified" : ""}`}
-                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: t.line, borderLeftWidth: 3, borderLeftColor: q ? t.skinA : "transparent", backgroundColor: pressed ? t.chip : "transparent" })}
+                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderColor: t.line, borderLeftWidth: 3, borderLeftColor: q ? t.skinA : "transparent", backgroundColor: pressed ? t.chip : "transparent" })}
                   >
                     <Num size={14} tone="ink3" style={{ width: 20 }}>{r.rank}</Num>
                     <View style={{ flex: 1, flexDirection: "row", gap: 8, alignItems: "center" }}>
                       <Flag iso2={team?.iso2} code={team?.code} />
                       <Body weight="semi" size={14} numberOfLines={1}>{isTies ? team?.code : team?.name}</Body>
                     </View>
-                    <Num size={15} style={{ width: 52, textAlign: "right" }}>{`${r.won}–${r.lost}`}</Num>
-                    {isTies && <Num size={15} style={{ width: 62, textAlign: "right" }}>{`${r.rubbersWon ?? 0}–${r.rubbersLost ?? 0}`}</Num>}
+                    <Num size={15} style={{ width: 54, textAlign: "center" }}>{`${r.won}–${r.lost}`}</Num>
+                    {isTies && <Num size={15} style={{ width: 84, textAlign: "center" }}>{`${r.rubbersWon ?? 0}–${r.rubbersLost ?? 0}`}</Num>}
                     <Num size={15} style={{ width: 40, textAlign: "right" }}>{r.points}</Num>
                   </Pressable>
                 );
@@ -200,6 +208,8 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
           {!s.data?.groups.length && <Empty title="No groups yet" />}
         </View>
       )}
+
+      {current === "brackets" && <Brackets ties={ties} v={v} />}
 
       {current === "nations" && (
         <View style={{ gap: 8 }}>

@@ -55,9 +55,9 @@ export function MyMatchRow({ m, timezone, withDay = true }: { m: MMyMatch; timez
     <Card
       onPress={() => router.push({ pathname: "/match/[id]", params: { id: m.id } })}
       accessibilityLabel={`${name("A")} against ${name("B")}. ${label}${line ? `. ${line}` : ""}`}
-      style={{ gap: 6 }}
+      style={{ gap: 8 }}
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 14, marginBottom: 2 }}>
         <Eyebrow size={10} style={{ flex: 1 }} numberOfLines={1}>{[m.tournamentName, m.round].filter(Boolean).join(" · ")}</Eyebrow>
         {live ? <Chip label="LIVE" ball /> : <Eyebrow size={10} tone={won ? "ink" : "ink2"}>{label}</Eyebrow>}
       </View>
