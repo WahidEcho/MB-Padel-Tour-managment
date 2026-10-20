@@ -59,6 +59,8 @@ const MUST_STAY_CLOSED = [
   "referees",
   "referee_sessions",
   "assistance_calls",
+  // 0039 (venue map): the editor's underlay and survey fixes; the public map is a projection served by the server.
+  "venue_maps",
 ];
 
 /** Tables from 0022 on that may be reopened (none yet): table → why it holds nothing private. */

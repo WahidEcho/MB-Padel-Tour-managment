@@ -258,3 +258,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Web picker `src/components/lineups/LineupPicker.tsx`, sheet `LineupSheet.tsx` (admin Ties page, master desk); app
   `move-score-app/src/referee/LineupPicker.tsx`. Referee screens follow the device/app theme (`.theme-auto`; "☀ Sunlight" =
   `.theme-sunlight` / app `SUNLIGHT`). Gate `npm run e2e:lineups` (stand-in, server with `PUSH_DRY_RUN=1`).
+- Venue map (migration `0039_venue_map.sql`, not yet on the live project; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
+  geo, directions, navigation, DXF, scene/camera maths, bridge via `@core`), WebGL renderer + UI `src/components/venue/`, page
+  `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app
+  screen `move-score-app/src/app/venue/[slug].tsx` (WebView + expo-location). The public venue is an explicit projection (no
+  underlay, no survey fixes). Gate `npm run e2e:venue-map` (stand-in). The sample layout's anchor is a placeholder.

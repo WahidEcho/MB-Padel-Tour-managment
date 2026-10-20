@@ -37,13 +37,13 @@ import {
   type SideIdentity,
   type SideKey,
 } from "@core";
-import { useConfig, useCourtsLive, useScreenFocused } from "../api/queries";
+import { useConfig, useCourtsLive, useScreenFocused, useVenue } from "../api/queries";
 import { isAwaitingResult, timeIn } from "../api/model";
 import { useMyPlayer } from "../player/me";
 import { isMine, mySide } from "../player/mine";
 import { ImAtCourtPill } from "../player/ImAtCourt";
 import { useFollowsOf } from "../state/follows";
-import { openMatch, openTie, openTournament } from "../nav/links";
+import { openMatch, openTie, openTournament, openVenueMap } from "../nav/links";
 import { SkinScope, useTheme } from "../theme/ThemeProvider";
 import { Body, Display, Eyebrow, Num } from "./Text";
 import { Chip, Flag, LivePill } from "./Bits";
@@ -287,9 +287,29 @@ function CardHeader({ card }: { card: HeroCard }) {
       </Eyebrow>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {card.mine ? <Chip ball label="YOUR MATCH" /> : null}
+        <MapButton slug={card.event.tournament.slug} courtId={card.court.id} courtName={card.court.name} />
         {pill}
       </View>
     </View>
+  );
+}
+
+/** "Show on map": the venue map focused on this court, when the organiser has published one. */
+function MapButton({ slug, courtId, courtName }: { slug: string; courtId: string; courtName: string }) {
+  const { t } = useTheme();
+  const venue = useVenue(slug);
+  if (!venue.data) return null;
+  return (
+    <Pressable
+      onPress={() => openVenueMap(slug, courtId)}
+      accessibilityRole="button"
+      accessibilityLabel={`Show ${courtName} on the venue map`}
+      hitSlop={8}
+      testID="hero-show-on-map"
+      style={({ pressed }) => [{ height: 22, paddingHorizontal: 8, borderRadius: 999, borderWidth: 1, borderColor: t.line, backgroundColor: t.chip, justifyContent: "center" }, pressed && { opacity: 0.7 }]}
+    >
+      <Eyebrow size={9.5}>MAP</Eyebrow>
+    </Pressable>
   );
 }
 

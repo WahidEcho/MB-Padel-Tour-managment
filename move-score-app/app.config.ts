@@ -57,6 +57,8 @@ const WIDGETS = LIVE_ACTIVITIES && flag(process.env.MS_WIDGETS, true);
 const APP_GROUP = process.env.MS_APP_GROUP || (IOS_BUNDLE === "org.mbeg.movescore" ? "group.org.mbeg.movescore" : `group.${IOS_BUNDLE}`);
 const WIDGET_TARGET_BUNDLE = `${IOS_BUNDLE}.ExpoWidgetsTarget`;
 
+// The venue map: the blue dot and walking directions, only while the map is open.
+const LOCATION_USAGE = "Move Score shows where you are on the venue map and gives walking directions to courts and facilities. Your location stays on your phone.";
 // One camera string for every use (story photo, player photo, venue code), set the same way by every plugin.
 const CAMERA_USAGE = "Take a photo for your Move Score story or your player photo. The camera also scans the venue code that stamps your event pass.";
 const PHOTOS_USAGE = "Choose a photo for your Move Score story or your player photo.";
@@ -152,6 +154,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // remote-notification background mode: iOS may wake the app for a push (and for a
     // card started by push) so it can register the card's update token and refresh the widget.
     ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00", enableBackgroundRemoteNotifications: true }],
+    // The venue map's blue dot and directions: while the map is open only (no background location).
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission: LOCATION_USAGE,
+        // The plugin writes the "Always" strings too; the app never asks for them, so they say the same.
+        locationAlwaysAndWhenInUsePermission: LOCATION_USAGE,
+        locationAlwaysPermission: LOCATION_USAGE,
+        isIosBackgroundLocationEnabled: false,
+        isAndroidBackgroundLocationEnabled: false,
+        isAndroidForegroundServiceEnabled: false,
+      },
+    ],
     ["react-native-share", { ios: ["instagram-stories", "instagram", "whatsapp"], android: ["com.instagram.android", "com.whatsapp"] }],
     ...(LIVE_ACTIVITIES
       ? [

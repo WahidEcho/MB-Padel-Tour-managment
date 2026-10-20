@@ -49,7 +49,8 @@ declare
     'move_tick_events',
     'referees',
     'referee_sessions',
-    'assistance_calls'
+    'assistance_calls',
+    'venue_maps'
   ];
 begin
   for t in select tablename from pg_tables where schemaname = 'public' and not (tablename = any (private_tables)) loop

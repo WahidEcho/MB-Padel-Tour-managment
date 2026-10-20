@@ -86,3 +86,7 @@ export { pushesHistory, LOG_ONLY_EVENTS } from "../../../src/lib/scoring/eventGu
 export { SCORING_FEATURES_ON, SCORING_FEATURES_OFF } from "../../../src/lib/matchday/rules";
 export type { ScoringFeatures } from "../../../src/lib/matchday/rules";
 export { ITF_RULES_PDF as ITF_RULES_OF_TENNIS_PDF, rulePath, ruleSummary, ITF_TENNIS_RULES } from "../../../src/lib/tennis/rulesOfTennis";
+// The venue map (migration 0039): the WebView bridge and the map page's URL.
+export { parseFromMap, parseToMap, embeddedMapUrl } from "../../../src/lib/venue/bridge";
+export type { FromMap, ToMap } from "../../../src/lib/venue/bridge";
+export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from "../../../src/lib/venue/types";

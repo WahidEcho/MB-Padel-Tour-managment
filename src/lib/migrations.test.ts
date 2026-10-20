@@ -34,6 +34,12 @@ describe("new tables ship with row-level security", () => {
     expect(sql).toMatch(/revoke\s+all\s+on\s+match_calls,\s*live_activity_start_tokens,\s*live_activity_starts\s+from\s+anon,\s*authenticated/i);
   });
 
+  it("0039's venue_maps is closed like live: RLS on, grants revoked", () => {
+    const sql = readFileSync(join(DIR, files.find((f) => f.startsWith("0039_"))!), "utf8").replace(/--.*$/gm, "");
+    expect(sql).toMatch(/alter\s+table\s+venue_maps\s+enable\s+row\s+level\s+security/i);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+venue_maps\s+from\s+anon,\s*authenticated/i);
+  });
+
   it("finds migration 0022", () => {
     expect(files.some((f) => f.startsWith("0022_"))).toBe(true);
   });

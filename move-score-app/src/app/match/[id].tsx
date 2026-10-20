@@ -6,7 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import { RUBBER_LABELS, clockText, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
 import { useTick } from "../../referee/V2";
-import { useBundle, useConfig, useLive, useMatch, useTimeline } from "../../api/queries";
+import { useBundle, useConfig, useLive, useMatch, useTimeline, useVenue } from "../../api/queries";
 import { dayIn, isAwaitingResult, makeView, matchA11y, timeIn } from "../../api/model";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
@@ -20,7 +20,7 @@ import { Momentum } from "../../ui/Momentum";
 import { Takeover, type TakeoverMoment } from "../../ui/Takeover";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { startLockScreen, lockScreenSupported } from "../../live/lockScreen";
-import { openPlayer, openTeam, openTie, openTournament } from "../../nav/links";
+import { openPlayer, openTeam, openTie, openTournament, openVenueMap } from "../../nav/links";
 import { useMyPlayer } from "../../player/me";
 import { playsIn } from "../../player/mine";
 import { ImAtCourtCard } from "../../player/ImAtCourt";
@@ -148,6 +148,8 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const q = useMatch(id);
   const b = useBundle(slug);
   const l = useLive(slug, 10_000);
+  // "Show on map": only when the organiser has published the venue map.
+  const venue = useVenue(slug);
   const m = q.data?.match;
   const live = m ? isLiveStatus(m.status) : false;
   // An organiser who saved the Match day tab with Live Activities off.
@@ -308,6 +310,9 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           <Feed points={tl.data?.points ?? []} aCode={aCode} bCode={bCode} />
         </Card>
         <MatchLinks m={m} v={v} slug={slug} />
+        {venue.data && m.courtId ? (
+          <Button kind="ghost" label={`Show ${v.court(m.courtId) ?? "the court"} on the map`} onPress={() => openVenueMap(slug, m.courtId)} style={{ marginTop: 12 }} />
+        ) : null}
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
           <Button kind="ghost" label="Share card" onPress={share} style={{ flex: 1 }} />
           {live && flags.live_activity && lockScreenSupported() && !lockScreenOff ? (
