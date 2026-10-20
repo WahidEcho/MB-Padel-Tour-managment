@@ -39,14 +39,18 @@ export async function requestAssistance(matchId?: string): Promise<{ ok: true } 
 export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: string; statusOnly?: boolean }) {
   const { t } = useTheme();
   const [call, setCall] = useState<Call | null>(null);
+  // The server says whether Call master referee is on for this court's events (it refuses
+  // a call with 409 feature_off otherwise); older servers say nothing: shown as before.
+  const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const acked = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await api<{ call?: Call | null }>(PATH, { who: "staff", timeoutMs: 8_000 });
+      const r = await api<{ call?: Call | null; enabled?: boolean }>(PATH, { who: "staff", timeoutMs: 8_000 });
       setCall(r.call ?? null);
+      setEnabled(r.enabled !== false);
     } catch {
       /* offline: keep what is shown */
     }
@@ -81,7 +85,7 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
   };
 
   const open = call && (call.status === "open" || call.status === "acknowledged");
-  if (!open && statusOnly) return null;
+  if (!open && (statusOnly || !enabled)) return null;
   if (!open) {
     return (
       <View style={{ gap: 4 }}>

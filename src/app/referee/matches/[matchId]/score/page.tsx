@@ -142,7 +142,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       assistance={
         (staff.scopeCourt && staff.referee) || (actor && ["scheduled", "ready"].includes(match.status)) ? (
           <div className="flex flex-wrap items-center gap-2">
-            {staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact statusOnly={matchDay.features.callMaster} /> : null}
+            {staff.scopeCourt && staff.referee ? <AssistanceButton matchId={matchId} compact statusOnly /> : null}
             {/* Before the rubber starts its line-up can still change (with a reason once locked). */}
             {actor && ["scheduled", "ready"].includes(match.status) ? (
               <a href={`/referee/matches/${matchId}/lineup`} className="btn-secondary text-xs" data-testid="lineup-link">Line-up</a>

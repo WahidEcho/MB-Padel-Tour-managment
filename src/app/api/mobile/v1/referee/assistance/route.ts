@@ -5,7 +5,7 @@ import { readJson } from "@/lib/mobile/http";
 import { verifyInstallToken } from "@/lib/mobile/identity";
 import { entityInScope } from "@/lib/orgs/scope";
 import { noteSessionDevice } from "@/lib/referees/server";
-import { CALL_COLS, actOnCall, callForCourt, callsForMaster, isCourtReferee, isMasterReferee, isOrganiser, publicCall, requestAssistance, type AssistanceCall } from "@/lib/referees/assistance";
+import { CALL_COLS, actOnCall, callForCourt, callMasterEnabled, callsForMaster, isCourtReferee, isMasterReferee, isOrganiser, publicCall, requestAssistance, type AssistanceCall } from "@/lib/referees/assistance";
 import { audit } from "@/lib/audit";
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
@@ -30,8 +30,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ role: "master", referee: staff.referee!.name, open: open.map(publicCall), recent: recent.map(publicCall) }, { headers: NO_STORE });
   }
   if (isCourtReferee(staff)) {
-    const call = await callForCourt(staff);
-    return NextResponse.json({ role: "court", referee: staff.referee!.name, court: staff.scopeCourt!.name, call: call ? publicCall(call) : null }, { headers: NO_STORE });
+    const [call, enabled] = await Promise.all([callForCourt(staff), callMasterEnabled(staff)]);
+    // `enabled` (new; older apps ignore it): Call master referee is on for this court's events (409 feature_off otherwise).
+    return NextResponse.json({ role: "court", referee: staff.referee!.name, court: staff.scopeCourt!.name, enabled, call: call ? publicCall(call) : null }, { headers: NO_STORE });
   }
   if (isOrganiser(staff)) {
     const { data } = await db().from("assistance_calls").select(CALL_COLS).eq("organization_id", staff.orgId).in("status", ["open", "acknowledged"]).order("requested_at").limit(50);

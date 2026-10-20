@@ -15,6 +15,7 @@ import { isUuid } from "../orgs/roles";
 import { sendExpo, type ExpoMessage } from "../notify/drain";
 import type { StaffPrincipal } from "../auth/staff";
 import { mastersOnDuty } from "./server";
+import { matchDayRules } from "../matchday/rules";
 import { CALLS_PER_COURT, TAP_DEDUPE_SECONDS, assistanceMessage, isOpenCall, nextCallStatus, shouldRealert, type CallAction, type CallStatus } from "./rules";
 
 export interface AssistanceCall {
@@ -131,8 +132,24 @@ export async function alertMasters(call: AssistanceCall): Promise<number> {
  * is the same tap; later taps re-alert at most once a minute). New calls per court:
  * at most CALLS_PER_COURT per window.
  */
+/**
+ * Whether "Call master referee" (Admin → Scoring features, `features.callMaster`) is on
+ * for a court referee (audit L1): the match's own tournament when the call names one,
+ * otherwise any of the court's events. Enforced here, not only by the consoles hiding the
+ * button.
+ */
+export async function callMasterEnabled(staff: Pick<StaffPrincipal, "scopeCourt">, tournamentId?: string | null): Promise<boolean> {
+  const ids = tournamentId ? [tournamentId] : (staff.scopeCourt?.tournamentIds ?? []);
+  if (!ids.length) return false;
+  const { data } = await db().from("tournaments").select("id, sport, match_day_rules").in("id", ids.slice(0, 80));
+  return ((data ?? []) as { sport: string | null; match_day_rules: unknown }[]).some((t) => matchDayRules(t.match_day_rules, t).features.callMaster);
+}
+
 export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?: string | null; tournamentId?: string | null } = {}, nowMs = Date.now()): Promise<CallOutcome> {
   if (!isCourtReferee(staff)) return refusal(403, "court_referee_only", "Only a court referee signed in with their PIN can call for assistance.");
+  if (!(await callMasterEnabled(staff, opts.tournamentId ?? null))) {
+    return refusal(409, "feature_off", "Call master referee is switched off for this event. Call the desk.");
+  }
   const court = staff.scopeCourt!;
   const referee = staff.referee!;
   const scopeKey = court.eventGroupId ?? staff.scopeTournamentId ?? court.tournamentIds[0] ?? null;
