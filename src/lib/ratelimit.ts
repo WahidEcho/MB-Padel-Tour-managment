@@ -153,13 +153,25 @@ export async function refundRateLimit({ key, windowSeconds }: Pick<RateLimitOpti
 }
 
 /**
- * Best-effort client IP from proxy headers.
- * Spoofable, so it is a throttle input only — never an identity or an
- * authorisation signal.
+ * The client address for throttles (audit L8). Spoofable headers are a throttle
+ * input only, never an identity or an authorisation signal, but a brake keyed on a
+ * header the caller writes is no brake, so the header depends on where we run:
+ *
+ * - On Vercel (`VERCEL` is set in every deployment): `x-vercel-forwarded-for`, then
+ *   `x-real-ip` (what `ipAddress()` of @vercel/functions reads). Vercel's edge writes
+ *   both itself and does not pass a client's own copies through. A request's
+ *   `X-Forwarded-For` is never read there.
+ * - Anywhere else (local `next start`, the E2E scripts, a self-hosted proxy): the first
+ *   hop of `X-Forwarded-For`, then `x-real-ip`. The E2E scripts set X-Forwarded-For to
+ *   play several addresses.
  */
-export function clientIpFrom(headers: Headers): string {
+export function clientIpFrom(headers: Headers, env: Record<string, string | undefined> = process.env): string {
+  if (env.VERCEL) {
+    const vercel = headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+    return vercel || headers.get("x-real-ip")?.trim() || "unknown";
+  }
   const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]!.trim();
+  if (forwarded) return forwarded.split(",")[0]!.trim() || "unknown";
   return headers.get("x-real-ip")?.trim() || "unknown";
 }
 
