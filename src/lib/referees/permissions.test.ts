@@ -22,9 +22,10 @@ const master = { kind: "code", role: "referee" as const, referee: { role: "maste
 const courtRef = { kind: "code", role: "referee" as const, referee: { role: "referee" } };
 
 describe("master referee permissions", () => {
-  it("adds the desk's match tools to a referee's, nothing else", () => {
-    for (const p of ["score_match", "check_in", "edit_bracket", "generate_matches", "manage_groups"] as Permission[]) expect(staffCan(master, p), p).toBe(true);
-    for (const p of ["manage_tournament", "manage_teams", "manage_codes", "manage_referees", "send_messages", "manage_members", "refund_registrations", "manage_platform", "control_screen", "export", "manage_registrations"] as Permission[]) {
+  it("adds the desk's day-of-play tools (master_desk) to a referee's, nothing else", () => {
+    for (const p of ["score_match", "check_in", "master_desk"] as Permission[]) expect(staffCan(master, p), p).toBe(true);
+    // Audit L3: deleting matches, brackets (slots, publish, reset), groups and resetting the placement draws are the organiser's.
+    for (const p of ["edit_bracket", "generate_matches", "manage_groups", "manage_tournament", "manage_teams", "manage_codes", "manage_referees", "send_messages", "manage_members", "refund_registrations", "manage_platform", "control_screen", "export", "manage_registrations"] as Permission[]) {
       expect(staffCan(master, p), p).toBe(false);
     }
   });
@@ -32,6 +33,13 @@ describe("master referee permissions", () => {
     expect(staffCan(courtRef, "score_match")).toBe(true);
     expect(staffCan(courtRef, "generate_matches")).toBe(false);
     expect(staffCan(courtRef, "manage_groups")).toBe(false);
+    expect(staffCan(courtRef, "master_desk")).toBe(false);
+  });
+  it("the organiser's staff keep every desk tool", () => {
+    for (const p of ["master_desk", "generate_matches", "manage_groups", "edit_bracket"] as Permission[]) {
+      expect(can("admin", p), p).toBe(true);
+      expect(can("manager", p), p).toBe(true);
+    }
   });
   it("a member never gets master powers from a stray field", () => {
     expect(staffCan({ kind: "member", role: "referee", referee: { role: "master_referee" } }, "generate_matches")).toBe(false);

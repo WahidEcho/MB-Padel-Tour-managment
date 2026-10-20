@@ -149,7 +149,7 @@ export function LockForm({ tournamentId, tieId }: { tournamentId: string; tieId:
  * lines; the runners-up (and fourth-placed) are drawn by lot at the venue
  * (Reg 36), and the desk enters how the lots fell before making the draws.
  */
-export function PlacementControls({ tournamentId, drawn, ready, groupCount }: { tournamentId: string; drawn: boolean; ready: boolean; groupCount: number }) {
+export function PlacementControls({ tournamentId, drawn, ready, groupCount, canReset = true }: { tournamentId: string; drawn: boolean; ready: boolean; groupCount: number; canReset?: boolean }) {
   const [drawState, draw, drawing] = useActionState(drawPlacementAction, null);
   const [resetState, reset, resetting] = useActionState(resetPlacementAction, null);
   const lot = (name: string, first: string, second: string, at: string) => (
@@ -184,6 +184,8 @@ export function PlacementControls({ tournamentId, drawn, ready, groupCount }: { 
             Make the placement draws
           </button>
         </form>
+      ) : !canReset ? (
+        <span className="text-xs text-muted">Placement draws made. Only the organiser&apos;s desk can reset them.</span>
       ) : (
         <form action={reset}>
           <input type="hidden" name="tournament_id" value={tournamentId} />

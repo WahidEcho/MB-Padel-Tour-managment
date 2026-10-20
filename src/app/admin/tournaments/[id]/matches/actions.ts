@@ -18,13 +18,13 @@ function path(id: string) {
 
 export async function regenerateMatches(_prev: GroupStageFormState, formData: FormData): Promise<GroupStageFormState> {
   const tournamentId = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("generate_matches", tournamentId)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", tournamentId)).staff.role;
   return runGroupStageRegeneration(tournamentId, role, formData);
 }
 
 export async function updateMatchSchedule(formData: FormData) {
   const tournamentId = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("generate_matches", tournamentId)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", tournamentId)).staff.role;
   const matchId = String(formData.get("match_id"));
   const courtId = String(formData.get("court_id") ?? "");
   // A session schedules its own rounds; and a match or court named here must be
@@ -60,7 +60,7 @@ export async function updateMatchSchedule(formData: FormData) {
 
 export async function createManualMatch(formData: FormData) {
   const tournamentId = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("generate_matches", tournamentId)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", tournamentId)).staff.role;
   const teamA = String(formData.get("team_a_id"));
   const teamB = String(formData.get("team_b_id"));
   if (!teamA || !teamB || teamA === teamB) throw new Error("Pick two different teams");
@@ -119,7 +119,7 @@ export async function deleteMatch(formData: FormData) {
  */
 export async function releaseScoringLock(formData: FormData) {
   const tournamentId = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("generate_matches", tournamentId)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", tournamentId)).staff.role;
   const matchId = String(formData.get("match_id"));
   refuse(await ownershipRefusal(tournamentId, "matches", matchId));
   await endLease(matchId);

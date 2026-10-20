@@ -460,3 +460,46 @@ describe("match-day routes are scoped to the match's organisation or to the play
     }
   });
 });
+
+/* ---------------- master referees: the desk's day-of-play tools only (audit L3) ---------------- */
+
+describe("a master referee reaches only the day-of-play desk actions (master_desk)", () => {
+  const permissionOf = (file: string, fn: string): string | null => {
+    const src = readFileSync(join(ROOT, "[id]", file), "utf8");
+    const start = src.indexOf(`export async function ${fn}(`);
+    if (start < 0) return null;
+    const next = src.indexOf("export async function ", start + 10);
+    const body = src.slice(start, next < 0 ? undefined : next);
+    return /require(?:Tournament|Scoped)Permission\("([a-z_]+)"/.exec(body)?.[1] ?? null;
+  };
+  const MASTER: [string, string][] = [
+    ["matches/actions.ts", "createManualMatch"],
+    ["matches/actions.ts", "regenerateMatches"],
+    ["matches/actions.ts", "updateMatchSchedule"],
+    ["matches/actions.ts", "releaseScoringLock"],
+    ["ties/actions.ts", "generateTiesAction"],
+    ["ties/actions.ts", "drawPlacementAction"],
+    ["ties/actions.ts", "scheduleTieAction"],
+    ["ties/actions.ts", "delayOrderOfPlayAction"],
+  ];
+  const ORGANISER: [string, string][] = [
+    ["matches/actions.ts", "deleteMatch"],
+    ["bracket/actions.ts", "resetBracket"],
+    ["bracket/actions.ts", "saveSlots"],
+    ["bracket/actions.ts", "publishAction"],
+    ["groups/actions.ts", "createGroups"],
+    ["groups/actions.ts", "saveAssignment"],
+    ["groups/actions.ts", "publishGroups"],
+    ["ties/actions.ts", "resetPlacementAction"],
+  ];
+  it("the kept tools ask for master_desk", () => {
+    for (const [f, fn] of MASTER) expect(permissionOf(f, fn), `${f} ${fn}`).toBe("master_desk");
+  });
+  it("destructive and publishing tools never do", () => {
+    for (const [f, fn] of ORGANISER) {
+      const p = permissionOf(f, fn);
+      expect(p, `${f} ${fn}`).not.toBeNull();
+      expect(p, `${f} ${fn}`).not.toBe("master_desk");
+    }
+  });
+});

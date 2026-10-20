@@ -13,7 +13,7 @@ export type TieFormState = { ok: boolean; message: string; warnings?: { key: str
 
 export async function generateTiesAction(formData: FormData) {
   const id = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   await generateGroupTies(id, role);
   revalidatePath(path(id));
@@ -57,7 +57,7 @@ export async function lockLineupsAction(_prev: TieFormState, formData: FormData)
 
 export async function drawPlacementAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
   const id = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const swap = (k: string) => formData.get(k) === "swap";
   const lots = Object.fromEntries(
@@ -79,7 +79,7 @@ export async function resetPlacementAction(_prev: TieFormState, formData: FormDa
 
 export async function delayOrderOfPlayAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
   const id = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", id)).staff.role;
   refuse(await tournamentRowRefusal(id));
   const minutes = Number(formData.get("minutes"));
   // Only ever a filter on this tournament's own ties and rubbers (delayOrderOfPlay); never written.
@@ -93,7 +93,7 @@ export async function delayOrderOfPlayAction(_prev: TieFormState, formData: Form
 
 export async function scheduleTieAction(_prev: TieFormState, formData: FormData): Promise<TieFormState> {
   const id = String(formData.get("tournament_id"));
-  const role = (await requireTournamentPermission("manage_groups", id)).staff.role;
+  const role = (await requireTournamentPermission("master_desk", id)).staff.role;
   const tieId = String(formData.get("tie_id") ?? "");
   const courtId = String(formData.get("court_id") ?? "") || null;
   const refusal = (await entityRefusal(id, "ties", tieId)) ?? (courtId ? await ownershipRefusal(id, "courts", courtId) : null);

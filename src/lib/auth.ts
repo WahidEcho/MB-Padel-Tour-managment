@@ -103,8 +103,10 @@ export async function clearSessionCookie() {
   store.set(HOST_COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
   store.set(COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
   // A court switch's carry-over credential (src/lib/auth/staff.ts) ends with the session.
-  store.set("__Host-mb_carry", "", { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
-  store.set("mb_carry", "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+  for (const suffix of ["", "_2", "_3"]) {
+    store.set(`__Host-mb_carry${suffix}`, "", { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
+    store.set(`mb_carry${suffix}`, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+  }
 }
 
 // Permission matrix (spec §4.4). Manager has admin-level tournament ops.
@@ -115,6 +117,13 @@ const PERMISSIONS = {
   check_in: ["admin", "manager", "referee"],
   manage_groups: ["admin", "manager"],
   generate_matches: ["admin", "manager"],
+  // The match desk's day-of-play tools, the only admin-desk work a master referee also
+  // has (MASTER_REFEREE_PERMISSIONS): add a match, generate the group matches / ties and
+  // the placement draws, schedule a tie or match, delay the order of play, release a
+  // stuck scoring lock. Destructive or publishing work (delete a match, reset or publish
+  // a bracket, slots, groups, reset placement draws) stays generate_matches /
+  // manage_groups / edit_bracket, which masters never hold.
+  master_desk: ["admin", "manager"],
   score_match: ["admin", "manager", "referee"],
   edit_bracket: ["admin", "manager", "referee"],
   control_screen: ["admin", "manager", "operator"],
@@ -165,16 +174,17 @@ export const PERSONAL_ACCOUNT_ONLY: ReadonlySet<Permission> = new Set<Permission
 
 /**
  * A master referee (migration 0035) signs in with a referee's console role plus the
- * admin desk's match tools for its events: add matches, generate them from the draw
- * (group stage, bracket, tennis ties and placement draws). Never anything about
- * people, settings, codes or money; and only inside its events (src/lib/orgs/scope.ts).
+ * match desk's day-of-play tools for its events (`master_desk`): add matches, generate
+ * the group matches / ties and the placement draws, schedule ties, delay the order of
+ * play, release a stuck scoring lock; line-ups and scoring come with `score_match`.
+ * Never deleting matches, resetting or publishing a bracket, its slots, the groups or a
+ * reset of the placement draws (audit L3, 20 Oct 2026); never anything about people,
+ * settings, codes or money; and only inside its events (src/lib/orgs/scope.ts).
  */
 export const MASTER_REFEREE_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   "score_match",
   "check_in",
-  "edit_bracket",
-  "generate_matches",
-  "manage_groups",
+  "master_desk",
 ]);
 
 /** Whether a staff principal (its role and kind of credential) may do an action. */

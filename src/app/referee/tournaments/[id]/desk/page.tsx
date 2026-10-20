@@ -23,12 +23,13 @@ export const dynamic = "force-dynamic";
  * adding matches and generating them from the draw, for an event the master referee
  * covers. The actions are the admin pages' own (src/app/admin/tournaments/[id]/…/actions.ts)
  * with their own guards; a master referee passes them only for its events
- * (MASTER_REFEREE_PERMISSIONS in src/lib/auth.ts, scope in src/lib/orgs/scope.ts).
+ * (`master_desk`, MASTER_REFEREE_PERMISSIONS in src/lib/auth.ts, scope in src/lib/orgs/scope.ts).
+ * Deleting matches, brackets, groups and resetting the placement draws stay the organiser's.
  */
 export default async function MatchDeskPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { staff } = await requireTournamentPage(id, ["referee", "admin", "manager"], `/referee/tournaments/${id}/desk`);
-  if (!staffCan(staff, "generate_matches")) notFound();
+  if (!staffCan(staff, "master_desk")) notFound();
   const tournament = await getTournament(id);
   if (!tournament || tournament.kind !== "tournament") notFound();
   const [teams, groups, courts, brackets] = await Promise.all([getTeams(id), getGroups(id), getCourts(id), summarizeBrackets(id)]);
@@ -69,7 +70,7 @@ export default async function MatchDeskPage({ params }: { params: Promise<{ id: 
           ) : (
             <p className="text-sm text-muted">{groupTies.length} group ties generated.</p>
           )}
-          {groupTies.length > 0 && <PlacementControls tournamentId={id} drawn={placementTies.length > 0} ready={groupsDone} groupCount={groups.length} />}
+          {groupTies.length > 0 && <PlacementControls tournamentId={id} drawn={placementTies.length > 0} ready={groupsDone} groupCount={groups.length} canReset={staffCan(staff, "manage_groups")} />}
         </section>
       ) : null}
 
