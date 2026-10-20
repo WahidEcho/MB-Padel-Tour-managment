@@ -6,6 +6,14 @@
  * person reaches). Pure parts: lineupSheet.ts.
  */
 import ExcelJS from "exceljs";
+import { checkXlsxSize } from "./xlsxGuard";
+
+/** The workbook unpacks to too much (or is no zip at all): refused before parsing. */
+export class WorkbookTooBig extends Error {
+  constructor(readonly reason: string) {
+    super(`workbook refused: ${reason}`);
+  }
+}
 import { db } from "../supabase";
 import type { StaffPrincipal } from "../auth/staff";
 import { principalReaches, resolveEntity } from "../orgs/scope";
@@ -163,8 +171,14 @@ function cellText(v: ExcelJS.CellValue): string {
   return String(v);
 }
 
-/** The first sheet named "Line-ups" (or the first sheet) as a grid of texts. Throws on a file that is not a workbook. */
+/**
+ * The first sheet named "Line-ups" (or the first sheet) as a grid of texts. Throws on a
+ * file that is not a workbook, and on one that unpacks to more than XLSX_MAX_TOTAL
+ * (XLSX_MAX_ENTRY per part) before ExcelJS sees it (src/lib/tennis/xlsxGuard.ts).
+ */
 export async function readWorkbook(bytes: ArrayBuffer): Promise<(string | null)[][]> {
+  const size = checkXlsxSize(bytes);
+  if (!size.ok) throw new WorkbookTooBig(size.reason);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(bytes);
   const ws = wb.getWorksheet("Line-ups") ?? wb.worksheets[0];

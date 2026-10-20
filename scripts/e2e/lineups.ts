@@ -196,6 +196,15 @@ async function main() {
   const sheetTies = new Map((prev.json?.ties ?? []).map((t) => [t.id, t]));
   const blocked = checkRow(p0!, sheetTies.get(t0.id)!);
   check(blocked.A.problems.some((p) => p.code === "missing_s2"), "…which blocks the row until fixed", blocked.A.problems.map((p) => p.code));
+  {
+    // A zip bomb in .xlsx clothing (audit L6): a real workbook plus one part that inflates to 25 MB.
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(filled);
+    zip.file("xl/media/padding.bin", Buffer.alloc(25 * 1024 * 1024));
+    const bomb = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 9 } });
+    const big = await upload(ADMIN, bomb);
+    check(bomb.length < 2 * 1024 * 1024 && big.status === 400 && (big.json as { code?: string } | null)?.code === "too_big", "a workbook that unpacks to more than 20 MB: 400 too_big, never parsed", { bytes: bomb.length, status: big.status, json: big.json });
+  }
   const mUpload = await upload(MASTER_WEB);
   check(mUpload.status === 200, "the master referee can upload the sheet too (desk)", mUpload.status);
   const rUpload = await upload(REF1_WEB);

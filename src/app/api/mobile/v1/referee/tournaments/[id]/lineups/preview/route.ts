@@ -2,7 +2,7 @@ import { staffRoute } from "@/lib/guard";
 import { privateJson } from "@/lib/mobile/http";
 import { lineupActor } from "@/lib/tennis/lineupServer";
 import { readSheet, previewSheet } from "@/lib/tennis/lineupSheet";
-import { readWorkbook, sheetTies, sheetTournaments } from "@/lib/tennis/lineupSheetServer";
+import { WorkbookTooBig, readWorkbook, sheetTies, sheetTournaments } from "@/lib/tennis/lineupSheetServer";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -25,7 +25,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   let grid: (string | null)[][];
   try {
     grid = await readWorkbook(await file.arrayBuffer());
-  } catch {
+  } catch (err) {
+    if (err instanceof WorkbookTooBig && err.reason === "too_big") {
+      return privateJson({ error: "That workbook unpacks to too much for a line-up sheet (20 MB at most). Download the template and fill it in.", code: "too_big" }, 400);
+    }
     return privateJson({ error: "That file could not be read as an Excel workbook (.xlsx). Download the template and fill it in.", code: "unreadable" }, 400);
   }
   const sheet = readSheet(grid);
