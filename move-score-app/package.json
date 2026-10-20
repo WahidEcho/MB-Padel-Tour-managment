@@ -72,5 +72,8 @@
     "@types/react": "~19.2.2",
     "patch-package": "8.0.0",
     "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "expo-modules-jsi": "57.1.2"
   }
 }
