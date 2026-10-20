@@ -278,3 +278,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (explicit columns only, another team's rows = 404), pure rules `rules.ts` (via `@core`), alerts `alerts.ts` (target
   `coach_team`). Admin `admin/org/coaches` (admins only, `manage_coaches`), cards `/qr/coaches`, web `/coach/*`, QR `/c`,
   app `move-score-app/src/app/coach/*` + `c.tsx`. Gate: `npm run e2e:coaches` (stand-in, `PUSH_DRY_RUN=1`).
+- Venue map (migration `0039_venue_map.sql`, not yet on the live project; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
+  geo, directions, navigation, DXF, scene/camera maths, bridge via `@core`), WebGL renderer + UI `src/components/venue/`, page
+  `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app
+  screen `move-score-app/src/app/venue/[slug].tsx` (WebView + expo-location). The public venue is an explicit projection (no
+  underlay, no survey fixes). Gate `npm run e2e:venue-map` (stand-in). The sample layout's anchor is a placeholder.

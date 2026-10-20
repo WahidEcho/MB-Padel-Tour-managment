@@ -53,7 +53,8 @@ declare
     'referee_sessions',
     'assistance_calls',
     'coach_codes',
-    'coach_sessions'
+    'coach_sessions',
+    'venue_maps'
   ];
 begin
   for t in select tablename from pg_tables where schemaname = 'public' and not (tablename = any (private_tables)) loop

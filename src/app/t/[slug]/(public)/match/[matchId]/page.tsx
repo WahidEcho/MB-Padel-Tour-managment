@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { getCourts, getMatch, getSnapshot, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
+import Link from "next/link";
 import AutoRefresh from "@/components/AutoRefresh";
+import { hasPublicVenue } from "@/lib/venue/server";
 import LiveMatchCard from "@/components/LiveMatchCard";
 import YouTubeLivePlayer from "@/components/stream/YouTubeLivePlayer";
 import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
@@ -35,10 +37,11 @@ export default async function PublicMatch({
   if (!tournament) notFound();
   const match = await getMatch(matchId);
   if (!match || match.tournament_id !== tournament.id) notFound();
-  const [teams, snapshot, courts] = await Promise.all([
+  const [teams, snapshot, courts, venue] = await Promise.all([
     getTeams(tournament.id),
     getSnapshot(matchId),
     getCourts(tournament.id),
+    match.court_id ? hasPublicVenue(slug) : Promise.resolve(false),
   ]);
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
@@ -98,6 +101,11 @@ export default async function PublicMatch({
         big
         liveVideo={Boolean(video)}
       />
+      {venue && match.court_id && (
+        <Link href={`/t/${slug}/map?court=${match.court_id}`} className="btn-secondary inline-flex text-sm" data-testid="show-on-map">
+          Show on map
+        </Link>
+      )}
     </div>
   );
 }

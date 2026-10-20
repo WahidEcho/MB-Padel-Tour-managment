@@ -89,3 +89,7 @@ export { ITF_RULES_PDF as ITF_RULES_OF_TENNIS_PDF, rulePath, ruleSummary, ITF_TE
 export { isYouTubeId, parseYouTubeUrl, youtubeWatchUrl, youtubeEmbedUrl, youtubeThumbnailUrl, youtubeErrorKind } from "../../../src/lib/stream/youtube";
 export { delayNote } from "../../../src/lib/stream/liveVideo";
 export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coaches/rules";
+// The venue map (migration 0039): the WebView bridge and the map page's URL.
+export { parseFromMap, parseToMap, embeddedMapUrl } from "../../../src/lib/venue/bridge";
+export type { FromMap, ToMap } from "../../../src/lib/venue/bridge";
+export type { PublicVenue, PublicVenueCourt, VenueLive, VenueCourtLive } from "../../../src/lib/venue/types";

@@ -7,7 +7,7 @@ import { QueryClient, focusManager, useQuery, type UseQueryOptions } from "@tans
 import { AppState, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
+import type { PublicVenue, MBundle, MConfig, MCourtsLive, MDiscover, MJoinResult, MLeague, MLeagueReveal, MLive, MMatchDetail, MMyLeagues, MMyRegistrations, MOrgProfile, MPaymentChoice, MRegistrationInfo, MRegistrationResult, MStandings, MTimeline, MTopBoard } from "@core";
 import { ApiError, api } from "./client";
 import { checkNetwork, watchNetwork } from "./network";
 import { getJson, setJson } from "../state/kv";
@@ -136,6 +136,22 @@ export function useBundle(slug: string | undefined, opts: Opts<MBundle> = {}) {
     enabled: Boolean(slug),
     staleTime: 60_000,
     ...opts,
+  });
+}
+
+/**
+ * The venue map of a tournament (its event group's), or a 404 when the organiser has
+ * not published one: "Show on map" buttons appear only when this answers. Kept on the
+ * phone so the map's courts and walkways are there offline.
+ */
+export function useVenue(slug: string | undefined | null) {
+  return useQuery<PublicVenue>({
+    queryKey: ["venue", slug],
+    queryFn: cached(`venue:${slug}`, () => api<PublicVenue>(`/api/mobile/v1/t/${encodeURIComponent(slug ?? "")}/venue`)),
+    initialData: () => (slug ? initial<PublicVenue>(`venue:${slug}`) : undefined),
+    ...SAVED_IS_OLD,
+    enabled: Boolean(slug),
+    staleTime: 5 * 60_000,
   });
 }
 

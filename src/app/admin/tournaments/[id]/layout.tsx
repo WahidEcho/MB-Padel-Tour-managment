@@ -18,6 +18,7 @@ const PADEL_TABS = [
   ["/match-day", "Match day"],
   ["/scoring-features", "Scoring features"],
   ["/registrations", "Registrations"],
+  ["/venue", "Venue map"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
@@ -36,6 +37,7 @@ const TIE_TABS = [
   ["/replay", "Replay"],
   ["/match-day", "Match day"],
   ["/scoring-features", "Scoring features"],
+  ["/venue", "Venue map"],
   ["/app", "App"],
   ["/settings", "Settings"],
 ] as const;
