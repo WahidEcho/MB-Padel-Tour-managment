@@ -272,3 +272,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   before deploying), never per court code; 1.0.1's nameless "<code> <PIN>" runs on an org budget. Masters: `master_desk` only.
   Scoring: v2 events must chain from the stored snapshot (409 `stale_state`), court codes cannot write to a match finished over
   30 min ago (409 `finished_locked`).
+- National team coaches (migration `0037_coach_access.sql`, not yet on the live project; docs `docs/coaches.md`): one code per
+  team (`coach_codes`, hashed + sealed like court codes), shared by every coach of the team; sign-ins in `coach_sessions`
+  (phones for alerts). Coach tokens `mbc1.` (`src/lib/coaches/token.ts`) are never staff tokens. Server `src/lib/coaches/server.ts`
+  (explicit columns only, another team's rows = 404), pure rules `rules.ts` (via `@core`), alerts `alerts.ts` (target
+  `coach_team`). Admin `admin/org/coaches` (admins only, `manage_coaches`), cards `/qr/coaches`, web `/coach/*`, QR `/c`,
+  app `move-score-app/src/app/coach/*` + `c.tsx`. Gate: `npm run e2e:coaches` (stand-in, `PUSH_DRY_RUN=1`).

@@ -30,4 +30,12 @@ describe("credential headers", () => {
     expect(credentialHeaders("staff", "/api/matches/m-new/events", { ...phone, carries })["X-Staff-Carry"]).toBeUndefined();
     expect(credentialHeaders("me", "/api/mobile/v1/me/matches/m-old/here", { ...phone, carries })["X-Staff-Carry"]).toBeUndefined();
   });
+  it("sends the coach token only on coach calls, never the staff token or the account session", () => {
+    const c = { ...phone, userToken: "u", coachToken: "mbc1.coach" };
+    const h = credentialHeaders("coach", "/api/mobile/v1/coach/team", c);
+    expect(h.Authorization).toBe("Bearer mbc1.coach");
+    expect(h["X-Install-Token"]).toBe("inst.1.sig");
+    expect(Object.values(h)).not.toContain("Bearer staff-token");
+    for (const who of ["public", "me", "staff"] as const) expect(Object.values(credentialHeaders(who, "/api/mobile/v1/coach/team", c))).not.toContain("Bearer mbc1.coach");
+  });
 });

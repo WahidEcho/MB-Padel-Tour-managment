@@ -24,6 +24,24 @@ export function assertStandIn(script: string) {
   if (!process.env.STAFF_SESSION_SECRET) throw new Error("STAFF_SESSION_SECRET must be set (the server's, in .env.localdb)");
 }
 
+/**
+ * Clears every rate-limit counter on the stand-in (sign-in brakes, OTP, call limits) and
+ * checks the table is really empty, so one script's failed attempts never brake the next
+ * script's sign-ins (they share the stand-in and the 203.0.113.x / ::1 addresses).
+ * Stand-in only. Also runnable between scripts: `npx tsx --env-file=.env.localdb scripts/e2e/lib/clear-counters.ts`.
+ */
+export async function clearRequestCounters(): Promise<number> {
+  if (!/localhost|127\.0\.0\.1/.test(SUPA)) throw new Error("clearRequestCounters runs against the local stand-in only");
+  for (let i = 0; i < 5; i++) {
+    const { error } = await db().from("request_counters").delete().neq("bucket_key", "");
+    if (error) throw new Error(`request_counters: ${error.message}`);
+    const { count } = await db().from("request_counters").select("bucket_key", { count: "exact", head: true });
+    if (!count) return i + 1;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("request_counters could not be cleared");
+}
+
 /* ---------------- referee codes need a PIN ---------------- */
 
 /** Referees made by refereeCodeToken (removed by removeTestReferees, or with their organisation). */

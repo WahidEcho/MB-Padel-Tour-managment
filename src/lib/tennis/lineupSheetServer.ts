@@ -7,6 +7,8 @@
  */
 import ExcelJS from "exceljs";
 import { checkXlsxSize } from "./xlsxGuard";
+import { plainBrand, type EventBrand } from "../brand/brand";
+import { brandImages, brandSheet, brandWorkbook } from "../brand/excel";
 
 /** The workbook unpacks to too much (or is no zip at all): refused before parsing. */
 export class WorkbookTooBig extends Error {
@@ -87,9 +89,9 @@ export async function sheetTies(tournaments: { id: string; name: string }[]): Pr
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0B0B0B" } };
 
 /** The template: the day's ties (or none), the players already named, and every squad in order of merit. */
-export async function lineupTemplate(ties: SheetTie[], day: string | null): Promise<Buffer> {
+export async function lineupTemplate(ties: SheetTie[], day: string | null, brand: EventBrand = plainBrand("Line-ups")): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Move Score";
+  brandWorkbook(wb, brand);
   const ws = wb.addWorksheet("Line-ups", { views: [{ state: "frozen", ySplit: 1 }] });
   ws.columns = SHEET_COLUMNS.map((c) => ({ header: c.header, key: c.key, width: c.width }));
   const head = ws.getRow(1);
@@ -149,6 +151,13 @@ export async function lineupTemplate(ties: SheetTie[], day: string | null): Prom
     "A nation's cells all empty: its line-up is left as it is. Changes to a locked line-up need a reason (ITF Reg. 46).",
     "Upload the file on the Ties page (or the master referee's desk): every name is checked against the squad before anything is saved.",
   ]) how.addRow([line]);
+
+  // Branded (the band, the event, the footer line) above each sheet's header row; the
+  // reader finds the header row by its names, so an uploaded template still reads.
+  const images = await brandImages(wb, brand);
+  brandSheet(ws, brand, images, { title: `Line-ups${day ? ` · ${day}` : ""}`, columns: SHEET_COLUMNS.length });
+  brandSheet(sq, brand, images, { title: "Squads (order of merit)", columns: 4 });
+  brandSheet(how, brand, images, { title: "How to fill it in", columns: 1, headerRow: false });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 

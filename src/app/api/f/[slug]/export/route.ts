@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { staffRoute } from "@/lib/guard";
+import { BRAND } from "@/lib/brand/brand";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }
     `Ranking model,${csvCell(session.ranking_model === "games_won" ? "Games won" : "Win points")}`,
     `Matches,${(matches ?? []).length}`,
     `Exported,${new Date().toISOString()}`,
+    `Made with,${csvCell(BRAND.footer)}`,
     "",
     header.join(","),
     ...rows.map((r) =>

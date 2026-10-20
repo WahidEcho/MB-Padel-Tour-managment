@@ -2,8 +2,8 @@ import { db } from "./supabase";
 import { currentStaffIfAny, principalForMatch, type StaffPrincipal } from "./auth/staff";
 import { orgOfTournament } from "./orgs/scope";
 
-/** Roles of flows no staff member performs (public forms, app users' own account routes). */
-export const PUBLIC_ACTORS = new Set(["public", "user"]);
+/** Roles of flows no staff member performs (public forms, app users' own account routes, team coaches signing in). */
+export const PUBLIC_ACTORS = new Set(["public", "user", "coach"]);
 /** Labels an explicit caller sets that a staff principal never overrides. */
 const KEEP_ROLE = new Set(["system", "platform"]);
 

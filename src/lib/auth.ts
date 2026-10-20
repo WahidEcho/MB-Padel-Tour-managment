@@ -144,6 +144,8 @@ const PERMISSIONS = {
   manage_codes: ["admin", "manager"],
   // The referee roster, PINs, master codes, "On court now" and calls for assistance (Admin → Referees).
   manage_referees: ["admin", "manager"],
+  // National team coaches' codes (Admin → Team coaches, migration 0037): admins only (owner's decision).
+  manage_coaches: ["admin"],
   // Leagues (Admin → Leagues): settings, divisions, members, nights and fixtures.
   manage_leagues: ["admin", "manager"],
   // Registrations (Admin → event → Registrations): settings, approve / refuse, paid at the venue.

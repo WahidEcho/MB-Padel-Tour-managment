@@ -88,3 +88,4 @@ export type { ScoringFeatures } from "../../../src/lib/matchday/rules";
 export { ITF_RULES_PDF as ITF_RULES_OF_TENNIS_PDF, rulePath, ruleSummary, ITF_TENNIS_RULES } from "../../../src/lib/tennis/rulesOfTennis";
 export { isYouTubeId, parseYouTubeUrl, youtubeWatchUrl, youtubeEmbedUrl, youtubeThumbnailUrl, youtubeErrorKind } from "../../../src/lib/stream/youtube";
 export { delayNote } from "../../../src/lib/stream/liveVideo";
+export { coachLink, parseCoachLink, COACH_LINK_PATH } from "../../../src/lib/coaches/rules";

@@ -99,11 +99,11 @@ export async function summarizeBrackets(tournamentId: string): Promise<BracketSu
  * `regenerateGroupStage` behind an explicit confirmation, or a friendly
  * session's own preflight — and this stays the backstop for every other path.
  */
-export async function generateGroupMatches(tournamentId: string, actorRole: string) {
+export async function generateGroupMatches(tournamentId: string, actorRole: string, report?: import("./tennis/tieOps").DrawReport) {
   // A team competition's group stage is ties of rubbers, not single matches.
   const owner = await getTournament(tournamentId);
   const { isTieFormat, generateGroupTies } = await import("./tennis/tieOps");
-  if (isTieFormat(owner)) return generateGroupTies(tournamentId, actorRole);
+  if (isTieFormat(owner)) return generateGroupTies(tournamentId, actorRole, report);
   const [groups, groupTeams, courts, brackets] = await Promise.all([
     getGroups(tournamentId),
     getGroupTeams(tournamentId),
@@ -170,7 +170,7 @@ export async function generateGroupMatches(tournamentId: string, actorRole: stri
 }
 
 export type GroupStageResult =
-  | { ok: true; matchesCreated: number; bracketsDeleted: number; knockoutMatchesDeleted: number }
+  | { ok: true; matchesCreated: number; bracketsDeleted: number; knockoutMatchesDeleted: number; coachCodesCreated?: number }
   /** A bracket exists and nobody confirmed deleting it. Nothing was changed. */
   | { ok: false; reason: "brackets_exist"; message: string; brackets: BracketSummary[] }
   /** The confirmation named different brackets from the ones that exist now. Nothing was changed. */
@@ -240,7 +240,8 @@ export async function regenerateGroupStage(
   if (opts.publishGroups) {
     await db().from("groups").update({ status: "published" }).eq("tournament_id", tournamentId);
   }
-  const matchesCreated = await generateGroupMatches(tournamentId, actorRole);
+  const report: import("./tennis/tieOps").DrawReport = {};
+  const matchesCreated = await generateGroupMatches(tournamentId, actorRole, report);
   // The old standings describe results that were just deleted. Left in place,
   // the leaderboard keeps showing them and a fresh draw would seed from them.
   await recalcStandings(tournamentId);
@@ -250,6 +251,7 @@ export async function regenerateGroupStage(
     matchesCreated,
     bracketsDeleted: plan.kind === "replace" ? plan.bracketIds.length : 0,
     knockoutMatchesDeleted,
+    coachCodesCreated: report.coachCodesCreated ?? 0,
   };
 }
 

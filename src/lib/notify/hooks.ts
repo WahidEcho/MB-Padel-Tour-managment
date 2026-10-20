@@ -220,6 +220,7 @@ export function notifyTieScheduled(tieId: string, previous: { court_id: string |
           .eq("status", "cancelled");
       }
     }
+    await coachTieSoonAlerts(tie, ctx, court);
   });
 }
 
@@ -272,6 +273,142 @@ export function notifyTieDecided(tieId: string) {
       dedupeKey: `tie:${tieId}:decided:${tie.winner_team_id}`,
       payload: composeTieDecided({ tieId, winner: w, loser: l, rubbers: score, stageLabel }),
     });
+    await forCoaches(ctx, tie, async (teamId, us, them, s) => ({
+      kind: "coach_tie_result",
+      dedupeKey: `coach:${teamId}:tie:${tieId}:decided:${tie.winner_team_id}`,
+      payload: (await coachWords()).coachTieResult({
+        us,
+        them,
+        tieId,
+        won: tie.winner_team_id === teamId,
+        rubbers: s === "A" ? `${tie.rubbers_a}–${tie.rubbers_b}` : `${tie.rubbers_b}–${tie.rubbers_a}`,
+        stage: stageLabel,
+      }),
+    }), { tieId });
+  });
+}
+
+/**
+ * National team coaches (migration 0037): one side's line-up of a tie was entered or
+ * changed. Its coaches hear their own players only (never the opponents' line-up).
+ */
+export function notifyCoachLineup(tieId: string, s: "A" | "B", late: boolean) {
+  return safely("coach line-up", async () => {
+    const { data } = await db().from("ties").select("*").eq("id", tieId).single();
+    const tie = data as Tie | null;
+    const teamId = tie ? (s === "A" ? tie.team_a_id : tie.team_b_id) : null;
+    if (!tie || !teamId) return;
+    const ctx = await context(tie.tournament_id);
+    const { data: rubbers } = await db().from("matches").select("rubber_type, team_a_id, team_b_id, team_a_player_ids, team_b_player_ids, tie_id").eq("tie_id", tieId).order("rubber_no");
+    const rows = ((rubbers ?? []) as Pick<Match, "rubber_type" | "team_a_id" | "team_b_id" | "team_a_player_ids" | "team_b_player_ids" | "tie_id">[]).map((r) => ({
+      label: RUBBER_LABELS[r.rubber_type as RubberType] ?? String(r.rubber_type),
+      players: (s === "A" ? r.team_a_player_ids : r.team_b_player_ids)?.length ? sidePlayers(ctx, teamId, s === "A" ? r.team_a_player_ids : r.team_b_player_ids).map((p) => p.full_name) : [],
+    }));
+    const key = rows.map((r) => r.players.join("+")).join("|");
+    await forCoaches(ctx, s === "A" ? { team_a_id: teamId, team_b_id: null } : { team_a_id: null, team_b_id: teamId }, async (id, us) => ({
+      kind: "coach_lineup",
+      dedupeKey: `coach:${id}:tie:${tieId}:lineup:${key}`,
+      payload: (await coachWords()).coachLineup({ us, them: coachCode(ctx, s === "A" ? tie.team_b_id : tie.team_a_id), tieId, rubbers: rows, late }),
+    }), { tieId });
+  });
+}
+
+/* ---------------- national team coaches (migration 0037) ---------------- */
+
+const coachWords = () => import("../coaches/alerts");
+
+function coachCode(ctx: Ctx, teamId: string | null): string | null {
+  if (!teamId) return null;
+  const sd = side(ctx, teamId);
+  return sd.code ?? sd.name;
+}
+
+function rubberLabel(m: Pick<Match, "rubber_type" | "round_name">): string {
+  return m.rubber_type ? (RUBBER_LABELS[m.rubber_type as RubberType] ?? String(m.rubber_type)) : (m.round_name ?? "Match");
+}
+
+/** The coach's own players on court in this match (full names; a rubber's nominees). */
+function coachPlayers(ctx: Ctx, m: Pick<Match, "team_a_id" | "team_b_id" | "team_a_player_ids" | "team_b_player_ids">, teamId: string): string[] {
+  const s = m.team_a_id === teamId ? "A" : "B";
+  const nominees = s === "A" ? m.team_a_player_ids : m.team_b_player_ids;
+  return nominees?.length ? sidePlayers(ctx, teamId, nominees).map((p) => p.full_name) : [];
+}
+
+/**
+ * One outbox row per side whose team has a working coach code, targeted at that team's
+ * coach phones. `build` gets the team, its label, the opponent's code and its side.
+ */
+async function forCoaches(
+  ctx: Ctx,
+  row: { team_a_id: string | null; team_b_id: string | null; id?: string; tie_id?: string | null },
+  build: (teamId: string, us: { teamId: string; code: string }, them: string | null, s: "A" | "B") => Promise<{ kind: AlertKind; dedupeKey: string; payload: AlertPayload; fireAt?: string } | null>,
+  ids: { tieId?: string | null } = {},
+) {
+  const { teamsWithCoaches } = await import("../coaches/server");
+  const coached = new Set(await teamsWithCoaches([row.team_a_id, row.team_b_id]));
+  for (const s of ["A", "B"] as const) {
+    const teamId = s === "A" ? row.team_a_id : row.team_b_id;
+    if (!teamId || !coached.has(teamId)) continue;
+    const made = await build(teamId, { teamId, code: coachCode(ctx, teamId)! }, coachCode(ctx, s === "A" ? row.team_b_id : row.team_a_id), s);
+    if (!made) continue;
+    const isMatch = "tie_id" in row && row.id;
+    await enqueue({
+      kind: made.kind,
+      tournamentId: ctx.tournament.id,
+      matchId: isMatch ? row.id : null,
+      tieId: ids.tieId ?? (isMatch ? (row.tie_id ?? null) : (row.id ?? null)),
+      dedupeKey: made.dedupeKey,
+      payload: made.payload,
+      fireAt: made.fireAt,
+    });
+  }
+}
+
+/** "Starts in 5 minutes" for the tie's coaches, following its latest time (older ones withdrawn). */
+async function coachTieSoonAlerts(tie: Tie, ctx: Ctx, court: string | null) {
+  const { COACH_SOON_MINUTES, tieStageLabel } = await import("../coaches/rules");
+  await db().from("notification_events").update({ status: "cancelled" }).eq("tie_id", tie.id).eq("kind", "coach_soon").is("match_id", null).eq("status", "pending");
+  if (!tie.scheduled_time) return;
+  const fireAt = Date.parse(tie.scheduled_time) - COACH_SOON_MINUTES * 60_000;
+  if (!(fireAt > Date.now())) return;
+  const { data: g } = tie.group_id ? await db().from("groups").select("group_name").eq("id", tie.group_id).maybeSingle() : { data: null };
+  const stage = tieStageLabel(tie, (g as { group_name: string } | null)?.group_name ?? null);
+  const keys: string[] = [];
+  await forCoaches(ctx, { team_a_id: tie.team_a_id, team_b_id: tie.team_b_id, id: tie.id }, async (teamId, us, them) => {
+    const dedupeKey = `coach:${teamId}:tie:${tie.id}:soon:${tie.scheduled_time}:${tie.court_id ?? "-"}`;
+    keys.push(dedupeKey);
+    return {
+      kind: "coach_soon",
+      dedupeKey,
+      fireAt: new Date(fireAt).toISOString(),
+      payload: (await coachWords()).coachTieSoon({ us, them, tieId: tie.id, court, at: tie.scheduled_time!, timeZone: ctx.tournament.timezone, stage }),
+    };
+  });
+  // Moving the tie back to an earlier time again: its withdrawn reminder comes back.
+  if (keys.length) await db().from("notification_events").update({ status: "pending" }).in("dedupe_key", keys).eq("status", "cancelled");
+}
+
+/** Match day: the coaches of a rubber that is next on its court (the match on court is one game from the end). */
+export function notifyCoachesRubberSoon(match: Match, court: string) {
+  return safely("coach soon", async () => {
+    const ctx = await context(match.tournament_id);
+    await forCoaches(ctx, match, async (teamId, us, them) => ({
+      kind: "coach_soon",
+      dedupeKey: `coach:${teamId}:match:${match.id}:soon`,
+      payload: (await coachWords()).coachRubberSoon({ us, them, matchId: match.id, court, label: rubberLabel(match), players: coachPlayers(ctx, match, teamId) }),
+    }));
+  });
+}
+
+/** Match day: the coaches of a match called to its court (once per call). */
+export function notifyCoachesCalled(match: Match, o: { court: string; deadline: string; calledAt: string }) {
+  return safely("coach called", async () => {
+    const ctx = await context(match.tournament_id);
+    await forCoaches(ctx, match, async (teamId, us, them) => ({
+      kind: "coach_called",
+      dedupeKey: `coach:${teamId}:match:${match.id}:call:${Date.parse(o.calledAt)}`,
+      payload: (await coachWords()).coachCalled({ us, them, matchId: match.id, court: o.court, label: rubberLabel(match), players: coachPlayers(ctx, match, teamId), deadline: o.deadline, timeZone: ctx.tournament.timezone }),
+    }));
   });
 }
 
@@ -301,6 +438,18 @@ export function notifyMatchLive(match: Match) {
         nations: [side(ctx, match.team_a_id), side(ctx, match.team_b_id)],
       }),
     });
+    await forCoaches(ctx, match, async (teamId, us, them) => ({
+      kind: "coach_started",
+      dedupeKey: `coach:${teamId}:match:${match.id}:live`,
+      payload: (await coachWords()).coachStarted({
+        us,
+        them,
+        matchId: match.id,
+        court: match.court_id ? ctx.courts.get(match.court_id) ?? null : null,
+        label: rubberLabel(match),
+        players: coachPlayers(ctx, match, teamId),
+      }),
+    }));
     await later("live activity start", () => liveActivityPhase(match, ctx, { phase: "live" }));
   });
 }
@@ -438,6 +587,13 @@ export function notifyMatchFinished(matchId: string) {
         playerIds: players.map((p) => p.id),
       }),
     });
+    const setsOf = (s: "A" | "B") =>
+      ((snap as { completed_sets?: { teamAGames: number; teamBGames: number }[] } | null)?.completed_sets ?? []).map((x) => (s === "A" ? `${x.teamAGames}–${x.teamBGames}` : `${x.teamBGames}–${x.teamAGames}`)).join(" ");
+    await forCoaches(ctx, match, async (teamId, us, them, s) => ({
+      kind: "coach_finished",
+      dedupeKey: `coach:${teamId}:match:${matchId}:finished:${match.winner_team_id}`,
+      payload: (await coachWords()).coachFinished({ us, them, matchId, label: rubberLabel(match), won: match.winner_team_id === teamId, score: setsOf(s), status: match.status }),
+    }));
     await later("live activity end", () => endLiveActivities(match, ctx));
   });
 }

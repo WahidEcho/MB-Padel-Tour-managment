@@ -270,6 +270,15 @@ export function openLink(url: string | undefined) {
     router.push("/referee/master");
     return;
   }
+  // A team coach's alert (migration 0037): their own tie or rubber, or My team.
+  const coach = /^movescore:\/\/coach\/(tie|match|team)\/?([^/?#]*)/.exec(url);
+  if (coach) {
+    const [, what, cid] = coach;
+    if (what === "tie" && cid) router.push({ pathname: "/coach/tie/[id]", params: { id: cid } });
+    else if (what === "match" && cid) router.push({ pathname: "/coach/match/[id]", params: { id: cid } });
+    else router.push("/coach/team");
+    return;
+  }
   const m = /^movescore:\/\/(match|tie|t|pass|discover|nation|player)\/?([^/?#]*)(?:\?([^#]*))?/.exec(url);
   if (!m) return;
   const [, kind, id, query] = m;

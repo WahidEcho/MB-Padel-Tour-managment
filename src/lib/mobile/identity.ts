@@ -7,6 +7,7 @@
  * keys, so no Supabase key ever ships inside the app.
  */
 import { isStaffTokenShaped } from "../auth/staffToken";
+import { isCoachTokenShaped } from "../coaches/token";
 import { createHmac, randomBytes } from "crypto";
 import { safeEqual } from "../auth/safeEqual";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -106,8 +107,8 @@ function keys() {
 
 /** The Supabase user id of a valid access token, or null. */
 export async function verifyUserToken(token: string | null | undefined): Promise<string | null> {
-  // A staff token (event code, organiser, shared password) is never a user's session.
-  if (!token || isStaffTokenShaped(token) || token.split(".").length !== 3) return null;
+  // A staff token (event code, organiser, shared password) or a coach token is never a user's session.
+  if (!token || isStaffTokenShaped(token) || isCoachTokenShaped(token) || token.split(".").length !== 3) return null;
   try {
     const { payload } = await jwtVerify(token, keys(), {
       issuer: `${process.env.SUPABASE_URL}/auth/v1`,

@@ -59,6 +59,9 @@ const MUST_STAY_CLOSED = [
   "referees",
   "referee_sessions",
   "assistance_calls",
+  // 0037 (team coaches): code hashes and sealed codes, coaches' phones.
+  "coach_codes",
+  "coach_sessions",
 ];
 
 /** Tables from 0022 on that may be reopened (none yet): table → why it holds nothing private. */

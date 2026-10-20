@@ -190,8 +190,8 @@ async function scoringRulesFor(t: Tournament, match: Match): Promise<MatchRules>
   return scoringConfigForMatch(t, match, tier, { doubles });
 }
 
-type CourtRow = QueueMatch & Pick<Match, "team_a_id" | "team_b_id" | "team_a_player_ids" | "team_b_player_ids" | "tie_id" | "round_name">;
-const COURT_ROW_COLUMNS = "id, court_id, status, scheduled_time, match_order, team_a_id, team_b_id, team_a_player_ids, team_b_player_ids, tie_id, round_name";
+type CourtRow = QueueMatch & Pick<Match, "team_a_id" | "team_b_id" | "team_a_player_ids" | "team_b_player_ids" | "tie_id" | "round_name" | "rubber_type">;
+const COURT_ROW_COLUMNS = "id, court_id, status, scheduled_time, match_order, team_a_id, team_b_id, team_a_player_ids, team_b_player_ids, tie_id, round_name, rubber_type";
 
 export type SoonOutcome =
   | { sent: true; nextMatchId: string; playerIds: string[] }
@@ -272,6 +272,9 @@ export async function onScoreProgress(input: { match: Match; before: unknown; af
         starredFans: starred,
       }),
     });
+    // National team coaches (migration 0037): their own team's rubber is next on the court.
+    const { notifyCoachesRubberSoon } = await import("../notify/hooks");
+    await notifyCoachesRubberSoon({ ...(next as unknown as Match), tournament_id: match.tournament_id }, ctx.courts.get(match.court_id) ?? "the court");
   }
   const until = next.scheduled_time ? Date.parse(next.scheduled_time) : NaN;
   await notifyLiveActivityPhase(next.id, { phase: "soon", until: Number.isFinite(until) ? until : null });
@@ -329,6 +332,9 @@ async function callAlerts(day: Day, row: CallRow, opts: { announce: boolean; now
         minutes: Math.round((deadline - Date.parse(row.called_at)) / MINUTE),
       }),
     });
+    // National team coaches (migration 0037): their own team's match is called.
+    const { notifyCoachesCalled } = await import("../notify/hooks");
+    await notifyCoachesCalled(match, { court: base.court, deadline: base.deadline, calledAt: row.called_at });
   }
   const reminderAt = callReminderAt(call, rules);
   if (reminderAt - Date.parse(row.called_at) < MIN_REMINDER_GAP_MS || reminderAt >= deadline) return;

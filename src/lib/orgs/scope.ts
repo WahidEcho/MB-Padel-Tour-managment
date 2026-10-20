@@ -35,7 +35,9 @@ export type EntityRef =
   | { registration: string }
   // Referees (migration 0035): the roster and calls for assistance belong to an organisation.
   | { referee: string }
-  | { assistanceCall: string };
+  | { assistanceCall: string }
+  // Team coaches (migration 0037): a team's coach code belongs to its tournament's organisation.
+  | { coachCode: string };
 
 export interface EntityScope {
   orgId: string;
@@ -125,7 +127,9 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
                     ? ["referees", "organization_id", ref.referee]
                     : "assistanceCall" in ref
                       ? ["assistance_calls", "organization_id, tournament_id", ref.assistanceCall]
-                      : ["organization_codes", "organization_id, tournament_id", ref.code];
+                      : "coachCode" in ref
+                        ? ["coach_codes", "organization_id, tournament_id", ref.coachCode]
+                        : ["organization_codes", "organization_id, tournament_id", ref.code];
   const [table, columns, id] = direct;
   if (!isUuid(id)) return null;
   const row = await one<{ organization_id: string; tournament_id?: string | null }>(table, columns, id);

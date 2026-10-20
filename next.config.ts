@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
+// Branded files read our logos, fonts and flags from public/ on the server (Excel images,
+// share PNGs): make sure those functions carry them (src/lib/brand/server.ts, shareCard.tsx).
+const BRAND_FILES = ["./public/brand/**/*", "./public/email/move-score-lockup@2x.png"];
+
 const nextConfig: NextConfig = {
+  outputFileTracingIncludes: {
+    "/qr/coaches/share": [...BRAND_FILES, "./public/flags/**/*"],
+    "/qr/courts/share": BRAND_FILES,
+    "/api/tournaments/\\[id\\]/export": BRAND_FILES,
+    "/api/mobile/v1/referee/tournaments/\\[id\\]/lineups/template": BRAND_FILES,
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

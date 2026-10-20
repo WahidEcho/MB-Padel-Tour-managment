@@ -1022,6 +1022,125 @@ export interface MMyRegistrations {
   registrations: MRegistration[];
 }
 
+/* ---------- national team coaches (migration 0037) ---------- */
+
+/** POST /coach/session: one team's code exchanged for a coach token (every device signs in with the same code). */
+export interface MCoachSession {
+  token: string;
+  expiresAt: string;
+  team: MCoachTeamRef;
+  /** `timeZone`: times are shown in the event's zone. */
+  event: { name: string; slug: string; timeZone: string };
+}
+
+export interface MCoachTeamRef {
+  id: string;
+  name: string;
+  code: string;
+  iso2: string | null;
+}
+
+/** A player as the coach sees them: their own team's, names only. */
+export interface MCoachPlayer {
+  id: string;
+  name: string;
+}
+
+/** One rubber of a tie. Scores are oriented: `a` is the coach's team, `b` the opponents. */
+export interface MCoachRubber {
+  matchId: string;
+  rubberNo: number | null;
+  rubberType: string | null;
+  label: string;
+  status: MatchStatusLite;
+  court: string | null;
+  scheduledTime: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** The team's own players in this rubber, once its line-up is entered; empty before. */
+  ours: MCoachPlayer[];
+  /** The opponents' players: once the tie's line-ups are confirmed (locked) or the rubber is under way (null before: never another team's unpublished line-up; empty while a doubles pair is still to be named). */
+  theirs: MCoachPlayer[] | null;
+  score: MScore | null;
+  result: "us" | "them" | null;
+}
+
+export interface MCoachTie {
+  id: string;
+  stage: "group" | "placement";
+  /** "Group A", "Cup · places 1–8 · Semi-final". */
+  stageLabel: string;
+  roundName: string | null;
+  court: string | null;
+  scheduledTime: string | null;
+  status: "scheduled" | "live" | "completed";
+  /** The coach's team's side in the tie. */
+  side: SideKey;
+  opponent: MCoachTeamRef | null;
+  rubbersUs: number;
+  rubbersThem: number;
+  result: "us" | "them" | null;
+  placesFrom: number | null;
+  placesTo: number | null;
+  lineupLocked: boolean;
+  /** The team's own singles are named. */
+  lineupEntered: boolean;
+  rubbers: MCoachRubber[];
+}
+
+export interface MCoachStandingRow extends MStandingRow {
+  team: MCoachTeamRef;
+}
+
+/** One rubber a player is down to play (their schedule). */
+export interface MCoachSlot {
+  playerId: string;
+  tieId: string;
+  matchId: string;
+  label: string;
+  opponent: string | null;
+  court: string | null;
+  scheduledTime: string | null;
+  status: MatchStatusLite;
+}
+
+/** GET /coach/team: everything the coach's "My team" screen shows. Private (no-store). */
+export interface MCoachTeamView {
+  generatedAt: string;
+  team: MCoachTeamRef & { players: MCoachPlayer[] };
+  event: { tournamentId: string; slug: string; name: string; group: string | null; timeZone: string };
+  group: { id: string; name: string; rows: MCoachStandingRow[] } | null;
+  /** After the groups: "Cup · places 1–8" or "Plate · places 9–16"; null while undecided. */
+  landing: string | null;
+  /** The final place once decided. */
+  place: number | null;
+  ties: MCoachTie[];
+  /** The next tie not finished, or null. */
+  nextTieId: string | null;
+  schedule: MCoachSlot[];
+}
+
+/** One entry of a rubber's match log as a coach reads it: never who entered it. */
+export interface MCoachLogEntry {
+  n: number;
+  at: string | null;
+  title: string;
+  detail: string;
+  tag: string;
+  chip: string | null;
+  set: number | null;
+  undone: boolean;
+}
+
+/** GET /coach/matches/{id}: one of the team's own rubbers with its log (no referee names). */
+export interface MCoachMatch {
+  tieId: string | null;
+  team: MCoachTeamRef;
+  opponent: MCoachTeamRef | null;
+  rubber: MCoachRubber;
+  log: MCoachLogEntry[];
+}
+
 /* ---------- pure helpers shared by server and app ---------- */
 
 /** Sets won from finished sets. */

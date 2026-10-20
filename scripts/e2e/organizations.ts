@@ -45,7 +45,7 @@ import { addEntryForProfile, createFriendlySession, generateSchedule } from "../
 import { formatEventCode, generateEventCode, hashEventCode } from "../../src/lib/orgs/codes";
 import { signStaffToken } from "../../src/lib/auth/staffToken";
 import { BASE_URL, sessionToken, staffToken } from "./lib/session";
-import { refereeCodeToken, refereeWithPin } from "./lib/fixtures";
+import { clearRequestCounters, refereeCodeToken, refereeWithPin } from "./lib/fixtures";
 
 const SUPA = process.env.SUPABASE_URL ?? "";
 if (!/localhost|127\.0\.0\.1/.test(SUPA)) throw new Error("organizations.ts runs against the local stand-in only");
@@ -200,6 +200,8 @@ async function webGoogleSignIn(email: string, next = "/admin/tournaments"): Prom
 /* ---------------- fixtures ---------------- */
 
 async function main() {
+  // Another script's failed sign-ins must not brake this one's (shared stand-in).
+  await clearRequestCounters();
   const tag = randomUUID().slice(0, 6);
   // Network addresses for the sign-in brakes: unique to this run and to each use
   // (IPv6 documentation prefix), so no section's buckets (or an earlier run's,

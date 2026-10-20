@@ -45,6 +45,19 @@ export interface Session {
    * only with calls about those matches; dropped once they are sent and finished.
    */
   staffCarry: StaffCarry[];
+  /**
+   * A national team coach's sign-in (migration 0037): one team's code, shared by the head
+   * coach and the assistants. Kept apart from `staff` (a coach is never staff) and from the
+   * user's account; sent only on coach calls (api/headers.ts).
+   */
+  coach: CoachSignIn | null;
+}
+
+export interface CoachSignIn {
+  token: string;
+  expiresAt: string;
+  team: { id: string; name: string; code: string; iso2: string | null };
+  event: { name: string; slug: string; timeZone?: string };
 }
 
 export interface StaffCarry {
@@ -54,7 +67,7 @@ export interface StaffCarry {
   expiresAt: string;
 }
 
-export const session = createStore<Session>({ ready: false, installationId: null, installToken: null, user: null, staff: null, staffCarry: [] });
+export const session = createStore<Session>({ ready: false, installationId: null, installToken: null, user: null, staff: null, staffCarry: [], coach: null });
 
 const freshInstallationId = () => `${Platform.OS}-${Crypto.randomUUID()}`;
 
@@ -64,7 +77,14 @@ export async function loadSession() {
     installationId = freshInstallationId();
     await setSecret("ms.install.id", installationId);
   }
-  const [installToken, user, staff, carry] = await Promise.all([readSecret("ms.install.token"), readUserSecret(), readSecret("ms.staff"), readSecret("ms.staff.carry")]);
+  const [installToken, user, staff, carry, coachRaw] = await Promise.all([readSecret("ms.install.token"), readUserSecret(), readSecret("ms.staff"), readSecret("ms.staff.carry"), readSecret("ms.coach")]);
+  let coach: CoachSignIn | null = null;
+  try {
+    coach = coachRaw ? (JSON.parse(coachRaw) as CoachSignIn) : null;
+  } catch {
+    coach = null;
+  }
+  if (coach && !(Date.parse(coach.expiresAt) > Date.now())) coach = null;
   let staffCarry: StaffCarry[] = [];
   try {
     staffCarry = carry ? (JSON.parse(carry) as StaffCarry[]).filter((c) => Date.parse(c.expiresAt) > Date.now()) : [];
@@ -85,6 +105,7 @@ export async function loadSession() {
     user: savedUser,
     staff: staffParsed && Date.parse(staffParsed.expiresAt) > Date.now() ? staffParsed : null,
     staffCarry,
+    coach,
   });
 }
 
@@ -154,4 +175,9 @@ export async function saveStaffCarry(staffCarry: StaffCarry[]) {
   const live = staffCarry.filter((c) => c.matchIds.length && Date.parse(c.expiresAt) > Date.now()).slice(-3);
   await setSecret("ms.staff.carry", live.length ? JSON.stringify(live) : null);
   session.set((s) => ({ ...s, staffCarry: live }));
+}
+
+export async function saveCoach(coach: CoachSignIn | null) {
+  await setSecret("ms.coach", coach ? JSON.stringify(coach) : null);
+  session.set((s) => ({ ...s, coach }));
 }
