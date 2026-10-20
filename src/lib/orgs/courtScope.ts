@@ -22,7 +22,10 @@ import { eventDay } from "../matchday/eventDay";
 export const COURT_LIST_DAY_ONLY = true;
 /** A carry-over token (after switching courts) lasts at most this long. */
 export const CARRY_HOURS = 12;
-/** A match the server has finished stays reachable by a carry-over this long after it ended (unsent last points, an undo). */
+/**
+ * A match the server has finished stays reachable by a carry-over this long after it ended (unsent last points, an
+ * undo); a court code's writes to a finished match end then too (finishedLockCut, src/lib/scoring/append.ts).
+ */
 export const CARRY_GRACE_MINUTES = 30;
 export const SHOW_UNTIMED = true;
 export const SHOW_OVERDUE = true;

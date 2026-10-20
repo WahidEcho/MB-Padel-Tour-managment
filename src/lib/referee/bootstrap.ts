@@ -10,6 +10,7 @@ import { db } from "../supabase";
 import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "../data";
 import { isDoublesMatch, scoringConfigForMatch } from "../scoring/rules";
 import { pushesHistory } from "../scoring/eventGuard";
+import { withoutClock } from "../scoring/timing";
 import { redBlueTeams } from "../sides";
 import { sportOf } from "../sports/registry";
 import { matchDayRules, resolveScoringMode, type MatchDayRules, type ScoringModeChoice } from "../matchday/rules";
@@ -103,8 +104,9 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
     if (r.event_type === "UNDO") history.pop();
     // A final result supersedes the points before it: nothing to undo back into.
     else if (r.event_type === "RESULT_ENTERED") history.length = 0;
-    // Timers and time rulings are only for the record: never on the undo stack.
-    else if (r.previous_state_json && pushesHistory(r.event_type)) history.push(r.previous_state_json);
+    // Timers and time rulings are only for the record: never on the undo stack, and an
+    // undo target carries no running timer (an Undo must not bring an old clock back).
+    else if (r.previous_state_json && pushesHistory(r.event_type)) history.push(withoutClock(r.previous_state_json));
   }
   const court = courts.find((c) => c.id === match.court_id);
   const sport = sportOf(tournament);

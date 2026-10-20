@@ -36,8 +36,8 @@ import type { ScoringModeChoice } from "@/lib/matchday/rules";
 import { useSunlight } from "@/components/referee/useSunlight";
 import * as C from "@/lib/scoring/console";
 import { pushesHistory } from "@/lib/scoring/eventGuard";
-import { aceMoment, defaultServeOrder, needsServeOrder, type ServeOrder } from "@/lib/scoring/serve";
-import { TIMERS, sidesSwapped, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
+import { aceMoment, defaultServeOrder, lockServeOrder, needsServeOrder, tossDecidesServer, type ServeOrder } from "@/lib/scoring/serve";
+import { TIMERS, sidesSwapped, withoutClock, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import { aceCounts } from "@/lib/scoring/matchLog";
 import { nationByCode } from "@/lib/tennis/nations";
 import { SCORING_FEATURES_OFF } from "@/lib/matchday/rules";
@@ -575,7 +575,7 @@ export default function ScoreClient({
           : eventType === "UNDO"
           ? historyRef.current.slice(0, -1)
           : prev && pushesHistory(eventType)
-            ? [...historyRef.current, prev]
+            ? [...historyRef.current, withoutClock(prev)]
             : historyRef.current
       ).slice(-200);
       commit(newState, nextHistory); // synchronous ref update first — taps can be rapid
@@ -774,7 +774,8 @@ export default function ScoreClient({
   function confirmServeOrder(order: ServeOrder) {
     const cur = stateRef.current;
     if (!cur) return;
-    const e = C.serveOrderEvent(cur, order);
+    // After the first set the serving team is the rotation's; the referee picks the partners.
+    const e = C.serveOrderEvent(cur, lockServeOrder(cur, order), pairs);
     if (e) recordV2(e);
   }
 
@@ -860,7 +861,8 @@ export default function ScoreClient({
   function doUndo() {
     const cur = stateRef.current;
     if (historyRef.current.length === 0 || !cur) return setModal(null);
-    const prev = historyRef.current[historyRef.current.length - 1];
+    // Back to the state before the last scoring step, never with a timer that ran there (timing.ts).
+    const prev = withoutClock(historyRef.current[historyRef.current.length - 1]);
     void pushEvent("UNDO", prev, { newStatus: finished ? "live" : undefined });
     setRest(null);
     // The 25 s belonged to the point taken back; a recorded timer stays until it is stopped.
@@ -1289,6 +1291,7 @@ export default function ScoreClient({
               set={renderState.currentSet}
               sides={v2Sides}
               initial={defaultServeOrder(renderState)}
+              teamFree={tossDecidesServer(renderState)}
               onConfirm={confirmServeOrder}
             />
           </div>

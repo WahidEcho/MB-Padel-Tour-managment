@@ -330,7 +330,12 @@ function ChoiceRow<V extends string | number>({ label, value, options, onPick }:
 }
 
 /** Doubles, at the start of every set: who serves and receives first (ITF Rule 14). */
-export function ServeOrderForm({ sides, initial, onConfirm }: { sides: Record<TeamKey, V2Side>; initial: ServeOrder; onConfirm: (o: ServeOrder) => void }) {
+/**
+ * The doubles serve/receive order at a set start. `teamFree`: only the first set's toss
+ * picks the serving team; later sets follow the rotation (audit L5) and the referee only
+ * picks the partners.
+ */
+export function ServeOrderForm({ sides, initial, onConfirm, teamFree = true }: { sides: Record<TeamKey, V2Side>; initial: ServeOrder; onConfirm: (o: ServeOrder) => void; teamFree?: boolean }) {
   const [o, setO] = useState<ServeOrder>(initial);
   const team = o.servingTeam;
   const other: TeamKey = team === "A" ? "B" : "A";
@@ -340,7 +345,11 @@ export function ServeOrderForm({ sides, initial, onConfirm }: { sides: Record<Te
   ];
   return (
     <View style={{ gap: 12 }} testID="serve-order">
-      <ChoiceRow label="Which team serves?" value={team} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} onPick={(v) => setO({ ...o, servingTeam: v })} />
+      {teamFree ? (
+        <ChoiceRow label="Which team serves?" value={team} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} onPick={(v) => setO({ ...o, servingTeam: v })} />
+      ) : (
+        <Body weight="bold" size={15}>{`${sides[team].name} serve first (the rotation)`}</Body>
+      )}
       <ChoiceRow label={`Who serves for ${sides[team].name}?`} value={o.server} options={players(team)} onPick={(v) => setO({ ...o, server: v })} />
       <ChoiceRow label={`Who receives first for ${sides[other].name}?`} value={o.receiver} options={players(other)} onPick={(v) => setO({ ...o, receiver: v })} />
       <ChoiceRow label={`Who serves first for ${sides[other].name} (game 2)?`} value={o.otherServer} options={players(other)} onPick={(v) => setO({ ...o, otherServer: v })} />

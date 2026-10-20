@@ -18,6 +18,7 @@ import type {
 import { resolvePortrait } from "./portrait";
 import { orgOfTournament } from "./orgs/scope";
 import { hiddenPersonFields } from "./orgs/personFields";
+import { withoutClock } from "./scoring/timing";
 
 export async function getTournament(id: string): Promise<Tournament | null> {
   const { data } = await db().from("tournaments").select("*").eq("id", id).maybeSingle();
@@ -170,7 +171,8 @@ export async function getReopenState(matchId: string): Promise<Record<string, un
   const crossing = (entered === -1 ? rows : rows.slice(0, entered)).find(
     (e) => e.new_state_json?.matchOver === true && e.previous_state_json && e.previous_state_json.matchOver !== true,
   );
-  return (crossing?.previous_state_json as Record<string, unknown> | undefined) ?? null;
+  // What an Undo restores: never with a timer that ran there still running (timing.ts).
+  return crossing?.previous_state_json ? withoutClock(crossing.previous_state_json as Record<string, unknown>) : null;
 }
 
 export async function getStandings(tournamentId: string): Promise<Standing[]> {

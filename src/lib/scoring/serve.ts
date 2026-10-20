@@ -12,6 +12,8 @@
  * - `stats` counts aces and double faults; `lastAce` lets screens flash "ACE".
  * - `doublesOrder` (engine.ts) and `receiveOrder` say which partner serves first and
  *   which receives in the deuce court, set at the start of every set (ITF Rule 14).
+ *   Which TEAM serves first is the toss's at the first set only; later sets follow the
+ *   rotation (`setServeOrder` refuses another team).
  */
 import { awardPoint, currentServer, opponent, servingPlayer, type ScoreState, type TeamKey } from "./engine";
 import type { ScoringConfig } from "../types";
@@ -132,9 +134,35 @@ export function needsServeOrder(s: ScoreState | null, doubles: boolean): boolean
   return Boolean(s && doubles && atSetStart(s) && s.orderSet !== s.currentSet);
 }
 
+/**
+ * The match's first set, before its first point: the toss decides which team serves
+ * first, so the referee picks it. At every later set the serving team follows the
+ * rotation (ITF Rule 14): the referee picks only which partner serves and receives.
+ */
+export function tossDecidesServer(s: ScoreState): boolean {
+  return atSetStart(s) && s.currentSet === 1 && s.completedSets.length === 0;
+}
+
+/** The team the rotation has serving next (in a tie-break: its first point), or null when unknown. */
+export function dueServingTeam(s: ScoreState): TeamKey | null {
+  return (s.isTiebreak ? s.tiebreakFirstServer : s.servingTeam) ?? null;
+}
+
+/**
+ * The order with the serving team the rotation gives, for a console whose form still
+ * offers the team: each team keeps the partners it chose (who serves and who receives
+ * first), only which of the two teams serves the set's first game is the rotation's.
+ * Unchanged at the first set (the toss) or when the order already names the due team.
+ */
+export function lockServeOrder(s: ScoreState, o: ServeOrder): ServeOrder {
+  const due = dueServingTeam(s);
+  if (tossDecidesServer(s) || !due || o.servingTeam === due) return o;
+  return { servingTeam: due, server: o.otherServer, receiver: o.otherReceiver, otherServer: o.server, otherReceiver: o.receiver };
+}
+
 /** The order the console offers: the rotation as it stands (who is due to serve). */
 export function defaultServeOrder(s: ScoreState): ServeOrder {
-  const team = (s.isTiebreak ? s.tiebreakFirstServer : s.servingTeam) ?? "A";
+  const team = dueServingTeam(s) ?? "A";
   const other = opponent(team);
   return {
     servingTeam: team,
@@ -145,9 +173,15 @@ export function defaultServeOrder(s: ScoreState): ServeOrder {
   };
 }
 
-/** Records the order for this set. Only at the start of a set (null otherwise). */
+/**
+ * Records the order for this set. Only at the start of a set, and only with the
+ * serving team the rotation gives after the first set (`tossDecidesServer`); null
+ * otherwise. Doubles only: the caller (console, server) refuses it in singles.
+ */
 export function setServeOrder(prev: ScoreState, o: ServeOrder): ScoreState | null {
   if (!atSetStart(prev)) return null;
+  const due = dueServingTeam(prev);
+  if (!tossDecidesServer(prev) && due && o.servingTeam !== due) return null;
   const next = clone(prev);
   const team = o.servingTeam;
   const other = opponent(team);

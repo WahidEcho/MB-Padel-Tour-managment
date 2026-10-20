@@ -62,7 +62,10 @@ export interface ScoreState {
   orderSet?: number;
   /**
    * A timer the referee runs (changeover, set break, breaks: timing.ts), at the
-   * score key it started at. Screens show it only while that score stands.
+   * score key it started at. Screens show it only while that score stands. Any step
+   * that moves the score (a point, a game, a set) removes it, and an undo target
+   * never carries one (console.ts `undo`/`nextHistory`, the bootstrap history), so
+   * Undo cannot bring an old running clock back onto the screens.
    */
   clock?: { kind: string; startedAt: string; at: string; team?: TeamKey | null } | null;
   winner: TeamKey | null;
@@ -102,6 +105,8 @@ export function awardPoint(prev: ScoreState, scoringTeam: TeamKey, config: Scori
   const state = clone(prev);
   // A point ends the serve in progress: the next point starts on a first serve.
   delete state.serve;
+  // ...and any timer still running (a changeover, a set break, a break): play went on.
+  delete state.clock;
   if (state.isTiebreak) return awardTiebreakPoint(state, scoringTeam, config);
   return awardNormalPoint(state, scoringTeam, config);
 }
@@ -234,6 +239,7 @@ export function manualEndSet(prev: ScoreState, winningTeam: TeamKey, config: Sco
   if (prev.matchOver) return prev;
   const state = clone(prev);
   delete state.serve;
+  delete state.clock;
   return winSet(state, winningTeam, config);
 }
 
@@ -335,6 +341,7 @@ export function awardGame(prev: ScoreState, team: TeamKey, config: ScoringConfig
   if (prev.matchOver) return prev;
   const state = clone(prev);
   delete state.serve;
+  delete state.clock;
   if (state.isTiebreak) {
     if (state.isMatchTiebreak) {
       teamScore(state, team).games = 1;

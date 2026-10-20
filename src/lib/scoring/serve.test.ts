@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { awardPoint, currentServer, initialScoreState, servingPlayer, type ScoreState, type TeamKey } from "./engine";
-import { ace, aceMoment, applyLet, defaultServeOrder, fault, needsServeOrder, receivingPlayer, scoreKey, serveCourt, serveNumber, setServeOrder } from "./serve";
+import { ace, aceMoment, applyLet, defaultServeOrder, dueServingTeam, fault, lockServeOrder, needsServeOrder, receivingPlayer, scoreKey, serveCourt, serveNumber, setServeOrder, tossDecidesServer } from "./serve";
 import { applyViolation, nextPenalty } from "./conduct";
 import { scoringConfigForMatch } from "./rules";
 import { DEFAULT_TENNIS_SCORING_CONFIG, type ScoringConfig } from "../types";
@@ -212,25 +212,51 @@ describe("doubles: serve and receive order", () => {
     for (let i = 0; i < 6; i++) s = game(s, "A", doubles);
     // 6-0: six games, so A (games 1, 3, 5) serves the first game of set 2 again.
     expect(defaultServeOrder(s).servingTeam).toBe("A");
-    const next = setServeOrder(s, { servingTeam: "B", server: 0, receiver: 1, otherServer: 0, otherReceiver: 1 })!;
+    const next = setServeOrder(s, { servingTeam: "A", server: 0, receiver: 1, otherServer: 0, otherReceiver: 1 })!;
     expect(next.orderSet).toBe(2);
-    expect(servingPlayer(next)).toEqual({ team: "B", index: 0 });
-    expect(receivingPlayer(next)).toEqual({ team: "A", index: 1, court: "deuce" });
+    expect(servingPlayer(next)).toEqual({ team: "A", index: 0 });
+    expect(receivingPlayer(next)).toEqual({ team: "B", index: 1, court: "deuce" });
   });
 
   it("a match tie-break in place of the final set is asked for too, and its first server is set", () => {
     let s = setServeOrder(initialScoreState("A"), order)!;
     for (let i = 0; i < 6; i++) s = game(s, "A", doubles);
-    s = setServeOrder(s, { ...order, servingTeam: "B" })!;
+    s = setServeOrder(s, { ...order, servingTeam: "A" })!;
     for (let i = 0; i < 6; i++) s = game(s, "B", doubles);
     expect(s.isMatchTiebreak).toBe(true);
     expect(needsServeOrder(s, true)).toBe(true);
-    s = setServeOrder(s, { servingTeam: "B", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })!;
-    expect(currentServer(s)).toBe("B");
-    expect(servingPlayer(s)).toEqual({ team: "B", index: 1 });
-    expect(receivingPlayer(s)).toEqual({ team: "A", index: 0, court: "deuce" });
-    s = awardPoint(s, "B", doubles);
-    expect(servingPlayer(s)).toEqual({ team: "A", index: 0 });
-    expect(receivingPlayer(s)).toEqual({ team: "B", index: 0, court: "ad" });
+    // Set 2 went 0-6 with A serving games 1, 3, 5: A serves the match tie-break's first point.
+    expect(dueServingTeam(s)).toBe("A");
+    expect(setServeOrder(s, { servingTeam: "B", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })).toBeNull();
+    s = setServeOrder(s, { servingTeam: "A", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })!;
+    expect(currentServer(s)).toBe("A");
+    expect(servingPlayer(s)).toEqual({ team: "A", index: 1 });
+    expect(receivingPlayer(s)).toEqual({ team: "B", index: 0, court: "deuce" });
+    s = awardPoint(s, "A", doubles);
+    expect(servingPlayer(s)).toEqual({ team: "B", index: 0 });
+    expect(receivingPlayer(s)).toEqual({ team: "A", index: 0, court: "ad" });
+  });
+
+  it("only the first set's toss picks the serving team; later sets follow the rotation (L5)", () => {
+    // The toss: at the first set the referee may name either team, whatever MATCH_STARTED said.
+    const start = initialScoreState("A");
+    expect(tossDecidesServer(start)).toBe(true);
+    expect(setServeOrder(start, { ...order, servingTeam: "B" })?.servingTeam).toBe("B");
+    // 6-1 to A in set 1, A serving first: seven games, so B serves the first game of set 2.
+    let s = setServeOrder(start, order)!;
+    for (let i = 0; i < 5; i++) s = game(s, "A", doubles);
+    s = game(s, "B", doubles);
+    s = game(s, "A", doubles);
+    expect(s.currentSet).toBe(2);
+    expect(tossDecidesServer(s)).toBe(false);
+    expect(dueServingTeam(s)).toBe("B");
+    expect(setServeOrder(s, { ...order, servingTeam: "A" })).toBeNull();
+    const ok = setServeOrder(s, { servingTeam: "B", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })!;
+    expect(ok.servingTeam).toBe("B");
+    expect(servingPlayer(ok)).toEqual({ team: "B", index: 1 });
+    // A console whose form still offers the team: the rotation's team, each side's partners kept.
+    const locked = lockServeOrder(s, { servingTeam: "A", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 });
+    expect(locked).toEqual({ servingTeam: "B", server: 0, receiver: 1, otherServer: 1, otherReceiver: 0 });
+    expect(lockServeOrder(start, { ...order, servingTeam: "B" }).servingTeam).toBe("B");
   });
 });

@@ -24,7 +24,7 @@ import {
 import { applyViolation, nextPenalty, type Offence, type Penalty } from "./conduct";
 import { pushesHistory, sameState } from "./eventGuard";
 import { ace as aceState, applyLet, fault as faultState, serveNumber, setServeOrder, type LetKind, type ServeOrder } from "./serve";
-import { afterScoreChange, startClock, stopClock, type AfterPoint, type TimeDecision, type TimerKind } from "./timing";
+import { afterScoreChange, startClock, stopClock, withoutClock, type AfterPoint, type TimeDecision, type TimerKind } from "./timing";
 import type { ScoringConfig } from "../types";
 
 export interface ConsoleEvent {
@@ -109,8 +109,13 @@ export function letEvent(cur: ScoreState, kind: LetKind): ConsoleEvent | null {
   return { eventType: "LET", next: applyLet(cur, kind), team: null, payload: { kind, serve: serveNumber(cur) } };
 }
 
-/** Doubles: the serve and receive order for this set (the set-start question). */
-export function serveOrderEvent(cur: ScoreState, order: ServeOrder): ConsoleEvent | null {
+/**
+ * Doubles: the serve and receive order for this set (the set-start question). Null in
+ * singles (`doubles` false), away from a set's start, and for a serving team the
+ * rotation does not give after the first set (setServeOrder).
+ */
+export function serveOrderEvent(cur: ScoreState, order: ServeOrder, doubles?: boolean): ConsoleEvent | null {
+  if (doubles === false) return null;
   const next = setServeOrder(cur, order);
   if (!next) return null;
   return { eventType: "SERVE_ORDER", next, team: null, payload: { ...order, set: cur.currentSet } };
@@ -141,10 +146,11 @@ export function confirmResult(cur: ScoreState, o: ConsoleOptions): ConsoleEvent 
   return { eventType: "MATCH_ENDED", next: cur, team: cur.winner, payload: {}, winner: cur.winner, newStatus: done(o.online, "completed") };
 }
 
+/** Undo: back to the state before the last scoring step. A timer that ran there stays over (no `clock`). */
 export function undo(history: ScoreState[], finished: boolean): ConsoleEvent | null {
   const prev = history[history.length - 1];
   if (!prev) return null;
-  return { eventType: "UNDO", next: prev, team: null, payload: null, newStatus: finished ? "live" : undefined };
+  return { eventType: "UNDO", next: withoutClock(prev), team: null, payload: null, newStatus: finished ? "live" : undefined };
 }
 
 export function togglePause(cur: ScoreState, paused: boolean): ConsoleEvent {
@@ -197,14 +203,14 @@ export function endWith(cur: ScoreState, kind: EndKind, winner: TeamKey, online:
     (cur.teamA.games > 0 || cur.teamB.games > 0) && !cur.completedSets.some((s) => s.teamAGames === cur.teamA.games && s.teamBGames === cur.teamB.games)
       ? [{ teamAGames: cur.teamA.games, teamBGames: cur.teamB.games }]
       : [];
-  const next: ScoreState = { ...cur, completedSets: [...cur.completedSets, ...extraSet], matchOver: true, winner };
+  const next: ScoreState = withoutClock({ ...cur, completedSets: [...cur.completedSets, ...extraSet], matchOver: true, winner });
   return { eventType: kind, next, team: winner, payload: {}, winner, newStatus: done(online, END_STATUS[kind]) };
 }
 
-/** The undo stack after an event, kept the way the web console keeps it (200 deep). */
+/** The undo stack after an event, kept the way the web console keeps it (200 deep). Entries carry no running timer. */
 export function nextHistory(history: ScoreState[], prev: ScoreState | null, eventType: string): ScoreState[] {
   if (eventType !== "UNDO" && !pushesHistory(eventType)) return history;
-  return (eventType === "UNDO" ? history.slice(0, -1) : prev ? [...history, prev] : history).slice(-200);
+  return (eventType === "UNDO" ? history.slice(0, -1) : prev ? [...history, withoutClock(prev)] : history).slice(-200);
 }
 
 /** Statuses a console treats as over. `pending_sync` is a result recorded offline and not yet sent. */

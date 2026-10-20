@@ -410,16 +410,23 @@ function Choice<V extends string | number>({ label, value, onPick, options }: { 
   );
 }
 
+/**
+ * Doubles, at the start of every set: which partner serves and receives first (ITF
+ * Rule 14). Which team serves is the toss's at the first set only (`teamFree`); after
+ * that the rotation decides it, and the dialog shows it without offering a choice.
+ */
 export function ServeOrderDialog({
   set,
   sides,
   initial,
   onConfirm,
+  teamFree = true,
 }: {
   set: number;
   sides: Record<TeamKey, { name: string; players: string[] }>;
   initial: ServeOrder;
   onConfirm: (o: ServeOrder) => void;
+  teamFree?: boolean;
 }) {
   const [o, setO] = useState<ServeOrder>(initial);
   const serving = o.servingTeam;
@@ -431,7 +438,13 @@ export function ServeOrderDialog({
   return (
     <div className="space-y-3" data-testid="serve-order">
       <h3 className="text-xl font-black uppercase">Start of set {set}</h3>
-      <Choice label="Which team serves?" value={serving} onPick={(v: TeamKey) => setO({ ...o, servingTeam: v })} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} />
+      {teamFree ? (
+        <Choice label="Which team serves?" value={serving} onPick={(v: TeamKey) => setO({ ...o, servingTeam: v })} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} />
+      ) : (
+        <p className="text-sm font-semibold text-muted" data-testid="serve-order-team">
+          {sides[serving].name} serve first (the rotation)
+        </p>
+      )}
       <Choice label={`Who serves for ${sides[serving].name}?`} value={o.server} onPick={(v: 0 | 1) => setO({ ...o, server: v })} options={players(serving)} />
       <Choice label={`Who receives first for ${sides[other].name}?`} value={o.receiver} onPick={(v: 0 | 1) => setO({ ...o, receiver: v })} options={players(other)} />
       <Choice label={`Who serves first for ${sides[other].name} (game 2)?`} value={o.otherServer} onPick={(v: 0 | 1) => setO({ ...o, otherServer: v })} options={players(other)} />

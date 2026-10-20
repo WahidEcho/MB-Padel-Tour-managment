@@ -7,7 +7,8 @@
  */
 import { awardPoint, opponent, type ScoreState, type TeamKey } from "./engine";
 import { ace, applyLet, fault, serveNumber, setServeOrder, type ServeOrder } from "./serve";
-import { isTimerKind, startClock, stopClock, TIME_DECISIONS, type TimerKind } from "./timing";
+import { isTimerKind, startClock, stopClock, TIME_DECISIONS, withoutClock, type TimerKind } from "./timing";
+import { CARRY_GRACE_MINUTES } from "../orgs/courtScope";
 import type { ScoringConfig } from "../types";
 import type { ScoringFeatures } from "../matchday/rules";
 
@@ -366,7 +367,8 @@ export function shadowMismatches(
       try {
         const v2 = isV2Event(e) ? expectedV2State(e, { teamA: opts.teamA, config: opts.config }) : null;
         const expected = v2 && v2.ok ? v2.state : awardPoint(e.previous_state as ScoreState, key, opts.config);
-        if (!sameState(withoutStaleServe(expected), withoutStaleServe(e.new_state as ScoreState))) {
+        // A clock is not part of the score either: 1.0.1's engine copies a running one along.
+        if (!sameState(withoutClock(withoutStaleServe(expected)), withoutClock(withoutStaleServe(e.new_state as ScoreState)))) {
           out.push({ event_number: e.event_number, event_type: e.event_type, kind: "point" });
         }
       } catch {
@@ -411,7 +413,7 @@ export type V2Expected = { ok: true; state: ScoreState } | { ok: false; error: s
  * shared engine (serve.ts, timing.ts), or why no honest console sends it. The
  * events route refuses a v2 event whose new_state differs.
  */
-export function expectedV2State(e: V2Event, opts: { teamA: string | null; config: ScoringConfig }): V2Expected {
+export function expectedV2State(e: V2Event, opts: { teamA: string | null; config: ScoringConfig; doubles?: boolean }): V2Expected {
   const prev = e.previous_state as ScoreState | null;
   if (!prev || typeof prev !== "object" || !prev.teamA || !prev.teamB) return { ok: false, error: `${e.event_type} needs the score before it` };
   const key: TeamKey | null = e.team_id == null ? null : e.team_id === opts.teamA ? "A" : "B";
@@ -439,9 +441,13 @@ export function expectedV2State(e: V2Event, opts: { teamA: string | null; config
       return { ok: true, state: applyLet(prev, p.kind) };
     }
     case "SERVE_ORDER": {
+      // Doubles only; and after the first set the serving team is the rotation's (setServeOrder).
+      if (opts.doubles === false) return { ok: false, error: "A singles match has no serve and receive order" };
       const order = parseServeOrder(p);
       const next = order ? setServeOrder(prev, order) : null;
-      if (!next) return { ok: false, error: "The serve and receive order is set at the start of a set" };
+      if (!next) {
+        return { ok: false, error: "The serve and receive order is set at the start of a set; after the first set the serving team follows the rotation" };
+      }
       return { ok: true, state: next };
     }
     case "TIMER_STARTED": {
@@ -498,10 +504,13 @@ export function featureFor(e: { event_type: string; payload?: Record<string, unk
 /**
  * The first v2 event of a batch the tournament switched off, or whose state is not
  * what the engine gives. Walked in order; returns the index and why, or null.
+ * Aces and double faults are compared without `clock`: a point closes a running
+ * timer (engine.ts), and a console built before that may still carry it along.
+ * That the event starts from the server's own score is v2ChainCut's check.
  */
 export function v2Cut(
   events: V2Event[],
-  opts: { teamA: string | null; config: ScoringConfig | null; features: ScoringFeatures },
+  opts: { teamA: string | null; config: ScoringConfig | null; features: ScoringFeatures; doubles?: boolean },
 ): (FinishedCut & { code: "feature_off" | "state_mismatch" }) | null {
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
@@ -511,11 +520,89 @@ export function v2Cut(
       return { index: i, code: "feature_off", error: `The organiser switched this off for the tournament (${feature}), so event ${e.event_type} was refused.` };
     }
     if (!opts.config) return { index: i, code: "state_mismatch", error: `${e.event_type} is for games scoring only` };
-    const want = expectedV2State(e, { teamA: opts.teamA, config: opts.config });
+    const want = expectedV2State(e, { teamA: opts.teamA, config: opts.config, doubles: opts.doubles });
     if (!want.ok) return { index: i, code: "state_mismatch", error: want.error };
-    if (!sameState(want.state, e.new_state)) {
+    const same = e.event_type === "POINT_AWARDED" ? sameState(withoutClock(want.state), withoutClock(e.new_state)) : sameState(want.state, e.new_state);
+    if (!same) {
       return { index: i, code: "state_mismatch", error: `The score sent with ${e.event_type} is not what the rules give. Load the server's score and carry on.` };
     }
   }
   return null;
+}
+
+/**
+ * The server re-derives a v2 event's new_state from its previous_state (v2Cut), so
+ * that previous_state must be the server's own score, never just the device's word:
+ * a v2 event that is the batch's first fresh event must carry the stored score
+ * (`storedState`: the snapshot, brought level with the event log), and a later one
+ * the new_state of the event just before it in the batch. Otherwise `stale_state`.
+ *
+ * Only v2 events are held to it. Every other event's new_state is the device's own
+ * (Move Score 1.0.1 included) and nothing is re-derived from its previous_state, so
+ * checking it would refuse no forgery and risk refusing an old phone; the sequence
+ * check and the device lease keep those in order. Fresh events only, sorted.
+ */
+export function v2ChainCut(
+  events: { event_number: number; event_type: string; previous_state: unknown; new_state: unknown; payload?: Record<string, unknown> | null }[],
+  storedState: unknown,
+): (FinishedCut & { code: "stale_state" }) | null {
+  let expected: unknown = storedState ?? null;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (isV2Event(e) && !sameState(expected, e.previous_state ?? null)) {
+      return {
+        index: i,
+        code: "stale_state",
+        error: `${e.event_type} (event ${e.event_number}) does not start from the server's score, so it was refused. Load the server's score and carry on.`,
+      };
+    }
+    expected = e.new_state ?? null;
+  }
+  return null;
+}
+
+/* ---------------- court referee codes and finished matches ---------------- */
+
+/** The parts of a staff principal (src/lib/auth/staff.ts StaffPrincipal) that say whether it is a court code. */
+export interface WriterScope {
+  scopeCourt?: unknown;
+  scopeMatchIds?: string[] | null;
+  scopeTournamentIds?: string[] | null;
+  referee?: { role?: string } | null;
+}
+
+/**
+ * A court referee code (one physical court, migration 0034) or its carry-over token
+ * after a court switch: not a master referee, a whole-event code or a member.
+ */
+export function isCourtCode(staff: WriterScope | null | undefined): boolean {
+  if (!staff) return false;
+  if (staff.scopeTournamentIds || staff.referee?.role === "master_referee") return false;
+  return Boolean(staff.scopeCourt) || Boolean(staff.scopeMatchIds?.length);
+}
+
+/**
+ * A court code may still write to a match the server has finished (an Undo that
+ * reopens it, the unsent last points) for CARRY_GRACE_MINUTES after it ended
+ * (`matches.ended_at`); after that the result is the organiser's and the master
+ * referee's to change, never the court phone's. The whole batch is refused
+ * (index 0): it starts on the finished match. A match finished with no end time
+ * counts as ended long ago. Null when the writer is not a court code, the match is
+ * not finished, or the grace still runs.
+ */
+export function finishedLockCut(
+  courtCode: boolean,
+  match: { status: string; ended_at?: string | null },
+  events: { event_number: number; event_type: string }[],
+  nowMs = Date.now(),
+): (FinishedCut & { code: "finished_locked" }) | null {
+  if (!courtCode || events.length === 0) return null;
+  if (!(FINISHED_MATCH_STATUSES as readonly string[]).includes(match.status)) return null;
+  const ended = match.ended_at ? Date.parse(match.ended_at) : NaN;
+  if (Number.isFinite(ended) && nowMs - ended <= CARRY_GRACE_MINUTES * 60_000) return null;
+  return {
+    index: 0,
+    code: "finished_locked",
+    error: `This match finished more than ${CARRY_GRACE_MINUTES} minutes ago, so a court referee code can no longer change it (event ${events[0].event_number}, ${events[0].event_type}). Ask the master referee or the organiser.`,
+  };
 }

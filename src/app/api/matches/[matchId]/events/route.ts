@@ -27,7 +27,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const match = await getMatch(matchId);
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
   const referee = gate.staff.referee ?? null;
-  const out = await appendScoreEvents(match, deviceId, events, { role: gate.staff.role, defer: (task) => after(task), createdBy: referee ? `referee:${referee.id}` : null });
+  // `staff`: a court referee code changes a finished match only within the carry-over grace (append.ts).
+  const out = await appendScoreEvents(match, deviceId, events, {
+    role: gate.staff.role,
+    defer: (task) => after(task),
+    createdBy: referee ? `referee:${referee.id}` : null,
+    staff: gate.staff,
+  });
   // Referee PINs (migration 0035): every batch of points a named referee sent, in the audit log with their name.
   const applied = Array.isArray((out.body as { applied?: unknown }).applied) ? ((out.body as { applied: unknown[] }).applied.length) : 0;
   if (referee && applied > 0) {

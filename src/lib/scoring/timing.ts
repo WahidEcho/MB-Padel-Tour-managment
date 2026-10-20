@@ -12,7 +12,9 @@
  * starts from More are recorded as TIMER_STARTED / TIMER_STOPPED events (the state
  * carries the running timer in `clock`, so venue screens and the app can show it),
  * and an overrun the referee rules on is a TIME_DECISION event. None of these change
- * the score, so none of them is undone by Undo.
+ * the score, so none of them is undone by Undo. A step that moves the score closes a
+ * running timer in the state (engine.ts drops `clock`), and the state an Undo goes back
+ * to never carries one (`withoutClock`), so an Undo cannot resurrect an old clock.
  */
 import { endsChange, type ScoreState, type TeamKey } from "./engine";
 import { scoreKey } from "./serve";
@@ -148,6 +150,18 @@ export function stopClock(prev: ScoreState): ScoreState {
   const next = JSON.parse(JSON.stringify(prev)) as ScoreState;
   delete next.clock;
   return next;
+}
+
+/**
+ * The state with no recorded timer in it (the same object when it has none). Undo
+ * targets go through this: a timer is never undone (it is log-only), so the state an
+ * Undo goes back to must not bring a clock that ran there back onto the screens.
+ */
+export function withoutClock<T>(s: T): T {
+  if (!s || typeof s !== "object" || !("clock" in s)) return s;
+  const copy = { ...(s as object) } as T & { clock?: unknown };
+  delete copy.clock;
+  return copy;
 }
 
 /**

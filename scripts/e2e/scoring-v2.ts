@@ -5,7 +5,11 @@
  * server's own state checked after each step; the match log (referee, master
  * referee, admin); the organiser's feature switches (admins only, switched-off
  * features refused, the console told through the bootstrap); and the aces and
- * timers the court TVs and the app read.
+ * timers the court TVs and the app read. Audit fixes: a v2 event must start from the
+ * server's score (M2, 409 stale_state), a court code changes a finished match only
+ * within 30 minutes of its end (L4, 409 finished_locked), no serve order in singles and
+ * the rotation's serving team after the first set (L5), and a point closes a running
+ * timer that Undo never brings back (L9).
  *
  *   npm run localdb                                      # terminal 1
  *   npm run build && (set -a; . ./.env.localdb; set +a; PUBLIC_SITE_URL=http://localhost:3077 \
@@ -18,7 +22,7 @@ import { randomUUID } from "crypto";
 import { db } from "../../src/lib/supabase";
 import * as C from "../../src/lib/scoring/console";
 import { currentServer, servingPlayer, type ScoreState, type TeamKey } from "../../src/lib/scoring/engine";
-import { receivingPlayer, scoreKey, serveNumber } from "../../src/lib/scoring/serve";
+import { dueServingTeam, receivingPlayer, scoreKey, serveNumber } from "../../src/lib/scoring/serve";
 import { tvExtras } from "../../src/components/broadcast/TvExtras";
 import { SCORING_FEATURES_ON, matchDayRules } from "../../src/lib/matchday/rules";
 import { generateEventCode, hashEventCode } from "../../src/lib/orgs/codes";
@@ -144,6 +148,9 @@ async function main() {
     check(claim.status === 200 && claim.json?.controller === true, "the referee's phone takes the match", claim.json);
     const s = new Scorer(S.id, REF, `v2-ref-${tag}`, { A: st.teams[0].id, B: st.teams[1].id }, config, false);
     let r = await s.step(() => C.startMatch("A"));
+    // L5: a singles match has no serve and receive order, whatever a console sends.
+    const singlesOrder = await s.refused((x) => C.serveOrderEvent(x, { servingTeam: "A", server: 0, receiver: 0, otherServer: 0, otherReceiver: 0 }));
+    check(singlesOrder.status === 409 && singlesOrder.json?.conflict === "state_mismatch" && (singlesOrder.json?.applied as unknown[])?.length === 0, "L5: a SERVE_ORDER in singles: 409 state_mismatch, nothing applied", singlesOrder.json);
     r = await s.step((x) => C.faultEvent(x, s.opts));
     let snap = await snapshotOf(S.id);
     check(r.status === 200 && serveNumber(snap) === 2 && snap.teamA.points === "0", "FAULT: the server's state is on the 2nd serve, score unchanged", { status: r.status, err: r.json?.error });
@@ -188,6 +195,32 @@ async function main() {
     s.sent.pop();
     r = await s.send(wrongSide);
     check(r.status === 409 && r.json?.conflict === "state_mismatch", "an 'ace' scored for the receiver: refused", r.json?.error);
+    // M2: the server re-derives a v2 event from its previous_state, so that must be the server's own
+    // score. An ace from a score the device made up (40-15), consistent with itself, is refused.
+    {
+      const real = s.state!;
+      const claimed: ScoreState = { ...real, teamA: { ...real.teamA, points: "40" } };
+      const madeUp = s.build(C.aceEvent(claimed, s.opts));
+      madeUp.previous_state = claimed;
+      s.n--;
+      s.state = real;
+      s.sent.pop();
+      r = await s.send(madeUp);
+      snap = await snapshotOf(S.id);
+      check(r.status === 409 && r.json?.conflict === "stale_state" && (r.json?.applied as unknown[])?.length === 0 && snap.teamA.points === real.teamA.points, "M2: an ace whose previous_state is not the server's score: 409 stale_state, nothing applied", { status: r.status, body: r.json });
+      // Inside a batch: a LET that follows on, then an ace from somewhere else. The LET stands.
+      const letOk = s.build(C.letEvent(s.state!, "point"));
+      const afterLet = s.state!;
+      const elsewhere: ScoreState = { ...afterLet, teamB: { ...afterLet.teamB, games: 4 } };
+      const broken = s.build(C.aceEvent(elsewhere, s.opts));
+      broken.previous_state = elsewhere;
+      s.n--;
+      s.state = afterLet;
+      s.sent.pop();
+      r = await s.send(letOk, broken);
+      const applied = (r.json?.applied ?? []) as string[];
+      check(r.status === 409 && r.json?.conflict === "stale_state" && applied.length === 1 && applied[0] === letOk.client_event_id && r.json?.last_event_number === letOk.event_number, "M2: a break in the chain inside a batch: the events before it are kept, the rest refused (stale_state)", r.json);
+    }
     // Play on to 2-1 in games: a changeover.
     for (let i = 0; i < 3; i++) await s.step((x) => C.aceEvent(x, s.opts)); // 40-15, then game Egypt
     for (let i = 0; i < 4; i++) await s.step((x) => C.point(x, "B", s.opts)); // game USA
@@ -219,13 +252,22 @@ async function main() {
     r = await s.step((x) => C.timerStart(x, "bathroom", new Date().toISOString(), "B"));
     r = await s.step((x) => C.timerStop(x, "bathroom", 125, "B"));
     check(r.status === 200, "a bathroom break for USA, started and stopped", r.json?.error);
+    // L9: a break is running and the next point is scored without stopping it (a console that
+    // does not stop it first): the point closes it in the state, and Undo never brings it back.
+    r = await s.step((x) => C.timerStart(x, "break", new Date(Date.now() - 20_000).toISOString()));
+    snap = await snapshotOf(S.id);
+    check(r.status === 200 && snap.clock?.kind === "break" && tvExtras(snap, Date.now(), tvOn).clock?.label === "Break", "L9: a break running on the court TV", snap.clock);
     r = await s.step((x) => C.point(x, "A", s.opts));
+    snap = await snapshotOf(S.id);
+    check(r.status === 200 && !snap.clock, "L9: the next point closes the running break in the state", snap.clock);
     // Undo takes back that point, never a timer.
     const bootU = await http("GET", `/api/mobile/v1/referee/matches/${S.id}/bootstrap`, REF);
     const hist = (bootU.json?.history ?? []) as ScoreState[];
+    check(hist.length > 0 && hist.every((h) => !h.clock), "L9: the bootstrap's undo history carries no running timer", hist.at(-1)?.clock);
     r = await s.send(s.build(C.undo(hist, false)));
     snap = await snapshotOf(S.id);
     check(r.status === 200 && snap.teamA.points === "0" && snap.teamA.games === 2, "UNDO takes back the last point (the history the bootstrap sends skips timers)", { points: snap.teamA.points, games: snap.teamA.games });
+    check(!snap.clock && tvExtras(snap, Date.now(), tvOn).clock === null, "L9: after the Undo the court TV shows no timer (the old break is not resurrected)", snap.clock);
     // Finish with aces.
     let guard = 0;
     while (!s.state!.matchOver && guard++ < 200) {
@@ -262,6 +304,28 @@ async function main() {
     const anon = await http("GET", `/api/matches/${S.id}/log`);
     check(anon.status === 401, "nobody signed out", anon.status);
 
+    /* ---------------- L4: a court code and a finished match ---------------- */
+    section("L4: the court referee's code changes a finished match only within 30 minutes of its end; the master referee still can");
+    {
+      const historyOf = async () => ((await http("GET", `/api/mobile/v1/referee/matches/${S.id}/bootstrap`, ADMIN)).json?.history ?? []) as ScoreState[];
+      const rowOf = async () => (await db().from("matches").select("status, ended_at").eq("id", S.id).single()).data as { status: string; ended_at: string | null } | null;
+      await db().from("matches").update({ ended_at: new Date(Date.now() - 5 * 60_000).toISOString() }).eq("id", S.id);
+      let h = await historyOf();
+      r = await s.step(() => C.undo(h, true));
+      check(r.status === 200 && (await rowOf())?.status === "live", "5 minutes after the end: the court referee's Undo reopens the match", { status: r.status, body: r.json });
+      r = await s.send(s.build(C.point(s.state!, "A", s.opts)));
+      check(r.status === 200 && (await rowOf())?.status === "completed", "…and the winning point finishes it again", { status: r.status, body: r.json });
+      await db().from("matches").update({ ended_at: new Date(Date.now() - 31 * 60_000).toISOString() }).eq("id", S.id);
+      h = await historyOf();
+      const locked = await s.refused(() => C.undo(h, true));
+      check(locked.status === 409 && locked.json?.conflict === "finished_locked" && (locked.json?.applied as unknown[])?.length === 0 && (await rowOf())?.status === "completed", "31 minutes after the end: the court referee's Undo is refused (409 finished_locked), the match stays completed", locked.json);
+      const master = new Scorer(S.id, MASTER, `v2-ref-${tag}`, { A: st.teams[0].id, B: st.teams[1].id }, config, false);
+      master.state = s.state;
+      master.n = s.n;
+      r = await master.step(() => C.undo(h, true));
+      check(r.status === 200 && (await rowOf())?.status === "live", "the master referee's code still reopens it", { status: r.status, body: r.json });
+    }
+
     /* ---------------- doubles ---------------- */
     section("Doubles (admin's console): the serve and receive order at every set, the rotation followed by the server's state");
     await http("POST", `/api/matches/${D.id}/claim`, ADMIN, { deviceId: `v2-admin-${tag}` });
@@ -282,10 +346,15 @@ async function main() {
     check(JSON.stringify(servingPlayer(ds)) === JSON.stringify({ team: "A", index: 1 }) && JSON.stringify(receivingPlayer(ds)) === JSON.stringify({ team: "B", index: 1, court: "deuce" }), "game 2: Spain's chosen server (2nd player); Japan's chosen receiver", { srv: servingPlayer(ds), rcv: receivingPlayer(ds) });
     // Win set 1 for Japan, then the question again.
     while (d.state!.currentSet === 1) await d.send(d.build(C.point(d.state!, "B", d.opts)));
-    check(C.serveOrderEvent(d.state!, { servingTeam: "A", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }) !== null, "set 2 starts: the console asks again");
-    r = await d.step((x) => C.serveOrderEvent(x, { servingTeam: "A", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }));
+    // 6-0 to Japan, who served game 1: six games, so Japan serves set 2's first game (the rotation).
+    check(dueServingTeam(d.state!) === "B" && C.serveOrderEvent(d.state!, { servingTeam: "B", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }, true) !== null, "set 2 starts: the console asks again, Japan to serve by the rotation", dueServingTeam(d.state!));
+    // L5: only the first set's toss picks the serving team; the referee picks the partners after that.
+    // A console that offers Spain anyway (its form still shows the team) sends it from the server's score.
+    const offRotation = await d.refused((x) => C.serveOrderEvent({ ...x, servingTeam: "A" }, { servingTeam: "A", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }));
+    check(offRotation.status === 409 && offRotation.json?.conflict === "state_mismatch" && (offRotation.json?.applied as unknown[])?.length === 0, "L5: Spain to serve set 2 (not the rotation): 409 state_mismatch, nothing applied", offRotation.json);
+    r = await d.step((x) => C.serveOrderEvent(x, { servingTeam: "B", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }, true));
     ds = await snapshotOf(D.id);
-    check(r.status === 200 && ds.orderSet === 2 && JSON.stringify(servingPlayer(ds)) === JSON.stringify({ team: "A", index: 0 }) && JSON.stringify(receivingPlayer(ds)) === JSON.stringify({ team: "B", index: 1, court: "deuce" }), "SERVE_ORDER for set 2 stored and followed", { srv: servingPlayer(ds), rcv: receivingPlayer(ds) });
+    check(r.status === 200 && ds.orderSet === 2 && ds.servingTeam === "B" && JSON.stringify(servingPlayer(ds)) === JSON.stringify({ team: "B", index: 0 }) && JSON.stringify(receivingPlayer(ds)) === JSON.stringify({ team: "A", index: 1, court: "deuce" }), "SERVE_ORDER for set 2 stored and followed", { srv: servingPlayer(ds), rcv: receivingPlayer(ds) });
 
     /* ---------------- settings: admins only; switched off = refused and hidden ---------------- */
     section("Admin → Scoring features: admins only; a switched-off feature is refused and hidden");
