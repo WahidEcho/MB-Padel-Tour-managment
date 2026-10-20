@@ -187,7 +187,14 @@ async function main() {
         "…addressed to N1's four players",
         soon?.payload.self,
       );
-      check((soon?.payload.targets ?? []).length === 0, "…and to no fan (starred fans off by default)", soon?.payload.targets);
+      // Followers of each player get it (fans' wording); people who only starred the match do not (off by default).
+      const targets = soon?.payload.targets ?? [];
+      check(
+        targets.every((x: { kind: string }) => x.kind === "player") &&
+          JSON.stringify(targets.map((x: { key: string }) => x.key).sort()) === JSON.stringify([...team(3).players, ...team(4).players].sort()),
+        "…to the followers of those four players, and to no one who only starred the match (off by default)",
+        targets,
+      );
       check(!/phone|email|access_code|\+20/.test(JSON.stringify(soon?.payload ?? {})), "…carrying no private player field");
       const sent = await eventually(async () => {
         const d = await deliveries(soon!.id);

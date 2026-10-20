@@ -106,7 +106,13 @@ async function main() {
     section("Back to normal");
     const normal = await save(ADMIN, { kind: "normal", message: "ignored", push: "on" });
     check(actionOk(normal) && /banner is off/.test(normal.text), "Normal is saved", normal.text.slice(0, 160));
-    const live2 = JSON.parse((await http("GET", `/api/mobile/v1/t/${slug}/live`)).text) as { playStatus?: unknown };
+    // The live feed is kept a few seconds per server (and 2 s at the CDN): wait for the change to show.
+    let live2: { playStatus?: unknown } = {};
+    for (let i = 0; i < 15; i++) {
+      live2 = JSON.parse((await http("GET", `/api/mobile/v1/t/${slug}/live`)).text) as { playStatus?: unknown };
+      if (live2.playStatus === null) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     check(live2.playStatus === null, "The live feed's playStatus is null again", live2.playStatus);
     const { count: pushCount } = await db().from("notification_events").select("id", { count: "exact", head: true }).like("dedupe_key", `play_status:${T}:%`);
     check(pushCount === 1, "Normal never pushes", pushCount);
