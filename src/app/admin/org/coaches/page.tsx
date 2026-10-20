@@ -8,7 +8,8 @@ import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { courtCodeEvent } from "@/lib/orgs/courtCodes";
 import { coachCodeWorks, coachCodesOf, coachDevicesByCode, coachEventTeams } from "@/lib/coaches/server";
 import { nationByCode } from "@/lib/tennis/nations";
-import { createCoachCodesAction, regenerateCoachCodeAction, revokeCoachCodeAction } from "./actions";
+import { createCoachCodesAction, regenerateCoachCodeAction, revokeCoachCodeAction, saveCoachLineupSettingsAction } from "./actions";
+import { coachLineupSettings } from "@/lib/coaches/lineupEntry";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,9 @@ export default async function TeamCoachesPage({ searchParams }: { searchParams: 
   const live = codes.filter((c) => coachCodeWorks(c));
   const devices = await coachDevicesByCode(staff.orgId, live.map((c) => c.id));
   const missing = teams.filter((t) => t.team_status !== "withdrawn" && !live.some((c) => c.team_id === t.id)).length;
-  const byTournament = ev.tournaments.map((t) => ({ ...t, teams: teams.filter((x) => x.tournament_id === t.id) }));
+  const { data: fcs } = await db().from("tournaments").select("id, format_config").eq("organization_id", staff.orgId).in("id", ev.tournaments.map((t) => t.id));
+  const fc = new Map(((fcs ?? []) as { id: string; format_config: { ties?: unknown } | null }[]).map((r) => [r.id, r.format_config]));
+  const byTournament = ev.tournaments.map((t) => ({ ...t, teams: teams.filter((x) => x.tournament_id === t.id), ties: Boolean(fc.get(t.id)?.ties), lineups: coachLineupSettings(fc.get(t.id)) }));
 
   return (
     <div className="space-y-4">
@@ -72,7 +75,7 @@ export default async function TeamCoachesPage({ searchParams }: { searchParams: 
         <div>
           <h1 className="text-2xl font-bold">Team coaches · {ev.title}</h1>
           <p className="max-w-3xl text-sm text-muted">
-            One code per team. Coaches see their own team only: its group table, every tie with court and time, their own line-ups once the referee enters them, live scores and match logs of their own rubbers, and where the team goes after the groups. They cannot score, change line-ups or call the master referee.
+            One code per team. Coaches see their own team only: its group table, every tie with court and time, their own line-ups once the referee enters them, live scores and match logs of their own rubbers, and where the team goes after the groups. They cannot score or call the master referee, and enter line-ups only where coach line-up entry is switched on below.
             Revoking or replacing a code signs every device out on its next request.
           </p>
         </div>
@@ -97,6 +100,25 @@ export default async function TeamCoachesPage({ searchParams }: { searchParams: 
       {byTournament.map((t) => (
         <section key={t.id} className="space-y-2">
           <h2 className="label">{t.name}</h2>
+          {t.ties && (
+            <form action={saveCoachLineupSettingsAction} className="card flex flex-wrap items-center gap-3" data-testid="coach-lineups-switch" data-on={t.lineups.on ? "1" : "0"}>
+              <input type="hidden" name="tournament_id" value={t.id} />
+              <input type="hidden" name="event" value={ev.tournamentId} />
+              <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
+                <input type="checkbox" name="on" defaultChecked={t.lineups.on} className="h-5 w-5" data-testid="coach-lineups-on" />
+                Coaches enter their own team&apos;s line-up
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-muted">Closes</span>
+                <input type="number" name="deadline_minutes" min={0} max={1440} defaultValue={t.lineups.deadlineMinutes ?? ""} placeholder="—" className="input w-24 py-2" aria-label="Minutes before the tie the coaches' entry closes" />
+                <span className="text-muted">min before the tie (empty: until the line-ups are confirmed)</span>
+              </label>
+              <button className="btn-secondary text-sm">Save</button>
+              <p className="w-full text-xs text-muted">
+                Off by default, until officially confirmed. On: each coach submits their team&apos;s singles (and, if they wish, the doubles pair) with the same checks as the referees; the court referee and the master referees are told and confirm it in their line-up screen, which locks it. After that coaches only view.
+              </p>
+            </form>
+          )}
           <div className="overflow-x-auto rounded-[20px] border border-border">
             <table className="w-full text-sm" data-testid="coach-codes">
               <thead className="bg-card text-left text-xs uppercase tracking-wide text-muted">

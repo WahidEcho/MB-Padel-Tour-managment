@@ -278,6 +278,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (explicit columns only, another team's rows = 404), pure rules `rules.ts` (via `@core`), alerts `alerts.ts` (target
   `coach_team`). Admin `admin/org/coaches` (admins only, `manage_coaches`), cards `/qr/coaches`, web `/coach/*`, QR `/c`,
   app `move-score-app/src/app/coach/*` + `c.tsx`. Gate: `npm run e2e:coaches` (stand-in, `PUSH_DRY_RUN=1`).
+  Coach line-up entry (no migration): **off until officially confirmed** — admin switch per event on Admin → Team coaches
+  (`format_config.ties.coachLineups`, never in any default); while off the coach POST is 409 `feature_off` and nothing shows.
+  On: pure `src/lib/coaches/lineupEntry.ts`, server `src/lib/coaches/lineups.ts`; a submission is an audit row
+  `COACH_LINEUP_SUBMITTED` (never written to the rubbers, so the opponent never sees it); officials' pickers get the additive
+  `coach` field (prefilled, "Submitted by the coach at HH:MM"; confirming locks it).
 - Venue map (migration `0039_venue_map.sql`, not yet on the live project; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
   geo, directions, navigation, DXF, scene/camera maths, bridge via `@core`), WebGL renderer + UI `src/components/venue/`, page
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app

@@ -82,7 +82,15 @@ export function TieBlock({ tie, tz, team, open = false }: { tie: MCoachTie; tz: 
           <StatusChip status={tie.status} result={tie.result} />
         </div>
       </div>
-      {!tie.lineupEntered && tie.status === "scheduled" && <p className="text-xs text-muted">Your line-up is not entered yet. Give it to the referee as usual; it shows here once entered.</p>}
+      {tie.lineupEntry ? (
+        tie.lineupEntry.open && !open ? (
+          <Link href={`/coach/ties/${tie.id}`} className="btn-primary inline-block text-sm" data-testid="coach-enter-lineup">
+            {tie.lineupEntry.submittedAt ? "Change the line-up" : "Enter line-up"}
+          </Link>
+        ) : null
+      ) : (
+        !tie.lineupEntered && tie.status === "scheduled" && <p className="text-xs text-muted">Your line-up is not entered yet. Give it to the referee as usual; it shows here once entered.</p>
+      )}
       {open && (
         <div className="grid gap-2 md:grid-cols-3">
           {tie.rubbers.map((r) => (

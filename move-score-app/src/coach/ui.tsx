@@ -76,7 +76,13 @@ export function TieCardCoach({ tie, tz, team, open = false }: { tie: MCoachTie; 
           </View>
         </View>
         <Body size={13} tone="ink2">{`${tie.court ?? "Court to be set"} · ${when(tie.scheduledTime, tz)}`}</Body>
-        {!tie.lineupEntered && tie.status === "scheduled" ? <Body size={12} tone="ink3">Line-up not entered yet: give it to the referee as usual.</Body> : null}
+        {tie.lineupEntry ? (
+          tie.lineupEntry.open ? (
+            <Body size={13} weight="bold" tone="blue">{tie.lineupEntry.submittedAt ? "Line-up submitted · tap to change it" : "Enter line-up ›"}</Body>
+          ) : null
+        ) : !tie.lineupEntered && tie.status === "scheduled" ? (
+          <Body size={12} tone="ink3">Line-up not entered yet: give it to the referee as usual.</Body>
+        ) : null}
       </Card>
       {open ? tie.rubbers.map((r) => <RubberCard key={r.matchId} r={r} tz={tz} us={team} them={tie.opponent} onPress={() => router.push({ pathname: "/coach/match/[id]", params: { id: r.matchId } })} />) : null}
     </View>

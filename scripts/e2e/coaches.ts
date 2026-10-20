@@ -15,7 +15,10 @@
  *     started, called to court, finished, tie soon (scheduled);
  *   - revoking the code fails the next request on every device; a new code replaces the old;
  *   - failed sign-ins are braked (atomic, per address), right ones are not counted;
- *   - the QR page /c without the app: download links, never a sign-in by itself; AASA has /c.
+ *   - the QR page /c without the app: download links, never a sign-in by itself; AASA has /c;
+ *   - coach line-up entry (coachLineupEntry below): off by default (409 feature_off, nothing shown), then switched
+ *     on by an admin: own line-up, warnings accepted + audited + masters alerted, opponent never sees it, officials
+ *     confirm (locks), locked / deadline / brakes refuse, off again.
  *
  *   npm run localdb                                                     # another terminal
  *   npm run build && PUSH_DRY_RUN=1 npx next start -p 3077              # env from .env.localdb
@@ -44,7 +47,7 @@ assertStandIn("coaches");
 
 const tag = randomUUID().slice(0, 6);
 const f = fixtures(tag);
-const made = { group: null as string | null };
+const made = { group: null as string | null, referees: [] as string[] };
 const TZ = "Africa/Cairo";
 const today = eventDay(TZ);
 const at = (hhmm: string) => zonedToIso(`${today}T${hhmm}`, TZ)!;
@@ -67,6 +70,177 @@ async function finishDirect(m: Match, winner: TeamKey) {
 }
 
 const webAfter0 = (r: { status: number; text: string }, name: string) => r.status === 200 && r.text.includes(name);
+
+const shownState = (text: string, key: string) => new RegExp(`"${key}":"([^"]+)"`).exec(text)?.[1] ?? null;
+type Squad = { id: string; players: string[] };
+
+/**
+ * Coach line-up entry (behind the event's switch, off by default): off → refused and
+ * invisible everywhere; on → Egypt's coach submits its own line-up (a Reg 43 warning needs
+ * accepting, is audited with "Coach of Egypt" and alerts the master referee; the court
+ * referee and the master are told of the submission), the opponent's coach never sees it,
+ * the officials see it prefilled ("Submitted by the coach at HH:MM") and confirming locks
+ * it, after which the coach is refused; another team's tie 404; a deadline closes it; brakes.
+ */
+async function coachLineupEntry(x: {
+  BOYS: string;
+  GIRLS: string;
+  T2: Tie;
+  T3: Tie;
+  bc2: string;
+  EGYB: Squad;
+  bt: Squad[];
+  C1: Who;
+  C2: Who;
+  W: Who;
+  codeOf: (teamId: string) => { id: string; code: string };
+  ADMIN: Who;
+  MB: string;
+}) {
+  const { BOYS, GIRLS, T2, T3, EGYB, C1, W, ADMIN } = x;
+  const LU = (tie: string) => `/api/mobile/v1/coach/ties/${tie}/lineup`;
+  const egySide: "A" | "B" = T2.team_a_id === EGYB.id ? "A" : "B";
+  const oppSide: "A" | "B" = egySide === "A" ? "B" : "A";
+  const opp = x.bt.find((t) => t.id === (egySide === "A" ? T2.team_b_id : T2.team_a_id))!;
+  await scheduleTie(BOYS, T2.id, x.bc2, new Date(Date.now() + 3 * 3600_000).toISOString(), "e2e");
+  await scheduleTie(BOYS, T3.id, x.bc2, new Date(Date.now() + 5 * 3600_000).toISOString(), "e2e");
+  const r2 = ((await db().from("matches").select("id, rubber_type").eq("tie_id", T2.id).order("rubber_no")).data ?? []) as { id: string; rubber_type: string }[];
+  const submissions = async () => ((await db().from("audit_logs").select("id, actor_name, actor_role, new_value").eq("entity_id", T2.id).eq("action", "COACH_LINEUP_SUBMITTED")).data ?? []) as { id: string; actor_name: string | null; actor_role: string; new_value: { side: string; lineup: { S1: string } } }[];
+  const egyRubberIds = async () => (((await db().from("matches").select(egySide === "A" ? "team_a_player_ids" : "team_b_player_ids").eq("tie_id", T2.id)).data ?? []) as unknown as Record<string, string[] | null>[]).flatMap((r) => Object.values(r)[0] ?? []);
+  const good = { S1: EGYB.players[0], S2: EGYB.players[1], D: [null, null] };
+  const swapped = { S1: EGYB.players[1], S2: EGYB.players[0], D: [EGYB.players[2], EGYB.players[3]] };
+
+  section("Coach line-up entry is off by default: read only, nothing shown anywhere");
+  const fc0 = (await db().from("tournaments").select("format_config").eq("id", BOYS).single()).data as { format_config: { ties: { coachLineups?: unknown } } };
+  check(fc0.format_config.ties.coachLineups === undefined, "a nations event starts with no coach line-up switch (off)", fc0.format_config.ties);
+  const tieOff = await http("GET", `/api/mobile/v1/coach/ties/${T2.id}`, C1);
+  const luOff = await http("GET", LU(T2.id), C1);
+  const postOff = await http("POST", LU(T2.id), C1, { lineup: good });
+  check(tieOff.status === 200 && tieOff.json?.lineupEntry === undefined && luOff.status === 200 && luOff.json?.entry === undefined, "off: the tie carries no lineupEntry, the line-up no entry form", [tieOff.json?.lineupEntry, luOff.json?.entry]);
+  check(postOff.status === 409 && postOff.json?.code === "feature_off" && (await submissions()).length === 0, "off: a coach's submission is 409 feature_off and nothing is recorded", [postOff.status, postOff.json?.code]);
+  const webOff = await http("GET", `/coach/ties/${T2.id}`, W);
+  const teamOff = await http("GET", "/coach/team", W);
+  check(webOff.status === 200 && !webOff.text.includes("coach-lineup-form") && !teamOff.text.includes("coach-enter-lineup"), "off: no line-up form or Enter line-up on the web", [webOff.status]);
+  const pickOff = await http("GET", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, ADMIN);
+  check(pickOff.status === 200 && pickOff.json?.coach === undefined, "off: the officials' picker says nothing about coach submissions", Object.keys(pickOff.json ?? {}));
+  const swMgr = await callAction(ACTIONS, "saveCoachLineupSettingsAction", [form({ tournament_id: BOYS, event: BOYS, on: "on" })], staff("manager"));
+  const swRef = await callAction(ACTIONS, "saveCoachLineupSettingsAction", [form({ tournament_id: BOYS, event: BOYS, on: "on" })], staff("referee"));
+  const still = (await db().from("tournaments").select("format_config").eq("id", BOYS).single()).data as { format_config: { ties: { coachLineups?: { on?: boolean } } } };
+  check(!actionOk(swMgr) && !actionOk(swRef) && !still.format_config.ties.coachLineups?.on, "a manager and a referee cannot switch it on (admins only)", [swMgr.status, swRef.status]);
+  const switchPage = await http("GET", `/admin/org/coaches?event=${BOYS}`, ADMIN);
+  check((switchPage.text.match(/data-testid="coach-lineups-switch"/g) ?? []).length === 2 && !switchPage.text.includes('data-on="1"'), "the Team coaches page shows the switch per event, both off", null);
+
+  section("An admin switches it on; officials sign in on Court 2 and as master referee");
+  const sw = await callAction(ACTIONS, "saveCoachLineupSettingsAction", [form({ tournament_id: BOYS, event: BOYS, on: "on", deadline_minutes: "" })], ADMIN);
+  const fc1 = (await db().from("tournaments").select("format_config").eq("id", BOYS).single()).data as { format_config: { ties: { coachLineups?: { on?: boolean; deadlineMinutes?: number | null }; rubbers?: string[] } } };
+  const girls = (await db().from("tournaments").select("format_config").eq("id", GIRLS).single()).data as { format_config: { ties: { coachLineups?: { on?: boolean } } } };
+  check(actionOk(sw) && fc1.format_config.ties.coachLineups?.on === true && fc1.format_config.ties.coachLineups.deadlineMinutes === null && fc1.format_config.ties.rubbers?.length === 3 && !girls.format_config.ties.coachLineups?.on, "on for the boys' event only (the rest of its tie settings kept; the girls' stays off)", fc1.format_config.ties);
+  const addRef = async (name: string, role: "referee" | "master_referee") => {
+    const r = await callAction("src/app/admin/org/referees/actions.ts", "createRefereeAction", [null, form({ name: `${name} ${tag}`, role, phone: "+20 100 000 0000", event_group_id: made.group! })], ADMIN);
+    const pin = shownState(r.text, "pin");
+    const { data } = await db().from("referees").select("id").eq("organization_id", x.MB).eq("name", `${name} ${tag}`).single();
+    made.referees.push((data as { id: string }).id);
+    return { id: (data as { id: string }).id, pin: pin! };
+  };
+  const NADA = await addRef("Nada", "referee");
+  const HANY = await addRef("Hany", "master_referee");
+  const cc = await callAction("src/app/admin/org/codes/courts/actions.ts", "createCourtCodesAction", [form({ tournament_id: BOYS, expires: "event_end" })], ADMIN);
+  const { data: codeRows } = await db().from("organization_codes").select("court_name, code_sealed").eq("event_group_id", made.group);
+  const court2 = formatEventCode(openEventCode(((codeRows ?? []) as { court_name: string; code_sealed: string }[]).find((c) => c.court_name === "Court 2")!.code_sealed)!);
+  const refPhone = await f.device("ref2");
+  const refInstall = mintInstallToken(refPhone.installationId);
+  const rs = await http("POST", "/api/mobile/v1/staff/session", { ...ip(61), "X-Install-Token": refInstall }, { code: court2, pin: NADA.pin, refereeId: NADA.id });
+  const REF: Who = { ...bearer(String(rs.json?.token)), "X-Install-Token": refInstall };
+  const mc = await callAction("src/app/admin/org/referees/actions.ts", "createMasterCodeAction", [null, form({ referee_id: HANY.id, event_group_id: made.group!, expires_days: "7" })], ADMIN);
+  const mPhone = await f.device("master");
+  const mInstall = mintInstallToken(mPhone.installationId);
+  const ms = await http("POST", "/api/mobile/v1/staff/session", { ...ip(62), "X-Install-Token": mInstall }, { code: shownState(mc.text, "code"), pin: HANY.pin, refereeId: HANY.id });
+  const MASTER: Who = { ...bearer(String(ms.json?.token)), "X-Install-Token": mInstall };
+  await http("GET", "/api/mobile/v1/referee/assistance", MASTER); // records the master's phone for alerts
+  check(actionOk(cc) && rs.status === 200 && ms.status === 200, "Nada on Court 2 and Hany the master referee: signed in with their PINs and phones", [cc.status, rs.status, ms.status]);
+
+  section("On: Egypt's coach enters its own line-up");
+  const tieOn = await http("GET", `/api/mobile/v1/coach/ties/${T2.id}`, C1);
+  const luOn = await http("GET", LU(T2.id), C1);
+  const entry = luOn.json?.entry as import("../../src/lib/mobile/contract").MCoachLineupEntry | undefined;
+  check(tieOn.json?.lineupEntry !== undefined && (tieOn.json?.lineupEntry as { open: boolean }).open === true, "the tie says the coach may enter the line-up (the app's Enter line-up)", tieOn.json?.lineupEntry);
+  check(Boolean(entry) && entry!.open && entry!.side === egySide && entry!.squad.map((p) => p.id).join() === EGYB.players.join() && entry!.submitted === null, "the form: Egypt's own squad in order of merit, nothing submitted yet", entry && { open: entry.open, side: entry.side });
+  check(!opp.players.some((id) => luOn.text.includes(id)), "the form names none of the opponent's players", null);
+  const webOn = await http("GET", `/coach/ties/${T2.id}`, W);
+  const teamOn = await http("GET", "/coach/team", W);
+  check(webOn.text.includes('data-testid="coach-lineup-form"') && webOn.text.includes('data-open="1"') && teamOn.text.includes("coach-enter-lineup"), "the web tie page has the line-up form; My team has Enter line-up", null);
+  const same = await http("POST", LU(T2.id), C1, { lineup: { S1: EGYB.players[0], S2: EGYB.players[0], D: [] } });
+  const oppPlayer = await http("POST", LU(T2.id), C1, { lineup: { S1: opp.players[0], S2: EGYB.players[1], D: [] } });
+  const junk = await http("POST", LU(T2.id), C1, { lineup: "S1" });
+  check(same.status === 400 && same.json?.code === "problems" && oppPlayer.status === 400 && junk.status === 400, "problems refuse: the same player twice, another team's player, a malformed body", [same.status, oppPlayer.status, junk.status]);
+  const warn = await http("POST", LU(T2.id), C1, { lineup: swapped });
+  const w = (warn.json?.warnings as { code: string; reg: string; key: string }[] | undefined) ?? [];
+  check(warn.status === 409 && warn.json?.code === "warnings" && w.length === 1 && w[0].code === "order_of_merit" && w[0].reg === "43", "No. 2 at Singles 1: 409, a Reg 43 warning to accept (with its regulation)", warn.json);
+  check((await submissions()).length === 0, "nothing recorded until the coach accepts it", null);
+  const sub = await http("POST", LU(T2.id), C1, { lineup: swapped, accept: [w[0]?.key] });
+  check(sub.status === 200 && sub.json?.changed === true && (sub.json?.entry as { submitted: { at: string } | null }).submitted !== null, "accepted: the line-up is submitted", [sub.status, sub.json?.error]);
+  check(Number(sub.json?.exceptionAlerted) >= 1 && Number(sub.json?.officialsAlerted) >= 2, "the master referee's phone hears the exception; the court referee and the master hear the submission (dry run)", [sub.json?.exceptionAlerted, sub.json?.officialsAlerted]);
+  const rows = await submissions();
+  const { data: exc } = await db().from("audit_logs").select("actor_name, actor_role, new_value").eq("entity_id", T2.id).eq("action", "LINEUP_EXCEPTION_ACCEPTED");
+  const e0 = ((exc ?? []) as { actor_name: string | null; actor_role: string; new_value: { actor: string; by: string; issues: { reg: string }[]; text: string } }[])[0];
+  check(rows.length === 1 && rows[0].actor_role === "coach" && rows[0].actor_name === `Coach of Egypt ${tag}` && rows[0].new_value.side === egySide, "audited: COACH_LINEUP_SUBMITTED by “Coach of Egypt”", rows);
+  check(Boolean(e0) && e0.actor_name === `Coach of Egypt ${tag}` && e0.new_value.actor === "coach" && e0.new_value.issues[0]?.reg === "43" && /Coach of Egypt .* accepted a line-up exception on Court 2/.test(e0.new_value.text), "the exception audited (actor = coach of Egypt, Reg 43), like an official's", e0);
+  const notices = await http("GET", "/api/mobile/v1/referee/notices", MASTER);
+  check(notices.status === 200 && notices.text.includes(`Coach of Egypt ${tag}`), "the master referee's banner shows the coach's exception", notices.status);
+  check((await egyRubberIds()).length === 0, "a submission is never written to the rubbers (no public page or opponent sees it)", await egyRubberIds());
+  const again = await http("POST", LU(T2.id), C1, { lineup: swapped, accept: [w[0]?.key] });
+  check(again.status === 200 && again.json?.changed === false && (await submissions()).length === 1, "the same line-up again: nothing new recorded or alerted", again.json?.changed);
+  const fromPhone2 = await http("GET", LU(T2.id), x.C2);
+  check((fromPhone2.json?.entry as { submitted: { lineup: { S1: string } } | null }).submitted?.lineup.S1 === EGYB.players[1], "the assistant's phone (same code) sees the submission", null);
+
+  section("The opponent's coach never sees Egypt's draft; another team's tie is 404");
+  const oc = x.codeOf(opp.id);
+  const os = await http("POST", SESSION, ip(63), { code: oc.code });
+  const OPP: Who = bearer(String(os.json?.token));
+  const oLu = await http("GET", LU(T2.id), OPP);
+  const oTie = await http("GET", `/api/mobile/v1/coach/ties/${T2.id}`, OPP);
+  check(os.status === 200 && oLu.status === 200 && (oLu.json?.entry as { submitted: unknown; side: string }).submitted === null && (oLu.json?.entry as { side: string }).side === oppSide, "the opponent's coach: its own empty form, never Egypt's submission", oLu.json?.entry);
+  check(!EGYB.players.some((id) => oLu.text.includes(id) || oTie.text.includes(id)), "no Egypt player id anywhere in the opponent's line-up or tie", null);
+  const otherTie = (await getTies(BOYS)).find((t) => t.team_a_id !== EGYB.id && t.team_b_id !== EGYB.id && t.team_a_id !== opp.id && t.team_b_id !== opp.id)!;
+  const oth = await http("POST", LU(otherTie.id), C1, { lineup: good });
+  const miss = await http("POST", LU(randomUUID()), C1, { lineup: good });
+  check(oth.status === 404 && miss.status === 404 && oth.text === miss.text, "a submission for another team's tie: 404, same as a missing one", [oth.status, miss.status]);
+
+  section("The officials see it prefilled and confirm it: locked, the coach can only view");
+  const pick = await http("GET", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF);
+  const pc = (pick.json?.coach ?? {}) as Record<string, { pending: boolean; note: string; lineup: { S1: string } } | undefined>;
+  check(pick.status === 200 && pc[egySide]?.pending === true && /^Submitted by the coach at \d\d:\d\d$/.test(pc[egySide]!.note) && pc[egySide]!.lineup.S1 === EGYB.players[1] && pc[oppSide] === undefined, "the court referee's picker: “Submitted by the coach at HH:MM”, prefilled; nothing for the other side", pick.json?.coach);
+  const conf = await http("POST", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF, {
+    lineups: { [egySide]: swapped, [oppSide]: { S1: opp.players[0], S2: opp.players[1], D: [null, null] } },
+    accept: [`${egySide}:${w[0]?.key}`],
+  });
+  check(conf.status === 200 && conf.json?.locked === true, "the court referee confirms the coach's line-up with the other side's: locked", [conf.status, conf.json?.error]);
+  const ids = await egyRubberIds();
+  check(ids.includes(EGYB.players[1]) && ids.includes(EGYB.players[0]), "the confirmed line-up is now in Egypt's rubbers", ids);
+  const pick2 = await http("GET", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF);
+  check(((pick2.json?.coach ?? {}) as Record<string, { pending: boolean }>)[egySide]?.pending === false, "after confirming, the picker no longer offers it", pick2.json?.coach);
+  const late = await http("POST", LU(T2.id), C1, { lineup: good });
+  const luLocked = await http("GET", LU(T2.id), C1);
+  const tieLocked = await http("GET", `/api/mobile/v1/coach/ties/${T2.id}`, C1);
+  check(late.status === 409 && late.json?.code === "locked" && (luLocked.json?.entry as { open: boolean; closed: string }).closed === "locked" && (tieLocked.json?.lineupEntry as { open: boolean }).open === false, "locked: the coach's change is refused (409 locked) and the form is view only", [late.status, late.json?.code]);
+
+  section("A deadline closes the coaches' entry; brakes");
+  const sw2 = await callAction(ACTIONS, "saveCoachLineupSettingsAction", [form({ tournament_id: BOYS, event: BOYS, on: "on", deadline_minutes: "600" })], ADMIN);
+  const dl = await http("POST", LU(T3.id), C1, { lineup: good });
+  check(actionOk(sw2) && dl.status === 409 && dl.json?.code === "deadline", "a 10-hour deadline before a tie 5 hours away: 409 deadline", [dl.status, dl.json?.code]);
+  await clearRequestCounters();
+  let last = 0;
+  for (let i = 0; i < 21; i++) last = (await http("POST", LU(T3.id), C1, { lineup: good })).status;
+  check(last === 429, "21 submissions from one sign-in within 10 minutes: braked (429)", last);
+  await clearRequestCounters();
+
+  section("Switched off again: refused and hidden");
+  const sw3 = await callAction(ACTIONS, "saveCoachLineupSettingsAction", [form({ tournament_id: BOYS, event: BOYS, deadline_minutes: "" })], ADMIN);
+  const offAgain = await http("POST", LU(T3.id), C1, { lineup: good });
+  const pickOff2 = await http("GET", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF);
+  const luOff2 = await http("GET", LU(T3.id), C1);
+  check(actionOk(sw3) && offAgain.status === 409 && offAgain.json?.code === "feature_off" && pickOff2.json?.coach === undefined && luOff2.json?.entry === undefined, "off: 409 feature_off, no entry, the picker shows nothing of coaches", [offAgain.status, offAgain.json?.code]);
+}
 
 async function main() {
   // Another script's failed sign-ins must not brake this one's (shared stand-in).
@@ -306,10 +480,12 @@ async function main() {
   }
   const adminAsCoach = await http("GET", "/admin/org/coaches", coachCookie(String(s1.json?.token)));
   check(adminAsCoach.status !== 200, "admin pages refuse a coach cookie", adminAsCoach.status);
-  const post = await http("POST", `/api/mobile/v1/coach/ties/${T1.id}/lineup`, C1, { S1: EGYB.players[3] });
-  check(post.status === 405, "POST coach/ties/:id/lineup: 405 (read only)", post.status);
+  const post = await http("POST", `/api/mobile/v1/coach/ties/${T1.id}/lineup`, C1, { lineup: { S1: EGYB.players[3], S2: EGYB.players[2], D: [] } });
+  check(post.status === 409 && post.json?.code === "feature_off", "POST coach/ties/:id/lineup while coach line-up entry is off: 409 feature_off (read only)", [post.status, post.json?.code]);
   const after = await rubbersOf(T1);
   check(JSON.stringify(after.map((m) => (egySide === "A" ? m.team_a_player_ids : m.team_b_player_ids))) === JSON.stringify((await rubbersOf(T1)).map((m) => (egySide === "A" ? m.team_a_player_ids : m.team_b_player_ids))) && after[0][egySide === "A" ? "team_a_player_ids" : "team_b_player_ids"]?.[0] === (r0.rubber_type === "S1" ? EGYB.players[0] : r0.rubber_type === "S2" ? EGYB.players[1] : EGYB.players[2]), "the line-up is unchanged", after.map((m) => m.team_a_player_ids));
+
+  await coachLineupEntry({ BOYS, GIRLS, T2: egyTies[1]!, T3: egyTies[2]!, bc2, EGYB, bt, C1, C2, W: coachCookie(String(s1.json?.token)), codeOf, ADMIN, MB });
 
   /* ---------------- live: started, called, log, finished ---------------- */
   section("Live: the rubber starts, its log, called to court, finished");
@@ -433,6 +609,14 @@ main()
     check(false, "script error", String(e));
   })
   .finally(async () => {
+    if (made.referees.length) {
+      await db().from("audit_logs").delete().in("actor_referee_id", made.referees);
+      await db().from("audit_logs").delete().in("entity_id", made.referees);
+      await db().from("referee_sessions").delete().in("referee_id", made.referees);
+      await db().from("organization_codes").delete().in("referee_id", made.referees);
+    }
+    if (made.group) await db().from("organization_codes").delete().eq("event_group_id", made.group);
+    if (made.referees.length) await db().from("referees").delete().in("id", made.referees);
     const ok = await f.cleanup();
     if (made.group) await db().from("event_groups").delete().eq("id", made.group);
     await clearRequestCounters();

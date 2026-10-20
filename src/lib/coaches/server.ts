@@ -494,7 +494,7 @@ export async function coachTeamView(coach: CoachPrincipal): Promise<MCoachTeamVi
   ]);
   const ids = [...new Set(rubbers.flatMap((r) => [...(r.team_a_player_ids ?? []), ...(r.team_b_player_ids ?? [])]))];
   const [n, snaps] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor(rubbers.map((r) => r.id))]);
-  const tieViews = ties.map((x) => tieView(x, coach.teamId, rubbers, n, snaps)).sort((a, b) => byTime(a, b));
+  const tieViews = await withEntryBadges(coach, ties.map((x) => tieView(x, coach.teamId, rubbers, n, snaps)).sort((a, b) => byTime(a, b)));
 
   // The group table: every team of the coach's group, results only.
   const groupId = (gt as { group_id: string } | null)?.group_id ?? null;
@@ -553,7 +553,15 @@ export async function coachTie(coach: CoachPrincipal, tieId: string): Promise<MC
   const rubbers = ((m ?? []) as RubberRow[]).filter((r) => coachReaches(coach.teamId, r));
   const ids = [...new Set(rubbers.flatMap((r) => [...(r.team_a_player_ids ?? []), ...(r.team_b_player_ids ?? [])]))];
   const [n, snaps] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor(rubbers.map((r) => r.id))]);
-  return tieView(tie, coach.teamId, rubbers, n, snaps);
+  return (await withEntryBadges(coach, [tieView(tie, coach.teamId, rubbers, n, snaps)]))[0]!;
+}
+
+/** Coach line-up entry (additive): `lineupEntry` on each tie only while the event's switch is on. */
+async function withEntryBadges(coach: CoachPrincipal, ties: MCoachTie[]): Promise<MCoachTie[]> {
+  const { coachEntryBadges } = await import("./lineups");
+  const badges = await coachEntryBadges(coach, ties.filter((t) => t.status !== "completed").map((t) => t.id));
+  if (!badges) return ties;
+  return ties.map((t) => (badges.has(t.id) ? { ...t, lineupEntry: badges.get(t.id)! } : t));
 }
 
 /** The team's own line-up for one of its ties (never the opponents'); null (404) otherwise. */

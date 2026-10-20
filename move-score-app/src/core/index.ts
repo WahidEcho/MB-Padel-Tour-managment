@@ -75,7 +75,9 @@ export { parseCourtLink, courtLink, courtKey } from "../../../src/lib/orgs/court
 export { normalizePin, PIN_LENGTH, callStatusLine, assistanceMessage, isOpenCall, REFEREE_ROLE_LABELS, filterRefereeChoices, type RefereeChoice } from "../../../src/lib/referees/rules";
 export type { CallStatus, RefereeRole } from "../../../src/lib/referees/rules";
 export { checkLineup, changedRubbers, warningsForChange, needsReason, unaccepted, lineupStep, issueText, exceptionLine, doublesOf, rubberEditable, EMPTY_LINEUP } from "../../../src/lib/tennis/lineupRules";
-export type { LineupDraft, LineupIssue, LineupIssueCode, LineupStep, LineupPickerModel, PickerSide, SquadMember } from "../../../src/lib/tennis/lineupRules";
+export type { LineupDraft, LineupIssue, LineupIssueCode, LineupStep, LineupPickerModel, PickerSide, PickerCoachSubmission, SquadMember } from "../../../src/lib/tennis/lineupRules";
+export { coachLineupSettings, coachLineupWindow, coachActorLabel, checkCoachLineup, sameLineup, clockIn, submittedNote, COACH_LINEUP_CLOSED_MESSAGE } from "../../../src/lib/coaches/lineupEntry";
+export type { CoachLineupClosed, CoachLineupSettings } from "../../../src/lib/coaches/lineupEntry";
 export { ITF_REGULATIONS_URL, ITF_TEAM_REGULATIONS, regulationPath, regulationLabel, regulationSummary } from "../../../src/lib/tennis/regulations";
 export type { RegulationSummary } from "../../../src/lib/tennis/regulations";
 export * from "../../../src/lib/scoring/serve";

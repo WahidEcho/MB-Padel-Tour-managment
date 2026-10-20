@@ -12,6 +12,11 @@ type Slot = "S1" | "S2" | "D1" | "D2";
 const SLOT_LABEL: Record<Slot, string> = { S1: "Singles 1", S2: "Singles 2", D1: "Doubles", D2: "Doubles" };
 
 const copy = (l: LineupDraft): LineupDraft => ({ S1: l.S1, S2: l.S2, D: [l.D[0] ?? null, l.D[1] ?? null] });
+/** What the picker starts from: each side's line-up, or the coach's submission waiting to be confirmed. */
+const startDrafts = (p: PickerModel): Record<Side, LineupDraft> => ({
+  A: copy(p.coach?.A?.pending ? p.coach.A.lineup : p.sides.A.lineup),
+  B: copy(p.coach?.B?.pending ? p.coach.B.lineup : p.sides.B.lineup),
+});
 
 function get(d: LineupDraft, slot: Slot): string | null {
   return slot === "D1" ? (d.D[0] ?? null) : slot === "D2" ? (d.D[1] ?? null) : d[slot];
@@ -36,7 +41,7 @@ function set(d: LineupDraft, slot: Slot, id: string | null): LineupDraft {
 export default function LineupPicker({ initial, compact = false }: { initial: PickerModel; compact?: boolean }) {
   const router = useRouter();
   const [picker, setPicker] = useState(initial);
-  const [drafts, setDrafts] = useState<Record<Side, LineupDraft>>({ A: copy(initial.sides.A.lineup), B: copy(initial.sides.B.lineup) });
+  const [drafts, setDrafts] = useState<Record<Side, LineupDraft>>(startDrafts(initial));
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState("");
   const [editAll, setEditAll] = useState(false);
@@ -46,7 +51,8 @@ export default function LineupPicker({ initial, compact = false }: { initial: Pi
   const [done, setDone] = useState<string | null>(null);
 
   const editable = (type: "S1" | "S2" | "D") => picker.rubbers.find((r) => r.type === type)?.editable ?? false;
-  const showSingles = editAll || picker.step === "singles";
+  const coachPending = Boolean(picker.coach?.A?.pending || picker.coach?.B?.pending);
+  const showSingles = editAll || picker.step === "singles" || coachPending;
   const showDoubles = editAll || picker.step === "doubles" || (picker.step === "doubles_later" && doublesNow);
 
   const checks = useMemo(() => {
@@ -91,7 +97,7 @@ export default function LineupPicker({ initial, compact = false }: { initial: Pi
         return;
       }
       setPicker(body.picker);
-      setDrafts({ A: copy(body.picker.sides.A.lineup), B: copy(body.picker.sides.B.lineup) });
+      setDrafts(startDrafts(body.picker));
       setAccepted(new Set());
       setReason("");
       setEditAll(false);
@@ -190,6 +196,22 @@ export default function LineupPicker({ initial, compact = false }: { initial: Pi
                 {side.code ? `${side.code} · ` : ""}
                 {side.nation}
               </p>
+              {picker.coach?.[s] && (
+                <p className={`rounded-xl px-3 py-2 text-sm ${picker.coach[s]!.pending ? "bg-accent/10 font-semibold" : "text-muted"}`} data-testid={`coach-submission-${s}`} data-pending={picker.coach[s]!.pending ? "1" : "0"}>
+                  {picker.coach[s]!.note}
+                  {picker.coach[s]!.pending ? " · prefilled below: confirm it to lock the line-ups" : " · already confirmed or replaced"}
+                  {picker.coach[s]!.accepted.length > 0 && (
+                    <span className="block text-xs font-normal">
+                      The coach accepted: {picker.coach[s]!.accepted.map((a, i) => (
+                        <span key={i}>
+                          {i > 0 ? "; " : ""}
+                          <IssueText issue={a} />
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </p>
+              )}
               {showSingles || showDoubles ? (
                 <div className="grid gap-2">
                   {showSingles && (["S1", "S2"] as Slot[]).map((slot) => select(s, slot, side))}
@@ -268,7 +290,7 @@ export default function LineupPicker({ initial, compact = false }: { initial: Pi
             className="btn-secondary"
             onClick={() => {
               setEditAll(false);
-              setDrafts({ A: copy(picker.sides.A.lineup), B: copy(picker.sides.B.lineup) });
+              setDrafts(startDrafts(picker));
             }}
           >
             Cancel

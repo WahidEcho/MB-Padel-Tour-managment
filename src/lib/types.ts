@@ -190,6 +190,12 @@ export interface TieFormatConfig {
    * ("6-2 6-1", "5-7 4-6"), which the replay console plays point by point.
    */
   replays?: Record<string, string>;
+  /**
+   * Coaches enter their own team's line-up (src/lib/coaches/lineupEntry.ts). Off unless an
+   * admin turns it on (Admin → Team coaches); `deadlineMinutes`: closes that many minutes
+   * before the tie's time (null: open until the line-ups are confirmed).
+   */
+  coachLineups?: { on?: boolean; deadlineMinutes?: number | null; by?: string | null; at?: string | null };
 }
 
 export interface Tie {

@@ -6,7 +6,7 @@
  * and never the person's account: the token travels only on coach calls (api/headers.ts).
  */
 import { useQuery } from "@tanstack/react-query";
-import type { MCoachMatch, MCoachSession, MCoachTeamView, MCoachTie } from "@core";
+import type { MCoachLineupDraft, MCoachLineupEntry, MCoachMatch, MCoachSession, MCoachTeamView, MCoachTie } from "@core";
 import { api, ApiError, OFFLINE_MESSAGE } from "../api/client";
 import { useScreenFocused } from "../api/queries";
 import { saveCoach, session } from "../state/session";
@@ -88,4 +88,26 @@ export function useCoachMatch(id: string | undefined) {
     refetchInterval: focused ? 5_000 : false,
     retry: (n, e) => !(e instanceof ApiError && (e.status === 401 || e.status === 404)) && n < 2,
   });
+}
+
+/** The coach's own line-up for one tie (`entry` only while the event's coach line-up switch is on). */
+export interface CoachLineupRead {
+  tieId: string;
+  locked: boolean;
+  entry?: MCoachLineupEntry;
+}
+
+export function useCoachLineup(id: string | undefined, enabled: boolean) {
+  const coach = session.use((s) => s.coach);
+  return useQuery<CoachLineupRead>({
+    queryKey: ["coach-lineup", id, coach?.token],
+    queryFn: () => coachRead<CoachLineupRead>(`/api/mobile/v1/coach/ties/${id}/lineup`),
+    enabled: Boolean(coach && id && enabled),
+    retry: (n, e) => !(e instanceof ApiError && (e.status === 401 || e.status === 404)) && n < 2,
+  });
+}
+
+/** Submits (or changes) the coach's line-up; a 409 with `warnings` asks for them to be accepted first. */
+export async function submitCoachLineup(tieId: string, lineup: MCoachLineupDraft, accept: string[]): Promise<{ entry: MCoachLineupEntry; accepted: unknown[] }> {
+  return api<{ entry: MCoachLineupEntry; accepted: unknown[] }>(`/api/mobile/v1/coach/ties/${tieId}/lineup`, { who: "coach", body: { lineup, accept } });
 }

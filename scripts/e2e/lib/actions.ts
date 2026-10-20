@@ -18,7 +18,8 @@ let manifest: { node: Record<string, ManifestEntry> } | null = null;
 function target(file: string, name: string, params: Record<string, string>): { id: string; page: string } {
   manifest ??= JSON.parse(readFileSync(join(process.cwd(), ".next/server/server-reference-manifest.json"), "utf8")) as { node: Record<string, ManifestEntry> };
   // A build with a Turbopack root above the project (a git worktree) names files from that root: "<dir>/src/…".
-  const hit = Object.entries(manifest.node).find(([, e]) => (e.filename === file || e.filename.endsWith(`/${file}`)) && e.exportedName === name);
+  // A webpack build (`next build --webpack`) names them from src/: "app/…".
+  const hit = Object.entries(manifest.node).find(([, e]) => (e.filename === file || e.filename.endsWith(`/${file}`) || e.filename === file.replace(/^src\//, "")) && e.exportedName === name);
   if (!hit) throw new Error(`no server action ${file}#${name} in the build manifest (rebuild?)`);
   const worker = Object.keys(hit[1].workers).sort((a, b) => a.split("[").length - b.split("[").length)[0]!;
   let page = worker.replace(/^app/, "").replace(/\/page$/, "");
