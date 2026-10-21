@@ -10,7 +10,7 @@ import { alertsPermission, type AlertsPermission } from "@core";
 import { getJson, setJson } from "../state/kv";
 import { registerDevice } from "./register";
 
-const ASKED = "ms.alertsAsked";
+export const ASKED = "ms.alertsAsked";
 
 export async function askForAlertsAfterFollow(): Promise<void> {
   if (Platform.OS === "web") return;

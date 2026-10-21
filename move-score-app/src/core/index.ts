@@ -9,6 +9,7 @@ export { scoringConfigForMatch, isDoublesMatch, describeMatchRules } from "../..
 export { batchProblem, sameState, SCORE_EVENT_TYPES, MAX_EVENTS_PER_BATCH } from "../../../src/lib/scoring/eventGuard";
 export * from "../../../src/lib/mobile/contract";
 export * from "../../../src/lib/mobile/alertsSwitch";
+export * from "../../../src/lib/mobile/alertsPrompt";
 export * from "../../../src/lib/mobile/oauth";
 export { LEASE_TTL_MS, LEASE_RENEW_MS, NO_LEASE_VIEW, nextLeaseView, claimedLeaseView, createLeaseOrder } from "../../../src/lib/scoringLease";
 export type { LeaseSideView, SeenLease } from "../../../src/lib/scoringLease";
