@@ -5,6 +5,7 @@ import { session } from "../state/session";
 import { Body } from "../ui/Text";
 import { LoadState } from "../ui/LoadState";
 import { LineupPicker } from "./LineupPicker";
+import { useT } from "../i18n";
 
 /**
  * Loads a tie's line-up picker for a rubber. Court referees (their court), master
@@ -12,6 +13,7 @@ import { LineupPicker } from "./LineupPicker";
  * told the court referee or the desk enters it. `onSaved`: the console reloads.
  */
 export function LineupScreenBody({ matchId, onSaved, fallback }: { matchId: string; onSaved?: () => void; fallback?: string }) {
+  const tr = useT();
   const staff = session.use((s) => s.staff);
   const q = useQuery({
     queryKey: ["lineup", matchId, staff?.token],
@@ -22,6 +24,6 @@ export function LineupScreenBody({ matchId, onSaved, fallback }: { matchId: stri
   if (q.error instanceof ApiError && (q.error.status === 403 || q.error.status === 404)) {
     return <Body tone="ink2">{fallback ?? q.error.message}</Body>;
   }
-  if (!q.data) return <LoadState compact queries={[q]} what="the line-ups" />;
+  if (!q.data) return <LoadState compact queries={[q]} what={tr("referee.whatLineups")} />;
   return <LineupPicker key={q.dataUpdatedAt} initial={q.data} onSaved={() => onSaved?.()} />;
 }

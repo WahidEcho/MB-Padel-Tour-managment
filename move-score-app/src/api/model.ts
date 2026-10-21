@@ -1,6 +1,7 @@
 /** Joins a tournament's bundle (who) with its live feed (what is happening). Pure. */
 import type { MBundle, MLive, MMatch, MTeam, MTie, MPlayer } from "@core";
 import { isDoneStatus, isLiveStatus, scoreLine } from "@core";
+import { fmt, tr } from "../i18n/t";
 
 export interface View {
   bundle: MBundle;
@@ -39,7 +40,7 @@ export function makeView(bundle: MBundle, live: MLive | undefined): View {
     sidePlayers,
     sideLabel: (m, side, short) => {
       const team = teams.get((side === "A" ? m.a : m.b) ?? "");
-      if (!team) return "TBD";
+      if (!team) return tr("common.tbd");
       if (!m.tieId) return short ? team.code : team.name;
       const ps = sidePlayers(m, side);
       if (!ps.length) return short ? team.code : team.name;
@@ -79,23 +80,15 @@ export function finishedMatches(live: MLive | undefined): MMatch[] {
 
 export { scoreLine };
 
-/** "15:30" and "Wed 4 Nov" in the event's own zone. */
+/** "15:30" and "Wed 4 Nov" in the event's own zone, in the app's language. */
 export function timeIn(iso: string | null, tz: string): string {
-  if (!iso) return "Time TBC";
-  try {
-    return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
-  } catch {
-    return iso.slice(11, 16);
-  }
+  if (!iso) return tr("common.timeTbc");
+  return fmt().time(iso, tz) || iso.slice(11, 16);
 }
 
 export function dayIn(iso: string | null, tz: string): string {
   if (!iso) return "";
-  try {
-    return new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "short" }).format(new Date(iso));
-  } catch {
-    return iso.slice(0, 10);
-  }
+  return fmt().day(iso, tz) || iso.slice(0, 10);
 }
 
 /** True when times alone would mislead: the list spans several days, or its one day is not today. */
@@ -119,28 +112,69 @@ export function matchA11y(m: MMatch, v: View): string {
   const s = m.score;
   const winner = m.winner === m.a ? a : m.winner === m.b ? b : null;
   const status = isAwaitingResult(m)
-    ? "Match over, awaiting confirmation"
+    ? tr("screens.a11yAwaiting")
     : m.status === "paused"
-      ? "Play suspended"
+      ? tr("screens.suspended")
       : isLiveStatus(m.status)
-        ? "Live"
+        ? tr("common.live")
         : isDoneStatus(m.status)
-          ? `Final${m.winner && winner ? `, ${winner} won` : ""}`
+          ? m.winner && winner
+            ? tr("screens.a11yFinalWon", { name: winner })
+            : tr("common.final")
           : m.status === "cancelled"
-            ? "Not played"
+            ? tr("screens.notPlayed")
             : m.scheduledTime
-              ? `Starts ${dayIn(m.scheduledTime, tz)} at ${timeIn(m.scheduledTime, tz)}`
-              : "Time to be confirmed";
-  const parts = [`${a} against ${b}`, status];
-  if (s?.sets.length) parts.push(`Sets ${s.sets.map((x) => `${x.a}–${x.b}`).join(", ")}`);
-  if (isLiveStatus(m.status) && s?.games) parts.push(`Games ${s.games.a}–${s.games.b}`);
-  if (isLiveStatus(m.status) && s?.points) parts.push(`${s.tiebreak ? "Tie-break points" : "Points"} ${s.points.a}–${s.points.b}`);
+              ? tr("screens.a11yStarts", { day: dayIn(m.scheduledTime, tz), time: timeIn(m.scheduledTime, tz) })
+              : tr("screens.a11yTimeTbc");
+  const parts = [tr("screens.a11yAgainst", { a, b }), status];
+  if (s?.sets.length) parts.push(tr("screens.a11ySets", { list: s.sets.map((x) => `${x.a}–${x.b}`).join(", ") }));
+  if (isLiveStatus(m.status) && s?.games) parts.push(tr("screens.a11yGames", { score: `${s.games.a}–${s.games.b}` }));
+  if (isLiveStatus(m.status) && s?.points) parts.push(tr(s.tiebreak ? "screens.a11yTbPoints" : "screens.a11yPoints", { score: `${s.points.a}–${s.points.b}` }));
   return parts.join(". ");
+}
+
+/** A sport's name in the app's language ("tennis" → "Tenis"); unknown sports as sent. */
+export function sportName(sport: string | null | undefined): string {
+  const k = (sport ?? "").toLowerCase();
+  if (k === "padel") return tr("screens.sportPadel");
+  if (k === "tennis") return tr("screens.sportTennis");
+  if (k === "chess") return tr("screens.sportChess");
+  return sport ?? "";
+}
+
+/** "No. 1 singles" for a rubber type (S1, S2, D); anything else as sent. */
+export function rubberName(type: string | null | undefined): string {
+  if (type === "S1") return tr("screens.rubberS1");
+  if (type === "S2") return tr("screens.rubberS2");
+  if (type === "D") return tr("screens.rubberD");
+  return type ?? "";
+}
+
+/** "November 2026" for "2026-11", in the app's language. */
+export function monthName(month: string): string {
+  if (!/^\d{4}-\d{2}$/.test(month)) return month;
+  return fmt().custom(`${month}-15T12:00:00Z`, { timeZone: "UTC", month: "long", year: "numeric" }) || month;
+}
+
+/** "Tue 3 Nov 2026" for "2026-11-03", in the app's language. */
+export function isoDayName(date: string, withYear = true): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  return fmt().custom(`${date}T12:00:00Z`, { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", ...(withYear ? { year: "numeric" as const } : {}) }) || date;
+}
+
+/** A league's visibility badge ("Members only", "Invite only"), or null for a league everyone sees. */
+export function leagueBadge(visibility: string | null | undefined): string | null {
+  return visibility === "org_players" ? tr("screens.membersOnly") : visibility === "invite_only" ? tr("screens.inviteOnly") : null;
+}
+
+/** A league board's length: "This month", "3 months", "Year". */
+export function boardName(months: number): string {
+  return months === 1 ? tr("screens.boardThisMonth") : months === 12 ? tr("screens.boardYear") : tr("screens.boardMonths", { n: months });
 }
 
 export function dateRange(a: string | null, b: string | null): string {
   if (!a) return "";
-  const f = (d: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
+  const f = (d: string, opts: Intl.DateTimeFormatOptions) => fmt().custom(`${d}T12:00:00Z`, { ...opts, timeZone: "UTC" });
   if (!b || a === b) return f(a, { day: "numeric", month: "short" });
   const sameMonth = a.slice(0, 7) === b.slice(0, 7);
   return sameMonth ? `${f(a, { day: "numeric" })}–${f(b, { day: "numeric", month: "short" })}` : `${f(a, { day: "numeric", month: "short" })} – ${f(b, { day: "numeric", month: "short" })}`;

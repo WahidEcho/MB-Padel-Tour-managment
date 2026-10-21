@@ -7,6 +7,7 @@ import { BALL } from "../theme/palette";
 import { F } from "../theme/type";
 import { Body, Eyebrow } from "./Text";
 import { Button } from "./Bits";
+import { useT } from "../i18n";
 
 export interface TakeoverMoment {
   key: string;
@@ -21,6 +22,7 @@ export interface TakeoverMoment {
  * with a haptic. A final moment stays until tapped and offers to share it.
  */
 export function Takeover({ moment, onDone, onShare, calm }: { moment: TakeoverMoment | null; onDone: () => void; onShare: () => void; calm: boolean }) {
+  const tr = useT();
   const sweep = useSharedValue(0);
   // The parent re-renders on every poll; the moment plays once per key, whatever it passes.
   const latest = useRef({ onDone, calm });
@@ -43,7 +45,7 @@ export function Takeover({ moment, onDone, onShare, calm }: { moment: TakeoverMo
   if (!moment) return null;
   return (
     <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(220)} style={[StyleSheet.absoluteFill, styles.wrap]}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onDone} accessibilityRole="button" accessibilityLabel="Close" />
+      <Pressable style={StyleSheet.absoluteFill} onPress={onDone} accessibilityRole="button" accessibilityLabel={tr("common.close")} />
       {!calm && (
         <Animated.View pointerEvents="none" style={[styles.beam, beam]}>
           <LinearGradient colors={["rgba(252,252,0,0.0)", "rgba(252,252,0,0.45)", "rgba(252,252,0,0.0)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
@@ -57,7 +59,7 @@ export function Takeover({ moment, onDone, onShare, calm }: { moment: TakeoverMo
           </Animated.Text>
         ))}
         <Body weight="bold" style={{ color: "#E8ECF4" }}>{moment.who}</Body>
-        {moment.final && <Button label="Share this moment" onPress={onShare} style={{ marginTop: 18, alignSelf: "stretch" }} />}
+        {moment.final && <Button label={tr("hero.shareMoment")} onPress={onShare} style={{ marginTop: 18, alignSelf: "stretch" }} />}
       </View>
     </Animated.View>
   );

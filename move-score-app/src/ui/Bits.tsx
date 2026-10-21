@@ -6,6 +6,7 @@ import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withRepeat
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Eyebrow, Num } from "./Text";
 import { config } from "../config";
+import { useT } from "../i18n";
 
 export function Wordmark({ height = 15 }: { height?: number }) {
   return (
@@ -39,8 +40,10 @@ export function Chip({ label, ball, style, icon }: { label: string; ball?: boole
 }
 
 /** The word LIVE with a pulsing dot: never colour alone. */
-export function LivePill({ label = "LIVE" }: { label?: string }) {
+export function LivePill({ label: given }: { label?: string }) {
   const { t, calm } = useTheme();
+  const tr = useT();
+  const label = given ?? tr("ui.livePill");
   const s = useSharedValue(0);
   useEffect(() => {
     if (calm) {
@@ -81,6 +84,7 @@ export function Flag({ iso2, code, size = 22 }: { iso2: string | null | undefine
 }
 
 export function SectionHeader({ title, action, onAction, onTitlePress, titleLabel }: { title: string; action?: string; onAction?: () => void; onTitlePress?: () => void; titleLabel?: string }) {
+  const tr = useT();
   const heading = (
     <Body weight="bold" size={14} style={{ textTransform: "uppercase", letterSpacing: 0.6, flexShrink: 1 }} numberOfLines={onTitlePress ? 1 : undefined}>
       {title}
@@ -94,7 +98,7 @@ export function SectionHeader({ title, action, onAction, onTitlePress, titleLabe
           onPress={onTitlePress}
           hitSlop={10}
           accessibilityRole="link"
-          accessibilityLabel={titleLabel ?? `Open ${title}`}
+          accessibilityLabel={titleLabel ?? tr("ui.openTitle", { title })}
           style={({ pressed }) => [{ flexShrink: 1 }, pressed && { opacity: 0.6 }]}
         >
           {heading}

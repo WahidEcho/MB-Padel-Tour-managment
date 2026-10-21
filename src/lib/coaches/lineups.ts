@@ -17,6 +17,7 @@ import { takeRateLimit } from "../ratelimit";
 import { isUuid } from "../orgs/roles";
 import { courtKey } from "../orgs/courtScope";
 import { sendExpo, type ExpoMessage } from "../notify/drain";
+import { alertLang, aw, vsIn } from "../notify/i18n";
 import { mastersOnDuty } from "../referees/server";
 import { RUBBER_LABELS } from "../tennis/ties";
 import { issueText, rubberEditable, unaccepted, type LineupIssue } from "../tennis/lineupRules";
@@ -265,7 +266,16 @@ async function tellOfficials(l: Loaded, by: string, change: boolean, now: number
       const t = ((teams ?? []) as { id: string; team_name: string; nation_code: string | null }[]).find((x) => x.id === id);
       return t?.nation_code || t?.team_name || "TBD";
     };
-    const body = `${by} ${change ? "changed" : "submitted"} the line-up for ${code(l.tie.team_a_id)} v ${code(l.tie.team_b_id)}${courtName ? ` (${courtName})` : ""}. Confirm it in the line-up screen.`;
+    // In each official's phone language.
+    const words = (locale: string | null | undefined) => {
+      const lang = alertLang(locale);
+      const pair = vsIn(lang, code(l.tie.team_a_id), code(l.tie.team_b_id));
+      const court = courtName ? ` (${courtName})` : "";
+      return {
+        title: aw(lang, change ? "coachLineupChanged" : "coachLineupSubmitted"),
+        body: aw(lang, change ? "coachLineupChangedBody" : "coachLineupSubmittedBody", { by, vs: pair, court }),
+      };
+    };
     const firstRubber = l.rubbers[0]?.id ?? null;
     const [duty, court0] = await Promise.all([
       mastersOnDuty(orgId, { eventGroupId: l.tour.event_group_id, tournamentId: l.tour.id }, now),
@@ -274,11 +284,10 @@ async function tellOfficials(l: Loaded, by: string, change: boolean, now: number
     const masters = new Set(duty.installationIds);
     const installs = [...new Set([...court0, ...duty.installationIds])].slice(0, 200);
     if (!installs.length) return 0;
-    const { data } = await db().from("push_devices").select("installation_id, expo_push_token").in("installation_id", installs).is("disabled_at", null).not("expo_push_token", "is", null);
-    const messages: ExpoMessage[] = ((data ?? []) as { installation_id: string; expo_push_token: string }[]).map((d) => ({
+    const { data } = await db().from("push_devices").select("installation_id, expo_push_token, locale").in("installation_id", installs).is("disabled_at", null).not("expo_push_token", "is", null);
+    const messages: ExpoMessage[] = ((data ?? []) as { installation_id: string; expo_push_token: string; locale?: string | null }[]).map((d) => ({
       to: d.expo_push_token,
-      title: change ? "Line-up changed by the coach" : "Line-up submitted by the coach",
-      body,
+      ...words(d.locale),
       data: { url: !masters.has(d.installation_id) && firstRubber ? `movescore://referee/lineup/${firstRubber}` : "movescore://referee/master", kind: "coach_lineup_submitted", tieId: l.tie.id },
       sound: "default",
       channelId: "assistance",

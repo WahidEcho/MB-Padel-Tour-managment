@@ -14,6 +14,7 @@ import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
 import { Body, Display, Eyebrow } from "../ui/Text";
 import { Button, Card, Chip, SectionHeader } from "../ui/Bits";
+import { useT } from "../i18n";
 
 /** ABCD-2345 as it is typed: the dash appears after the fourth character. */
 const shown = (raw: string) => {
@@ -29,6 +30,7 @@ const shown = (raw: string) => {
  */
 export default function PlayerCode() {
   const { t } = useTheme();
+  const tr = useT();
   const params = useLocalSearchParams<{ code?: string }>();
   const user = session.use((s) => s.user);
   const cfg = useConfig();
@@ -53,7 +55,7 @@ export default function PlayerCode() {
       if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setDone(r);
     } catch (e) {
-      setErr(e instanceof ApiError && e.status ? e.message : "No connection. Check the signal and try again.");
+      setErr(e instanceof ApiError && e.status ? e.message : tr("player.noSignal"));
     } finally {
       setBusy(false);
     }
@@ -63,18 +65,18 @@ export default function PlayerCode() {
     const p = done.player;
     return (
       <Screen tabs={false}>
-        <BackHeader label="Account" fallback="/account" />
+        <BackHeader label={tr("ui.account")} fallback="/account" />
         <View style={{ alignItems: "center", gap: 12, marginTop: 8 }}>
           <PlayerAvatar player={p} size={96} />
-          <Eyebrow tone="live">Signed in with your player code</Eyebrow>
-          <Display size={30} style={{ textAlign: "center" }}>{`Welcome, ${p.name}`}</Display>
+          <Eyebrow tone="live">{tr("player.signedInWithCode")}</Eyebrow>
+          <Display size={30} style={{ textAlign: "center" }}>{tr("auth.welcomeName", { name: p.name })}</Display>
           <PlayerIdentity player={p} />
         </View>
         <Card style={{ marginTop: 18, gap: 10, borderColor: t.ball, borderWidth: 1 }}>
-          <Body weight="semi" size={16}>Complete your registration</Body>
-          <Body tone="ink2" size={13}>Add your email and a password. We&apos;ll send a link to confirm it; then you can sign in on any phone and recover your account.</Body>
-          <Button label="Add my email" onPress={() => router.replace("/auth/complete")} />
-          <Button kind="ghost" label="Later" onPress={() => router.replace("/account")} />
+          <Body weight="semi" size={16}>{tr("auth.completeRegistration")}</Body>
+          <Body tone="ink2" size={13}>{tr("player.addEmailBody")}</Body>
+          <Button label={tr("player.addMyEmail")} onPress={() => router.replace("/auth/complete")} />
+          <Button kind="ghost" label={tr("player.later")} onPress={() => router.replace("/account")} />
         </Card>
       </Screen>
     );
@@ -85,44 +87,44 @@ export default function PlayerCode() {
     const tz = p.entries[0]?.timezone ?? "Africa/Cairo";
     return (
       <Screen tabs={false}>
-        <BackHeader label="Account" />
+        <BackHeader label={tr("ui.account")} />
         <View style={{ alignItems: "center", gap: 12, marginTop: 8 }}>
           <PlayerAvatar player={p} size={96} />
-          <Eyebrow tone="live">Linked to your account</Eyebrow>
-          <Display size={30} style={{ textAlign: "center" }}>{`You're ${p.name}`}</Display>
+          <Eyebrow tone="live">{tr("player.linkedToAccount")}</Eyebrow>
+          <Display size={30} style={{ textAlign: "center" }}>{tr("player.youAre", { name: p.name })}</Display>
           <PlayerIdentity player={p} />
-          <Body tone="ink2" size={13.5}>{p.phone ? displayPhone(p.phone) : "Add your phone number in Account."}</Body>
-          {done.linked > 1 && <Body tone="ink2" size={12.5} style={{ textAlign: "center" }}>{`Also linked in ${done.linked - 1} other tournament${done.linked === 2 ? "" : "s"}.`}</Body>}
+          <Body tone="ink2" size={13.5}>{p.phone ? displayPhone(p.phone) : tr("player.addPhoneInAccount")}</Body>
+          {done.linked > 1 && <Body tone="ink2" size={12.5} style={{ textAlign: "center" }}>{tr("player.alsoLinked", { count: done.linked - 1 })}</Body>}
         </View>
-        {p.matches.length > 0 && <SectionHeader title="Your matches" />}
+        {p.matches.length > 0 && <SectionHeader title={tr("player.yourMatches")} />}
         <View style={{ gap: 8 }}>
           {p.matches.slice(0, 5).map((m) => (
             <MyMatchRow key={m.id} m={m} timezone={p.entries.find((e) => e.tournamentSlug === m.tournamentSlug)?.timezone ?? tz} />
           ))}
         </View>
-        <Button label="Done" onPress={() => router.back()} style={{ marginTop: 18 }} />
-        <Body tone="ink3" size={12} style={{ marginTop: 8, textAlign: "center" }}>Add your photo and phone in Account, under My player profile.</Body>
+        <Button label={tr("common.done")} onPress={() => router.back()} style={{ marginTop: 18 }} />
+        <Body tone="ink3" size={12} style={{ marginTop: 8, textAlign: "center" }}>{tr("player.addPhotoHint")}</Body>
       </Screen>
     );
   }
 
   return (
     <Screen tabs={false}>
-      <BackHeader label="Account" />
-      <Eyebrow tone="live">Move Score · Player</Eyebrow>
-      <Display size={30} style={{ marginTop: 6 }}>Player code</Display>
+      <BackHeader label={tr("ui.account")} />
+      <Eyebrow tone="live">{`Move Score · ${tr("player.player")}`}</Eyebrow>
+      <Display size={30} style={{ marginTop: 6 }}>{tr("player.playerCode")}</Display>
       <Body tone="ink2" size={14} style={{ marginTop: 8 }}>
-        The tournament sends each player a private code on WhatsApp or by email. Enter it to see your matches and add your photo and phone.
+        {tr("player.codeIntro")}
       </Body>
       {!user && !codeSignIn ? (
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body weight="semi">Sign in first</Body>
-          <Body tone="ink2" size={13}>Your player profile is kept with your account, so it comes with you to a new phone.</Body>
-          <Button kind="ghost" label="Back to Account" onPress={() => router.back()} />
+          <Body weight="semi">{tr("auth.signInFirst")}</Body>
+          <Body tone="ink2" size={13}>{tr("player.keptWithAccount")}</Body>
+          <Button kind="ghost" label={tr("auth.backToAccount")} onPress={() => router.back()} />
         </Card>
       ) : (
         <Card style={{ marginTop: 16, gap: 12 }}>
-          <Chip label="Player code" ball />
+          <Chip label={tr("player.playerCode")} ball />
           <TextInput
             value={code}
             onChangeText={(v) => {
@@ -136,8 +138,8 @@ export default function PlayerCode() {
             keyboardType={Platform.OS === "android" ? "visible-password" : "default"}
             placeholder="ABCD-2345"
             placeholderTextColor={t.ink3}
-            accessibilityLabel="Player code"
-            accessibilityHint="Eight letters and numbers. You can paste the whole message."
+            accessibilityLabel={tr("player.playerCode")}
+            accessibilityHint={tr("player.codeHint")}
             onSubmitEditing={() => void submit()}
             returnKeyType="go"
             style={{
@@ -154,13 +156,13 @@ export default function PlayerCode() {
               fontVariant: ["tabular-nums"],
             }}
           />
-          <Body tone="ink3" size={12}>Long-press to paste: the whole WhatsApp message works, the code is picked out of it.</Body>
-          {!user ? <Body tone="ink2" size={12.5}>No account needed: your code signs you in. You can add your email afterwards.</Body> : null}
+          <Body tone="ink3" size={12}>{tr("player.pasteHint")}</Body>
+          {!user ? <Body tone="ink2" size={12.5}>{tr("player.noAccountNeeded")}</Body> : null}
           {err ? <Body tone="live" size={13}>{err}</Body> : null}
           {err && /already registered|Sign in with your email/i.test(err) ? (
-            <Button kind="ghost" label="Sign in with email" onPress={() => router.replace({ pathname: "/auth/email", params: { mode: "signin" } })} />
+            <Button kind="ghost" label={tr("auth.signInEmail")} onPress={() => router.replace({ pathname: "/auth/email", params: { mode: "signin" } })} />
           ) : null}
-          <Button label={busy ? "Checking…" : user ? "Link my player profile" : "Sign in with my code"} disabled={!ready || busy} onPress={() => void submit()} />
+          <Button label={busy ? tr("auth.checking") : user ? tr("player.linkProfile") : tr("player.signInWithCode")} disabled={!ready || busy} onPress={() => void submit()} />
         </Card>
       )}
     </Screen>

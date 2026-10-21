@@ -312,6 +312,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `admin/tournaments/[id]/event-info` (placeholders only, never invented facts), API `GET /api/mobile/v1/t/[slug]/info` (published
   only, explicit keys, CDN 60 s), web `/t/[slug]/info` (nav "Info"), app `t/[slug]/info` (+ `ui/EventInfoLink` in the hub header;
   `openVenueMap(slug, court, focus)` takes `poi:<id>`). Gate `npm run e2e:event-info` (stand-in).
+- App languages (en/es/fr, no migration; website and emails stay English): `move-score-app/src/i18n/` — `en/<ns>.ts` is the
+  source of truth, `es/`/`fr/` typed `Shape<typeof en>` (a missing key fails tsc; `i18n.test.ts` checks empties, placeholders,
+  plurals). In components `const tr = useT()` (`t` is the theme palette), plain modules `tr`/`fmt()` from `i18n/t`. Language =
+  Account → Language (Automatic follows the phone), sent as `push_devices.locale` on registration. Alerts: compose functions write
+  English in `title`/`body` plus `payload.tr.{es,fr}` (`src/lib/notify/i18n.ts`), the drain picks per phone (`wordsFor`); people's
+  announcements go out as written; lock-screen cards pushed by the server carry `labels` for es/fr (`lockWords.ts`, kept equal to
+  the app's `lock` namespace by test). Never write new user-visible English in the app without adding es/fr.
 - Account name and photo (no migration): `PATCH /api/mobile/v1/me/account` `{ displayName }` (`src/lib/auth/displayName.ts`), `POST|DELETE
   /api/mobile/v1/me/account/photo` (media bucket `accounts/<userId>/`), written to the auth user's metadata with the user's own token
   (`src/lib/auth/accountProfile.ts`); user choices live under `custom_name`/`name_custom` and `custom_avatar_url`/`avatar_custom` (only

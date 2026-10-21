@@ -22,6 +22,7 @@ import { createStore } from "../state/store";
 import { getJson, setJson } from "../state/kv";
 import { report } from "../monitoring";
 import { flushPrefs } from "./prefs";
+import { getLang, onLangChange, tr } from "../i18n/t";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true }),
@@ -78,11 +79,11 @@ function ensureLoaded(): Promise<void> {
 async function channels() {
   if (Platform.OS !== "android") return;
   try {
-    await Notifications.setNotificationChannelAsync("matches", { name: "Matches you follow", importance: Notifications.AndroidImportance.HIGH, lightColor: "#FCFC00" });
-    await Notifications.setNotificationChannelAsync("announcements", { name: "Tournament announcements", importance: Notifications.AndroidImportance.DEFAULT });
+    await Notifications.setNotificationChannelAsync("matches", { name: tr("account.channelMatches"), importance: Notifications.AndroidImportance.HIGH, lightColor: "#FCFC00" });
+    await Notifications.setNotificationChannelAsync("announcements", { name: tr("account.channelAnnouncements"), importance: Notifications.AndroidImportance.DEFAULT });
     // Calls for assistance to master referees (migration 0035): loud, vibrating, through Do Not Disturb where allowed.
     await Notifications.setNotificationChannelAsync("assistance", {
-      name: "Calls for assistance (master referees)",
+      name: tr("account.channelAssistance"),
       importance: Notifications.AndroidImportance.MAX,
       sound: "default",
       vibrationPattern: [0, 400, 200, 400, 200, 400],
@@ -138,7 +139,8 @@ const register = (installationId: string, expoPushToken: string | null, alertsOn
       alerts: alertsOn,
       appVersion,
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      locale: Intl.DateTimeFormat().resolvedOptions().locale,
+      // The app's language (Account → Language, or the phone's): alerts are written in it.
+      locale: getLang(),
     },
   });
 
@@ -253,6 +255,16 @@ function watchForeground() {
 
 // A personal call refused for want of a valid install token: register again.
 onInstallRejected(() => registerDevice(false).then(() => undefined));
+
+// A new language on Account: the server writes this phone's alerts in it from now on.
+let langTimer: ReturnType<typeof setTimeout> | null = null;
+onLangChange(() => {
+  if (langTimer) clearTimeout(langTimer);
+  langTimer = setTimeout(() => {
+    langTimer = null;
+    if (session.get().installationId) void registerDevice(false);
+  }, 800);
+});
 
 /** Whether the phone itself lets Move Score show alerts (iOS provisional counts). */
 export async function alertsAllowed(): Promise<boolean> {

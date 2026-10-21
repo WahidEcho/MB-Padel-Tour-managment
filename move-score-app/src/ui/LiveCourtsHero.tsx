@@ -52,6 +52,8 @@ import { StageLight } from "./StageLight";
 import { Takeover, type TakeoverMoment } from "./Takeover";
 import { CONTENT_MAX_WIDTH } from "./Screen";
 import { LiveVideoBadge, LiveVideoPlayer } from "./LiveVideo";
+import { useT } from "../i18n";
+import { tr } from "../i18n/t";
 
 /** Every card is this tall, whatever its scene. */
 const HERO_H = 272;
@@ -95,6 +97,7 @@ export function LiveCourtsHero() {
 
 function Pager({ cards }: { cards: HeroCard[] }) {
   const { calm } = useTheme();
+  const tr = useT();
   const { width: windowWidth } = useWindowDimensions();
   // The page's own width (Screen pads 18 a side); measured once laid out.
   const [w, setW] = useState(Math.min(windowWidth, CONTENT_MAX_WIDTH) - 36);
@@ -122,11 +125,11 @@ function Pager({ cards }: { cards: HeroCard[] }) {
   return (
     <Animated.View entering={calm ? undefined : FadeIn.duration(260)} style={{ marginBottom: 18 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 22, marginBottom: 10 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }} accessibilityRole="header" accessibilityLabel={`Live courts, ${liveCount} on now`}>
-          <LivePill label="LIVE COURTS" />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }} accessibilityRole="header" accessibilityLabel={tr("hero.liveCourtsA11y", { count: liveCount })}>
+          <LivePill label={tr("hero.liveCourts")} />
         </View>
         {cards.length > 1 ? (
-          <Eyebrow tone="ink3" size={10.5} accessibilityLabel={`Court ${index + 1} of ${cards.length}. Swipe for the other courts.`}>
+          <Eyebrow tone="ink3" size={10.5} accessibilityLabel={tr("hero.courtOf", { n: index + 1, total: cards.length })}>
             {`${index + 1} / ${cards.length}`}
           </Eyebrow>
         ) : null}
@@ -196,6 +199,7 @@ const PLAYER_MAX_H = 186;
 
 function CourtCard({ card, active, width }: { card: HeroCard; active: boolean; width: number }) {
   const { t, calm } = useTheme();
+  const tr = useT();
   const cfg = useConfig();
   const takeovers = cfg.data?.flags?.takeovers !== false;
   const ev = card.event;
@@ -211,7 +215,7 @@ function CourtCard({ card, active, width }: { card: HeroCard; active: boolean; w
       ? {
           key: `hero:${resultKey}`,
           kicker: `${card.court.name} · ${ev.tournament.name}`.toUpperCase(),
-          words: r.tieId ? ["Rubber", "won"] : ["Match", "won"],
+          words: r.tieId ? [tr("hero.rubberWon1"), tr("hero.rubberWon2")] : [tr("hero.matchWon1"), tr("hero.matchWon2")],
           who: `${teamOf(ev, r.winner)?.code ?? ""} · ${sideName(ev, r, r.winner === r.a ? "A" : "B")}`,
           final: false,
         }
@@ -240,7 +244,7 @@ function CourtCard({ card, active, width }: { card: HeroCard; active: boolean; w
       onPress={open}
       accessibilityRole="button"
       accessibilityLabel={cardA11y(card)}
-      accessibilityHint={m ? "Opens the match" : tie ? "Opens the tie" : "Opens the tournament"}
+      accessibilityHint={m ? tr("hero.opensMatch") : tie ? tr("hero.opensTie") : tr("hero.opensTournament")}
       style={({ pressed }) => [styles.card, { backgroundColor: t.surface, borderColor: t.line }, pressed && { opacity: 0.9 }]}
     >
       {s.kind === "live" || s.kind === "walkon" ? <StageLight height={HERO_H} /> : null}
@@ -258,13 +262,13 @@ function CourtCard({ card, active, width }: { card: HeroCard; active: boolean; w
             {video ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Watch the live video of ${card.court.name}`}
+                accessibilityLabel={tr("hero.watchLiveA11y", { court: card.court.name })}
                 onPress={() => setWatching(true)}
                 hitSlop={6}
                 testID="hero-watch-live"
                 style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6, backgroundColor: t.live, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 4 }, pressed && { opacity: 0.8 }]}
               >
-                <Eyebrow size={10.5} style={{ color: "#FFFFFF" }}>▶ Watch live</Eyebrow>
+                <Eyebrow size={10.5} numberOfLines={1} style={{ color: "#FFFFFF" }}>{tr("hero.watchLive")}</Eyebrow>
               </Pressable>
             ) : null}
             <NextLine card={card} />
@@ -296,21 +300,22 @@ function SceneBody({ ev, s, m, tie }: { ev: MCourtsEvent; s: ShowcaseScene; m: M
 }
 
 function CardHeader({ card, video = false }: { card: HeroCard; video?: boolean }) {
+  const tr = useT();
   const s = card.scene;
   const m = "matchId" in s ? matchOf(card.event, s.matchId) : undefined;
   const pill =
     s.kind === "walkon" ? (
-      <LivePill label="WALK-ON" />
+      <LivePill label={tr("hero.pillWalkon")} />
     ) : s.kind === "live" ? (
-      <LivePill label={m?.status === "paused" ? "PAUSED" : "LIVE"} />
+      <LivePill label={m?.status === "paused" ? tr("hero.pillPaused") : tr("hero.pillLive")} />
     ) : s.kind === "called" ? (
-      <Chip label={s.overdue ? "CALLED · DUE" : "CALLED"} />
+      <Chip label={s.overdue ? tr("hero.pillCalledDue") : tr("hero.pillCalled")} />
     ) : s.kind === "result" ? (
-      <Chip label="FINAL" />
+      <Chip label={tr("hero.pillFinal")} />
     ) : s.kind === "tie_score" ? (
-      s.final ? <Chip label="TIE FINAL" /> : <LivePill label="TIE LIVE" />
+      s.final ? <Chip label={tr("hero.pillTieFinal")} /> : <LivePill label={tr("hero.pillTieLive")} />
     ) : (
-      <Chip label="NEXT" />
+      <Chip label={tr("hero.pillNext")} />
     );
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, height: 24 }}>
@@ -318,7 +323,7 @@ function CardHeader({ card, video = false }: { card: HeroCard; video?: boolean }
         {`${card.court.name} · ${card.event.tournament.name}`}
       </Eyebrow>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {card.mine ? <Chip ball label="YOUR MATCH" /> : null}
+        {card.mine ? <Chip ball label={tr("hero.yourMatchChip")} /> : null}
         {video ? <LiveVideoBadge compact /> : null}
         <MapButton slug={card.event.tournament.slug} courtId={card.court.id} courtName={card.court.name} />
         {pill}
@@ -330,44 +335,66 @@ function CardHeader({ card, video = false }: { card: HeroCard; video?: boolean }
 /** "Show on map": the venue map focused on this court, when the organiser has published one. */
 function MapButton({ slug, courtId, courtName }: { slug: string; courtId: string; courtName: string }) {
   const { t } = useTheme();
+  const tr = useT();
   const venue = useVenue(slug);
   if (!venue.data) return null;
   return (
     <Pressable
       onPress={() => openVenueMap(slug, courtId)}
       accessibilityRole="button"
-      accessibilityLabel={`Show ${courtName} on the venue map`}
+      accessibilityLabel={tr("hero.mapA11y", { court: courtName })}
       hitSlop={8}
       testID="hero-show-on-map"
       style={({ pressed }) => [{ height: 22, paddingHorizontal: 8, borderRadius: 999, borderWidth: 1, borderColor: t.line, backgroundColor: t.chip, justifyContent: "center" }, pressed && { opacity: 0.7 }]}
     >
-      <Eyebrow size={9.5}>MAP</Eyebrow>
+      <Eyebrow size={9.5}>{tr("hero.map")}</Eyebrow>
     </Pressable>
   );
 }
 
 /** A side's flag, logo or colour (with RED / BLUE written on it: never colour alone). */
 function Identity({ id, size = 24 }: { id: SideIdentity; size?: number }) {
+  useT();
   if (id.kind === "flag") return <Flag iso2={id.iso2} code={id.code} size={size} />;
-  if (id.kind === "logo") return <Image source={{ uri: id.url }} style={{ width: size, height: size, borderRadius: 6 }} contentFit="contain" alt={id.label} accessibilityLabel={id.label} />;
+  if (id.kind === "logo") return <Image source={{ uri: id.url }} style={{ width: size, height: size, borderRadius: 6 }} contentFit="contain" alt={sideWord(id.label)} accessibilityLabel={sideWord(id.label)} />;
   return (
     <View style={{ minWidth: size, height: Math.round(size * 0.68), borderRadius: 4, paddingHorizontal: id.word ? 5 : 0, backgroundColor: id.hex, alignItems: "center", justifyContent: "center" }}>
       {id.word ? (
         <Eyebrow size={8.5} style={{ color: "#FFFFFF", letterSpacing: 0.8 }}>
-          {id.word}
+          {sideWord(id.word)}
         </Eyebrow>
       ) : null}
     </View>
   );
 }
 
+/** The shared showcase's fixed side words ("RED", "Red team", "To be decided") in the app's language. */
+function sideWord(w: string): string {
+  switch (w) {
+    case "RED":
+      return tr("hero.red");
+    case "BLUE":
+      return tr("hero.blue");
+    case "Red team":
+      return tr("hero.redTeam");
+    case "Blue team":
+      return tr("hero.blueTeam");
+    case "To be decided":
+      return tr("hero.toBeDecided");
+    default:
+      return w;
+  }
+}
+
 function ServeDot() {
   const { t } = useTheme();
-  return <View accessibilityLabel="serving" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.ball, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk }} />;
+  const tr = useT();
+  return <View accessibilityLabel={tr("hero.serving")} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.ball, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk }} />;
 }
 
 function LiveScore({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
   const { t } = useTheme();
+  const tr = useT();
   const awaiting = isAwaitingResult(m);
   const sc = m.score;
   const row = (side: SideKey) => {
@@ -393,7 +420,7 @@ function LiveScore({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
       </View>
     );
   };
-  const line = awaiting ? "Match over · awaiting confirmation" : m.status === "paused" ? "Play suspended" : sc?.tiebreak ? "Tie-break" : m.rubberType ? RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] ?? m.rubberType : (m.round ?? "");
+  const line = awaiting ? tr("hero.awaitingConfirmation") : m.status === "paused" ? tr("hero.playSuspended") : sc?.tiebreak ? tr("hero.tiebreak") : m.rubberType ? RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] ?? m.rubberType : (m.round ?? "");
   return (
     <View style={{ gap: 14 }}>
       {row("A")}
@@ -407,6 +434,7 @@ function LiveScore({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
 
 function Portrait({ p, size }: { p: MCourtPlayer; size: number }) {
   const { t, calm } = useTheme();
+  const tr = useT();
   const h = Math.round(size * 1.18);
   if (!p.photoUrl) {
     const initials = p.name
@@ -429,14 +457,15 @@ function Portrait({ p, size }: { p: MCourtPlayer; size: number }) {
       contentPosition={{ left: `${Math.round(p.focalX * 100)}%`, top: `${Math.round(p.focalY * 100)}%` }}
       transition={calm ? 0 : 200}
       cachePolicy="disk"
-      alt={`Photo of ${p.name}`}
-      accessibilityLabel={`Photo of ${p.name}`}
+      alt={tr("hero.photoOf", { name: p.name })}
+      accessibilityLabel={tr("hero.photoOf", { name: p.name })}
     />
   );
 }
 
 function WalkOn({ ev, m, side, elapsedMs }: { ev: MCourtsEvent; m: MMatch; side: SideKey; elapsedMs: number }) {
   const { t, calm } = useTheme();
+  const tr = useT();
   const players = sidePlayers(ev, m, side).slice(0, 2);
   const team = teamOf(ev, side === "A" ? m.a : m.b);
   const id = idOf(ev, team?.id, side);
@@ -449,7 +478,7 @@ function WalkOn({ ev, m, side, elapsedMs }: { ev: MCourtsEvent; m: MMatch; side:
         </Animated.View>
         <View style={{ flex: 1, gap: 6, minWidth: 0 }}>
           <Eyebrow size={10} tone="ink2">
-            {side === "A" ? "Walking on" : "And facing them"}
+            {side === "A" ? tr("hero.walkingOn") : tr("hero.facingThem")}
           </Eyebrow>
           <Display size={20} numberOfLines={3}>
             {sideName(ev, m, side)}
@@ -476,6 +505,7 @@ function mmss(ms: number): string {
 
 function Called({ ev, m, msLeft, overdue, presentA, presentB, canSayHere }: { ev: MCourtsEvent; m: MMatch; msLeft: number; overdue: boolean; presentA: boolean; presentB: boolean; canSayHere: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   // The player's own side gets "I'm at court" right on the card (the card itself opens the match).
   const me = useMyPlayer().data ?? null;
   const mine = canSayHere ? mySide(m, me) : null;
@@ -489,7 +519,7 @@ function Called({ ev, m, msLeft, overdue, presentA, presentB, canSayHere }: { ev
         <ImAtCourtPill matchId={m.id} />
       ) : (
         <Eyebrow size={10} style={{ color: here ? t.success : t.ink3 }}>
-          {here ? "✓ At court" : "On the way"}
+          {here ? tr("hero.atCourt") : tr("hero.onTheWay")}
         </Eyebrow>
       )}
     </View>
@@ -498,8 +528,8 @@ function Called({ ev, m, msLeft, overdue, presentA, presentB, canSayHere }: { ev
     <View style={{ gap: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" }}>
         <View style={{ gap: 2 }}>
-          <Eyebrow size={10} tone="live">Called to court</Eyebrow>
-          <Body tone="ink2" size={12.5}>{overdue ? "Deadline passed" : "Players to the court"}</Body>
+          <Eyebrow size={10} tone="live">{tr("hero.calledToCourt")}</Eyebrow>
+          <Body tone="ink2" size={12.5}>{overdue ? tr("hero.deadlinePassed") : tr("hero.playersToCourt")}</Body>
         </View>
         <Num size={40} tone={overdue ? "live" : "ink"}>{mmss(msLeft)}</Num>
       </View>
@@ -510,6 +540,7 @@ function Called({ ev, m, msLeft, overdue, presentA, presentB, canSayHere }: { ev
 }
 
 function Result({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
+  const tr = useT();
   const row = (side: SideKey) => {
     const teamId = side === "A" ? m.a : m.b;
     const won = Boolean(m.winner && m.winner === teamId);
@@ -524,11 +555,20 @@ function Result({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
             {side === "A" ? set.a : set.b}
           </Num>
         ))}
-        {won ? <Chip ball label="WON" /> : null}
+        {won ? <Chip ball label={tr("hero.won")} /> : null}
       </View>
     );
   };
-  const how = m.status === "walkover" ? "Walkover" : m.status === "retired" ? "Retired" : m.status === "disqualified" ? "Disqualification" : m.tieId ? "Rubber result" : "Match result";
+  const how =
+    m.status === "walkover"
+      ? tr("hero.walkover")
+      : m.status === "retired"
+        ? tr("hero.retired")
+        : m.status === "disqualified"
+          ? tr("hero.disqualification")
+          : m.tieId
+            ? tr("hero.rubberResult")
+            : tr("hero.matchResult");
   return (
     <View style={{ gap: 14 }}>
       <Eyebrow size={10} tone="ink2">{how}</Eyebrow>
@@ -540,6 +580,7 @@ function Result({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
 
 function TieScore({ ev, tie, final }: { ev: MCourtsEvent; tie: MTie; final: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   const rubbers = ev.matches.filter((r) => r.tieId === tie.id).sort((a, b) => (a.rubberNo ?? 0) - (b.rubberNo ?? 0));
   let a = 0;
   let b = 0;
@@ -553,7 +594,7 @@ function TieScore({ ev, tie, final }: { ev: MCourtsEvent; tie: MTie; final: bool
     return (
       <View style={{ flex: 1, alignItems: "center", gap: 6 }}>
         <Identity id={idOf(ev, teamId, key)} size={38} />
-        <Body weight="bold" size={14} numberOfLines={1}>{team?.code ?? "TBD"}</Body>
+        <Body weight="bold" size={14} numberOfLines={1}>{team?.code ?? tr("common.tbd")}</Body>
       </View>
     );
   };
@@ -563,14 +604,16 @@ function TieScore({ ev, tie, final }: { ev: MCourtsEvent; tie: MTie; final: bool
         {side(tie.a, "A")}
         <View style={{ alignItems: "center", minWidth: 96 }}>
           <Rolling value={`${a}–${b}`} size={42} />
-          <Eyebrow size={9.5} tone="ink3">{final ? "Tie final" : "Tie score"}</Eyebrow>
+          <Eyebrow size={9.5} tone="ink3" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+            {final ? tr("hero.tieFinal") : tr("hero.tieScore")}
+          </Eyebrow>
         </View>
         {side(tie.b, "B")}
       </View>
       <View style={{ flexDirection: "row", justifyContent: "center", gap: 6 }}>
         {rubbers.map((r) => {
           const done = isDoneStatus(r.status);
-          const label = `${RUBBER_SHORT[r.rubberType as keyof typeof RUBBER_SHORT] ?? r.rubberType ?? ""} ${done ? (r.winner === tie.a ? teamOf(ev, tie.a)?.code : teamOf(ev, tie.b)?.code) ?? "" : r.status === "live" || r.status === "paused" ? "LIVE" : r.status === "cancelled" ? "—" : "NEXT"}`;
+          const label = `${RUBBER_SHORT[r.rubberType as keyof typeof RUBBER_SHORT] ?? r.rubberType ?? ""} ${done ? (r.winner === tie.a ? teamOf(ev, tie.a)?.code : teamOf(ev, tie.b)?.code) ?? "" : r.status === "live" || r.status === "paused" ? tr("hero.pillLive") : r.status === "cancelled" ? "—" : tr("hero.pillNext")}`;
           return <Chip key={r.id} label={label.trim()} style={done ? undefined : { backgroundColor: t.chip, opacity: 0.8 }} />;
         })}
       </View>
@@ -579,10 +622,11 @@ function TieScore({ ev, tie, final }: { ev: MCourtsEvent; tie: MTie; final: bool
 }
 
 function Next({ ev, m, tie }: { ev: MCourtsEvent; m: MMatch | undefined; tie: MTie | undefined }) {
+  const tr = useT();
   const tz = ev.tournament.timezone;
   const aId = tie ? tie.a : m?.a;
   const bId = tie ? tie.b : m?.b;
-  const name = (teamId: string | null | undefined, side: SideKey) => (m && !tie ? sideName(ev, m, side) : (teamOf(ev, teamId)?.name ?? "TBD"));
+  const name = (teamId: string | null | undefined, side: SideKey) => (m && !tie ? sideName(ev, m, side) : (teamOf(ev, teamId)?.name ?? tr("common.tbd")));
   const when = (tie ? tie.scheduledTime : m?.scheduledTime) ?? null;
   const row = (teamId: string | null | undefined, side: SideKey) => (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -595,8 +639,8 @@ function Next({ ev, m, tie }: { ev: MCourtsEvent; m: MMatch | undefined; tie: MT
   return (
     <View style={{ gap: 12 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Eyebrow size={10} tone="ink2">{tie ? "Next tie on court" : "Next on court"}</Eyebrow>
-        <Num size={22} tone="ink2">{when ? timeIn(when, tz) : "Time TBC"}</Num>
+        <Eyebrow size={10} tone="ink2">{tie ? tr("hero.nextTieOnCourt") : tr("hero.nextOnCourt")}</Eyebrow>
+        <Num size={22} tone="ink2">{when ? timeIn(when, tz) : tr("common.timeTbc")}</Num>
       </View>
       {row(aId, "A")}
       {row(bId, "B")}
@@ -606,10 +650,12 @@ function Next({ ev, m, tie }: { ev: MCourtsEvent; m: MMatch | undefined; tie: MT
 
 /** "Next: EGY v JPN · 15:30". Always takes its line, so the card never changes height. */
 function NextLine({ card }: { card: HeroCard }) {
+  useT();
+  const next = nextText(card);
   return (
     <View style={{ height: 18, justifyContent: "flex-end" }}>
       <Eyebrow size={9.5} tone="ink3" numberOfLines={1}>
-        {nextText(card) ?? " "}
+        {next ? tr("hero.nextLine", { what: next }) : " "}
       </Eyebrow>
     </View>
   );
@@ -623,11 +669,11 @@ function nextText(card: HeroCard): string | null {
   const m = matchOf(ev, n.matchId);
   const tie = tieOf(ev, n.tieId);
   if (m && m.tieId) {
-    const kind = RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] ?? m.rubberType ?? "Next rubber";
-    return `Next: ${kind} · ${sideName(ev, m, "A", true)} v ${sideName(ev, m, "B", true)}`;
+    const kind = RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] ?? m.rubberType ?? tr("hero.nextRubber");
+    return `${kind} · ${sideName(ev, m, "A", true)} ${tr("common.vs")} ${sideName(ev, m, "B", true)}`;
   }
-  if (m) return `Next: ${sideName(ev, m, "A", true)} v ${sideName(ev, m, "B", true)}${m.scheduledTime ? ` · ${timeIn(m.scheduledTime, tz)}` : ""}`;
-  if (tie) return `Next: ${teamOf(ev, tie.a)?.code ?? "TBD"} v ${teamOf(ev, tie.b)?.code ?? "TBD"}${tie.scheduledTime ? ` · ${timeIn(tie.scheduledTime, tz)}` : ""}`;
+  if (m) return `${sideName(ev, m, "A", true)} ${tr("common.vs")} ${sideName(ev, m, "B", true)}${m.scheduledTime ? ` · ${timeIn(m.scheduledTime, tz)}` : ""}`;
+  if (tie) return `${teamOf(ev, tie.a)?.code ?? tr("common.tbd")} ${tr("common.vs")} ${teamOf(ev, tie.b)?.code ?? tr("common.tbd")}${tie.scheduledTime ? ` · ${timeIn(tie.scheduledTime, tz)}` : ""}`;
   return null;
 }
 
@@ -637,30 +683,35 @@ function cardA11y(card: HeroCard): string {
   const s = card.scene;
   const m = "matchId" in s ? matchOf(ev, s.matchId) : undefined;
   const tie = "tieId" in s ? tieOf(ev, s.tieId) : undefined;
-  const vs = m ? `${sideName(ev, m, "A")} against ${sideName(ev, m, "B")}` : tie ? `${teamOf(ev, tie.a)?.name ?? "TBD"} against ${teamOf(ev, tie.b)?.name ?? "TBD"}` : "";
+  const against = (a: string, b: string) => tr("hero.against", { a, b });
+  const vs = m ? against(sideName(ev, m, "A"), sideName(ev, m, "B")) : tie ? against(teamOf(ev, tie.a)?.name ?? tr("common.tbd"), teamOf(ev, tie.b)?.name ?? tr("common.tbd")) : "";
   const parts = [`${card.court.name}, ${ev.tournament.name}`];
-  if (card.mine) parts.push("Your match");
+  if (card.mine) parts.push(tr("hero.yourMatch"));
   switch (s.kind) {
     case "walkon":
-      if (m) parts.push(`Walking on: ${sideName(ev, m, s.side)}`, vs);
+      if (m) parts.push(tr("hero.walkingOnA11y", { name: sideName(ev, m, s.side) }), vs);
       break;
     case "live": {
-      parts.push(m?.status === "paused" ? "Play suspended" : "Live", vs);
+      parts.push(m?.status === "paused" ? tr("hero.playSuspended") : tr("common.live"), vs);
       const sc = m?.score;
-      if (sc?.sets.length) parts.push(`Sets ${sc.sets.map((x) => `${x.a}–${x.b}`).join(", ")}`);
-      if (sc?.games) parts.push(`Games ${sc.games.a}–${sc.games.b}`);
-      if (sc?.points) parts.push(`${sc.tiebreak ? "Tie-break points" : "Points"} ${sc.points.a}–${sc.points.b}`);
+      if (sc?.sets.length) parts.push(tr("hero.setsA11y", { list: sc.sets.map((x) => `${x.a}–${x.b}`).join(", ") }));
+      if (sc?.games) parts.push(tr("hero.gamesA11y", { score: `${sc.games.a}–${sc.games.b}` }));
+      if (sc?.points) parts.push(tr(sc.tiebreak ? "hero.tiebreakPointsA11y" : "hero.pointsA11y", { score: `${sc.points.a}–${sc.points.b}` }));
       break;
     }
     case "called": {
-      parts.push("Called to court", vs, s.overdue ? "Deadline passed" : `${Math.ceil(s.msLeft / 60_000)} minutes left`);
-      if (m) parts.push(`${sideName(ev, m, "A")} ${s.presentA ? "at court" : "on the way"}`, `${sideName(ev, m, "B")} ${s.presentB ? "at court" : "on the way"}`);
+      parts.push(tr("hero.calledToCourt"), vs, s.overdue ? tr("hero.deadlinePassed") : tr("hero.minutesLeft", { count: Math.ceil(s.msLeft / 60_000) }));
+      if (m)
+        parts.push(
+          tr(s.presentA ? "hero.atCourtA11y" : "hero.onTheWayA11y", { name: sideName(ev, m, "A") }),
+          tr(s.presentB ? "hero.atCourtA11y" : "hero.onTheWayA11y", { name: sideName(ev, m, "B") }),
+        );
       break;
     }
     case "result": {
       const winner = m?.winner ? (m.winner === m.a ? sideName(ev, m, "A") : sideName(ev, m, "B")) : null;
-      parts.push("Final", vs);
-      if (winner) parts.push(`${winner} won`);
+      parts.push(tr("common.final"), vs);
+      if (winner) parts.push(tr("hero.wonA11y", { name: winner }));
       if (m?.score) parts.push(scoreLine(m.score));
       break;
     }
@@ -668,17 +719,17 @@ function cardA11y(card: HeroCard): string {
       const rubbers = ev.matches.filter((r) => r.tieId === s.tieId);
       const a = rubbers.filter((r) => isDoneStatus(r.status) && r.winner && r.winner === tie?.a).length;
       const b = rubbers.filter((r) => isDoneStatus(r.status) && r.winner && r.winner !== tie?.a).length;
-      parts.push(s.final ? "Tie final" : "Tie in progress", vs, `Rubbers ${a}–${b}`);
+      parts.push(s.final ? tr("hero.tieFinal") : tr("hero.tieInProgress"), vs, tr("hero.rubbersA11y", { score: `${a}–${b}` }));
       break;
     }
     case "next": {
       const when = (tie ? tie.scheduledTime : m?.scheduledTime) ?? null;
-      parts.push("Next on court", vs, when ? `at ${timeIn(when, ev.tournament.timezone)}` : "time to be confirmed");
+      parts.push(tr("hero.nextOnCourt"), vs, when ? tr("hero.atTime", { time: timeIn(when, ev.tournament.timezone) }) : tr("hero.timeToBeConfirmed"));
       break;
     }
   }
   const then = nextText(card);
-  if (then) parts.push(then.replace(/^Next:/, "Then"));
+  if (then) parts.push(tr("hero.thenLine", { what: then }));
   return parts.filter(Boolean).join(". ");
 }
 

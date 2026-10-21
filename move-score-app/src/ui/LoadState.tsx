@@ -19,6 +19,7 @@ import { checkNetwork, useOnline } from "../api/network";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display } from "./Text";
 import { Button, Empty } from "./Bits";
+import { useT } from "../i18n";
 
 /** The part of a React Query result this reads. */
 export interface LoadQuery {
@@ -95,8 +96,10 @@ export interface LoadStateProps {
  * Loading → spinner; no signal → "You're offline" with Try again; server error →
  * "Something went wrong" with Try again; 404 → the page's not-found message.
  */
-export function LoadState({ queries = [], kind: forced, what = "this page", notFound, onRetry, errorNote, compact = false }: LoadStateProps) {
+export function LoadState({ queries = [], kind: forced, what: whatProp, notFound, onRetry, errorNote, compact = false }: LoadStateProps) {
   const { t } = useTheme();
+  const tr = useT();
+  const what = whatProp ?? tr("ui.thisPage");
   const { height } = useWindowDimensions();
   const online = useOnline();
   const kind = forced ?? loadKind(queries, online);
@@ -164,16 +167,16 @@ export function LoadState({ queries = [], kind: forced, what = "this page", notF
     return () => clearTimeout(id);
   }, [kind]);
 
-  if (kind === "notFound") return <>{notFound ?? <Empty title="Not found" body="It may have been moved or removed." />}</>;
+  if (kind === "notFound") return <>{notFound ?? <Empty title={tr("ui.notFoundTitle")} body={tr("ui.notFoundBody")} />}</>;
 
   const frame = { alignItems: "center" as const, justifyContent: "center" as const, gap: 8, paddingHorizontal: 12, ...(compact ? { paddingVertical: 20 } : { minHeight: Math.max(320, height * 0.55), paddingVertical: 24 }) };
 
   if (kind === "loading") {
     return (
-      <View style={frame} accessibilityLabel={`Loading ${what}`} accessibilityLiveRegion="polite">
+      <View style={frame} accessibilityLabel={tr("ui.loadingWhat", { what })} accessibilityLiveRegion="polite">
         <ActivityIndicator color={t.ink3} size={compact ? "small" : "large"} />
-        <Body tone="ink3" size={13}>{slow ? "This is taking longer than usual…" : "Loading…"}</Body>
-        {slow ? <Button kind="ghost" label={busy ? "Trying…" : "Try again"} disabled={busy} onPress={() => void retry()} style={{ marginTop: 6, minWidth: 160 }} /> : null}
+        <Body tone="ink3" size={13}>{slow ? tr("ui.slow") : tr("common.loading")}</Body>
+        {slow ? <Button kind="ghost" label={busy ? tr("ui.trying") : tr("common.retry")} disabled={busy} onPress={() => void retry()} style={{ marginTop: 6, minWidth: 160 }} /> : null}
       </View>
     );
   }
@@ -182,9 +185,9 @@ export function LoadState({ queries = [], kind: forced, what = "this page", notF
   const firstError = queries.find((q) => q.data === undefined && q.isError)?.error;
   // A refusal the person can act on (a lapsed referee code, say) is worth naming; a 500 is not.
   const serverSays = firstError instanceof ApiError && firstError.status >= 400 && firstError.status < 500 ? firstError.message : null;
-  const title = offline ? "You're offline" : "Something went wrong";
-  const body = offline ? "Connect to the internet and try again." : (errorNote ?? serverSays ?? `Move Score couldn't load ${what}. Try again in a moment.`);
-  const note = offline ? (stillOffline ? "Still no connection. Check Wi-Fi or mobile data." : "This page loads by itself once you're back online.") : null;
+  const title = offline ? tr("common.offline") : tr("common.somethingWrong");
+  const body = offline ? tr("ui.offlineBody") : (errorNote ?? serverSays ?? tr("ui.errorBody", { what }));
+  const note = offline ? (stillOffline ? tr("ui.stillOffline") : tr("ui.autoReload")) : null;
   return (
     <View style={frame} accessibilityRole="alert" accessibilityLiveRegion="polite">
       <View style={{ width: compact ? 56 : 68, height: compact ? 56 : 68, borderRadius: 34, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
@@ -193,7 +196,7 @@ export function LoadState({ queries = [], kind: forced, what = "this page", notF
       <Display size={compact ? 17 : 20} style={{ textAlign: "center" }}>{title}</Display>
       <Body tone="ink2" size={14} style={{ textAlign: "center", maxWidth: 300 }}>{body}</Body>
       <Button
-        label={busy ? "Trying…" : "Try again"}
+        label={busy ? tr("ui.trying") : tr("common.retry")}
         disabled={busy}
         icon={busy ? <ActivityIndicator size="small" color={t.btnInk} /> : undefined}
         onPress={() => void retry()}

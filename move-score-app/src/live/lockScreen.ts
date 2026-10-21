@@ -23,6 +23,7 @@ import { api } from "../api/client";
 import { session } from "../state/session";
 import { getJson, setJson } from "../state/kv";
 import { config } from "../config";
+import { lockLabels } from "./labels";
 
 const MAP = "ms.liveActivities";
 const PUSH_STARTED_EVENT = "onExpoWidgetsActivityPushTokenReceived";
@@ -116,7 +117,8 @@ function follow(instance: Instance, matchId: string) {
 }
 
 function cardProps(m: MMatch, labels: { a: string; b: string; court: string }) {
-  return liveState(m.score, { ...labels, status: m.status === "paused" ? "Paused" : "Live" }, { matchId: m.id });
+  // `status` stays the server's English word (the card maps it); the card's own words ride along.
+  return { ...liveState(m.score, { ...labels, status: m.status === "paused" ? "Paused" : "Live" }, { matchId: m.id }), labels: lockLabels() };
 }
 
 /** Shows this match on the lock screen: updates its card if there is one, otherwise starts one. Other matches' cards stay. */

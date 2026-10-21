@@ -22,6 +22,8 @@ import http2 from "node:http2";
 import { importPKCS8, SignJWT } from "jose";
 import { db } from "../supabase";
 import { apnsVerdict, startAlert, startPayload, updatePayload, type ApnsResult, type LiveScoreState } from "./liveActivity";
+import { alertLang, type AlertLang } from "./i18n";
+import { startAlertIn, stateIn } from "./lockWords";
 
 export { LIVE_ACTIVITY_NAME, apnsVerdict, liveState, upcomingState, type ApnsResult, type LiveScoreState } from "./liveActivity";
 
@@ -139,14 +141,40 @@ async function activeTokens(matchId: string): Promise<{ push_token: string; inst
   }
 }
 
-/** Updates (or ends) every lock-screen card following this match. */
+/** Each phone's app language (push_devices.locale), English when unknown. */
+async function languagesOf(installationIds: string[]): Promise<Map<string, AlertLang>> {
+  const out = new Map<string, AlertLang>();
+  const ids = [...new Set(installationIds)];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db().from("push_devices").select("installation_id, locale").in("installation_id", ids.slice(i, i + 200));
+    for (const r of (data ?? []) as { installation_id: string; locale: string | null }[]) out.set(r.installation_id, alertLang(r.locale));
+  }
+  return out;
+}
+
+/** Tokens grouped by their phone's language, so each group gets the card's words in its language. */
+function byLanguage<T>(items: T[], installationOf: (x: T) => string, langs: Map<string, AlertLang>): Map<AlertLang, T[]> {
+  const groups = new Map<AlertLang, T[]>();
+  for (const x of items) {
+    const lang = langs.get(installationOf(x)) ?? "en";
+    groups.set(lang, [...(groups.get(lang) ?? []), x]);
+  }
+  return groups;
+}
+
+/** Updates (or ends) every lock-screen card following this match, in each phone's language. */
 export async function pushLiveActivities(matchId: string, state: LiveScoreState, opts: { end?: boolean; important?: boolean } = {}) {
   if (!process.env.APNS_BUNDLE_ID) return;
-  const tokens = (await activeTokens(matchId)).map((t) => t.push_token);
+  const rows = await activeTokens(matchId);
+  const tokens = rows.map((t) => t.push_token);
   if (!tokens.length) return;
-  const body = JSON.stringify(updatePayload({ ...state, matchId: state.matchId ?? matchId }, { nowSec: Math.floor(Date.now() / 1000), end: opts.end }));
   const priority = opts.important || opts.end ? 10 : 5;
-  const verdicts = await sendAll(tokens, body, priority, "live activity");
+  const verdicts = new Map<string, ReturnType<typeof apnsVerdict>>();
+  const groups = byLanguage(rows, (r) => r.installation_id, await languagesOf(rows.map((r) => r.installation_id)));
+  for (const [lang, group] of groups) {
+    const body = JSON.stringify(updatePayload(stateIn({ ...state, matchId: state.matchId ?? matchId }, lang), { nowSec: Math.floor(Date.now() / 1000), end: opts.end }));
+    for (const [t, v] of await sendAll(group.map((r) => r.push_token), body, priority, "live activity")) verdicts.set(t, v);
+  }
   const ended = opts.end ? tokens : tokens.filter((t) => verdicts.get(t) === "dead");
   for (let i = 0; i < ended.length; i += 200) {
     await db().from("live_activity_tokens").update({ ended_at: new Date().toISOString() }).in("push_token", ended.slice(i, i + 200));
@@ -188,9 +216,11 @@ export async function pushToStart(matchId: string, state: LiveScoreState, instal
   }
 
   const full = { ...state, matchId };
-  const body = JSON.stringify(startPayload(full, { nowSec: Math.floor(Date.now() / 1000), alert: startAlert(full) }));
-  const tokens = targets.map((id) => tokenOf.get(id)!);
-  const verdicts = await sendAll(tokens, body, 10, "live activity start");
+  const verdicts = new Map<string, ReturnType<typeof apnsVerdict>>();
+  for (const [lang, ids] of byLanguage(targets, (id) => id, await languagesOf(targets))) {
+    const body = JSON.stringify(startPayload(stateIn(full, lang), { nowSec: Math.floor(Date.now() / 1000), alert: startAlertIn(lang, full) ?? startAlert(full) }));
+    for (const [t, v] of await sendAll(ids.map((id) => tokenOf.get(id)!), body, 10, "live activity start")) verdicts.set(t, v);
+  }
 
   const dead: string[] = [];
   const unclaim: string[] = [];

@@ -18,6 +18,8 @@ import { PASS_RATIO, PASS_W, PassCard } from "../ui/PassCard";
 const PASS_H = Math.round(PASS_W * PASS_RATIO);
 import { useGatedImage } from "./LoadGate";
 import { appLink, scoreText, shortEvent, type LayoutId, type StoryInfo, type StorySide, type Tone } from "./model";
+import { useT } from "../i18n";
+import { tr } from "../i18n/t";
 
 const WORDMARK = require("../../assets/brand/movescore-wordmark.png");
 const WORDMARK_RATIO = 997 / 74;
@@ -63,13 +65,13 @@ export function Wordmark({ height }: { height: number }) {
 function statusLabel(info: StoryInfo): string {
   switch (info.status) {
     case "live":
-      return "Live";
+      return tr("story.statusLive");
     case "final":
-      return "Final";
+      return tr("story.statusFinal");
     case "upcoming":
-      return "Up next";
+      return tr("story.statusUpNext");
     default:
-      return "I'm here";
+      return tr("story.imHere");
   }
 }
 
@@ -116,6 +118,7 @@ function Pill({ info, u, tone }: { info: StoryInfo; u: number; tone: Tone }) {
 }
 
 export function ScoreSticker({ info, u, tone }: { info: StoryInfo; u: number; tone: Tone }) {
+  useT();
   const c = inks(tone);
   const W = 304 * u;
   return (
@@ -176,6 +179,7 @@ export function ScoreSticker({ info, u, tone }: { info: StoryInfo; u: number; to
 /* ---------------- Pass: the collectible pass as a sticker ---------------- */
 
 export function PassSticker({ info, u }: { info: StoryInfo; u: number }) {
+  const tr = useT();
   if (!info.pass) return null;
   const k = 0.9 * u;
   return (
@@ -184,7 +188,7 @@ export function PassSticker({ info, u }: { info: StoryInfo; u: number }) {
         <PassCard pass={info.pass.pass} event={info.pass.event} nationIso2={info.pass.nationIso2} width={PASS_W} pose={{ x: -0.35, y: 0.15 }} />
       </View>
       <View style={{ position: "absolute", top: -12 * u, left: -10 * u, backgroundColor: BALL, borderRadius: 8 * u, paddingHorizontal: 10 * u, paddingVertical: 6 * u, transform: [{ rotate: "-8deg" }], boxShadow: `0 ${6 * u}px ${16 * u}px rgba(0,0,0,0.35)` }}>
-        <T style={{ fontFamily: F.display, fontSize: 13 * u, color: BALL_INK, textTransform: "uppercase" }}>{info.status === "here" ? info.headline.join(" ") : "I'm here"}</T>
+        <T style={{ fontFamily: F.display, fontSize: 13 * u, color: BALL_INK, textTransform: "uppercase" }}>{info.status === "here" ? info.headline.join(" ") : tr("story.imHere")}</T>
       </View>
     </View>
   );
@@ -193,13 +197,14 @@ export function PassSticker({ info, u }: { info: StoryInfo; u: number }) {
 /* ---------------- Minimal: just big words over the photo ---------------- */
 
 export function MinimalSticker({ info, u, tone }: { info: StoryInfo; u: number; tone: Tone }) {
+  const tr = useT();
   const big = tone === "dark" ? BALL : "#FFFFFF";
   return (
     <View style={{ width: 312 * u, gap: 10 * u }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 * u }}>
         <View style={{ width: 7 * u, height: 7 * u, borderRadius: 4 * u, backgroundColor: info.status === "live" ? LIVE : BALL }} />
         <T lines={1} style={{ flex: 1, fontFamily: F.bodyBold, fontSize: 11 * u, letterSpacing: 2 * u, color: "#FFFFFF", textTransform: "uppercase", ...shadow(u) }}>
-          {["I'm here", info.city].filter(Boolean).join(" · ")}
+          {[tr("story.imHere"), info.city].filter(Boolean).join(" · ")}
         </T>
       </View>
       <T style={{ fontFamily: F.display, fontSize: 62 * u, lineHeight: 56 * u, color: big, textTransform: "uppercase", ...shadow(u, 0.35) }}>{`${info.headline[0]}\n${info.headline[1]}`}</T>
@@ -241,6 +246,7 @@ function Barcode({ seed, w, h, ink }: { seed: string; w: number; h: number; ink:
 }
 
 export function TicketSticker({ info, u, tone }: { info: StoryInfo; u: number; tone: Tone }) {
+  const tr = useT();
   const W = 316 * u;
   const H = 140 * u;
   const cut = 222 * u; // where the stub tears off
@@ -273,7 +279,7 @@ export function TicketSticker({ info, u, tone }: { info: StoryInfo; u: number; t
       </Svg>
       <View style={{ position: "absolute", left: 0, top: 0, width: cut, height: H, padding: 14 * u, justifyContent: "space-between" }}>
         <T lines={1} style={{ fontFamily: F.bodyBold, fontSize: 8.5 * u, letterSpacing: 1.8 * u, color: ink, opacity: 0.7, textTransform: "uppercase" }}>
-          {info.kind === "pass" ? "Admit one · event pass" : `Admit one · ${info.round ?? "Match"}`}
+          {info.kind === "pass" ? tr("story.admitPass") : tr("story.admitMatch", { round: info.round ?? tr("story.match") })}
         </T>
         <T lines={2} style={{ fontFamily: F.display, fontSize: 15 * u, lineHeight: 15 * u, color: ink, textTransform: "uppercase" }}>
           {shortEvent(info.event)}
@@ -281,12 +287,12 @@ export function TicketSticker({ info, u, tone }: { info: StoryInfo; u: number; t
         {sides ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 * u }}>
             <StoryFlag iso2={sides[0].iso2} code={sides[0].code} size={20 * u} u={u} dark={false} />
-            <T style={{ fontFamily: F.data, fontSize: 20 * u, color: ink }}>{`${sides[0].code}  ${sides[0].sets.length ? `${sides[0].sets.at(-1)}–${sides[1].sets.at(-1)}` : "v"}  ${sides[1].code}`}</T>
+            <T style={{ fontFamily: F.data, fontSize: 20 * u, color: ink }}>{`${sides[0].code}  ${sides[0].sets.length ? `${sides[0].sets.at(-1)}–${sides[1].sets.at(-1)}` : tr("story.vs")}  ${sides[1].code}`}</T>
             <StoryFlag iso2={sides[1].iso2} code={sides[1].code} size={20 * u} u={u} dark={false} />
           </View>
         ) : (
           <T lines={1} style={{ fontFamily: F.bodyBold, fontSize: 13 * u, color: ink }}>
-            {info.holder ?? "Move Score fan"}
+            {info.holder ?? tr("story.fan")}
           </T>
         )}
         <T lines={1} style={{ fontFamily: F.bodySemi, fontSize: 9.5 * u, color: ink, opacity: 0.75 }}>
@@ -334,12 +340,13 @@ export function Scrims({ W, H, layout }: { W: number; H: number; layout: LayoutI
 
 /** "● I'm here · Cairo" at the top, the wordmark and the app's address at the bottom. */
 export function Chrome({ W, H, u, info, layout }: { W: number; H: number; u: number; info: StoryInfo; layout: LayoutId }) {
+  const tr = useT();
   return (
     <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: W, height: H }}>
       {layout !== "minimal" ? (
         <View style={{ position: "absolute", top: H * 0.085, left: 20 * u, flexDirection: "row", alignItems: "center", gap: 6 * u, backgroundColor: "rgba(0,0,0,0.38)", borderRadius: 20 * u, borderWidth: 1 * u, borderColor: "rgba(255,255,255,0.22)", paddingHorizontal: 10 * u, paddingVertical: 5 * u }}>
           <View style={{ width: 7 * u, height: 7 * u, borderRadius: 4 * u, backgroundColor: info.status === "live" ? LIVE : BALL }} />
-          <T style={{ fontFamily: F.bodyBold, fontSize: 10.5 * u, letterSpacing: 1.6 * u, color: "#FFFFFF", textTransform: "uppercase" }}>{["I'm here", info.city].filter(Boolean).join(" · ")}</T>
+          <T style={{ fontFamily: F.bodyBold, fontSize: 10.5 * u, letterSpacing: 1.6 * u, color: "#FFFFFF", textTransform: "uppercase" }}>{[tr("story.imHere"), info.city].filter(Boolean).join(" · ")}</T>
         </View>
       ) : null}
       <View style={{ position: "absolute", left: 0, right: 0, bottom: H * 0.045, alignItems: "center", gap: 5 * u }}>

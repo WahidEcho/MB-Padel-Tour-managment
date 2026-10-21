@@ -1,0 +1,9 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Prenez une photo pour votre story Move Score ou votre photo de joueur. L'appareil photo scanne aussi le code du site qui tamponne votre pass de l'événement.",
+    "NSPhotoLibraryUsageDescription": "Choisissez une photo pour votre story Move Score ou votre photo de joueur.",
+    "NSLocationWhenInUseUsageDescription": "Move Score indique où vous êtes sur le plan du site et vous guide à pied vers les courts et les services. Votre position reste sur votre téléphone.",
+    "NSLocationAlwaysAndWhenInUseUsageDescription": "Move Score indique où vous êtes sur le plan du site et vous guide à pied vers les courts et les services. Votre position reste sur votre téléphone.",
+    "NSLocationAlwaysUsageDescription": "Move Score indique où vous êtes sur le plan du site et vous guide à pied vers les courts et les services. Votre position reste sur votre téléphone."
+  }
+}

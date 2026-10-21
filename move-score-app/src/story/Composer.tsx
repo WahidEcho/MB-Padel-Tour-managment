@@ -17,6 +17,7 @@ import { Chrome, Scrims, Sticker, flagUrl } from "./Stickers";
 import { ExportStage, type ExportSpec } from "./Export";
 import { BackIcon, CloseIcon, ShareIcon } from "./Icons";
 import { shareImage, shareToStories } from "./share";
+import { useT } from "../i18n";
 import { DESIGN_W, clampPhoto, coverSize, layoutsFor, type LayoutId, type Photo, type StoryInfo, type Tone } from "./model";
 
 const TOP_BAR = 56;
@@ -28,6 +29,7 @@ const buzz = () => void Haptics.selectionAsync().catch(() => {});
 const lift = () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
 export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { info: StoryInfo; photo: Photo; calm: boolean; storiesOn: boolean; onRetake: () => void; onClose: () => void }) {
+  const tr = useT();
   const insets = useSafeAreaInsets();
   const { width: sw, height: sh } = useWindowDimensions();
   const layouts = useMemo(() => layoutsFor(info), [info]);
@@ -217,7 +219,7 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
     try {
       const uri = await exportStory();
       if (!uri) {
-        setError("The story couldn't be made. Try again.");
+        setError(tr("story.exportFailed"));
         return;
       }
       const r = to === "stories" ? await shareToStories(uri) : await shareImage(uri);
@@ -234,14 +236,14 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
       <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: "#000" }} />
 
       <View style={{ height: TOP_BAR, marginTop: insets.top, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Retake the photo" hitSlop={8} onPress={onRetake} style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingVertical: 8, paddingRight: 10 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr("story.retakeA11y")} hitSlop={8} onPress={onRetake} style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingVertical: 8, paddingRight: 10 }}>
           <BackIcon />
-          <Text style={{ fontFamily: F.bodySemi, fontSize: 15, color: "#FFFFFF" }}>Retake</Text>
+          <Text style={{ fontFamily: F.bodySemi, fontSize: 15, color: "#FFFFFF" }}>{tr("story.retake")}</Text>
         </Pressable>
         <Text accessibilityRole="header" style={{ fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.8, color: "#9AA4B8", textTransform: "uppercase" }}>
-          Your story
+          {tr("story.yourStory")}
         </Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={onClose} style={{ width: 40, height: 40, alignItems: "flex-end", justifyContent: "center" }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr("story.close")} hitSlop={8} onPress={onClose} style={{ width: 40, height: 40, alignItems: "flex-end", justifyContent: "center" }}>
           <CloseIcon />
         </Pressable>
       </View>
@@ -250,9 +252,9 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
         <View
           accessible
           accessibilityRole="adjustable"
-          accessibilityLabel={`Story preview, ${layout.label} style. ${info.a11y}.`}
-          accessibilityHint="Swipe up or down to change the style. Drag or pinch to move the photo and the sticker."
-          accessibilityActions={[{ name: "increment", label: "Next style" }, { name: "decrement", label: "Previous style" }, { name: "magicTap", label: "Share" }]}
+          accessibilityLabel={tr("story.previewA11y", { style: layout.label, info: info.a11y })}
+          accessibilityHint={tr("story.previewHint")}
+          accessibilityActions={[{ name: "increment", label: tr("story.nextStyle") }, { name: "decrement", label: tr("story.previousStyle") }, { name: "magicTap", label: tr("story.share") }]}
           onAccessibilityAction={(e) => {
             if (e.nativeEvent.actionName === "increment") step(1);
             else if (e.nativeEvent.actionName === "decrement") step(-1);
@@ -278,7 +280,7 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
           {hint ? (
             <Animated.View exiting={calm ? undefined : FadeOut.duration(400)} pointerEvents="none" style={{ position: "absolute", top: H * 0.17, alignSelf: "center", backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, maxWidth: W - 32 }}>
               <Text style={{ fontFamily: F.bodySemi, fontSize: 12, lineHeight: 17, color: "#FFFFFF", textAlign: "center" }}>
-                {layout.id === "pass" ? "Drag and pinch the photo or the pass" : "Drag and pinch the photo or the sticker · tap the sticker for light or dark"}
+                {layout.id === "pass" ? tr("story.hintPass") : tr("story.hintSticker")}
               </Text>
             </Animated.View>
           ) : null}
@@ -286,7 +288,7 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
             <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: W, height: H, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.35)" }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 16, paddingHorizontal: 16, paddingVertical: 10 }}>
                 <ActivityIndicator color="#FFFFFF" />
-                <Text style={{ fontFamily: F.bodySemi, fontSize: 14, color: "#FFFFFF" }}>Making your story…</Text>
+                <Text style={{ fontFamily: F.bodySemi, fontSize: 14, color: "#FFFFFF" }}>{tr("story.making")}</Text>
               </View>
             </View>
           ) : null}
@@ -302,7 +304,7 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
                 key={l.id}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}
-                accessibilityLabel={`${l.label} style`}
+                accessibilityLabel={tr("story.styleA11y", { style: l.label })}
                 accessibilityHint={l.hint}
                 onPress={() => {
                   if (!on) {
@@ -312,7 +314,7 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
                 }}
                 style={({ pressed }) => ({ flex: 1, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: on ? BALL : "rgba(255,255,255,0.10)", borderWidth: 1, borderColor: on ? BALL : "rgba(255,255,255,0.14)", transform: [{ scale: pressed ? 0.96 : 1 }] })}
               >
-                <Text numberOfLines={1} style={{ fontFamily: F.bodyBold, fontSize: 13, color: on ? BALL_INK : "#FFFFFF" }}>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: F.bodyBold, fontSize: 13, color: on ? BALL_INK : "#FFFFFF" }}>
                   {l.label}
                 </Text>
               </Pressable>
@@ -323,13 +325,13 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
 
       <View style={{ height: ACTIONS, marginTop: GAP, marginBottom: insets.bottom + GAP, marginHorizontal: 12, flexDirection: "row", gap: 8 }}>
         {storiesOn ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Share to Instagram Stories" disabled={busy} onPress={() => void share("stories")} style={({ pressed }) => ({ flex: 1, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", opacity: busy ? 0.5 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] })}>
-            <Text style={{ fontFamily: F.bodyBold, fontSize: 15, color: "#FFFFFF" }}>To Stories</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={tr("story.toStoriesA11y")} disabled={busy} onPress={() => void share("stories")} style={({ pressed }) => ({ flex: 1, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", opacity: busy ? 0.5 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] })}>
+            <Text style={{ fontFamily: F.bodyBold, fontSize: 15, color: "#FFFFFF" }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{tr("story.toStories")}</Text>
           </Pressable>
         ) : null}
-        <Pressable accessibilityRole="button" accessibilityLabel="Share your story" accessibilityHint="Opens the share sheet: Instagram, WhatsApp, Messages or Save Image" disabled={busy} onPress={() => void share("sheet")} style={({ pressed }) => ({ flex: storiesOn ? 1 : 2, flexDirection: "row", gap: 8, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: BALL, opacity: busy ? 0.6 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] })}>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr("story.shareStory")} accessibilityHint={tr("story.shareStoryHint")} disabled={busy} onPress={() => void share("sheet")} style={({ pressed }) => ({ flex: storiesOn ? 1 : 2, flexDirection: "row", gap: 8, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: BALL, opacity: busy ? 0.6 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] })}>
           {busy ? <ActivityIndicator color={BALL_INK} /> : <ShareIcon color={BALL_INK} />}
-          <Text style={{ fontFamily: F.bodyBold, fontSize: 16, color: BALL_INK }}>Share</Text>
+          <Text style={{ fontFamily: F.bodyBold, fontSize: 16, color: BALL_INK }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{tr("story.share")}</Text>
         </Pressable>
       </View>
       {error ? (

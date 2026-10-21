@@ -22,6 +22,7 @@
 import { db } from "../supabase";
 import { DEFAULT_ALERT_PREFS, type MAlertPrefs } from "../mobile/contract";
 import type { AlertPayload, Target } from "./compose";
+import { wordsFor } from "./i18n";
 
 const EXPO_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
@@ -50,6 +51,8 @@ interface DeviceRow {
   user_id: string | null;
   expo_push_token: string | null;
   prefs: Partial<MAlertPrefs> | null;
+  /** The app's language on this phone ("es", "fr", "en-GB"…): alerts are written in it. */
+  locale?: string | null;
 }
 
 export interface Ticket {
@@ -73,7 +76,7 @@ export interface Recipient extends DeviceRow {
  * the alert's own-player wording.
  */
 export async function recipientsFor(targets: Target[], category: keyof MAlertPrefs, selfPlayerIds: string[] = []): Promise<Recipient[]> {
-  const cols = "id, installation_id, user_id, expo_push_token, prefs";
+  const cols = "id, installation_id, user_id, expo_push_token, prefs, locale";
   const wants = (d: DeviceRow) => d.expo_push_token && ({ ...DEFAULT_ALERT_PREFS, ...(d.prefs ?? {}) })[category] !== false;
   if (targets.some((t) => t.kind === "all")) {
     const all: DeviceRow[] = [];
@@ -232,15 +235,18 @@ async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | 
     let tickets: Ticket[];
     try {
       tickets = await sendExpo(
-        chunk.map((d) => ({
-          to: d.expo_push_token!,
-          // Built per phone: a player's own phone reads "You're called to Court 2".
-          title: d.self && self ? self.title : ev.payload.title,
-          body: d.self && self ? self.body : ev.payload.body,
-          data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true } : {}) },
-          sound: "default",
-          channelId: ev.payload.category === "major" ? "announcements" : "matches",
-        })),
+        chunk.map((d) => {
+          // Built per phone: a player's own phone reads "You're called to Court 2", in the phone's language.
+          const words = wordsFor({ ...ev.payload, self }, d.locale, Boolean(d.self && self));
+          return {
+            to: d.expo_push_token!,
+            title: words.title,
+            body: words.body,
+            data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true } : {}) },
+            sound: "default" as const,
+            channelId: ev.payload.category === "major" ? "announcements" : "matches",
+          };
+        }),
       );
     } catch (err) {
       // Nothing in this chunk went out; its rows stay 'queued' for the next try.

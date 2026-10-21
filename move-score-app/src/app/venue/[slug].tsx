@@ -18,6 +18,7 @@ import { Button, Empty } from "../../ui/Bits";
 import { useVenue } from "../../api/queries";
 import { openMatch, openTie, openTournament } from "../../nav/links";
 import { startVenueLocation } from "../../venue/location";
+import { useT } from "../../i18n";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A place the event info opens the map on ("poi:<id>"), as the map page accepts it. */
@@ -26,6 +27,7 @@ const PLACE = /^poi:[A-Za-z0-9_-]{1,40}$/;
 export default function VenueMapScreen() {
   const { slug, court, focus } = useLocalSearchParams<{ slug: string; court?: string; focus?: string }>();
   const { t } = useTheme();
+  const tr = useT();
   const venue = useVenue(slug);
   const web = useRef<WebView>(null);
   const stopLocation = useRef<(() => void) | null>(null);
@@ -85,8 +87,8 @@ export default function VenueMapScreen() {
   if (venue.isError && !venue.data) {
     return (
       <View style={{ flex: 1, backgroundColor: t.floor, paddingTop: 54, paddingHorizontal: 18 }}>
-        <BackHeader label="Back" />
-        <Empty title="No venue map yet" body="The organiser has not published a map of this venue." />
+        <BackHeader label={tr("common.back")} />
+        <Empty title={tr("event.noVenueMapTitle")} body={tr("event.noVenueMapBody")} />
       </View>
     );
   }
@@ -94,15 +96,15 @@ export default function VenueMapScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: t.floor }} testID="venue-map-screen">
       <View style={{ paddingTop: Platform.OS === "ios" ? 54 : 24, paddingHorizontal: 18 }}>
-        <BackHeader label={venue.data?.doc.name ?? "Venue map"} />
+        <BackHeader label={venue.data?.doc.name ?? tr("event.venueMap")} />
       </View>
       {failed ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 }}>
           <Body tone="ink2" style={{ textAlign: "center" }}>
-            The map needs a connection the first time it opens. Try again when you have signal.
+            {tr("event.mapNeedsConnection")}
           </Body>
           <Button
-            label="Try again"
+            label={tr("common.retry")}
             onPress={() => {
               setFailed(false);
               setAttempt((n) => n + 1);

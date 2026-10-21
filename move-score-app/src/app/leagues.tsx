@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Platform, TextInput, View } from "react-native";
-import { LEAGUE_VISIBILITY_BADGE, leagueVisibility, monthLabel, shiftMonth } from "@core";
+import { leagueVisibility, shiftMonth } from "@core";
+import { leagueBadge, monthName } from "../api/model";
+import { tr as trNow, useT } from "../i18n";
 import { ApiError } from "../api/client";
 import { revealLeague, useMyLeagues, useTopBoard } from "../api/queries";
 import { useTheme } from "../theme/ThemeProvider";
@@ -13,7 +15,8 @@ import { LoadState } from "../ui/LoadState";
 import { BoardTable, LeagueLine, VisibilityBadge } from "../ui/Board";
 import { openLeague } from "../nav/links";
 
-const STATUS_CHIP = { active: "Member", pending: "Waiting", awaiting_payment: "Payment due", removed: "Removed" } as const;
+const statusChip = (s: "active" | "pending" | "awaiting_payment" | "removed") =>
+  trNow(s === "active" ? "screens.chipMember" : s === "pending" ? "screens.chipWaiting" : s === "awaiting_payment" ? "screens.chipPaymentDue" : "screens.chipRemoved");
 
 /**
  * Entering a league's invite code: the league opens for this account (an "Invite
@@ -21,6 +24,7 @@ const STATUS_CHIP = { active: "Member", pending: "Waiting", awaiting_payment: "P
  */
 function InviteCodeCard() {
   const { t } = useTheme();
+  const tr = useT();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -32,15 +36,15 @@ function InviteCodeCard() {
       setCode("");
       openLeague(l.slug);
     } catch (e) {
-      setMsg(e instanceof ApiError ? e.message : "Can't reach Move Score right now.");
+      setMsg(e instanceof ApiError ? e.message : tr("screens.cantReach"));
     } finally {
       setBusy(false);
     }
   };
   return (
     <Card style={{ gap: 10 }}>
-      <Body weight="semi">Have an invite code?</Body>
-      <Body tone="ink2" size={12.5}>Some leagues are invite only. Enter the code the organiser gave you to see the league and join it.</Body>
+      <Body weight="semi">{tr("screens.haveInvite")}</Body>
+      <Body tone="ink2" size={12.5}>{tr("screens.inviteBody")}</Body>
       <TextInput
         value={code}
         onChangeText={setCode}
@@ -49,12 +53,12 @@ function InviteCodeCard() {
         autoComplete="off"
         spellCheck={false}
         keyboardType={Platform.OS === "android" ? "visible-password" : "default"}
-        placeholder="Invite code"
+        placeholder={tr("screens.inviteCode")}
         placeholderTextColor={t.ink3}
-        accessibilityLabel="League invite code"
+        accessibilityLabel={tr("screens.inviteA11y")}
         style={{ backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: t.ink, fontSize: 20, letterSpacing: 4, textAlign: "center" }}
       />
-      <Button label={busy ? "Opening…" : "Open the league"} disabled={busy || code.replace(/[^0-9a-z]/gi, "").length < 8} onPress={() => void go()} />
+      <Button label={busy ? tr("screens.opening") : tr("screens.openLeague")} disabled={busy || code.replace(/[^0-9a-z]/gi, "").length < 8} onPress={() => void go()} />
       {msg ? <Body tone="live" size={13} accessibilityLiveRegion="polite">{msg}</Body> : null}
     </Card>
   );
@@ -67,6 +71,7 @@ function InviteCodeCard() {
  * month. Organisations that opted out, and leagues that are not public, are not on it.
  */
 export default function Leagues() {
+  const tr = useT();
   const [month, setMonth] = useState<string | undefined>(undefined);
   const top = useTopBoard(month);
   const user = session.use((s) => s.user);
@@ -76,17 +81,17 @@ export default function Leagues() {
   const forYou = user ? (my.data?.visible ?? []).filter((v) => !my.data?.leagues.some((m) => m.slug === v.slug)) : [];
   return (
     <Screen tabs={false} onRefresh={() => Promise.all([top.refetch(), user ? my.refetch() : Promise.resolve()])}>
-      <BackHeader label="Back" />
-      <Display size={26}>Leagues</Display>
+      <BackHeader label={tr("common.back")} />
+      <Display size={26}>{tr("screens.leaguesTitle")}</Display>
 
-      {user && (my.data?.leagues.length ?? 0) > 0 && <SectionHeader title="My leagues" />}
+      {user && (my.data?.leagues.length ?? 0) > 0 && <SectionHeader title={tr("screens.myLeagues")} />}
       <View style={{ gap: 8 }}>
         {my.data?.leagues.map((l) => (
-          <Card key={l.slug} onPress={() => openLeague(l.slug)} accessibilityLabel={[l.name, LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)], l.organization?.name, l.rank ? `rank ${l.rank}` : null].filter(Boolean).join(". ")} style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Card key={l.slug} onPress={() => openLeague(l.slug)} accessibilityLabel={[l.name, leagueBadge(leagueVisibility(l.visibility)), l.organization?.name, l.rank ? tr("screens.rankA11y", { n: l.rank }) : null].filter(Boolean).join(". ")} style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <View style={{ flexDirection: "row", gap: 6 }}>
-                <Chip label={STATUS_CHIP[l.status]} />
-                {LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)] ? <VisibilityBadge label={LEAGUE_VISIBILITY_BADGE[leagueVisibility(l.visibility)]!} /> : null}
+                <Chip label={statusChip(l.status)} />
+                {leagueBadge(leagueVisibility(l.visibility)) ? <VisibilityBadge label={leagueBadge(leagueVisibility(l.visibility))!} /> : null}
               </View>
               <Body weight="bold" size={15} numberOfLines={1}>{l.name}</Body>
               <Body tone="ink2" size={12.5}>{[l.organization?.name, l.division].filter(Boolean).join(" · ")}</Body>
@@ -94,17 +99,17 @@ export default function Leagues() {
             {l.status === "active" ? (
               <View style={{ alignItems: "flex-end" }}>
                 <Num size={20}>{l.rank ? `#${l.rank}` : "—"}</Num>
-                <Body tone="ink3" size={11.5}>{`${l.points} pts`}</Body>
+                <Body tone="ink3" size={11.5}>{tr("screens.pts", { n: l.points })}</Body>
               </View>
             ) : null}
           </Card>
         ))}
       </View>
       {user && my.data && !my.data.profileLinked ? (
-        <Body tone="ink3" size={12.5} style={{ marginTop: 8 }}>Link your player profile (Account → player code) to join leagues.</Body>
+        <Body tone="ink3" size={12.5} style={{ marginTop: 8 }}>{tr("screens.linkToJoin")}</Body>
       ) : null}
 
-      {forYou.length > 0 && <SectionHeader title="Leagues for you" />}
+      {forYou.length > 0 && <SectionHeader title={tr("screens.leaguesForYou")} />}
       <View style={{ gap: 8 }}>
         {forYou.map((l) => <LeagueLine key={l.slug} l={l} showOrg />)}
       </View>
@@ -114,14 +119,14 @@ export default function Leagues() {
         </View>
       ) : null}
 
-      <SectionHeader title="Top of all leagues" />
+      <SectionHeader title={tr("screens.topLeagues")} />
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <LinkChip label="‹ Earlier" onPress={() => shown && setMonth(shiftMonth(shown, -1))} accessibilityLabel="Previous month" />
-        <Body weight="semi" size={13}>{shown ? monthLabel(shown) : ""}</Body>
-        <LinkChip label="Later ›" onPress={() => shown && setMonth(shiftMonth(shown, 1))} accessibilityLabel="Next month" />
+        <LinkChip label={tr("screens.earlier")} onPress={() => shown && setMonth(shiftMonth(shown, -1))} accessibilityLabel={tr("screens.prevMonthA11y")} />
+        <Body weight="semi" size={13}>{shown ? monthName(shown) : ""}</Body>
+        <LinkChip label={tr("screens.later")} onPress={() => shown && setMonth(shiftMonth(shown, 1))} accessibilityLabel={tr("screens.nextMonthA11y")} />
       </View>
-      {top.data ? <BoardTable lines={top.data.lines} empty="No league results this month yet." /> : <LoadState queries={[top]} what="the top board" compact />}
-      <Body tone="ink3" size={12} style={{ marginTop: 8 }}>Total league points this month across every club on Move Score that takes part.</Body>
+      {top.data ? <BoardTable lines={top.data.lines} empty={tr("screens.noResultsMonth")} /> : <LoadState queries={[top]} what={tr("screens.whatTopBoard")} compact />}
+      <Body tone="ink3" size={12} style={{ marginTop: 8 }}>{tr("screens.totalPoints")}</Body>
     </Screen>
   );
 }

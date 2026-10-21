@@ -7,6 +7,7 @@
  * shared one (validateFinalScore via setKindAt), as on the server.
  */
 import { completeTiebreak, matchTiebreakSet, setKindAt, type EnteredSet, type MatchRules, type SetKind } from "@core";
+import { tr } from "../i18n/t";
 
 export interface Row {
   a: string;
@@ -93,7 +94,7 @@ export function visibleRows(rules: MatchRules, rows: Row[]): RowView[] {
     out.push({
       index: i,
       kind,
-      label: kind === "match_tiebreak" ? "Match tie-break" : `Set ${i + 1}`,
+      label: kind === "match_tiebreak" ? tr("score.matchTiebreak") : tr("score.setN", { n: i + 1 }),
       tiebreak,
       tiebreakLoser: tiebreak ? (num(rows[i].a) > num(rows[i].b) ? "B" : "A") : null,
     });

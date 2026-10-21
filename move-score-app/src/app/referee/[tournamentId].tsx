@@ -11,6 +11,8 @@ import { Segments } from "../../ui/Segments";
 import { Body, Display, Eyebrow, Num } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag, LivePill, SectionHeader } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
+import { fmt, useT } from "../../i18n";
+import { matchStatusLabel } from "../../referee/words";
 
 interface Row {
   id: string;
@@ -31,6 +33,7 @@ interface Row {
 
 export default function Picker() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
+  const tr = useT();
   const me = session.use((s) => s.installationId);
   const [f, setF] = useState<"ready" | "live" | "all" | "done">("ready");
   // Court codes: "Show earlier days" asks for the court's past days too (hidden by default).
@@ -52,10 +55,10 @@ export default function Picker() {
   );
   return (
     <Screen tabs={false} onRefresh={() => q.refetch()}>
-      <BackHeader label="Referee" />
-      <Display size={24}>{q.data?.tournament.name ?? "Matches"}</Display>
-      {courtName ? <Eyebrow tone="live">{`${courtName} · today`}</Eyebrow> : null}
-      <Segments value={f} onChange={setF} options={[{ key: "ready", label: "To score" }, { key: "live", label: "Live" }, { key: "all", label: "All" }, { key: "done", label: "Done" }]} />
+      <BackHeader label={tr("referee.referee")} />
+      <Display size={24}>{q.data?.tournament.name ?? tr("referee.matches")}</Display>
+      {courtName ? <Eyebrow tone="live">{tr("referee.courtTodayEyebrow", { court: courtName })}</Eyebrow> : null}
+      <Segments value={f} onChange={setF} options={[{ key: "ready", label: tr("referee.filterToScore") }, { key: "live", label: tr("common.live") }, { key: "all", label: tr("referee.filterAll") }, { key: "done", label: tr("referee.filterDone") }]} />
       <View style={{ gap: 8 }}>
         {rows.map((m) => {
           const mine = Boolean(m.heldBy && (m.heldBy.heldByYou || m.heldBy.deviceId === me));
@@ -63,40 +66,40 @@ export default function Picker() {
             <Card key={m.id} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: m.id } })} style={{ gap: 8 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <Num size={14} tone="ink2">{[timeIn(m.scheduledTime, tz), m.court].filter(Boolean).join(" · ")}</Num>
-                {["live", "paused"].includes(m.status) ? <LivePill label={m.status === "paused" ? "PAUSED" : "LIVE"} /> : <Chip label={done(m.status) ? "Done" : m.lineupsMissing ? "Line-ups missing" : "Ready"} />}
+                {["live", "paused"].includes(m.status) ? <LivePill label={m.status === "paused" ? tr("referee.pillPaused") : tr("referee.pillLive")} /> : <Chip label={done(m.status) ? tr("referee.chipDone") : m.lineupsMissing ? tr("referee.lineupsMissing") : tr("referee.ready")} />}
               </View>
               {[m.a, m.b].map((s, i) => (
                 <View key={i} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                   <Flag iso2={s.iso2} code={s.code} />
                   <Body weight="semi" numberOfLines={1} style={{ flex: 1 }}>{s.name}</Body>
-                  {!s.checkedIn && !m.tieId ? <Eyebrow size={9} tone="live">Not checked in</Eyebrow> : null}
+                  {!s.checkedIn && !m.tieId ? <Eyebrow size={9} tone="live">{tr("referee.notCheckedIn")}</Eyebrow> : null}
                 </View>
               ))}
               {m.score ? <Num size={14}>{m.score}</Num> : null}
               <Eyebrow size={10} tone={m.heldBy && !mine ? "live" : "ink3"}>
-                {[m.rubberType, m.round, m.heldBy ? (mine ? "Held by this phone" : `Held by ${m.heldBy.deviceLabel ?? "another phone"}`) : null].filter(Boolean).join(" · ")}
+                {[m.rubberType, m.round, m.heldBy ? (mine ? tr("referee.heldByPhone") : tr("referee.heldBy", { name: m.heldBy.deviceLabel ?? tr("referee.anotherPhone") })) : null].filter(Boolean).join(" · ")}
               </Eyebrow>
             </Card>
           );
         })}
-        {!q.data && <LoadState compact queries={[q]} what="the matches" />}
-        {q.isError && q.data ? <Body tone="live" size={12}>Could not refresh: showing the last list.</Body> : null}
-        {q.data && !rows.length && <Empty title="Nothing here" body="Try another filter." />}
-        {courtName ? <Button kind="ghost" label={earlier ? "Hide earlier days" : "Show earlier days"} onPress={() => setEarlier((v) => !v)} /> : null}
+        {!q.data && <LoadState compact queries={[q]} what={tr("referee.whatMatches")} />}
+        {q.isError && q.data ? <Body tone="live" size={12}>{tr("referee.refreshFailed")}</Body> : null}
+        {q.data && !rows.length && <Empty title={tr("referee.nothingHere")} body={tr("referee.tryFilter")} />}
+        {courtName ? <Button kind="ghost" label={earlier ? tr("referee.hideEarlier") : tr("referee.showEarlier")} onPress={() => setEarlier((v) => !v)} /> : null}
         {earlier &&
           (q.data?.earlier ?? []).map((d) => (
             <View key={d.day} style={{ gap: 6 }}>
-              <SectionHeader title={new Date(`${d.day}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} />
+              <SectionHeader title={fmt().dayLong(`${d.day}T12:00:00Z`, "UTC")} />
               {d.matches.map((m) => (
                 <Card key={m.id} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: m.id } })} style={{ gap: 4 }}>
                   <Eyebrow size={10}>{[timeIn(m.scheduledTime, tz), m.rubberType, m.round].filter(Boolean).join(" · ")}</Eyebrow>
-                  <Body weight="semi" numberOfLines={1}>{`${m.a.name} v ${m.b.name}`}</Body>
-                  {m.score ? <Num size={14}>{m.score}</Num> : <Body tone="ink3" size={12}>{m.status}</Body>}
+                  <Body weight="semi" numberOfLines={1}>{`${m.a.name} ${tr("common.vs")} ${m.b.name}`}</Body>
+                  {m.score ? <Num size={14}>{m.score}</Num> : <Body tone="ink3" size={12}>{matchStatusLabel(m.status)}</Body>}
                 </Card>
               ))}
             </View>
           ))}
-        {earlier && q.data && !(q.data.earlier ?? []).length ? <Body tone="ink3" size={12}>No earlier matches on this court.</Body> : null}
+        {earlier && q.data && !(q.data.earlier ?? []).length ? <Body tone="ink3" size={12}>{tr("referee.noEarlier")}</Body> : null}
       </View>
     </Screen>
   );

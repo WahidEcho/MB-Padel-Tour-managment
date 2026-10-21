@@ -1,0 +1,9 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Haz una foto para tu historia de Move Score o tu foto de jugador. La cámara también escanea el código de la sede que sella tu pase del evento.",
+    "NSPhotoLibraryUsageDescription": "Elige una foto para tu historia de Move Score o tu foto de jugador.",
+    "NSLocationWhenInUseUsageDescription": "Move Score muestra dónde estás en el mapa de la sede y te indica cómo llegar a pie a las pistas y servicios. Tu ubicación no sale de tu teléfono.",
+    "NSLocationAlwaysAndWhenInUseUsageDescription": "Move Score muestra dónde estás en el mapa de la sede y te indica cómo llegar a pie a las pistas y servicios. Tu ubicación no sale de tu teléfono.",
+    "NSLocationAlwaysUsageDescription": "Move Score muestra dónde estás en el mapa de la sede y te indica cómo llegar a pie a las pistas y servicios. Tu ubicación no sale de tu teléfono."
+  }
+}

@@ -14,6 +14,8 @@ import { Button, Card, Chip, Empty, SectionHeader } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
 import { openRegulation } from "../../referee/LineupPicker";
 import { Glyph } from "../../ui/Glyph";
+import { fmt, useT } from "../../i18n";
+import { matchStatusLabel } from "../../referee/words";
 
 interface Call {
   id: string;
@@ -36,7 +38,7 @@ interface PickerMatch {
   b: { name: string };
 }
 
-const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "");
+const time = (iso: string | null) => (iso ? fmt().time(iso) : "");
 const FINISHED = new Set(["completed", "walkover", "disqualified", "retired", "cancelled"]);
 
 /**
@@ -47,6 +49,7 @@ const FINISHED = new Set(["completed", "walkover", "disqualified", "retired", "c
  */
 export default function MasterReferee() {
   const { t } = useTheme();
+  const tr = useT();
   const staff = session.use((s) => s.staff);
   const [court, setCourt] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -98,7 +101,7 @@ export default function MasterReferee() {
   const courts = useMemo(() => {
     const names = new Map<string, string>();
     for (const m of matches.data ?? []) if (m.court) names.set(m.court.trim().toLowerCase(), m.court.trim());
-    return [...names.values()].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    return [...names.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [matches.data]);
   const onCourt = (matches.data ?? [])
     .filter((m) => court && m.court?.trim().toLowerCase() === court.toLowerCase() && !FINISHED.has(m.status))
@@ -110,7 +113,7 @@ export default function MasterReferee() {
       await api("/api/mobile/v1/referee/assistance", { who: "staff", body: { action, callId } });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "No connection.");
+      setErr(e instanceof ApiError ? e.message : tr("referee.noConnection"));
     }
     void calls.refetch();
   };
@@ -118,42 +121,42 @@ export default function MasterReferee() {
   if (!staff || staff.referee?.role !== "master_referee") {
     return (
       <Screen tabs={false}>
-        <BackHeader label="Referee" />
-        <Empty title="Master referees only" body="Sign in with your master referee code and your PIN on the Referee screen." />
-        <Button label="Referee home" onPress={() => router.replace("/referee")} />
+        <BackHeader label={tr("referee.referee")} />
+        <Empty title={tr("referee.masterOnly")} body={tr("referee.masterOnlyBody")} />
+        <Button label={tr("referee.refereeHome")} onPress={() => router.replace("/referee")} />
       </Screen>
     );
   }
   return (
     <Screen tabs={false} onRefresh={() => Promise.all([calls.refetch(), matches.refetch()])}>
-      <BackHeader label="Referee" />
-      <Eyebrow tone="live">Master referee</Eyebrow>
+      <BackHeader label={tr("referee.referee")} />
+      <Eyebrow tone="live">{tr("referee.masterReferee")}</Eyebrow>
       <Display size={28} style={{ marginTop: 6 }}>{staff.referee.name}</Display>
 
-      <SectionHeader title={open.length ? `Calls for assistance (${open.length})` : "Calls for assistance"} />
+      <SectionHeader title={open.length ? tr("referee.callsTitleN", { count: open.length }) : tr("referee.callsTitle")} />
       <View style={{ gap: 8 }}>
         {open.map((c) => (
           <Card key={c.id} style={{ gap: 8, borderWidth: 2, borderColor: c.status === "open" ? t.live : t.warning }}>
-            <Body weight="bold" size={16}>{`Referee ${c.requestedBy} is calling for assistance at ${c.court}`}</Body>
+            <Body weight="bold" size={16}>{tr("referee.callingAt", { name: c.requestedBy, court: c.court })}</Body>
             <Body tone="ink2" size={13}>
-              {`Called ${time(c.requestedAt)}`}
-              {c.status === "acknowledged" ? ` · ${c.acknowledgedBy} on the way` : ""}
+              {tr("referee.calledAt", { time: time(c.requestedAt) })}
+              {c.status === "acknowledged" ? ` · ${tr("referee.ackBy", { name: c.acknowledgedBy ?? tr("referee.aMaster") })}` : ""}
             </Body>
             <View style={{ flexDirection: "row", gap: 8 }}>
-              {c.status === "open" && <Button label="On my way" onPress={() => void act(c.id, "acknowledge")} style={{ flex: 1 }} />}
-              <Button kind="ghost" label="Resolved" onPress={() => void act(c.id, "resolve")} style={{ flex: 1 }} />
+              {c.status === "open" && <Button label={tr("referee.onMyWay")} onPress={() => void act(c.id, "acknowledge")} style={{ flex: 1 }} />}
+              <Button kind="ghost" label={tr("referee.resolved")} onPress={() => void act(c.id, "resolve")} style={{ flex: 1 }} />
             </View>
-            {c.matchId ? <Body tone="blue" size={13} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: c.matchId! } })}>Open the match</Body> : null}
+            {c.matchId ? <Body tone="blue" size={13} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: c.matchId! } })}>{tr("referee.openMatch")}</Body> : null}
           </Card>
         ))}
-        {!calls.data && <LoadState compact queries={[calls]} what="the calls" />}
-        {calls.data && open.length === 0 && <Body tone="ink3" size={13}>No court is calling right now.</Body>}
+        {!calls.data && <LoadState compact queries={[calls]} what={tr("referee.whatCalls")} />}
+        {calls.data && open.length === 0 && <Body tone="ink3" size={13}>{tr("referee.noCalls")}</Body>}
         {err ? <Body tone="live" size={13}>{err}</Body> : null}
       </View>
 
       {(notices.data?.notices.length ?? 0) > 0 && (
         <>
-          <SectionHeader title="Line-up exceptions" />
+          <SectionHeader title={tr("referee.lineupExceptions")} />
           <View style={{ gap: 8 }}>
             {notices.data!.notices.slice(0, 8).map((n) => (
               <Card key={n.id} style={{ gap: 6, borderWidth: 2, borderColor: t.warning }}>
@@ -164,7 +167,7 @@ export default function MasterReferee() {
                 <Body tone="ink2" size={13}>
                   {time(n.at)}
                   {n.regs.map((r) => (
-                    <Body key={r} tone="blue" weight="semi" size={13} onPress={() => openRegulation(r)}>{`  ·  ITF Reg. ${r}`}</Body>
+                    <Body key={r} tone="blue" weight="semi" size={13} onPress={() => openRegulation(r)}>{`  ·  ${tr("referee.itfReg", { reg: r })}`}</Body>
                   ))}
                 </Body>
               </Card>
@@ -173,24 +176,24 @@ export default function MasterReferee() {
         </>
       )}
 
-      <SectionHeader title="Courts" />
+      <SectionHeader title={tr("referee.courts")} />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {courts.map((c) => (
           <Pressable key={c} onPress={() => setCourt(c)} accessibilityRole="button" accessibilityState={{ selected: court === c }}>
             <Chip label={c} ball={court === c} />
           </Pressable>
         ))}
-        {matches.data && courts.length === 0 && <Body tone="ink3" size={13}>No courts with matches yet.</Body>}
+        {matches.data && courts.length === 0 && <Body tone="ink3" size={13}>{tr("referee.noCourts")}</Body>}
       </View>
       {court && (
         <View style={{ gap: 8, marginTop: 10 }}>
           {onCourt.map((m) => (
             <Card key={m.id} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: m.id } })} style={{ gap: 4 }}>
-              <Eyebrow size={10}>{[time(m.scheduledTime), m.event, m.round, m.status].filter(Boolean).join(" · ")}</Eyebrow>
-              <Body weight="bold">{`${m.a.name} vs ${m.b.name}`}</Body>
+              <Eyebrow size={10}>{[time(m.scheduledTime), m.event, m.round, matchStatusLabel(m.status)].filter(Boolean).join(" · ")}</Eyebrow>
+              <Body weight="bold">{`${m.a.name} ${tr("common.vs")} ${m.b.name}`}</Body>
             </Card>
           ))}
-          {onCourt.length === 0 && <Body tone="ink3" size={13}>{`Nothing left to play on ${court}.`}</Body>}
+          {onCourt.length === 0 && <Body tone="ink3" size={13}>{tr("referee.nothingLeft", { court })}</Body>}
         </View>
       )}
     </Screen>

@@ -12,6 +12,7 @@ import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
 import { Body, Display, Eyebrow } from "../ui/Text";
 import { Button, Card, Chip } from "../ui/Bits";
+import { useT } from "../i18n";
 
 type Step =
   | { kind: "phone" }
@@ -28,6 +29,7 @@ type Step =
  */
 export default function LinkPhone() {
   const { t } = useTheme();
+  const tr = useT();
   const user = session.use((s) => s.user);
   const [step, setStep] = useState<Step>({ kind: "phone" });
   const [phone, setPhone] = useState("");
@@ -66,12 +68,12 @@ export default function LinkPhone() {
   if (!user) {
     return (
       <Screen tabs={false}>
-        <BackHeader label="Account" fallback="/account" />
-        <Display size={28}>Link with your phone</Display>
+        <BackHeader label={tr("ui.account")} fallback="/account" />
+        <Display size={28}>{tr("player.linkWithPhone")}</Display>
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body weight="semi">Sign in first</Body>
-          <Body tone="ink2" size={13}>Your history is kept with your account, so it comes with you to a new phone.</Body>
-          <Button kind="ghost" label="Back to Account" onPress={() => router.back()} />
+          <Body weight="semi">{tr("auth.signInFirst")}</Body>
+          <Body tone="ink2" size={13}>{tr("player.historyKept")}</Body>
+          <Button kind="ghost" label={tr("auth.backToAccount")} onPress={() => router.back()} />
         </Card>
       </Screen>
     );
@@ -79,14 +81,14 @@ export default function LinkPhone() {
 
   return (
     <Screen tabs={false}>
-      <BackHeader label="Account" fallback="/account" />
-      <Eyebrow tone="live">Move Score · Player</Eyebrow>
-      <Display size={28} style={{ marginTop: 6 }}>Link with your phone</Display>
+      <BackHeader label={tr("ui.account")} fallback="/account" />
+      <Eyebrow tone="live">{`Move Score · ${tr("player.player")}`}</Eyebrow>
+      <Display size={28} style={{ marginTop: 6 }}>{tr("player.linkWithPhone")}</Display>
 
       {step.kind === "phone" && (
         <Card style={{ marginTop: 16, gap: 12 }}>
           <Body tone="ink2" size={13.5}>
-            Enter the mobile number you gave the tournament. We send a six-digit code on WhatsApp; entering it links every entry recorded with that number to your account.
+            {tr("player.phoneIntro")}
           </Body>
           <TextInput
             value={phone}
@@ -99,13 +101,13 @@ export default function LinkPhone() {
             autoComplete="tel"
             placeholder="0100 123 4567"
             placeholderTextColor={t.ink3}
-            accessibilityLabel="Your mobile number"
+            accessibilityLabel={tr("player.yourMobile")}
             style={{ ...input, fontSize: 20 }}
           />
-          {phone.trim() && !toE164(phone) ? <Body tone="live" size={12}>Use +country code if the number isn&apos;t Egyptian.</Body> : null}
+          {phone.trim() && !toE164(phone) ? <Body tone="live" size={12}>{tr("player.countryCode")}</Body> : null}
           {err ? <Body tone="live" size={13}>{err}</Body> : null}
           <Button
-            label={busy ? "Sending…" : "Send me a code"}
+            label={busy ? tr("auth.sending") : tr("player.sendCode")}
             disabled={busy || !toE164(phone)}
             onPress={() =>
               void run(async () => {
@@ -124,20 +126,20 @@ export default function LinkPhone() {
           {step.emailed ? (
             <Body tone="ink2" size={13.5}>{step.emailed}</Body>
           ) : step.start.sent ? (
-            <Body tone="ink2" size={13.5}>We sent a code on WhatsApp. It works for 10 minutes.</Body>
+            <Body tone="ink2" size={13.5}>{tr("player.sentWhatsApp")}</Body>
           ) : null}
           {step.askEmail && !step.emailed ? (
             <View style={{ gap: 10, borderWidth: 1, borderColor: t.ball, borderRadius: 14, padding: 12 }} accessibilityLiveRegion="polite">
-              <Body weight="semi">{step.start.sent ? "Didn't get it on WhatsApp?" : "WhatsApp couldn't deliver the code."}</Body>
+              <Body weight="semi">{step.start.sent ? tr("player.didntGetWhatsApp") : tr("player.whatsAppFailed")}</Body>
               <Body tone="ink2" size={13}>
                 {user.email
-                  ? `Send it to ${user.email} instead? It arrives only if the tournament has that email with this number.`
-                  : "Send it by email instead? It goes to your account's email, if the tournament has it with this number."}
+                  ? tr("player.sendToEmail", { email: user.email })
+                  : tr("player.sendByEmailQ")}
               </Body>
               <View style={{ flexDirection: "row", gap: 8 }}>
-                <Button kind="ghost" label="Not now" onPress={() => setStep({ ...step, askEmail: false })} style={{ flex: 1 }} />
+                <Button kind="ghost" label={tr("account.notNow")} onPress={() => setStep({ ...step, askEmail: false })} style={{ flex: 1 }} />
                 <Button
-                  label={busy ? "Sending…" : "Send by email"}
+                  label={busy ? tr("auth.sending") : tr("player.sendByEmail")}
                   disabled={busy}
                   onPress={() =>
                     void run(async () => {
@@ -161,12 +163,12 @@ export default function LinkPhone() {
             autoComplete="one-time-code"
             placeholder="123456"
             placeholderTextColor={t.ink3}
-            accessibilityLabel="Six-digit code"
+            accessibilityLabel={tr("player.sixDigit")}
             style={{ ...input, fontSize: 30, letterSpacing: 8, textAlign: "center", fontVariant: ["tabular-nums"] }}
           />
           {err ? <Body tone="live" size={13}>{err}</Body> : null}
           <Button
-            label={busy ? "Checking…" : "Link my history"}
+            label={busy ? tr("auth.checking") : tr("player.linkHistory")}
             disabled={busy || normalizeOneTimeCode(code)?.length !== OTP_LENGTH}
             onPress={() =>
               void run(async () => {
@@ -177,24 +179,24 @@ export default function LinkPhone() {
           />
           {!step.askEmail && !step.emailed ? (
             <Body tone="blue" weight="semi" size={13} onPress={() => setStep({ ...step, askEmail: true })} accessibilityRole="button">
-              Didn&apos;t get a code?
+              {tr("player.didntGetCode")}
             </Body>
           ) : null}
           <Body tone="blue" weight="semi" size={13} onPress={() => setStep({ kind: "phone" })} accessibilityRole="button">
-            Use another number
+            {tr("player.anotherNumber")}
           </Body>
         </Card>
       )}
 
       {step.kind === "choose" && (
         <View style={{ marginTop: 16, gap: 10 }}>
-          <Body tone="ink2" size={13.5}>More than one player has this number. Which one are you?</Body>
+          <Body tone="ink2" size={13.5}>{tr("player.whichOne")}</Body>
           {step.choices.map((c) => (
             <Card key={c.choiceId} style={{ gap: 6 }}>
               <Body weight="semi" size={16}>{c.name}</Body>
               {c.entries.length ? <Body tone="ink2" size={12.5}>{c.entries.join(" · ")}</Body> : null}
               <Button
-                label={busy ? "Linking…" : `I'm ${c.name.split(" ")[0]}`}
+                label={busy ? tr("player.linking") : tr("player.imName", { name: c.name.split(" ")[0] })}
                 disabled={busy}
                 onPress={() =>
                   void run(async () => {
@@ -212,19 +214,19 @@ export default function LinkPhone() {
         (step.result.linked ? (
           <View style={{ alignItems: "center", gap: 12, marginTop: 12 }}>
             <PlayerAvatar player={step.result.linked.player} size={96} />
-            <Eyebrow tone="live">Linked to your account</Eyebrow>
-            <Display size={28} style={{ textAlign: "center" }}>{`You're ${step.result.linked.player.name}`}</Display>
+            <Eyebrow tone="live">{tr("player.linkedToAccount")}</Eyebrow>
+            <Display size={28} style={{ textAlign: "center" }}>{tr("player.youAre", { name: step.result.linked.player.name })}</Display>
             <PlayerIdentity player={step.result.linked.player} />
             <Body tone="ink2" size={13} style={{ textAlign: "center" }}>
-              {step.result.linked.linked > 1 ? `${step.result.linked.linked} entries linked.` : "Your entry is linked."}
+              {step.result.linked.linked > 1 ? tr("player.entriesLinked", { count: step.result.linked.linked }) : tr("player.entryLinked")}
             </Body>
-            <Button label="See my profile" onPress={() => router.replace("/profile" as Href)} style={{ alignSelf: "stretch" }} />
+            <Button label={tr("player.seeProfile")} onPress={() => router.replace("/profile" as Href)} style={{ alignSelf: "stretch" }} />
           </View>
         ) : (
           <Card style={{ marginTop: 16, gap: 10 }}>
-            <Body weight="semi">{step.result.confirmed === "email" ? "Email confirmed" : "Number confirmed"}</Body>
-            <Body tone="ink2" size={13}>{step.result.message ?? "Nothing to link yet."}</Body>
-            <Button kind="ghost" label="Enter a player code" onPress={() => router.replace("/player-code")} />
+            <Body weight="semi">{step.result.confirmed === "email" ? tr("auth.emailConfirmed") : tr("player.numberConfirmed")}</Body>
+            <Body tone="ink2" size={13}>{step.result.message ?? tr("player.nothingToLink")}</Body>
+            <Button kind="ghost" label={tr("player.enterPlayerCode")} onPress={() => router.replace("/player-code")} />
           </Card>
         ))}
     </Screen>

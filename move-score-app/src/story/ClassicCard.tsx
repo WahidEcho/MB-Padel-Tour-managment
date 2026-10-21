@@ -10,6 +10,7 @@ import { Flag } from "../ui/Bits";
 import { LoadState } from "../ui/LoadState";
 import { SchemeScope } from "../theme/ThemeProvider";
 import type { StoryInfo } from "./model";
+import { useT } from "../i18n";
 
 export const CARD_W = 270;
 export const CARD_H = 480;
@@ -28,6 +29,7 @@ function Frame({ children }: { children: ReactNode }) {
 const Wordmark = () => <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ height: 10, width: 10 * (997 / 74) }} contentFit="contain" accessibilityLabel="Move Score" />;
 
 export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null; problem: "offline" | "gone" | null; onRetry: () => void }) {
+  const tr = useT();
   if (!info) {
     // The card is dark whatever the theme, so the shared load state is drawn dark too.
     return (
@@ -38,11 +40,11 @@ export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null
               compact
               kind={problem === "offline" ? "offline" : problem === "gone" ? "notFound" : "loading"}
               onRetry={onRetry}
-              what="the latest score"
+              what={tr("story.latestScore")}
               notFound={
                 <View style={{ gap: 10 }}>
-                  <Body weight="bold" style={{ color: "#E8ECF4" }}>This is not available</Body>
-                  <Body size={13} style={{ color: "#9AA4B8" }}>It may have been removed from the order of play.</Body>
+                  <Body weight="bold" style={{ color: "#E8ECF4" }}>{tr("story.notAvailable")}</Body>
+                  <Body size={13} style={{ color: "#9AA4B8" }}>{tr("story.notAvailableBody")}</Body>
                 </View>
               }
             />
@@ -55,11 +57,11 @@ export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null
     return (
       <Frame>
         <Wordmark />
-        <Eyebrow size={9} style={{ color: "#9AA4B8", marginTop: 26, letterSpacing: 2 }}>{(info.round ?? "Event pass").toUpperCase()}</Eyebrow>
+        <Eyebrow size={9} style={{ color: "#9AA4B8", marginTop: 26, letterSpacing: 2 }}>{(info.round ?? tr("story.eventPass")).toUpperCase()}</Eyebrow>
         <Body style={{ fontFamily: F.display, fontSize: 26, lineHeight: 26, color: "#E8ECF4", textTransform: "uppercase", marginTop: 10 }}>{info.event}</Body>
         {info.place ? <Body size={12} style={{ color: "#9AA4B8", marginTop: 8 }}>{info.place}</Body> : null}
         <View style={{ marginTop: "auto" }}>
-          <Body style={{ fontFamily: F.display, fontSize: 40, lineHeight: 38, color: BALL, textTransform: "uppercase" }}>{info.note ? info.note.replace(" on-site", "\non-site") : info.headline.join("\n")}</Body>
+          <Body style={{ fontFamily: F.display, fontSize: 40, lineHeight: 38, color: BALL, textTransform: "uppercase" }}>{info.noteBig ?? info.note ?? info.headline.join("\n")}</Body>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12 }}>
             <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{info.serial}</Eyebrow>
             <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{info.holder ?? ""}</Eyebrow>
@@ -89,7 +91,7 @@ export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null
         <Body style={{ fontFamily: F.display, fontSize: 44, lineHeight: 40, color: BALL, textTransform: "uppercase" }}>{info.headline.join("\n")}</Body>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12 }}>
           <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{[info.city, new Date().getFullYear()].filter(Boolean).join(" · ")}</Eyebrow>
-          <Eyebrow size={9} style={{ color: "#9AA4B8" }}>I WAS THERE</Eyebrow>
+          <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{tr("story.iWasThere")}</Eyebrow>
         </View>
       </View>
     </Frame>

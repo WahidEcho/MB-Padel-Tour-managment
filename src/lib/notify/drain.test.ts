@@ -335,6 +335,30 @@ describe("match-day alerts: the players' own phones and wording", () => {
     expect(messages().map((m) => [m.to, m.title])).toEqual([["ExponentPushToken[3]", "X won"]]);
   });
 
+  it("sends Spanish and French phones their words, the rest the English (also the players' own wording)", async () => {
+    const { composeCalledToCourt } = await import("./compose");
+    const payload = composeCalledToCourt({ matchId: "m1", a: "EGY", b: "JPN", court: "Court 2", label: "Group A", playerIds: ["p1"], deadline: "2026-11-04T12:35:00Z", timeZone: "Africa/Cairo", minutes: 5 });
+    seed({ kind: "called_to_court", payload: { ...payload, targets: [{ kind: "match", key: "m1" }] } });
+    tables.push_devices![0]!.locale = "es";
+    tables.push_devices![1]!.locale = "en-GB";
+    tables.push_devices!.push({ id: "d3", installation_id: "inst-3", user_id: "u1", expo_push_token: "ExponentPushToken[3]", prefs: {}, disabled_at: null, locale: "fr" });
+    tables.player_claims = [{ user_id: "u1", player_id: "p1" }];
+    replies({ tickets: [{ status: "ok" }, { status: "ok" }, { status: "ok" }] });
+    await drainNotifications();
+    const byToken = new Map(messages().map((m) => [m.to, m]));
+    expect(byToken.get("ExponentPushToken[1]")?.title).toBe("Llamada a Court 2: EGY vs. JPN");
+    expect(byToken.get("ExponentPushToken[2]")?.title).toBe("Called to Court 2: EGY v JPN");
+    expect(byToken.get("ExponentPushToken[3]")).toMatchObject({ title: "On vous appelle sur Court 2", body: "EGY vs JPN : soyez sur le court avant 14:35 (5 min)." });
+  });
+
+  it("sends an outbox row written before translations (or an announcement) as it is, whatever the phone's language", async () => {
+    seed();
+    tables.push_devices![0]!.locale = "fr";
+    replies({ tickets: [{ status: "ok" }, { status: "ok" }] });
+    await drainNotifications();
+    expect(messages().every((m) => m.title === "T" && m.body === "B")).toBe(true);
+  });
+
   it("PUSH_DRY_RUN sends nothing and records which wording each phone would have had", async () => {
     vi.stubEnv("PUSH_DRY_RUN", "1");
     try {

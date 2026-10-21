@@ -14,10 +14,11 @@
  * `{ code, refereeId, pin }` so the server checks that referee's PIN only.
  */
 import type { RefereeChoice } from "@core";
-import { api, ApiError, OFFLINE_MESSAGE } from "../api/client";
+import { api, ApiError, offlineMessage } from "../api/client";
 import { session, saveStaff, saveStaffCarry, type StaffCarry } from "../state/session";
 import { queue } from "./queue";
 import { createSyncer } from "./sync";
+import { tr } from "../i18n/t";
 
 export type CodeSignInResult =
   | { ok: true; court: string | null; carried: number; referee: string | null; master: boolean }
@@ -114,7 +115,7 @@ export async function signInWithCode(code: string, pin?: string, refereeId?: str
     if (body?.code === "pin_locked" || body?.code === "pin_paused" || body?.code === "pin_busy") {
       return { ok: false, message: e instanceof ApiError ? e.message : "", locked: true };
     }
-    return { ok: false, message: e instanceof ApiError && e.status !== 0 ? e.message : `${OFFLINE_MESSAGE} The code is checked online once; scoring then works offline.` };
+    return { ok: false, message: e instanceof ApiError && e.status !== 0 ? e.message : `${offlineMessage()} ${tr("referee.codeCheckedOnline")}` };
   }
 }
 

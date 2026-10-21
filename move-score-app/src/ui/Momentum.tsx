@@ -4,6 +4,7 @@ import Svg, { Defs, Line, LinearGradient, Path, Stop } from "react-native-svg";
 import { useTheme } from "../theme/ThemeProvider";
 import type { MTimelinePoint } from "@core";
 import { Eyebrow } from "./Text";
+import { useT } from "../i18n";
 
 const DOT = 10;
 
@@ -14,6 +15,7 @@ const DOT = 10;
  */
 export function Momentum({ points, aLabel, bLabel, height = 92 }: { points: MTimelinePoint[]; aLabel: string; bLabel: string; height?: number }) {
   const { t } = useTheme();
+  const tr = useT();
   const { d, area, end, lead } = useMemo(() => {
     let v = 0;
     const vals = points.map((p) => (v = v * 0.86 + (p.w === "A" ? 1 : -1)));
@@ -25,7 +27,7 @@ export function Momentum({ points, aLabel, bLabel, height = 92 }: { points: MTim
     return { d: path, area: `${path} L320 ${mid} L0 ${mid} Z`, end: pts[pts.length - 1]!, lead: vals[vals.length - 1]! >= 0 ? ("A" as const) : ("B" as const) };
   }, [points, height]);
   return (
-    <View accessible accessibilityLabel={lead ? `Momentum: ${lead === "A" ? aLabel : bLabel} on top` : "Momentum not available yet"}>
+    <View accessible accessibilityLabel={lead ? tr("hero.momentumA11y", { name: lead === "A" ? aLabel : bLabel }) : tr("hero.momentumNone")}>
       <Svg width="100%" height={height} viewBox={`0 0 320 ${height}`} preserveAspectRatio="none">
         <Defs>
           <LinearGradient id="mg" x1="0" y1="0" x2="0" y2="1">
@@ -48,7 +50,7 @@ export function Momentum({ points, aLabel, bLabel, height = 92 }: { points: MTim
       ) : null}
       <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
         <Eyebrow size={10} tone="ink3">{aLabel}</Eyebrow>
-        <Eyebrow size={10} tone="ink3">{lead ? `${lead === "A" ? aLabel : bLabel} on top` : "No points yet"}</Eyebrow>
+        <Eyebrow size={10} tone="ink3">{lead ? tr("hero.onTop", { name: lead === "A" ? aLabel : bLabel }) : tr("hero.noPointsYet")}</Eyebrow>
         <Eyebrow size={10} tone="ink3">{bLabel}</Eyebrow>
       </View>
     </View>

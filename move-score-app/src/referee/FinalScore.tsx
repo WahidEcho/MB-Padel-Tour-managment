@@ -37,6 +37,8 @@ import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display, Eyebrow, Num } from "../ui/Text";
 import { Button } from "../ui/Bits";
 import { digits, rowsFrom, setsFrom, visibleRows, type Row } from "./finalScoreForm";
+import { problemText, richParts } from "./scoreWords";
+import { useT } from "../i18n";
 
 export interface FinalScoreProps {
   engine: "games" | "chess";
@@ -99,6 +101,7 @@ function Choice({ label, on, onPress, a11y }: { label: string; on: boolean; onPr
 export function FinalScore(props: FinalScoreProps) {
   const { engine, rules, sideA, sideB, correcting, canDecideAdvance, busy, error, problems: serverProblems, note, onSubmit, onCancel } = props;
   const { t } = useTheme();
+  const tr = useT();
   const legs = props.legs ?? 1;
   const competition = props.competition ?? "knockout";
   const maxSets = Math.max(1, 2 * rules.setsToWinMatch - 1);
@@ -138,10 +141,10 @@ export function FinalScore(props: FinalScoreProps) {
   const banner =
     error || (serverProblems && serverProblems.length > 0) ? (
       <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={{ borderRadius: 14, padding: 12, backgroundColor: t.chip, borderWidth: 1, borderColor: t.live, gap: 4 }}>
-        <Body tone="live" weight="semi" size={14}>{error ?? "The result was not recorded."}</Body>
+        <Body tone="live" weight="semi" size={14}>{error ?? tr("score.notRecorded")}</Body>
         {serverProblems && serverProblems.length > 1
           ? serverProblems.map((p, i) => (
-              <Body key={i} tone="live" size={12.5}>{`• ${p.message}`}</Body>
+              <Body key={i} tone="live" size={12.5}>{`• ${problemText(p)}`}</Body>
             ))
           : null}
       </View>
@@ -154,11 +157,11 @@ export function FinalScore(props: FinalScoreProps) {
     return (
       <View style={{ gap: 12 }}>
         {banner}
-        <Display size={20} accessibilityRole="header">{step === "summary" ? "Check the result" : correcting ? "Replace the recorded score?" : "Record this result?"}</Display>
+        <Display size={20} accessibilityRole="header">{step === "summary" ? tr("score.checkTitle") : correcting ? tr("score.replaceQuestion") : tr("score.recordQuestion")}</Display>
         <View
           style={{ flexDirection: "row", gap: 10 }}
           accessible
-          accessibilityLabel={winner ? `${name(winner)} wins${line ? ` ${line}` : ""}${level ? ", advances" : ""}` : chess ? `Level, ${line}` : line}
+          accessibilityLabel={winner ? tr(level ? "score.a11yWinsAdvances" : "score.a11yWins", { name: name(winner), line }).trim() : chess ? tr("score.a11yLevel", { line }) : line}
         >
           {(["A", "B"] as TeamKey[]).map((k) => {
             const won = winner === k;
@@ -180,31 +183,38 @@ export function FinalScore(props: FinalScoreProps) {
               >
                 <Body weight="bold" size={14} numberOfLines={2} style={{ textAlign: "center" }}>{name(k)}</Body>
                 <Num size={44}>{String(count)}</Num>
-                {won ? <Eyebrow size={10.5} style={{ color: t.success }}>{level ? "Winner · advances" : "Winner"}</Eyebrow> : <Eyebrow size={10.5} tone="ink3"> </Eyebrow>}
+                {won ? <Eyebrow size={10.5} style={{ color: t.success }}>{level ? tr("score.winnerAdvances") : tr("score.winner")}</Eyebrow> : <Eyebrow size={10.5} tone="ink3"> </Eyebrow>}
               </View>
             );
           })}
         </View>
         {summary ? (
           <Body size={15} style={{ textAlign: "center" }}>
-            <Body weight="bold" size={15}>{winner ? name(winner) : ""}</Body>
-            {` wins ${summary.setsWinnerFirst}`}
+            {richParts("score.winsLine", { name: winner ? name(winner) : "", line: summary.setsWinnerFirst }, ["name"]).map((part, i) =>
+              part.bold ? (
+                <Body key={i} weight="bold" size={15}>
+                  {part.text}
+                </Body>
+              ) : (
+                part.text
+              ),
+            )}
           </Body>
         ) : null}
-        {chess && level && !advance ? <Body size={13} style={{ color: t.warning, textAlign: "center" }}>Level: the organiser decides who advances. The match stays open until then.</Body> : null}
+        {chess && level && !advance ? <Body size={13} style={{ color: t.warning, textAlign: "center" }}>{tr("score.levelOrganiser")}</Body> : null}
         {step === "summary" ? (
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button kind="ghost" label="Keep editing" onPress={() => setStep("enter")} style={{ flex: 1 }} />
-            <Button label="Confirm" onPress={() => setStep("confirm")} style={{ flex: 1 }} />
+            <Button kind="ghost" label={tr("score.keepEditing")} onPress={() => setStep("enter")} style={{ flex: 1 }} />
+            <Button label={tr("common.confirm")} onPress={() => setStep("confirm")} style={{ flex: 1 }} />
           </View>
         ) : (
           <>
             <Body tone="ink2" size={12.5}>
-              {`${correcting ? "The score recorded so far is replaced and the change is logged. " : ""}Standings, the draw, points and the screens update as soon as it reaches the server.`}
+              {correcting ? `${tr("score.replaceNote")} ${tr("score.updateNote")}` : tr("score.updateNote")}
             </Body>
             <View style={{ flexDirection: "row", gap: 8 }}>
-              <Button kind="ghost" label="Back" disabled={busy} onPress={() => setStep("enter")} style={{ flex: 1 }} />
-              <Button label={busy ? "Recording…" : correcting ? "Replace result" : "Record result"} disabled={busy || !payload} onPress={() => payload && onSubmit(payload)} style={{ flex: 1 }} />
+              <Button kind="ghost" label={tr("common.back")} disabled={busy} onPress={() => setStep("enter")} style={{ flex: 1 }} />
+              <Button label={busy ? tr("score.recording") : correcting ? tr("score.replaceResult") : tr("score.recordResult")} disabled={busy || !payload} onPress={() => payload && onSubmit(payload)} style={{ flex: 1 }} />
             </View>
             {note ? <Body tone="ink3" size={12}>{note}</Body> : null}
           </>
@@ -217,8 +227,8 @@ export function FinalScore(props: FinalScoreProps) {
   return (
     <View style={{ gap: 12 }}>
       {banner}
-      <Display size={20} accessibilityRole="header">{correcting ? "Correct the result" : "Enter the final result"}</Display>
-      {correcting ? <Body size={12.5} style={{ color: t.warning }}>This match already has a score. The result you enter replaces it, and the change is logged.</Body> : null}
+      <Display size={20} accessibilityRole="header">{correcting ? tr("score.correctResult") : tr("score.enterTitle")}</Display>
+      {correcting ? <Body size={12.5} style={{ color: t.warning }}>{tr("score.correctingNote")}</Body> : null}
 
       {engine === "games" ? (
         <View style={{ gap: 10 }}>
@@ -229,42 +239,42 @@ export function FinalScore(props: FinalScoreProps) {
           </View>
           {shown.map((r) => {
             const row = rows[r.index];
-            const what = r.kind === "match_tiebreak" ? "match tie-break points" : `set ${r.index + 1} games`;
+            const fieldLabel = (who: string) => (r.kind === "match_tiebreak" ? tr("score.fieldMatchTb", { name: who }) : tr("score.fieldSetGames", { name: who, n: r.index + 1 }));
             return (
               <View key={r.index} style={{ gap: 6 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <Eyebrow size={10.5} style={{ width: 92 }}>{r.label}</Eyebrow>
                   <View style={{ flex: 1, alignItems: "center" }}>
-                    <ScoreField value={row.a} onChange={(v) => setRow(r.index, { a: v })} label={`${sideA} ${what}`} />
+                    <ScoreField value={row.a} onChange={(v) => setRow(r.index, { a: v })} label={fieldLabel(sideA)} />
                   </View>
                   <View style={{ flex: 1, alignItems: "center" }}>
-                    <ScoreField value={row.b} onChange={(v) => setRow(r.index, { b: v })} label={`${sideB} ${what}`} />
+                    <ScoreField value={row.b} onChange={(v) => setRow(r.index, { b: v })} label={fieldLabel(sideB)} />
                   </View>
                 </View>
                 {r.tiebreak && r.tiebreakLoser ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                    <Body tone="ink2" size={12} style={{ width: 92 }}>Tie-break</Body>
-                    <Body tone="ink2" size={12.5} style={{ flex: 1 }}>{`${name(r.tiebreakLoser)}'s points in the tie-break`}</Body>
-                    <ScoreField value={row.tb} onChange={(v) => setRow(r.index, { tb: v })} label={`Set ${r.index + 1} tie-break: ${name(r.tiebreakLoser)}'s points`} wide />
+                    <Body tone="ink2" size={12} style={{ width: 92 }}>{tr("score.tiebreak")}</Body>
+                    <Body tone="ink2" size={12.5} style={{ flex: 1 }}>{tr("score.tbLoserPoints", { name: name(r.tiebreakLoser) })}</Body>
+                    <ScoreField value={row.tb} onChange={(v) => setRow(r.index, { tb: v })} label={tr("score.tbFieldA11y", { n: r.index + 1, name: name(r.tiebreakLoser) })} wide />
                   </View>
                 ) : null}
               </View>
             );
           })}
-          <Body tone="ink3" size={12}>A 7-6 set needs the tie-break points of the side that lost it (7-6(5): type 5). A match tie-break is entered as its points (10-8).</Body>
+          <Body tone="ink3" size={12}>{tr("score.tbHint")}</Body>
         </View>
       ) : (
         <View style={{ gap: 12 }}>
           {games.map((g, i) => (
             <View key={i} style={{ gap: 6 }}>
-              <Eyebrow size={10.5}>{`Game ${i + 1} · ${i % 2 === 0 ? sideA : sideB} has White`}</Eyebrow>
+              <Eyebrow size={10.5}>{tr("score.gameWhite", { n: i + 1, name: i % 2 === 0 ? sideA : sideB })}</Eyebrow>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {(["A", "draw", "B"] as ChessGameResult[]).map((r) => (
                   <Choice
                     key={r}
                     on={g === r}
-                    label={r === "draw" ? "Draw" : `${name(r as TeamKey)} won`}
-                    a11y={`Game ${i + 1}: ${r === "draw" ? "draw" : `${name(r as TeamKey)} won`}`}
+                    label={r === "draw" ? tr("score.draw") : tr("score.nameWon", { name: name(r as TeamKey) })}
+                    a11y={r === "draw" ? tr("score.gameA11yDraw", { n: i + 1 }) : tr("score.gameA11yWon", { n: i + 1, name: name(r as TeamKey) })}
                     onPress={() => setGames((gs) => gs.map((x, j) => (j === i ? r : x)))}
                   />
                 ))}
@@ -273,29 +283,29 @@ export function FinalScore(props: FinalScoreProps) {
           ))}
           {level && canDecideAdvance ? (
             <View style={{ gap: 6 }}>
-              <Body size={13} weight="semi" style={{ color: t.warning }}>The pairing is level. Who advances?</Body>
+              <Body size={13} weight="semi" style={{ color: t.warning }}>{tr("score.levelWhoAdvances")}</Body>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {(["A", "B"] as TeamKey[]).map((k) => (
-                  <Choice key={k} on={advance === k} label={name(k)} a11y={`${name(k)} advances`} onPress={() => setAdvance(k)} />
+                  <Choice key={k} on={advance === k} label={name(k)} a11y={tr("score.nameAdvances", { name: name(k) })} onPress={() => setAdvance(k)} />
                 ))}
               </View>
             </View>
           ) : null}
-          {level && !canDecideAdvance ? <Body size={12.5} style={{ color: t.warning }}>The pairing is level: it is recorded as level and the organiser decides who advances.</Body> : null}
+          {level && !canDecideAdvance ? <Body size={12.5} style={{ color: t.warning }}>{tr("score.levelRecorded")}</Body> : null}
         </View>
       )}
 
       {problems.length > 0 && (sets.length > 0 || engine === "chess") ? (
         <View accessibilityLiveRegion="polite" style={{ gap: 2 }}>
           {problems.slice(0, 3).map((p, i) => (
-            <Body key={i} size={12.5} style={{ color: t.warning }}>{p.message}</Body>
+            <Body key={i} size={12.5} style={{ color: t.warning }}>{problemText(p)}</Body>
           ))}
         </View>
       ) : null}
 
       <View style={{ flexDirection: "row", gap: 8 }}>
-        {onCancel ? <Button kind="ghost" label="Cancel" disabled={busy} onPress={onCancel} style={{ flex: 1 }} /> : null}
-        <Button label="Check result" disabled={!ready || busy} onPress={() => setStep("summary")} style={{ flex: 1 }} />
+        {onCancel ? <Button kind="ghost" label={tr("common.cancel")} disabled={busy} onPress={onCancel} style={{ flex: 1 }} /> : null}
+        <Button label={tr("score.checkResultButton")} disabled={!ready || busy} onPress={() => setStep("summary")} style={{ flex: 1 }} />
       </View>
     </View>
   );

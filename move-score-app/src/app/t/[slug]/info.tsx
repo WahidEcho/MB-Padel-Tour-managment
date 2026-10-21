@@ -14,7 +14,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path } from "react-native-svg";
 import Animated, { FadeIn, cancelAnimation, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import { dateSpan, displayPhone, eventInfoDayLabel, hoursLine, openLabel, openState, telLink, todayHours, whatsAppLink, mailLink, type EventInfoPlace, type OpenState, type PublicEventInfo } from "@core";
+import { displayPhone, openState, telLink, todayHours, whatsAppLink, mailLink, type EventInfoDay, type EventInfoPlace, type OpenState, type PublicEventInfo } from "@core";
+import { dateRange, isoDayName } from "../../../api/model";
+import { fmt, tr as trNow, useT } from "../../../i18n";
 import { useBundle, useEventInfo } from "../../../api/queries";
 import { SkinScope, useTheme } from "../../../theme/ThemeProvider";
 import { Screen } from "../../../ui/Screen";
@@ -35,10 +37,46 @@ function directionsUrl(info: PublicEventInfo): string | null {
   return Platform.OS === "ios" ? (info.links.apple ?? info.links.google) : (info.links.google ?? info.links.apple);
 }
 
+/** "Mon 2 Nov" for an event day, in the app's language. */
+const dayName = (date: string) => isoDayName(date, false);
+
+/** "2–8 Nov 2026" in the app's language; "" without a start. */
+function dateSpan(startsOn: string | null | undefined, endsOn: string | null | undefined): string {
+  if (!startsOn) return "";
+  const end = endsOn || startsOn;
+  if (startsOn.slice(0, 4) !== end.slice(0, 4)) return `${fmt().date(`${startsOn}T12:00:00Z`, "UTC")} – ${fmt().date(`${end}T12:00:00Z`, "UTC")}`;
+  return `${dateRange(startsOn, end)} ${startsOn.slice(0, 4)}`;
+}
+
+/** The open-now chip's words (the same states as @core's openLabel). */
+function openLabel(s: OpenState): string {
+  switch (s.kind) {
+    case "open":
+      return s.closingSoon ? trNow("event.closingSoon", { time: s.closes }) : trNow("event.openNow", { time: s.closes });
+    case "opens":
+      return s.when === "today"
+        ? trNow("event.opensToday", { time: s.opens })
+        : s.when === "tomorrow"
+          ? trNow("event.opensTomorrow", { time: s.opens })
+          : trNow("event.opensOn", { day: dayName(s.day.date), time: s.opens });
+    case "over":
+      return trNow("event.over");
+    case "unknown":
+      return trNow("event.hoursTbc");
+  }
+}
+
+/** "09:00 – 21:00", "Closed", or "Hours to be confirmed". */
+function hoursLine(d: EventInfoDay): string {
+  if (d.closed) return trNow("event.closed");
+  if (d.opens && d.closes) return `${d.opens} – ${d.closes}`;
+  return trNow("event.hoursTbc");
+}
+
 /** A maps search near the venue, for a tile with no map place and no text. */
 function nearbySearch(what: string, info: PublicEventInfo): string {
   const near = info.directions.address || [info.venueName, info.city].filter(Boolean).join(", ");
-  const q = encodeURIComponent(`${what} near ${near}`);
+  const q = encodeURIComponent(trNow("event.searchNear", { what, place: near }));
   return Platform.OS === "ios" ? `https://maps.apple.com/?q=${q}` : `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
@@ -80,6 +118,7 @@ function Glyph({ kind, color, size = 22 }: { kind: GlyphKind; color: string; siz
 /** "Open now · closes 21:00", with a breathing dot while open. */
 function OpenChip({ state }: { state: OpenState }) {
   const { t, calm } = useTheme();
+  useT();
   const isOpen = state.kind === "open";
   const color = isOpen ? (state.closingSoon ? t.warning : t.success) : t.ink2;
   const s = useSharedValue(0);
@@ -204,6 +243,7 @@ type Key = "hours" | "entry" | "directions" | "parking" | "food" | `faq-${number
 
 function Info({ slug }: { slug: string }) {
   const { t } = useTheme();
+  const tr = useT();
   const q = useEventInfo(slug);
   const scroll = useRef<ScrollView | null>(null);
   const offsets = useRef<Partial<Record<Key, number>>>({});
@@ -220,8 +260,8 @@ function Info({ slug }: { slug: string }) {
   if (!info) {
     return (
       <Screen tabs={false} onRefresh={() => q.refetch()}>
-        <BackHeader label="Tournament" fallback={{ pathname: "/t/[slug]", params: { slug } }} />
-        <LoadState queries={[q]} what="the event info" notFound={<Empty title="No event info yet" body="The organiser has not published it. Check back closer to the event." />} />
+        <BackHeader label={tr("event.tournamentBack")} fallback={{ pathname: "/t/[slug]", params: { slug } }} />
+        <LoadState queries={[q]} what={tr("event.whatInfo")} notFound={<Empty title={tr("event.noInfoTitle")} body={tr("event.noInfoBody")} />} />
       </Screen>
     );
   }
@@ -260,38 +300,38 @@ function Info({ slug }: { slug: string }) {
   const hasDirections = Boolean(d.address || d.landmark || d.dropOff || d.transit || go);
 
   const tiles: { kind: GlyphKind; label: string; sub: string; onPress: () => void }[] = [];
-  if (go) tiles.push({ kind: "directions", label: "Directions", sub: Platform.OS === "ios" && info.links.apple ? "Apple Maps" : "Google Maps", onPress: () => open(go) });
+  if (go) tiles.push({ kind: "directions", label: tr("event.directions"), sub: Platform.OS === "ios" && info.links.apple ? "Apple Maps" : "Google Maps", onPress: () => open(go) });
   tiles.push({
     kind: "parking",
-    label: "Parking",
-    sub: place("parking") ? "Show on venue map" : info.parking ? "Where to park" : "Nearby parking",
-    onPress: () => onMap("parking") || (info.parking ? reveal("parking") : open(nearbySearch("parking", info))),
+    label: tr("event.parking"),
+    sub: place("parking") ? tr("event.showOnMap") : info.parking ? tr("event.whereToPark") : tr("event.nearbyParking"),
+    onPress: () => onMap("parking") || (info.parking ? reveal("parking") : open(nearbySearch(tr("event.searchParking"), info))),
   });
   tiles.push({
     kind: "food",
-    label: "Food & drinks",
-    sub: place("food") ? "Show on venue map" : info.food ? "What's on" : "Nearby",
-    onPress: () => onMap("food") || (info.food ? reveal("food") : open(nearbySearch("restaurants", info))),
+    label: tr("event.food"),
+    sub: place("food") ? tr("event.showOnMap") : info.food ? tr("event.whatsOn") : tr("event.nearby"),
+    onPress: () => onMap("food") || (info.food ? reveal("food") : open(nearbySearch(tr("event.searchFood"), info))),
   });
-  if (place("toilets")) tiles.push({ kind: "toilets", label: "Toilets", sub: "Show on venue map", onPress: () => onMap("toilets") });
+  if (place("toilets")) tiles.push({ kind: "toilets", label: tr("event.toilets"), sub: tr("event.showOnMap"), onPress: () => onMap("toilets") });
   tiles.push({
     kind: "medical",
-    label: "Medical",
-    sub: place("medical") ? "Show on venue map" : "Nearest hospital",
-    onPress: () => onMap("medical") || open(nearbySearch("hospital", info)),
+    label: tr("event.medical"),
+    sub: place("medical") ? tr("event.showOnMap") : tr("event.nearestHospital"),
+    onPress: () => onMap("medical") || open(nearbySearch(tr("event.searchHospital"), info)),
   });
 
   const desk = info.contacts[0];
 
   return (
     <Screen tabs={false} scrollRef={scroll} onRefresh={() => q.refetch()}>
-      <BackHeader label="Tournament" fallback={{ pathname: "/t/[slug]", params: { slug } }} />
+      <BackHeader label={tr("event.tournamentBack")} fallback={{ pathname: "/t/[slug]", params: { slug } }} />
       <StaleBanner queries={[q]} />
       <View style={{ gap: 14 }}>
         {/* Hero */}
         <View style={{ borderRadius: 26, overflow: "hidden", borderWidth: 1, borderColor: t.line }}>
           <LinearGradient colors={[t.glowA, t.surface]} start={{ x: 0, y: 0 }} end={{ x: 0.9, y: 1 }} style={{ padding: 20, gap: 10 }}>
-            <Eyebrow tone="ink2">Event info</Eyebrow>
+            <Eyebrow tone="ink2">{tr("event.eventInfo")}</Eyebrow>
             <Display size={28}>{info.eventName}</Display>
             {span || where ? (
               <Body tone="ink2" size={14} weight="semi">
@@ -301,7 +341,7 @@ function Info({ slug }: { slug: string }) {
             {info.intro ? <Body size={15}>{info.intro}</Body> : null}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
               {state ? <OpenChip state={state} /> : null}
-              {e.admission ? <Chip label={e.admission === "free" ? "FREE ENTRY" : "TICKETS NEEDED"} ball={e.admission === "free"} style={{ alignSelf: "center" }} /> : null}
+              {e.admission ? <Chip label={e.admission === "free" ? tr("event.freeEntryCaps") : tr("event.ticketsNeededCaps")} ball={e.admission === "free"} style={{ alignSelf: "center" }} /> : null}
             </View>
           </LinearGradient>
         </View>
@@ -318,8 +358,8 @@ function Info({ slug }: { slug: string }) {
           {info.hours.length > 0 && (
             <View onLayout={mark("hours")}>
               <Section
-                title={today ? `Today · ${hoursLine(today)}` : "Opening hours"}
-                hint={today?.note || (openKeys.has("hours") ? undefined : "Every day")}
+                title={today ? tr("event.todayHours", { hours: hoursLine(today) }) : tr("event.openingHours")}
+                hint={today?.note || (openKeys.has("hours") ? undefined : tr("event.everyDay"))}
                 expanded={openKeys.has("hours")}
                 onToggle={() => toggle("hours")}
               >
@@ -328,7 +368,7 @@ function Info({ slug }: { slug: string }) {
                     const isToday = today?.date === h.date;
                     return (
                       <View key={h.date} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 8, borderTopWidth: 1, borderColor: t.line }}>
-                        <Body weight={isToday ? "bold" : "regular"} size={14.5}>{isToday ? `Today · ${eventInfoDayLabel(h.date)}` : eventInfoDayLabel(h.date)}</Body>
+                        <Body weight={isToday ? "bold" : "regular"} size={14.5}>{isToday ? tr("event.todayDay", { day: dayName(h.date) }) : dayName(h.date)}</Body>
                         <View style={{ alignItems: "flex-end", flexShrink: 1 }}>
                           <Body weight={isToday ? "bold" : "semi"} size={14.5} tone={h.closed ? "ink3" : "ink"}>{hoursLine(h)}</Body>
                           {h.note ? <Body tone="ink2" size={12} style={{ textAlign: "right" }}>{h.note}</Body> : null}
@@ -337,33 +377,33 @@ function Info({ slug }: { slug: string }) {
                     );
                   })}
                 </View>
-                <Body tone="ink3" size={12}>{`Times at the venue (${info.timezone.replace(/_/g, " ")}).`}</Body>
+                <Body tone="ink3" size={12}>{tr("event.timesAtVenue", { zone: info.timezone.replace(/_/g, " ") })}</Body>
               </Section>
             </View>
           )}
 
           {hasEntry && (
             <View onLayout={mark("entry")}>
-              <Section title="Getting in" hint={e.admission === "free" ? "Free entry" : e.admission === "tickets" ? "Tickets needed" : "Entry rules"} expanded={openKeys.has("entry")} onToggle={() => toggle("entry")}>
+              <Section title={tr("event.gettingIn")} hint={e.admission === "free" ? tr("event.freeEntry") : e.admission === "tickets" ? tr("event.ticketsNeeded") : tr("event.entryRules")} expanded={openKeys.has("entry")} onToggle={() => toggle("entry")}>
                 {e.ticketsNote ? <Para text={e.ticketsNote} /> : null}
-                {e.ticketsUrl ? <Button label="Get tickets" onPress={() => open(e.ticketsUrl)} /> : null}
+                {e.ticketsUrl ? <Button label={tr("event.getTickets")} onPress={() => open(e.ticketsUrl)} /> : null}
                 {e.allowed.length ? (
-                  <Labelled label="Allowed">
+                  <Labelled label={tr("event.allowed")}>
                     <Bullets items={e.allowed} mark="✓" color={t.success} />
                   </Labelled>
                 ) : null}
                 {e.notAllowed.length ? (
-                  <Labelled label="Not allowed">
+                  <Labelled label={tr("event.notAllowed")}>
                     <Bullets items={e.notAllowed} mark="✕" color={t.live} />
                   </Labelled>
                 ) : null}
                 {e.kids ? (
-                  <Labelled label="Kids">
+                  <Labelled label={tr("event.kids")}>
                     <Para text={e.kids} />
                   </Labelled>
                 ) : null}
                 {e.photography ? (
-                  <Labelled label="Photography">
+                  <Labelled label={tr("event.photography")}>
                     <Para text={e.photography} />
                   </Labelled>
                 ) : null}
@@ -374,27 +414,27 @@ function Info({ slug }: { slug: string }) {
 
           {hasDirections && (
             <View onLayout={mark("directions")}>
-              <Section title="How to get there" hint={d.address || where || undefined} expanded={openKeys.has("directions")} onToggle={() => toggle("directions")}>
+              <Section title={tr("event.howToGet")} hint={d.address || where || undefined} expanded={openKeys.has("directions")} onToggle={() => toggle("directions")}>
                 {d.address ? <Body weight="semi" size={15} selectable>{d.address}</Body> : null}
                 {d.landmark ? (
-                  <Labelled label="Nearest landmark">
+                  <Labelled label={tr("event.landmark")}>
                     <Body size={14.5}>{d.landmark}</Body>
                   </Labelled>
                 ) : null}
                 {d.dropOff ? (
-                  <Labelled label="Taxi / Uber drop-off">
+                  <Labelled label={tr("event.dropOff")}>
                     <Para text={d.dropOff} />
                   </Labelled>
                 ) : null}
                 {d.transit ? (
-                  <Labelled label="Public transport">
+                  <Labelled label={tr("event.transit")}>
                     <Para text={d.transit} />
                   </Labelled>
                 ) : null}
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                   {info.links.google ? <Button kind={Platform.OS === "ios" ? "ghost" : "primary"} label="Google Maps" onPress={() => open(info.links.google)} style={{ flexGrow: 1 }} /> : null}
                   {Platform.OS === "ios" && info.links.apple ? <Button label="Apple Maps" onPress={() => open(info.links.apple)} style={{ flexGrow: 1 }} /> : null}
-                  {info.map ? <Button kind="ghost" label="Venue map" onPress={() => openVenueMap(slug, null, place("entrance"))} style={{ flexGrow: 1 }} /> : null}
+                  {info.map ? <Button kind="ghost" label={tr("event.venueMap")} onPress={() => openVenueMap(slug, null, place("entrance"))} style={{ flexGrow: 1 }} /> : null}
                 </View>
               </Section>
             </View>
@@ -402,25 +442,25 @@ function Info({ slug }: { slug: string }) {
 
           {info.parking ? (
             <View onLayout={mark("parking")}>
-              <Section title="Parking" expanded={openKeys.has("parking")} onToggle={() => toggle("parking")}>
+              <Section title={tr("event.parking")} expanded={openKeys.has("parking")} onToggle={() => toggle("parking")}>
                 <Para text={info.parking} />
-                {place("parking") ? <Button kind="ghost" label="Show parking on the map" onPress={() => onMap("parking")} /> : null}
+                {place("parking") ? <Button kind="ghost" label={tr("event.showParking")} onPress={() => onMap("parking")} /> : null}
               </Section>
             </View>
           ) : null}
 
           {info.food ? (
             <View onLayout={mark("food")}>
-              <Section title="Food & drinks" expanded={openKeys.has("food")} onToggle={() => toggle("food")}>
+              <Section title={tr("event.food")} expanded={openKeys.has("food")} onToggle={() => toggle("food")}>
                 <Para text={info.food} />
-                {place("food") ? <Button kind="ghost" label="Show food on the map" onPress={() => onMap("food")} /> : null}
+                {place("food") ? <Button kind="ghost" label={tr("event.showFood")} onPress={() => onMap("food")} /> : null}
               </Section>
             </View>
           ) : null}
 
           {info.faqs.length > 0 && (
             <View style={{ gap: 10 }}>
-              <SectionHeader title="FAQ" />
+              <SectionHeader title={tr("event.faq")} />
               {info.faqs.map((f, i) => (
                 <Section key={f.q} title={f.q} expanded={openKeys.has(`faq-${i}`)} onToggle={() => toggle(`faq-${i}`)}>
                   <Para text={f.a} />
@@ -431,7 +471,7 @@ function Info({ slug }: { slug: string }) {
 
           {info.contacts.length > 0 && (
             <View style={{ gap: 10 }}>
-              <SectionHeader title="Need help?" />
+              <SectionHeader title={tr("event.needHelp")} />
               {info.contacts.map((c) => (
                 <Card key={`${c.label}${c.phone}${c.email}`} style={{ gap: 12, padding: 16 }}>
                   <View>
@@ -439,18 +479,18 @@ function Info({ slug }: { slug: string }) {
                     <Body tone="ink2" size={13}>{[c.phone ? displayPhone(c.phone) : "", c.email].filter(Boolean).join(" · ")}</Body>
                   </View>
                   <View style={{ flexDirection: "row", gap: 10 }}>
-                    {c.phone ? <Button label="Call" onPress={() => open(telLink(c.phone))} style={{ flex: 1 }} accessibilityLabel={`Call ${c.label}`} /> : null}
+                    {c.phone ? <Button label={tr("event.call")} onPress={() => open(telLink(c.phone))} style={{ flex: 1 }} accessibilityLabel={tr("event.callA11y", { name: c.label })} /> : null}
                     {c.phone && c.whatsapp ? (
-                      <Button kind="ghost" label="WhatsApp" onPress={() => open(whatsAppLink(c.phone, `Hi, a question about ${info.eventName}: `))} style={{ flex: 1 }} accessibilityLabel={`WhatsApp ${c.label}`} />
+                      <Button kind="ghost" label="WhatsApp" onPress={() => open(whatsAppLink(c.phone, tr("event.whatsappMsg", { event: info.eventName })))} style={{ flex: 1 }} accessibilityLabel={tr("event.whatsappA11y", { name: c.label })} />
                     ) : null}
-                    {!c.phone && c.email ? <Button kind="ghost" label="Email" onPress={() => open(mailLink(c.email, info.eventName))} style={{ flex: 1 }} /> : null}
+                    {!c.phone && c.email ? <Button kind="ghost" label={tr("event.email")} onPress={() => open(mailLink(c.email, info.eventName))} style={{ flex: 1 }} /> : null}
                   </View>
                 </Card>
               ))}
             </View>
           )}
 
-          {!desk && !info.faqs.length && !hasEntry && !info.hours.length ? <Body tone="ink3" size={13}>More details soon.</Body> : null}
+          {!desk && !info.faqs.length && !hasEntry && !info.hours.length ? <Body tone="ink3" size={13}>{tr("event.moreSoon")}</Body> : null}
         </View>
       </View>
     </Screen>

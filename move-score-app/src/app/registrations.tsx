@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { awaitingPaymentNote, moneyLabel, onlinePaymentLines, PAYMENT_FAILED_MESSAGE, type MRegistration } from "@core";
+import { moneyLabel, type MRegistration } from "@core";
 import { errorMessage } from "../api/client";
 import { registrationAction, useMyRegistrations } from "../api/queries";
 import { session } from "../state/session";
@@ -13,12 +13,15 @@ import { Body, Display, Eyebrow } from "../ui/Text";
 import { Button, Card, Chip, Empty } from "../ui/Bits";
 import { LoadState } from "../ui/LoadState";
 import { openTournament } from "../nav/links";
+import { useT } from "../i18n";
+import { awaitingNote, day, paymentLines, registrationStatus } from "../player/registration";
 
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null);
+
 
 /** My registrations (Phase 9): status, what is paid and due, pay / cancel / ask for a refund. */
 function Row({ r }: { r: MRegistration }) {
   const { t } = useTheme();
+  const tr = useT();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const act = async (kind: "pay" | "cancel" | "refund-request") => {
@@ -36,35 +39,36 @@ function Row({ r }: { r: MRegistration }) {
   };
   // Older servers send no payments: fall back to "online · paid".
   const online = r.payments
-    ? onlinePaymentLines(r.amountOnline, r.payments, (iso) => day(iso) ?? "", "player")
+    ? paymentLines(r.amountOnline, r.payments)
     : r.amountOnline
-      ? [`${moneyLabel(r.amountOnline)} online${r.paid ? " · paid" : ""}`]
+      ? [r.paid ? tr("account.payOnlinePaid", { amount: moneyLabel(r.amountOnline) }) : tr("account.payOnline", { amount: moneyLabel(r.amountOnline) })]
       : [];
-  const money = [...online, r.amountVenue ? `${moneyLabel(r.amountVenue)} at the venue${r.venuePaid ? " · paid" : ""}` : null].filter(Boolean);
+  const money = [...online, r.amountVenue ? (r.venuePaid ? tr("account.payVenuePaid", { amount: moneyLabel(r.amountVenue) }) : tr("account.payVenue", { amount: moneyLabel(r.amountVenue) })) : null].filter(Boolean);
+  const status = registrationStatus(r);
   return (
-    <Card style={{ gap: 6, borderColor: r.status === "confirmed" ? t.ball : t.line, borderWidth: r.status === "confirmed" ? 1.5 : 1 }} onPress={() => openTournament(r.event.slug)} accessibilityLabel={`${r.event.name}. ${r.statusLabel}`}>
+    <Card style={{ gap: 6, borderColor: r.status === "confirmed" ? t.ball : t.line, borderWidth: r.status === "confirmed" ? 1.5 : 1 }} onPress={() => openTournament(r.event.slug)} accessibilityLabel={`${r.event.name}. ${status}`}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Chip label={r.statusLabel} ball={r.status === "confirmed"} />
+        <Chip label={status} ball={r.status === "confirmed"} />
         {r.event.organization ? <Eyebrow size={10}>{r.event.organization.name}</Eyebrow> : null}
       </View>
       <Body weight="bold" size={16}>{r.event.name}</Body>
       <Body tone="ink2" size={13}>{[r.teamName, r.people.map((p) => p.name).join(" / ")].filter(Boolean).join(" · ")}</Body>
-      {money.length ? <Body tone="ink2" size={13}>{money.join(" · ")}</Body> : <Body tone="ink2" size={13}>Free</Body>}
+      {money.length ? <Body tone="ink2" size={13}>{money.join(" · ")}</Body> : <Body tone="ink2" size={13}>{tr("account.free")}</Body>}
       {r.status === "awaiting_payment" && r.paymentFailed ? (
         <Body tone="live" size={13} weight="bold" accessibilityLiveRegion="polite">
-          {PAYMENT_FAILED_MESSAGE}
+          {tr("account.paymentFailed")}
         </Body>
       ) : null}
       {r.status === "awaiting_payment" && r.canPay ? (
-        <Body tone="ink3" size={12}>{awaitingPaymentNote({ approved: Boolean(r.approved), holdUntil: r.placeKeptUntil ?? null }, (iso) => day(iso) ?? "")}</Body>
+        <Body tone="ink3" size={12}>{awaitingNote({ approved: Boolean(r.approved), holdUntil: r.placeKeptUntil ?? null })}</Body>
       ) : null}
-      {r.linked ? <Body tone="ink3" size={12}>Linked to your account: your matches show up in the app.</Body> : null}
-      {r.refundRequested ? <Body tone="ink3" size={12}>Refund asked for: the organiser decides.</Body> : null}
-      {r.paid && r.refundsUntil && !r.refundRequested && r.status === "confirmed" ? <Body tone="ink3" size={12}>{`Full refunds until ${day(r.refundsUntil)}.`}</Body> : null}
+      {r.linked ? <Body tone="ink3" size={12}>{tr("account.regLinked")}</Body> : null}
+      {r.refundRequested ? <Body tone="ink3" size={12}>{tr("account.refundAsked")}</Body> : null}
+      {r.paid && r.refundsUntil && !r.refundRequested && r.status === "confirmed" ? <Body tone="ink3" size={12}>{tr("account.refundsUntil", { when: day(r.refundsUntil) ?? "" })}</Body> : null}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        {r.canPay ? <Button label={busy === "pay" ? "Opening…" : `Pay ${moneyLabel(r.amountOnline)}`} disabled={Boolean(busy)} onPress={() => void act("pay")} /> : null}
-        {r.canRequestRefund ? <Button kind="ghost" label="Ask for a refund" disabled={Boolean(busy)} onPress={() => void act("refund-request")} /> : null}
-        {r.canCancel ? <Button kind="ghost" label="Cancel" disabled={Boolean(busy)} onPress={() => void act("cancel")} /> : null}
+        {r.canPay ? <Button label={busy === "pay" ? tr("account.opening") : tr("account.payAmount", { amount: moneyLabel(r.amountOnline) })} disabled={Boolean(busy)} onPress={() => void act("pay")} /> : null}
+        {r.canRequestRefund ? <Button kind="ghost" label={tr("account.askRefund")} disabled={Boolean(busy)} onPress={() => void act("refund-request")} /> : null}
+        {r.canCancel ? <Button kind="ghost" label={tr("common.cancel")} disabled={Boolean(busy)} onPress={() => void act("cancel")} /> : null}
       </View>
       {msg ? <Body tone={msg.bad ? "live" : "ink2"} size={13} accessibilityLiveRegion="polite">{msg.text}</Body> : null}
     </Card>
@@ -72,23 +76,24 @@ function Row({ r }: { r: MRegistration }) {
 }
 
 export default function MyRegistrations() {
+  const tr = useT();
   const user = session.use((s) => s.user);
   const q = useMyRegistrations(Boolean(user));
   return (
     <Screen tabs={false} onRefresh={() => q.refetch()}>
-      <BackHeader label="My profile" fallback="/profile" />
-      <Display size={28}>Registrations</Display>
+      <BackHeader label={tr("player.myProfile")} fallback="/profile" />
+      <Display size={28}>{tr("account.registrations")}</Display>
       {!user ? (
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body tone="ink2">Sign in to see your registrations.</Body>
-          <Button kind="ghost" label="Account" onPress={() => router.replace("/account")} />
+          <Body tone="ink2">{tr("account.signInRegistrations")}</Body>
+          <Button kind="ghost" label={tr("ui.account")} onPress={() => router.replace("/account")} />
         </Card>
       ) : q.data ? (
         <View style={{ gap: 10, marginTop: 14 }}>
-          {q.data.registrations.length ? q.data.registrations.map((r) => <Row key={r.id} r={r} />) : <Empty title="No registrations yet" body="Register for a tournament from its page." />}
+          {q.data.registrations.length ? q.data.registrations.map((r) => <Row key={r.id} r={r} />) : <Empty title={tr("account.noRegistrations")} body={tr("account.noRegistrationsBody")} />}
         </View>
       ) : (
-        <LoadState queries={[q]} what="your registrations" />
+        <LoadState queries={[q]} what={tr("account.yourRegistrations")} />
       )}
     </Screen>
   );

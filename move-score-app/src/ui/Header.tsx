@@ -5,6 +5,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { session } from "../state/session";
 import { Body, Num } from "./Text";
 import type { ReactNode } from "react";
+import { useT } from "../i18n";
 
 /**
  * Back to where the person came from. Opened from a link or an alert there is
@@ -13,11 +14,12 @@ import type { ReactNode } from "react";
  */
 export function BackHeader({ label, right, fallback = "/" }: { label: string; right?: ReactNode; fallback?: Href }) {
   const { t } = useTheme();
+  const tr = useT();
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 44, marginBottom: 8, gap: 10 }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Back to ${label}`}
+        accessibilityLabel={tr("ui.backTo", { label })}
         onPress={() => (router.canGoBack() ? router.back() : router.replace(fallback))}
         style={({ pressed }) => [
           { backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 999, paddingVertical: 7, paddingLeft: 10, paddingRight: 13, flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 },
@@ -49,13 +51,14 @@ function initials(name: string | null | undefined): string {
  */
 export function ProfileButton({ size = 40 }: { size?: number }) {
   const { t } = useTheme();
+  const tr = useT();
   const user = session.use((s) => s.user);
   const letters = initials(user?.name);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Account"
-      accessibilityHint={user ? `Signed in${user.name ? ` as ${user.name}` : ""}. Alerts, look and sign-in.` : "Alerts, look and sign-in."}
+      accessibilityLabel={tr("ui.account")}
+      accessibilityHint={user ? (user.name ? tr("ui.accountHintNamed", { name: user.name }) : tr("ui.accountHintSignedIn")) : tr("ui.accountHint")}
       onPress={() => router.push("/account")}
       hitSlop={10}
       style={({ pressed }) => [

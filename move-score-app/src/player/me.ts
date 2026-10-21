@@ -11,6 +11,7 @@ import { PLAYER_PHOTO, type MLinkSuggestion, type MMyPlayer, type MMyProfile, ty
 import { api } from "../api/client";
 import { queryClient } from "../api/queries";
 import { session } from "../state/session";
+import { tr } from "../i18n/t";
 import { getJson, setJson, removeKey } from "../state/kv";
 
 const KEY = "ms.myPlayer";
@@ -76,7 +77,7 @@ export async function pickSquarePhoto(source: "camera" | "library"): Promise<str
   const options: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 1, exif: false };
   if (source === "camera") {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) throw new Error("Move Score needs the camera to take your photo. Allow it in Settings, or choose a photo instead.");
+    if (!perm.granted) throw new Error(tr("player.cameraNeeded"));
   }
   const res = source === "camera" ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
   if (res.canceled || !res.assets?.[0]) return null;
@@ -88,7 +89,7 @@ export async function pickSquarePhoto(source: "camera" | "library"): Promise<str
   } else if ((asset.height ?? 0) > side) ctx.resize({ height: side });
   const rendered = await ctx.renderAsync();
   const out = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.82, base64: true });
-  if (!out.base64) throw new Error("Could not read that photo. Try another one.");
+  if (!out.base64) throw new Error(tr("player.photoUnreadable"));
   return out.base64;
 }
 

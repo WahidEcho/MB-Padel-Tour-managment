@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_MATCH_DAY_RULES, OFF_MATCH_DAY_RULES, callCardModel, type CallCardModel, type NoShowChoice, type TeamKey } from "@core";
 import { api, ApiError } from "../api/client";
 import type { RefereeBootstrap, RefereeCall } from "./types";
+import { tr } from "../i18n/t";
 
 export type CallBody =
   | { action: "call"; force?: boolean }
@@ -48,7 +49,7 @@ export function useCall(boot: RefereeBootstrap, opts: { deviceId: string; matchS
     if (boot.call !== undefined) setCall(boot.call ?? null);
   }, [boot.call]);
 
-  const names = useMemo(() => ({ A: boot.sideA?.name ?? "Side A", B: boot.sideB?.name ?? "Side B" }), [boot.sideA?.name, boot.sideB?.name]);
+  const names = useMemo(() => ({ A: boot.sideA?.name ?? tr("referee.sideA"), B: boot.sideB?.name ?? tr("referee.sideB") }), [boot.sideA?.name, boot.sideB?.name]);
   const model: CallCardModel = useMemo(
     () => callCardModel({ call, rules, nowMs: now, matchStatus: opts.matchStatus, hasCourt: Boolean(m.court_id), names }),
     [call, rules, now, opts.matchStatus, m.court_id, names],
@@ -106,7 +107,7 @@ export function useCall(boot: RefereeBootstrap, opts: { deviceId: string; matchS
         const code = e instanceof ApiError ? (e.body as { code?: string } | null)?.code : undefined;
         if (code === "court_busy") setCourtBusy(e instanceof ApiError ? e.message : null);
         else if (e instanceof ApiError && e.status !== 0) setError(e.message);
-        else setError("No signal. Calls and answers need a connection; try again.");
+        else setError(tr("referee.noSignalCall"));
         // Another device moved the call on: show what it is now.
         if (code === "changed" || code === "no_call" || code === "not_due") void refresh();
         return null;

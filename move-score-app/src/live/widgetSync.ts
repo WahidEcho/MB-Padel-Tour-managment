@@ -17,6 +17,8 @@ import { api } from "../api/client";
 import { session } from "../state/session";
 import { config } from "../config";
 import { widgetTimeline } from "./timeline";
+import { lockLabels } from "./labels";
+import { onLangChange } from "../i18n/t";
 
 /** At most one refresh this often, unless an alert asks for one. */
 const MIN_GAP_MS = 60_000;
@@ -35,7 +37,9 @@ export function refreshWidget(force = false): Promise<void> {
     try {
       const w = await api<MWidget>("/api/mobile/v1/me/widget", { who: "me" });
       const MyMatches = (await import("./MyMatchesWidget")).default;
-      MyMatches.updateTimeline(widgetTimeline(w, Date.now()));
+      // The widget's words in the app's language ride along with the rows.
+      const labels = lockLabels();
+      MyMatches.updateTimeline(widgetTimeline(w, Date.now()).map((e) => ({ ...e, props: { ...e.props, labels } })));
       last = Date.now();
     } catch {
       // Offline or no widget extension in this build: the widget keeps its last rows.
@@ -63,6 +67,8 @@ export function watchWidget(): void {
     install = s.installToken;
     void refreshWidget(true);
   });
+  // A new language on Account: redraw the widget in it.
+  onLangChange(() => void refreshWidget(true));
   // A short wait lets the server finish what the alert is about before we read it.
   Notifications.addNotificationReceivedListener(() => {
     setTimeout(() => void refreshWidget(true), 1500);

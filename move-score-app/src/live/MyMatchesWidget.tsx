@@ -10,6 +10,8 @@ export type MyMatchesProps = {
   items: MWidgetMatch[];
   signedIn: boolean;
   updatedAt: number;
+  /** The widget's words in the app's language (src/live/labels.ts); English without them. */
+  labels?: { vs: string; liveCaps: string; final: string; tbc: string; noMatches: string; signIn: string; myMatches: string } | null;
 };
 
 /**
@@ -26,23 +28,24 @@ const MyMatches = (p: MyMatchesProps, env: WidgetEnvironment) => {
   const yellow = lock ? "#FFFFFF" : "#FCFC00";
   const ink = lock ? "#FFFFFF" : "#E8ECF4";
   const dim = lock ? "#D0D0D0" : "#9AA4B8";
+  const L = (p && p.labels) || null;
   const at = env.date ? env.date.getTime() : Date.now();
   const items = (p && p.items ? p.items : []).filter((m) => m.phase !== "final" || at - (m.at || 0) < 3 * 3600_000);
   // An upcoming match whose start time has passed is about to go live: keep it first.
   const next = items.find((m) => m.phase === "live") || items.find((m) => m.phase === "upcoming") || items[0] || null;
   const url = next ? `movescore://match/${next.id}` : "movescore://discover";
-  const vs = (m: MWidgetMatch) => `${m.a} v ${m.b}`;
+  const vs = (m: MWidgetMatch) => `${m.a} ${L ? L.vs : "v"} ${m.b}`;
   const when = (m: MWidgetMatch, size: number, color: string) =>
     m.phase === "live" ? (
-      <Text modifiers={[font({ weight: "black", size }), monospacedDigit(), foregroundStyle(yellow)]}>{m.points || m.sets || "LIVE"}</Text>
+      <Text modifiers={[font({ weight: "black", size }), monospacedDigit(), foregroundStyle(yellow)]}>{m.points || m.sets || (L ? L.liveCaps : "LIVE")}</Text>
     ) : m.phase === "final" ? (
-      <Text modifiers={[font({ weight: "bold", size }), foregroundStyle(color)]}>{m.sets || "Final"}</Text>
+      <Text modifiers={[font({ weight: "bold", size }), foregroundStyle(color)]}>{m.sets || (L ? L.final : "Final")}</Text>
     ) : m.at ? (
       <Text date={new Date(m.at)} dateStyle="time" modifiers={[font({ weight: "bold", size }), monospacedDigit(), foregroundStyle(color)]} />
     ) : (
-      <Text modifiers={[font({ weight: "bold", size }), foregroundStyle(color)]}>TBC</Text>
+      <Text modifiers={[font({ weight: "bold", size }), foregroundStyle(color)]}>{L ? L.tbc : "TBC"}</Text>
     );
-  const empty = p && p.signedIn ? "No matches coming up" : "Sign in to see your matches";
+  const empty = p && p.signedIn ? (L ? L.noMatches : "No matches coming up") : L ? L.signIn : "Sign in to see your matches";
 
   if (family === "accessoryInline") {
     return (
@@ -79,7 +82,7 @@ const MyMatches = (p: MyMatchesProps, env: WidgetEnvironment) => {
   }
 
   const bg = containerBackground("#00000b", "widget");
-  const header = <Text modifiers={[font({ weight: "heavy", size: 11 }), foregroundStyle(yellow)]}>MY MATCHES</Text>;
+  const header = <Text modifiers={[font({ weight: "heavy", size: 11 }), foregroundStyle(yellow)]}>{L ? L.myMatches : "MY MATCHES"}</Text>;
 
   if (!next) {
     return (
@@ -116,7 +119,7 @@ const MyMatches = (p: MyMatchesProps, env: WidgetEnvironment) => {
           <HStack modifiers={[padding({ top: 6 })]}>
             <VStack modifiers={[frame({ maxWidth: 600, alignment: "leading" })]}>
               <Text modifiers={[font({ weight: "bold", size: 15 }), foregroundStyle(ink)]}>{vs(m)}</Text>
-              <Text modifiers={[font({ size: 11 }), foregroundStyle(dim)]}>{m.phase === "live" ? `LIVE ${m.sets}${m.court ? ` · ${m.court}` : ""}` : m.court}</Text>
+              <Text modifiers={[font({ size: 11 }), foregroundStyle(dim)]}>{m.phase === "live" ? `${L ? L.liveCaps : "LIVE"} ${m.sets}${m.court ? ` · ${m.court}` : ""}` : m.court}</Text>
             </VStack>
             <Spacer />
             {when(m, 16, ink)}

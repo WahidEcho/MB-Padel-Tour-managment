@@ -5,25 +5,47 @@ import { dayIn, timeIn } from "../api/model";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Eyebrow, Num } from "../ui/Text";
 import { Card, Flag } from "../ui/Bits";
+import { tr as trNow, useT } from "../i18n";
 
 /** The coach's screens (migration 0037): their own team only, read-only. Scores read our team first. */
 
-export const when = (iso: string | null, tz: string) => (iso ? `${dayIn(iso, tz)} · ${timeIn(iso, tz)}` : "Time to be set");
+export const when = (iso: string | null, tz: string) => (iso ? `${dayIn(iso, tz)} · ${timeIn(iso, tz)}` : trNow("coach.timeToBeSet"));
 
 export function TeamLine({ team, size = 20, bold = true }: { team: MCoachTeamRef | null; size?: number; bold?: boolean }) {
+  const tr = useT();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 }}>
       <Flag iso2={team?.iso2} code={team?.code} size={size} />
-      <Body weight={bold ? "bold" : "regular"} numberOfLines={1} style={{ flexShrink: 1 }}>{team?.name ?? "To be decided"}</Body>
+      <Body weight={bold ? "bold" : "regular"} numberOfLines={1} style={{ flexShrink: 1 }}>{team?.name ?? tr("coach.toBeDecided")}</Body>
     </View>
   );
 }
 
-export function StatusPill({ status, result }: { status: string; result: "us" | "them" | null }) {
-  const { t } = useTheme();
+/** The pill's words: LIVE, WON, LOST, FINAL, CALLED, NOT PLAYED or SCHEDULED. */
+export function statusPillLabel(status: string, result: "us" | "them" | null): string {
   const live = isLiveStatus(status as never);
   const done = isDoneStatus(status as never) || status === "completed";
-  const label = live ? "LIVE" : done ? (result === "us" ? "WON" : result === "them" ? "LOST" : "FINAL") : status === "ready" ? "CALLED" : status === "cancelled" ? "NOT PLAYED" : "SCHEDULED";
+  return live
+    ? trNow("coach.pillLive")
+    : done
+      ? result === "us"
+        ? trNow("coach.pillWon")
+        : result === "them"
+          ? trNow("coach.pillLost")
+          : trNow("coach.pillFinal")
+      : status === "ready"
+        ? trNow("coach.pillCalled")
+        : status === "cancelled"
+          ? trNow("coach.pillNotPlayed")
+          : trNow("coach.pillScheduled");
+}
+
+export function StatusPill({ status, result }: { status: string; result: "us" | "them" | null }) {
+  const { t } = useTheme();
+  useT();
+  const live = isLiveStatus(status as never);
+  const done = isDoneStatus(status as never) || status === "completed";
+  const label = statusPillLabel(status, result);
   const bg = live ? t.liveFill : done && result === "us" ? t.success : t.chip;
   const ink = live || (done && result === "us") ? "#FFFFFF" : t.ink2;
   return (
@@ -34,9 +56,10 @@ export function StatusPill({ status, result }: { status: string; result: "us" | 
 }
 
 export function RubberCard({ r, tz, us, them, onPress }: { r: MCoachRubber; tz: string; us: MCoachTeamRef; them: MCoachTeamRef | null; onPress?: () => void }) {
+  const tr = useT();
   const points = r.score?.points && isLiveStatus(r.status) ? `${r.score.points.a}–${r.score.points.b}` : null;
   return (
-    <Card onPress={onPress} style={{ gap: 6 }} accessibilityLabel={`${r.label}, ${r.status}`}>
+    <Card onPress={onPress} style={{ gap: 6 }} accessibilityLabel={`${r.label}, ${statusPillLabel(r.status, r.result).toLowerCase()}`}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <Body weight="semi">{r.label}</Body>
         <StatusPill status={r.status} result={r.result} />
@@ -44,26 +67,27 @@ export function RubberCard({ r, tz, us, them, onPress }: { r: MCoachRubber; tz: 
       <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
         <Body size={14} numberOfLines={2} style={{ flex: 1 }}>
           <Body weight="bold" size={14}>{us.code} </Body>
-          {r.ours.length ? r.ours.map((p) => p.name).join(" / ") : "line-up not entered yet"}
+          {r.ours.length ? r.ours.map((p) => p.name).join(" / ") : tr("coach.lineupNotEntered")}
         </Body>
         <Num size={16}>{scoreLine(r.score)}</Num>
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
         <Body size={14} tone="ink2" numberOfLines={2} style={{ flex: 1 }}>
-          <Body weight="bold" size={14} tone="ink2">{them?.code ?? "TBD"} </Body>
-          {r.theirs ? (r.theirs.length ? r.theirs.map((p) => p.name).join(" / ") : "to be named") : "shown once the line-ups are confirmed"}
+          <Body weight="bold" size={14} tone="ink2">{them?.code ?? tr("common.tbd")} </Body>
+          {r.theirs ? (r.theirs.length ? r.theirs.map((p) => p.name).join(" / ") : tr("coach.toBeNamed")) : tr("coach.shownOnceConfirmed")}
         </Body>
         {points ? <Num size={16} tone="live">{points}</Num> : null}
       </View>
-      <Body size={12} tone="ink3">{[r.court, r.scheduledTime ? when(r.scheduledTime, tz) : null].filter(Boolean).join(" · ") || "Court and time to be set"}</Body>
+      <Body size={12} tone="ink3">{[r.court, r.scheduledTime ? when(r.scheduledTime, tz) : null].filter(Boolean).join(" · ") || tr("coach.courtTimeTbc")}</Body>
     </Card>
   );
 }
 
 export function TieCardCoach({ tie, tz, team, open = false }: { tie: MCoachTie; tz: string; team: MCoachTeamRef; open?: boolean }) {
+  const tr = useT();
   return (
     <View style={{ gap: 8 }}>
-      <Card onPress={() => router.push({ pathname: "/coach/tie/[id]", params: { id: tie.id } })} style={{ gap: 8 }} accessibilityLabel={`${team.name} v ${tie.opponent?.name ?? "to be decided"}, ${tie.stageLabel}`}>
+      <Card onPress={() => router.push({ pathname: "/coach/tie/[id]", params: { id: tie.id } })} style={{ gap: 8 }} accessibilityLabel={`${team.name} ${tr("common.vs")} ${tie.opponent?.name ?? tr("coach.toBeDecided")}, ${tie.stageLabel}`}>
         <Eyebrow tone="ink2">{tie.stageLabel}</Eyebrow>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
           <View style={{ flex: 1, gap: 6 }}>
@@ -75,13 +99,13 @@ export function TieCardCoach({ tie, tz, team, open = false }: { tie: MCoachTie; 
             <StatusPill status={tie.status} result={tie.result} />
           </View>
         </View>
-        <Body size={13} tone="ink2">{`${tie.court ?? "Court to be set"} · ${when(tie.scheduledTime, tz)}`}</Body>
+        <Body size={13} tone="ink2">{`${tie.court ?? tr("coach.courtTbc")} · ${when(tie.scheduledTime, tz)}`}</Body>
         {tie.lineupEntry ? (
           tie.lineupEntry.open ? (
-            <Body size={13} weight="bold" tone="blue">{tie.lineupEntry.submittedAt ? "Line-up submitted · tap to change it" : "Enter line-up ›"}</Body>
+            <Body size={13} weight="bold" tone="blue">{tie.lineupEntry.submittedAt ? tr("coach.lineupSubmittedTap") : tr("coach.enterLineupArrow")}</Body>
           ) : null
         ) : !tie.lineupEntered && tie.status === "scheduled" ? (
-          <Body size={12} tone="ink3">Line-up not entered yet: give it to the referee as usual.</Body>
+          <Body size={12} tone="ink3">{tr("coach.lineupNotEnteredGive")}</Body>
         ) : null}
       </Card>
       {open ? tie.rubbers.map((r) => <RubberCard key={r.matchId} r={r} tz={tz} us={team} them={tie.opponent} onPress={() => router.push({ pathname: "/coach/match/[id]", params: { id: r.matchId } })} />) : null}
@@ -91,15 +115,16 @@ export function TieCardCoach({ tie, tz, team, open = false }: { tie: MCoachTie; 
 
 export function GroupCard({ group, teamId }: { group: NonNullable<MCoachTeamView["group"]>; teamId: string }) {
   const { t } = useTheme();
+  const tr = useT();
   return (
     <Card style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Body size={11} tone="ink3" style={{ width: 18 }}>#</Body>
-        <Body size={11} tone="ink3" style={{ flex: 1 }}>TEAM</Body>
-        <Body size={11} tone="ink3" style={{ width: 28, textAlign: "right" }}>P</Body>
-        <Body size={11} tone="ink3" style={{ width: 28, textAlign: "right" }}>W</Body>
-        <Body size={11} tone="ink3" style={{ width: 44, textAlign: "right" }}>RUB</Body>
-        <Body size={11} tone="ink3" style={{ width: 44, textAlign: "right" }}>SETS</Body>
+        <Body size={11} tone="ink3" style={{ flex: 1 }}>{tr("coach.colTeam")}</Body>
+        <Body size={11} tone="ink3" style={{ width: 28, textAlign: "right" }}>{tr("coach.colPlayed")}</Body>
+        <Body size={11} tone="ink3" style={{ width: 28, textAlign: "right" }}>{tr("coach.colWon")}</Body>
+        <Body size={11} tone="ink3" style={{ width: 44, textAlign: "right" }} numberOfLines={1} adjustsFontSizeToFit>{tr("coach.colRubbers")}</Body>
+        <Body size={11} tone="ink3" style={{ width: 44, textAlign: "right" }} numberOfLines={1} adjustsFontSizeToFit>{tr("coach.colSets")}</Body>
       </View>
       {group.rows.map((r) => (
         <View key={r.teamId} style={{ flexDirection: "row", gap: 8, alignItems: "center", paddingVertical: 4, borderRadius: 8, backgroundColor: r.teamId === teamId ? t.chip : "transparent" }}>
@@ -111,19 +136,20 @@ export function GroupCard({ group, teamId }: { group: NonNullable<MCoachTeamView
           <Body size={13} style={{ width: 44, textAlign: "right" }}>{`${r.setsWon}–${r.setsLost}`}</Body>
         </View>
       ))}
-      {group.rows.length === 0 ? <Body size={13} tone="ink2">No results yet.</Body> : null}
+      {group.rows.length === 0 ? <Body size={13} tone="ink2">{tr("coach.noResults")}</Body> : null}
     </Card>
   );
 }
 
 export function ScheduleCard({ player, slots, tz }: { player: { id: string; name: string }; slots: MCoachSlot[]; tz: string }) {
+  const tr = useT();
   return (
     <Card style={{ gap: 6 }}>
       <Body weight="semi">{player.name}</Body>
-      {slots.length === 0 ? <Body size={13} tone="ink3">Not in a line-up yet.</Body> : null}
+      {slots.length === 0 ? <Body size={13} tone="ink3">{tr("coach.notInLineup")}</Body> : null}
       {slots.map((s) => (
         <Pressable key={s.matchId} accessibilityRole="button" onPress={() => router.push({ pathname: "/coach/match/[id]", params: { id: s.matchId } })} style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-          <Body size={13}>{`${s.label} v ${s.opponent ?? "TBD"}`}</Body>
+          <Body size={13}>{`${s.label} ${tr("common.vs")} ${s.opponent ?? tr("common.tbd")}`}</Body>
           <Body size={13} tone="ink2">{[s.court, s.scheduledTime ? when(s.scheduledTime, tz) : null].filter(Boolean).join(" · ")}</Body>
         </Pressable>
       ))}

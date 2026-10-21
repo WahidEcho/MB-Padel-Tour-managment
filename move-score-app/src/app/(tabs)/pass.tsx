@@ -21,26 +21,29 @@ import { useFollowsOf } from "../../state/follows";
 import { rememberPass, usePass } from "../../pass/usePass";
 import { eventToday } from "../../pass/day";
 import { addToAppleWallet, addToGoogleWallet, walletButton } from "../../pass/wallet";
+import { useT } from "../../i18n";
+import { fmt } from "../../i18n/t";
 
 /** One row of "Matches you attended": the sides, what was played, the points. Tap for the match. */
 function AttendedRow({ m, iso2Of }: { m: MAttendedMatch; iso2Of: (code: string | null) => string | null }) {
   const { t } = useTheme();
+  const tr = useT();
   const side = (s: MAttendedMatch["a"]) => (s ? (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
       {s.code ? <Flag iso2={iso2Of(s.code)} code={s.code} size={18} /> : null}
       <Body weight="semi" size={14}>{s.code ?? s.name}</Body>
     </View>
-  ) : <Body weight="semi" size={14}>TBD</Body>);
+  ) : <Body weight="semi" size={14}>{tr("pass.tbd")}</Body>);
   return (
     <Card
       onPress={() => router.push({ pathname: "/match/[id]", params: { id: m.matchId } })}
-      accessibilityLabel={`${m.a?.name ?? "To be decided"} against ${m.b?.name ?? "to be decided"}, ${m.label}. ${m.points} points.`}
+      accessibilityLabel={tr("pass.attendedA11y", { a: m.a?.name ?? tr("pass.toBeDecided"), b: m.b?.name ?? tr("pass.toBeDecidedLower"), label: m.label, points: m.points })}
       style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12 }}
     >
       <View style={{ flex: 1, gap: 3 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {side(m.a)}
-          <Body tone="ink3" size={13}>v</Body>
+          <Body tone="ink3" size={13}>{tr("pass.vs")}</Body>
           {side(m.b)}
         </View>
         <Body tone="ink3" size={12}>{m.label}</Body>
@@ -60,16 +63,14 @@ function eventDays(a: string | null, b: string | null): string[] {
   return out;
 }
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** "Wed 4 Nov" */
+/** "Wed 4 Nov", in the app's language. */
 function dayLabel(iso: string): string {
-  const d = new Date(`${iso}T12:00:00Z`);
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  return fmt().day(`${iso}T12:00:00Z`, "UTC");
 }
 
 export default function PassTab() {
   const { t, calm } = useTheme();
+  const tr = useT();
   const group = useFeaturedGroup();
   const d = useDiscover();
   // Pins are the nations of this event's own tournaments, not whatever else is on.
@@ -96,7 +97,7 @@ export default function PassTab() {
     const all = [b0.data, b1.data, b2.data, b3.data].flatMap((b) => b?.teams ?? []).filter((x) => x.code.length === 3);
     return [...new Map(all.map((x) => [x.code, x])).values()].sort((x, y) => x.name.localeCompare(y.name));
   }, [b0.data, b1.data, b2.data, b3.data]);
-  if (!group) return <Screen onRefresh={() => d.refetch()}><Display size={24} style={{ marginTop: 8, marginBottom: 14 }}>My pass</Display>{d.data ? <Empty title="No event right now" body="Your pass appears when the next event opens." /> : <LoadState queries={[d]} what="your pass" />}</Screen>;
+  if (!group) return <Screen onRefresh={() => d.refetch()}><Display size={24} style={{ marginTop: 8, marginBottom: 14 }}>{tr("pass.myPass")}</Display>{d.data ? <Empty title={tr("pass.noEvent")} body={tr("pass.noEventBody")} /> : <LoadState queries={[d]} what={tr("pass.yourPass")} />}</Screen>;
   const event: PassEvent = { name: group.name, venue: group.venue, city: group.city, days: eventDays(group.startsOn, group.endsOn) };
   const open = async () => {
     setOpening(true);
@@ -127,12 +128,12 @@ export default function PassTab() {
     if (!pass?.holderName) return;
     // An empty box clears the name only when the fan says so.
     if (Platform.OS === "web") {
-      if (globalThis.confirm?.("Remove your name from the pass?")) void update({ holderName: "" });
+      if (globalThis.confirm?.(tr("pass.removeNameConfirm"))) void update({ holderName: "" });
       return;
     }
-    Alert.alert("Remove your name?", "The pass will say “Move Score fan” instead.", [
-      { text: "Keep it", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => void update({ holderName: "" }) },
+    Alert.alert(tr("pass.removeNameTitle"), tr("pass.removeNameBody"), [
+      { text: tr("pass.keepIt"), style: "cancel" },
+      { text: tr("pass.remove"), style: "destructive", onPress: () => void update({ holderName: "" }) },
     ]);
   };
   const nationIso = nations.find((n) => n.code === pass?.nationCode)?.iso2 ?? null;
@@ -154,8 +155,8 @@ export default function PassTab() {
   return (
     <Screen onRefresh={() => q.refetch()} scrollRef={scroll}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 14 }}>
-        <Display size={24}>My pass</Display>
-        <Chip label={pass ? (pass.onsiteUnlockedAt ? "On-site" : "Opened") : q.confirmedNone ? "Sealed" : "…"} ball={Boolean(pass?.onsiteUnlockedAt)} />
+        <Display size={24}>{tr("pass.myPass")}</Display>
+        <Chip label={pass ? (pass.onsiteUnlockedAt ? tr("pass.chipOnsite") : tr("pass.chipOpened")) : q.confirmedNone ? tr("pass.chipSealed") : "…"} ball={Boolean(pass?.onsiteUnlockedAt)} />
       </View>
       <RegistrationBanner style={{ marginBottom: 14 }} />
       <View style={{ alignItems: "center", paddingTop: 6 }}>
@@ -169,7 +170,7 @@ export default function PassTab() {
           // Until the server has answered, the pass is unknown: never a sealed pack for a pass that exists.
           <View style={{ width: size.w, height: size.h, borderRadius: 24, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
             {/* No owner yet: this phone has not registered (it needs a connection once). */}
-            <LoadState compact queries={[q]} what="your pass" onRetry={owner ? undefined : () => registerDevice(false)} />
+            <LoadState compact queries={[q]} what={tr("pass.yourPass")} onRetry={owner ? undefined : () => registerDevice(false)} />
           </View>
         )}
       </View>
@@ -192,19 +193,19 @@ export default function PassTab() {
           )}
           {!calm && (
             <Eyebrow tone="ink3" style={{ textAlign: "center", letterSpacing: 1.5 }}>
-              {"Tilt your phone"}
+              {tr("pass.tilt")}
             </Eyebrow>
           )}
-          <Button label={stampedToday ? `Stamped · ${dayLabel(today)} · Scan a match` : "Scan the venue code"} onPress={() => router.push("/scan")} />
+          <Button label={stampedToday ? tr("pass.stampedScan", { day: dayLabel(today) }) : tr("pass.scanVenue")} onPress={() => router.push("/scan")} />
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button kind="ghost" label="Share pass" onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: "pass" } })} style={{ flex: 1 }} />
-            {wallet === "google" ? <Button kind="ghost" label="Add to Google Wallet" onPress={() => void addToGoogleWallet(pass.id)} style={{ flex: 1 }} /> : null}
+            <Button kind="ghost" label={tr("pass.sharePass")} onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: "pass" } })} style={{ flex: 1 }} />
+            {wallet === "google" ? <Button kind="ghost" label={tr("pass.addGoogle")} onPress={() => void addToGoogleWallet(pass.id)} style={{ flex: 1 }} /> : null}
           </View>
         </Animated.View>
       )}
       {pass && (
         <>
-          <SectionHeader title="Matches you attended" action={`${pass.attendance?.matches ?? 0} · ${pass.attendance?.points ?? 0} pts`} />
+          <SectionHeader title={tr("pass.attendedTitle")} action={tr("pass.attendedAction", { matches: pass.attendance?.matches ?? 0, points: pass.attendance?.points ?? 0 })} />
           {attended.length ? (
             <View style={{ gap: 8 }}>
               {attended.map((m) => (
@@ -213,16 +214,16 @@ export default function PassTab() {
             </View>
           ) : (
             <Body tone="ink3" size={13} style={{ textAlign: "center" }}>
-              At a match, scan the code on the court screen to check in. Every match adds 10 points; finals and deciding rubbers add more.
+              {tr("pass.attendedEmpty")}
             </Body>
           )}
         </>
       )}
       {nations.length > 0 && (
         <>
-          <SectionHeader title="Nation pins" action={`${pass?.pins.length ?? 0} of ${nations.length}`} />
+          <SectionHeader title={tr("pass.pinsTitle")} action={tr("pass.pinsAction", { got: pass?.pins.length ?? 0, total: nations.length })} />
           <Pins nations={nations.map((n) => ({ code: n.code, iso2: n.iso2, name: n.name }))} got={pass?.pins ?? []} />
-          <Body tone="ink3" size={12} style={{ marginTop: 12, textAlign: "center" }}>Tap a pin to open its nation. Follow a nation, or support it on-site, to collect its pin.</Body>
+          <Body tone="ink3" size={12} style={{ marginTop: 12, textAlign: "center" }}>{tr("pass.pinsHint")}</Body>
         </>
       )}
       {pass && (
@@ -239,30 +240,30 @@ export default function PassTab() {
             accessibilityRole="button"
             style={{ textAlign: "center" }}
           >
-            {editing ? "Done" : "Edit name and nation"}
+            {editing ? tr("pass.done") : tr("pass.editNameNation")}
           </Body>
           {editing && (
             <>
-              <SectionHeader title="Name on the pass" />
+              <SectionHeader title={tr("pass.nameTitle")} />
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput
                   defaultValue={pass.holderName ?? ""}
                   onChangeText={setName}
                   maxLength={40}
-                  placeholder="Your name"
+                  placeholder={tr("pass.yourName")}
                   placeholderTextColor={t.ink3}
-                  accessibilityLabel="Name on the pass"
+                  accessibilityLabel={tr("pass.nameTitle")}
                   returnKeyType="done"
                   onSubmitEditing={saveName}
                   // The editor closes the page: bring the field and the nations under it above the keyboard.
                   onFocus={() => revealEndAboveKeyboard(scroll)}
                   style={{ flex: 1, backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, color: t.ink, fontSize: 15 }}
                 />
-                <Button label="Save" onPress={saveName} />
+                <Button label={tr("pass.save")} onPress={saveName} />
               </View>
               {nations.length > 0 && (
                 <>
-                  <SectionHeader title="Your nation" />
+                  <SectionHeader title={tr("pass.yourNation")} />
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                     {nations.map((n) => (
                       <Card key={n.code} onPress={() => void update({ nationCode: n.code })} style={{ paddingVertical: 8, paddingHorizontal: 10, flexDirection: "row", gap: 6, alignItems: "center", borderColor: pass.nationCode === n.code ? t.ball : t.line, borderWidth: pass.nationCode === n.code ? 2 : 1 }}>

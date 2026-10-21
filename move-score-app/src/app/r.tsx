@@ -7,6 +7,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display } from "../ui/Text";
 import { Button } from "../ui/Bits";
 import { pendingCode, signInWithCode } from "../referee/courtSignIn";
+import { tr as trNow, useT } from "../i18n";
 
 /**
  * A court QR link (https://tour.mbeg.org/r#<code>, or movescore://r#<code> from the
@@ -16,8 +17,9 @@ import { pendingCode, signInWithCode } from "../referee/courtSignIn";
  */
 export default function CourtLink() {
   const { t } = useTheme();
+  const tr = useT();
   const url = Linking.useLinkingURL();
-  const [msg, setMsg] = useState("Opening the court…");
+  const [msg, setMsg] = useState(() => trNow("referee.openingCourt"));
   const code = url ? parseCourtLink(url) : null;
   useEffect(() => {
     if (!code) return;
@@ -30,7 +32,7 @@ export default function CourtLink() {
         return;
       }
       if (r.ok) {
-        setMsg(`${r.court ? `Signed in · ${r.court}` : "Signed in"}${r.carried ? ` · you keep the old court's ${r.carried === 1 ? "match" : `${r.carried} matches`} until sent and finished` : ""}`);
+        setMsg(`${r.court ? trNow("referee.signedInCourt", { court: r.court }) : trNow("referee.signedIn")}${r.carried ? ` · ${trNow("referee.carriedStays", { count: r.carried })}` : ""}`);
         setTimeout(() => router.replace("/referee"), 900);
       } else setMsg(r.message);
     });
@@ -38,12 +40,12 @@ export default function CourtLink() {
       live = false;
     };
   }, [code]);
-  const shown = url && !code ? "This link has no court code. Scan the court's QR code from Referee → Scan court QR." : msg;
+  const shown = url && !code ? tr("referee.noCourtCode") : msg;
   return (
     <View style={{ flex: 1, justifyContent: "center", backgroundColor: t.floor, padding: 24, gap: 12 }}>
-      <Display size={24}>Court referee</Display>
+      <Display size={24}>{tr("referee.courtReferee")}</Display>
       <Body tone="ink2" accessibilityRole="alert">{shown}</Body>
-      <Button kind="ghost" label="Referee home" onPress={() => router.replace("/referee")} />
+      <Button kind="ghost" label={tr("referee.refereeHome")} onPress={() => router.replace("/referee")} />
     </View>
   );
 }

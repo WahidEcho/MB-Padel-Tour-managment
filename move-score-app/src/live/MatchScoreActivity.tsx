@@ -22,6 +22,23 @@ export type MatchScoreProps = {
   until?: number | null;
   /** Countdown start, epoch ms. */
   from?: number | null;
+  /**
+   * The card's words in the app's language (src/live/labels.ts, LockLabels), set
+   * when the app starts or updates the card. A card the server pushes has none
+   * and reads in English.
+   */
+  labels?: {
+    now: string;
+    soon: string;
+    beOn: string;
+    headToCourt: string;
+    nextOn: string;
+    upNext: string;
+    final: string;
+    courtCaps: string;
+    vs: string;
+    status: Record<string, string>;
+  } | null;
 };
 
 /**
@@ -35,7 +52,10 @@ const MatchScore = (p: MatchScoreProps, env: LiveActivityEnvironment) => {
   const yellow = env.isLuminanceReduced ? "#FFFFFF" : "#FCFC00";
   const ink = "#E8ECF4";
   const dim = env.isStale ? "#6B7385" : "#9AA4B8";
+  const L = p.labels || null;
   const phase = p.phase || "live";
+  const status = (L && L.status && L.status[p.status]) || p.status;
+  const vs = (L && L.vs) || "v";
   const upcoming = phase === "soon" || phase === "called";
   const dotA = phase === "live" && p.serving === "A" ? "● " : "";
   const dotB = phase === "live" && p.serving === "B" ? " ●" : "";
@@ -50,11 +70,26 @@ const MatchScore = (p: MatchScoreProps, env: LiveActivityEnvironment) => {
     counting ? (
       <Text timerInterval={{ lower, upper }} countsDown modifiers={[font({ weight: "black", size }), monospacedDigit(), foregroundStyle(color)]} />
     ) : (
-      <Text modifiers={[font({ weight: "black", size }), foregroundStyle(color)]}>{phase === "called" ? "Now" : "Soon"}</Text>
+      <Text modifiers={[font({ weight: "black", size }), foregroundStyle(color)]}>{phase === "called" ? (L ? L.now : "Now") : L ? L.soon : "Soon"}</Text>
     );
-  const where = phase === "called" ? (p.court ? `Be on ${p.court}` : "Head to your court") : p.court ? `Next on ${p.court}` : "Up next";
-  const line = `${p.status}${p.court ? ` · ${p.court}` : ""}`;
-  const big = phase === "final" ? "Final" : p.points;
+  const where =
+    phase === "called"
+      ? p.court
+        ? L
+          ? L.beOn.replace("{court}", p.court)
+          : `Be on ${p.court}`
+        : L
+          ? L.headToCourt
+          : "Head to your court"
+      : p.court
+        ? L
+          ? L.nextOn.replace("{court}", p.court)
+          : `Next on ${p.court}`
+        : L
+          ? L.upNext
+          : "Up next";
+  const line = `${status}${p.court ? ` · ${p.court}` : ""}`;
+  const big = phase === "final" ? (L ? L.final : "Final") : p.points;
 
   return {
     banner: (
@@ -62,12 +97,12 @@ const MatchScore = (p: MatchScoreProps, env: LiveActivityEnvironment) => {
         <HStack>
           <Text modifiers={[font({ weight: "heavy", size: 13 }), foregroundStyle(yellow)]}>MOVE SCORE</Text>
           <Spacer />
-          <Text modifiers={[font({ size: 12 }), foregroundStyle(dim)]}>{upcoming ? p.status : line}</Text>
+          <Text modifiers={[font({ size: 12 }), foregroundStyle(dim)]}>{upcoming ? status : line}</Text>
         </HStack>
         {upcoming ? (
           <HStack>
             <VStack>
-              <Text modifiers={[font({ weight: "bold", size: 20 }), foregroundStyle(ink)]}>{`${p.a} v ${p.b}`}</Text>
+              <Text modifiers={[font({ weight: "bold", size: 20 }), foregroundStyle(ink)]}>{`${p.a} ${vs} ${p.b}`}</Text>
               <Text modifiers={[font({ size: 14 }), foregroundStyle(dim)]}>{where}</Text>
             </VStack>
             <Spacer />
@@ -85,7 +120,7 @@ const MatchScore = (p: MatchScoreProps, env: LiveActivityEnvironment) => {
         {upcoming ? null : <Text modifiers={[font({ size: 14 }), foregroundStyle(dim)]}>{p.sets}</Text>}
       </VStack>
     ),
-    compactLeading: <Text modifiers={[font({ weight: "bold", size: 13 }), foregroundStyle(yellow)]}>{phase === "called" ? "COURT" : p.a}</Text>,
+    compactLeading: <Text modifiers={[font({ weight: "bold", size: 13 }), foregroundStyle(yellow)]}>{phase === "called" ? (L ? L.courtCaps : "COURT") : p.a}</Text>,
     compactTrailing: upcoming ? timer(13, ink) : <Text modifiers={[font({ weight: "bold", size: 13 }), foregroundStyle(ink)]}>{p.points || p.sets}</Text>,
     minimal: upcoming ? timer(11, yellow) : <Text modifiers={[font({ weight: "heavy", size: 12 }), foregroundStyle(yellow)]}>{p.points ? p.points.split("-")[0] : "●"}</Text>,
     expandedLeading: (

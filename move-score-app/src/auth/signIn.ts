@@ -21,6 +21,7 @@ import { getSecret, setSecret } from "../state/kv";
 import { syncFollows } from "../state/follows";
 import { registerDevice } from "../push/register";
 import { config } from "../config";
+import { tr } from "../i18n/t";
 
 export interface SessionReply {
   userId: string;
@@ -72,7 +73,7 @@ export async function signInWithApple() {
     requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME],
     nonce: hashed,
   });
-  if (!c.identityToken) throw new Error("Apple did not return a sign-in token.");
+  if (!c.identityToken) throw new Error(tr("auth.appleNoToken"));
   const name = [c.fullName?.givenName, c.fullName?.familyName].filter(Boolean).join(" ") || undefined;
   await finish(
     await api<SessionReply>("/api/mobile/v1/auth/session", {
@@ -116,9 +117,9 @@ async function pkcePair() {
 async function exchange(url: string, pending: Pending) {
   const back = readAuthRedirect(url);
   if (back.error || !back.code) {
-    const msg = authRedirectMessage(back);
-    if (!msg) throw new SignInCancelled();
-    throw new Error(msg);
+    if (!authRedirectMessage(back)) throw new SignInCancelled();
+    const why = (back.errorDescription ?? "").trim().replace(/\.$/, "");
+    throw new Error(why ? tr("auth.signInNotFinishedWhy", { why }) : tr("auth.signInNotFinished"));
   }
   await finish(
     await api<SessionReply>("/api/mobile/v1/auth/session", {

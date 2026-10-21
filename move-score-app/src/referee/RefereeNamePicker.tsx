@@ -9,9 +9,11 @@ import { Image } from "expo-image";
 import { filterRefereeChoices, type RefereeChoice } from "@core";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "../ui/Text";
+import { useT } from "../i18n";
 
 export function RefereeNamePicker({ referees, selected, onSelect }: { referees: RefereeChoice[]; selected: string | null; onSelect: (id: string) => void }) {
   const { t } = useTheme();
+  const tr = useT();
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterRefereeChoices(referees, query), [referees, query]);
   return (
@@ -20,10 +22,10 @@ export function RefereeNamePicker({ referees, selected, onSelect }: { referees: 
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search your name"
+          placeholder={tr("referee.searchName")}
           placeholderTextColor={t.ink3}
           autoCorrect={false}
-          accessibilityLabel="Search your name"
+          accessibilityLabel={tr("referee.searchName")}
           style={{ backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: t.ink, fontSize: 16 }}
         />
       ) : null}
@@ -50,7 +52,7 @@ export function RefereeNamePicker({ referees, selected, onSelect }: { referees: 
             </Pressable>
           );
         })}
-        {shown.length === 0 ? <Body tone="ink3" size={13}>No referee called that. Ask the desk to add you.</Body> : null}
+        {shown.length === 0 ? <Body tone="ink3" size={13}>{tr("referee.noRefereeNamed")}</Body> : null}
       </View>
     </View>
   );

@@ -4,6 +4,7 @@
  * thing happens; the sender only resolves phones.
  */
 import type { MAlertPrefs } from "../mobile/contract";
+import { aw, clock, dayIn, inEveryLanguage, labelIn, statusWord, vsIn, type AlertLang, type AlertTranslations, type AlertWords } from "./i18n";
 
 export type AlertKind =
   | "tie_scheduled"
@@ -74,6 +75,12 @@ export interface AlertPayload {
    * Player row ids only: never a phone, email or code.
    */
   self?: SelfWording;
+  /**
+   * The same alert in Spanish and French (./i18n.ts), for phones whose app speaks
+   * them (push_devices.locale). `title`/`body`/`self` above are the English. Absent
+   * on alerts written by people (announcements): those go out as written.
+   */
+  tr?: AlertTranslations;
 }
 
 export interface SelfWording {
@@ -87,24 +94,36 @@ export interface Side {
   code: string | null;
 }
 
-/** "14:30" in the event's own time zone, with the zone named when it differs from the phone's. */
+/** "14:30" in the event's own time zone. */
 export function localTime(iso: string, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
-  } catch {
-    return iso.slice(11, 16);
-  }
+  return clock(iso, timeZone);
 }
 
 export function localDay(iso: string, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-GB", { timeZone, weekday: "short", day: "numeric", month: "short" }).format(new Date(iso));
-  } catch {
-    return iso.slice(0, 10);
-  }
+  return dayIn("en", iso, timeZone);
 }
 
-const vs = (a: Side, b: Side) => `${a.code ?? a.name} v ${b.code ?? b.name}`;
+const vs = (lang: AlertLang, a: Side, b: Side) => vsIn(lang, a.code ?? a.name, b.code ?? b.name);
+
+/**
+ * An alert in every language: `build` writes it in one; the English becomes the
+ * row's own words and the rest go to `tr`. `selfIds` keeps the players' own
+ * wording (`build(...).self`) as `payload.self`.
+ */
+function localized(build: (lang: AlertLang) => AlertWords, rest: Omit<AlertPayload, "title" | "body" | "self" | "tr">, selfIds?: string[]): AlertPayload {
+  const { en, tr } = inEveryLanguage(build);
+  return {
+    title: en.title,
+    body: en.body,
+    ...rest,
+    ...(selfIds && en.self ? { self: { playerIds: selfIds, title: en.self.title, body: en.self.body } } : {}),
+    tr,
+  };
+}
+
+function scheduleWhen(lang: AlertLang, at: string | null, timeZone: string): string {
+  return at ? aw(lang, "whenAt", { day: dayIn(lang, at, timeZone), time: clock(at, timeZone), city: cityOf(timeZone) }) : aw(lang, "timeTba");
+}
 
 export function composeTieSchedule(o: {
   kind: "tie_scheduled" | "tie_rescheduled";
@@ -117,37 +136,64 @@ export function composeTieSchedule(o: {
   timeZone: string;
   eventName: string;
 }): AlertPayload {
-  const when = o.at ? `${localDay(o.at, o.timeZone)}, ${localTime(o.at, o.timeZone)} (${cityOf(o.timeZone)} time)` : "time to be announced";
-  return {
-    title: o.kind === "tie_rescheduled" ? `Moved: ${vs(o.a, o.b)}` : `Scheduled: ${vs(o.a, o.b)}`,
-    body: `${o.court ?? "Court to be announced"} · ${when} · ${o.eventName}`,
-    url: `movescore://tie/${o.tieId}`,
-    targets: [
-      { kind: "tie", key: o.tieId },
-      ...nationTargets(o.a, o.b),
-    ],
-    category: CATEGORY[o.kind],
-  };
+  return localized(
+    (lang) => ({
+      title: aw(lang, o.kind === "tie_rescheduled" ? "moved" : "scheduled", { vs: vs(lang, o.a, o.b) }),
+      body: aw(lang, "scheduleBody", { court: o.court ?? aw(lang, "courtTba"), when: scheduleWhen(lang, o.at, o.timeZone), event: o.eventName }),
+    }),
+    {
+      url: `movescore://tie/${o.tieId}`,
+      targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.a, o.b)],
+      category: CATEGORY[o.kind],
+    },
+  );
+}
+
+/** A single match's court and time (not a tie): its followers and its players. */
+export function composeMatchScheduled(o: {
+  matchId: string;
+  a: Side;
+  b: Side;
+  court: string | null;
+  at: string | null;
+  timeZone: string;
+  eventName: string;
+  playerIds: string[];
+}): AlertPayload {
+  return localized(
+    (lang) => ({
+      title: aw(lang, "courtAndTime", { vs: vsIn(lang, o.a.name, o.b.name) }),
+      body: aw(lang, "scheduleBody", { court: o.court ?? aw(lang, "courtTba"), when: scheduleWhen(lang, o.at, o.timeZone), event: o.eventName }),
+    }),
+    {
+      url: `movescore://match/${o.matchId}`,
+      targets: [{ kind: "match", key: o.matchId }, ...o.playerIds.map((key) => ({ kind: "player" as const, key }))],
+      category: CATEGORY.tie_rescheduled,
+    },
+  );
 }
 
 export function composeTieStarting(o: { tieId: string; a: Side; b: Side; court: string | null; at: string; timeZone: string }): AlertPayload {
-  return {
-    title: `Starting soon: ${vs(o.a, o.b)}`,
-    body: `${o.court ?? "Court to be announced"} at ${localTime(o.at, o.timeZone)}`,
-    url: `movescore://tie/${o.tieId}`,
-    targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.a, o.b)],
-    category: "starting",
-  };
+  return localized(
+    (lang) => ({
+      title: aw(lang, "startingSoon", { vs: vs(lang, o.a, o.b) }),
+      body: aw(lang, "courtAt", { court: o.court ?? aw(lang, "courtTba"), time: clock(o.at, o.timeZone) }),
+    }),
+    { url: `movescore://tie/${o.tieId}`, targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.a, o.b)], category: "starting" },
+  );
 }
 
 export function composeLineups(o: { tieId: string; a: Side; b: Side; rubbers: { label: string; a: string; b: string }[] }): AlertPayload {
-  return {
-    title: `Line-ups: ${vs(o.a, o.b)}`,
-    body: o.rubbers.map((r) => `${r.label}: ${r.a} v ${r.b}`).join(" · ").slice(0, 170),
-    url: `movescore://tie/${o.tieId}`,
-    targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.a, o.b)],
-    category: "scheduled",
-  };
+  return localized(
+    (lang) => ({
+      title: aw(lang, "lineups", { vs: vs(lang, o.a, o.b) }),
+      body: o.rubbers
+        .map((r) => `${aw(lang, "line", { label: labelIn(lang, r.label) })}${vsIn(lang, r.a === "TBD" ? aw(lang, "tbd") : r.a, r.b === "TBD" ? aw(lang, "tbd") : r.b)}`)
+        .join(" · ")
+        .slice(0, 170),
+    }),
+    { url: `movescore://tie/${o.tieId}`, targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.a, o.b)], category: "scheduled" },
+  );
 }
 
 export function composeMatchLive(o: {
@@ -160,19 +206,24 @@ export function composeMatchLive(o: {
   playerIds: string[];
   nations: Side[];
 }): AlertPayload {
-  return {
-    title: `Live now: ${o.a} v ${o.b}`,
-    body: `${o.label}${o.court ? ` · ${o.court}` : ""}`,
-    url: `movescore://match/${o.matchId}`,
-    targets: [
-      { kind: "match", key: o.matchId },
-      ...(o.tieId ? [{ kind: "tie" as const, key: o.tieId }] : []),
-      ...o.playerIds.map((key) => ({ kind: "player" as const, key })),
-    ],
-    category: "live",
-  };
+  return localized(
+    (lang) => ({
+      title: aw(lang, "liveNow", { vs: vsIn(lang, o.a, o.b) }),
+      body: `${labelIn(lang, o.label)}${o.court ? ` · ${o.court}` : ""}`,
+    }),
+    {
+      url: `movescore://match/${o.matchId}`,
+      targets: [
+        { kind: "match", key: o.matchId },
+        ...(o.tieId ? [{ kind: "tie" as const, key: o.tieId }] : []),
+        ...o.playerIds.map((key) => ({ kind: "player" as const, key })),
+      ],
+      category: "live",
+    },
+  );
 }
 
+/** `score` is the sets ("6–4 6–4"), or the match's status when it did not end on the court ("walkover"). */
 export function composeMatchFinished(o: {
   matchId: string;
   tieId: string | null;
@@ -182,30 +233,43 @@ export function composeMatchFinished(o: {
   score: string;
   playerIds: string[];
 }): AlertPayload {
-  return {
-    title: `${o.winner} won`,
-    body: `${o.score ? `${o.score} ` : ""}against ${o.loser} · ${o.label}`.trim(),
-    url: `movescore://match/${o.matchId}`,
-    targets: [
-      { kind: "match", key: o.matchId },
-      ...(o.tieId ? [{ kind: "tie" as const, key: o.tieId }] : []),
-      ...o.playerIds.map((key) => ({ kind: "player" as const, key })),
-    ],
-    category: "finished",
-  };
+  return localized(
+    (lang) => {
+      const score = /^[a-z_]+$/.test(o.score) ? statusWord(lang, o.score) : o.score;
+      return {
+        title: aw(lang, "won", { winner: o.winner }),
+        body: aw(lang, score ? "wonBody" : "wonBodyNoScore", { score, loser: o.loser, label: labelIn(lang, o.label) }).trim(),
+      };
+    },
+    {
+      url: `movescore://match/${o.matchId}`,
+      targets: [
+        { kind: "match", key: o.matchId },
+        ...(o.tieId ? [{ kind: "tie" as const, key: o.tieId }] : []),
+        ...o.playerIds.map((key) => ({ kind: "player" as const, key })),
+      ],
+      category: "finished",
+    },
+  );
 }
 
 export function composeTieDecided(o: { tieId: string; winner: Side; loser: Side; rubbers: string; stageLabel: string }): AlertPayload {
-  return {
-    title: `${o.winner.name} beat ${o.loser.name} ${o.rubbers}`,
-    body: o.stageLabel,
-    url: `movescore://tie/${o.tieId}`,
-    targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.winner, o.loser)],
-    category: "tie",
-  };
+  return localized(
+    (lang) => ({ title: aw(lang, "beat", { winner: o.winner.name, loser: o.loser.name, rubbers: o.rubbers }), body: labelIn(lang, o.stageLabel) }),
+    { url: `movescore://tie/${o.tieId}`, targets: [{ kind: "tie", key: o.tieId }, ...nationTargets(o.winner, o.loser)], category: "tie" },
+  );
 }
 
-export function composeAnnouncement(o: { id: string; title: string; body: string | null; tournamentId: string | null; tournamentSlug?: string | null; eventGroupId: string | null }): AlertPayload {
+/** Written by a person (Announcements, play status): goes out as written, or with the translations given. */
+export function composeAnnouncement(o: {
+  id: string;
+  title: string;
+  body: string | null;
+  tournamentId: string | null;
+  tournamentSlug?: string | null;
+  eventGroupId: string | null;
+  tr?: AlertTranslations;
+}): AlertPayload {
   return {
     title: o.title,
     body: o.body ?? "",
@@ -215,6 +279,7 @@ export function composeAnnouncement(o: { id: string; title: string; body: string
       ...(o.eventGroupId ? [{ kind: "event_group" as const, key: o.eventGroupId }] : []),
     ],
     category: "major",
+    ...(o.tr ? { tr: o.tr } : {}),
   };
 }
 
@@ -244,19 +309,16 @@ export function composeNightMatch(o: {
   eventName: string;
   playerIds: string[];
 }): AlertPayload {
-  const court = o.court ?? "Court to be announced";
-  const when = o.about ?? "time to be announced";
-  const place = o.position ? ` · match ${o.position} on ${court}` : "";
-  const title = `Your table: ${court}, ${when}`;
-  const body = `${o.a.name} v ${o.b.name}${place} · ${o.eventName}`;
-  return {
-    title,
-    body,
-    url: `movescore://match/${o.matchId}`,
-    targets: [],
-    category: CATEGORY.match_scheduled,
-    self: { playerIds: o.playerIds, title, body },
+  const build = (lang: AlertLang): AlertWords => {
+    const court = o.court ?? aw(lang, "courtTba");
+    const about = o.about ? /^about (\d\d:\d\d)$/.exec(o.about) : null;
+    const when = o.about ? (about ? aw(lang, "about", { time: about[1] }) : o.about) : aw(lang, "timeTba");
+    const place = o.position ? aw(lang, "nightPlace", { n: o.position, court }) : "";
+    const title = aw(lang, "yourTable", { court, when });
+    const body = aw(lang, "nightBody", { vs: vsIn(lang, o.a.name, o.b.name), place, event: o.eventName });
+    return { title, body, self: { title, body } };
   };
+  return localized(build, { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.match_scheduled }, o.playerIds);
 }
 
 /* ---------------- match day (Phase 3) ---------------- */
@@ -278,53 +340,56 @@ export interface CourtMatch {
  * (the match's followers) only when the organiser turned that on.
  */
 export function composeMatchSoon(o: CourtMatch & { playerIds: string[]; starredFans: boolean }): AlertPayload {
-  return {
-    title: `Next on ${o.court}: ${o.a} v ${o.b}`,
-    body: `The match on court is one game from the end · ${o.label}`,
-    url: `movescore://match/${o.matchId}`,
-    targets: [...(o.starredFans ? [{ kind: "match" as const, key: o.matchId }] : []), ...o.playerIds.map((key) => ({ kind: "player" as const, key }))],
-    category: CATEGORY.match_soon,
-    self: {
-      playerIds: o.playerIds,
-      title: `You're next on ${o.court}`,
-      body: `${o.a} v ${o.b}: the match on court is one game from the end. Get ready.`,
+  return localized(
+    (lang) => {
+      const pair = vsIn(lang, o.a, o.b);
+      return {
+        title: aw(lang, "nextOn", { court: o.court, vs: pair }),
+        body: aw(lang, "nextOnBody", { label: labelIn(lang, o.label) }),
+        self: { title: aw(lang, "youNext", { court: o.court }), body: aw(lang, "youNextBody", { vs: pair }) },
+      };
     },
-  };
+    {
+      url: `movescore://match/${o.matchId}`,
+      targets: [...(o.starredFans ? [{ kind: "match" as const, key: o.matchId }] : []), ...o.playerIds.map((key) => ({ kind: "player" as const, key }))],
+      category: CATEGORY.match_soon,
+    },
+    o.playerIds,
+  );
 }
 
 /** Called to court: the players have until `deadline` (shown in the event's zone). */
 export function composeCalledToCourt(o: CourtMatch & { playerIds: string[]; deadline: string; timeZone: string; minutes: number }): AlertPayload {
   const by = localTime(o.deadline, o.timeZone);
-  return {
-    title: `Called to ${o.court}: ${o.a} v ${o.b}`,
-    body: `Players to the court by ${by} · ${o.label}`,
-    url: `movescore://match/${o.matchId}`,
-    targets: [],
-    category: CATEGORY.called_to_court,
-    self: {
-      playerIds: o.playerIds,
-      title: `You're called to ${o.court}`,
-      body: `${o.a} v ${o.b}: be at the court by ${by} (${o.minutes} min).`,
+  return localized(
+    (lang) => {
+      const pair = vsIn(lang, o.a, o.b);
+      return {
+        title: aw(lang, "calledTo", { court: o.court, vs: pair }),
+        body: aw(lang, "calledToBody", { by, label: labelIn(lang, o.label) }),
+        self: { title: aw(lang, "youCalled", { court: o.court }), body: aw(lang, "youCalledBody", { vs: pair, by, minutes: o.minutes }) },
+      };
     },
-  };
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.called_to_court },
+    o.playerIds,
+  );
 }
 
 /** The deadline is close and these players are not at the court yet. */
 export function composeCallReminder(o: CourtMatch & { playerIds: string[]; deadline: string; timeZone: string; minutesLeft: number }): AlertPayload {
   const by = localTime(o.deadline, o.timeZone);
-  const left = `${o.minutesLeft} min`;
-  return {
-    title: `${left} to reach ${o.court}`,
-    body: `${o.a} v ${o.b} · players to the court by ${by}`,
-    url: `movescore://match/${o.matchId}`,
-    targets: [],
-    category: CATEGORY.call_reminder,
-    self: {
-      playerIds: o.playerIds,
-      title: `${left} left to reach ${o.court}`,
-      body: `${o.a} v ${o.b}: be at the court by ${by}, or the referee may record a no-show.`,
+  return localized(
+    (lang) => {
+      const pair = vsIn(lang, o.a, o.b);
+      return {
+        title: aw(lang, "minLeftTo", { minutes: o.minutesLeft, court: o.court }),
+        body: aw(lang, "minLeftToBody", { vs: pair, by }),
+        self: { title: aw(lang, "youMinLeft", { minutes: o.minutesLeft, court: o.court }), body: aw(lang, "youMinLeftBody", { vs: pair, by }) },
+      };
     },
-  };
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_reminder },
+    o.playerIds,
+  );
 }
 
 /** The reminder fires this long before the scheduled start. */

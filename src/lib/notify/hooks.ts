@@ -18,6 +18,7 @@ import {
   composeLineups,
   composeMatchFinished,
   composeMatchLive,
+  composeMatchScheduled,
   composeNightMatch,
   composeTieDecided,
   composeTieSchedule,
@@ -26,6 +27,7 @@ import {
   type AlertPayload,
   type Side,
 } from "./compose";
+import type { AlertTranslations } from "./i18n";
 
 async function enqueue(row: {
   kind: AlertKind;
@@ -663,28 +665,21 @@ export function notifyMatchScheduled(matchId: string, opts: { night?: { position
       });
       return;
     }
-    const payload = composeTieSchedule({
-      kind: "tie_rescheduled",
-      tieId: m.id,
-      tournamentId: m.tournament_id,
-      a: side(ctx, m.team_a_id),
-      b: side(ctx, m.team_b_id),
-      court,
-      at: m.scheduled_time,
-      timeZone: ctx.tournament.timezone,
-      eventName: ctx.tournament.name,
-    });
     await enqueue({
       kind: "match_scheduled",
       tournamentId: m.tournament_id,
       matchId: m.id,
       dedupeKey: `match:${m.id}:sched:${m.court_id ?? "-"}:${m.scheduled_time ?? "-"}`,
-      payload: {
-        ...payload,
-        title: `Court and time: ${side(ctx, m.team_a_id).name} v ${side(ctx, m.team_b_id).name}`,
-        url: `movescore://match/${m.id}`,
-        targets: [{ kind: "match", key: m.id }, ...players.map((p) => ({ kind: "player" as const, key: p.id }))],
-      },
+      payload: composeMatchScheduled({
+        matchId: m.id,
+        a: side(ctx, m.team_a_id),
+        b: side(ctx, m.team_b_id),
+        court,
+        at: m.scheduled_time,
+        timeZone: ctx.tournament.timezone,
+        eventName: ctx.tournament.name,
+        playerIds: players.map((p) => p.id),
+      }),
     });
   });
 }
@@ -709,7 +704,7 @@ export function notifyAnnouncement(announcementId: string) {
  * (Admin → In the app → Play status): everyone following the tournament or its
  * event group. Once per saved status (dedupe on its time).
  */
-export function notifyPlayStatus(o: { tournamentId: string; title: string; body: string; updatedAt: string }) {
+export function notifyPlayStatus(o: { tournamentId: string; title: string; body: string; updatedAt: string; tr?: AlertTranslations }) {
   return safely("play status", async () => {
     const { data: t } = await db().from("tournaments").select("slug, event_group_id").eq("id", o.tournamentId).maybeSingle();
     const row = t as { slug?: string; event_group_id?: string | null } | null;
@@ -724,6 +719,7 @@ export function notifyPlayStatus(o: { tournamentId: string; title: string; body:
         tournamentId: o.tournamentId,
         tournamentSlug: row?.slug ?? null,
         eventGroupId: row?.event_group_id ?? null,
+        tr: o.tr,
       }),
     });
   });

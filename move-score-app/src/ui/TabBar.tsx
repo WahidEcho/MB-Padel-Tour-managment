@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "./Text";
+import { useT } from "../i18n";
+import type { Key } from "../i18n/t";
 
 const ICONS: Record<string, (c: string) => React.ReactNode> = {
   index: (c) => (
@@ -41,11 +43,13 @@ const ICONS: Record<string, (c: string) => React.ReactNode> = {
   ),
 };
 
-const LABELS: Record<string, string> = { index: "Discover", matches: "Matches", pass: "My pass", players: "Players", following: "Following" };
+const LABELS: Record<string, Key> = { index: "ui.tabDiscover", matches: "ui.tabMatches", pass: "ui.tabPass", players: "ui.tabPlayers", following: "ui.tabFollowing" };
 
 /** The tab bar's active marker is the ball, bouncing to whichever tab you tap. */
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const { t, calm } = useTheme();
+  const tr = useT();
+  const label = (name: string) => (LABELS[name] ? tr(LABELS[name]!) : name);
   const insets = useSafeAreaInsets();
   const [width, setWidth] = useState(0);
   // On a tablet the bar keeps phone proportions, centred under the content column.
@@ -76,7 +80,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               key={route.key}
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
-              accessibilityLabel={LABELS[route.name]}
+              accessibilityLabel={label(route.name)}
               onPress={() => {
                 void Haptics.selectionAsync().catch(() => {});
                 const e = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
@@ -90,7 +94,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
                 <>
                   {ICONS[route.name]?.(color)}
                   <Body size={10.5} weight="bold" style={{ color }}>
-                    {LABELS[route.name]}
+                    {label(route.name)}
                   </Body>
                 </>
               )}

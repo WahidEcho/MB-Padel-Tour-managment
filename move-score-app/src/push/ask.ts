@@ -9,6 +9,7 @@ import * as Notifications from "expo-notifications";
 import { alertsPermission, type AlertsPermission } from "@core";
 import { getJson, setJson } from "../state/kv";
 import { registerDevice } from "./register";
+import { tr } from "../i18n/t";
 
 const ASKED = "ms.alertsAsked";
 
@@ -25,11 +26,11 @@ export async function askForAlertsAfterFollow(): Promise<void> {
   setJson(ASKED, true);
   if (permission !== "undetermined") return;
   Alert.alert(
-    "Get alerts for what you follow?",
-    "Move Score can tell you when matches you follow are scheduled, about to start and finished. You can change this any time in Account.",
+    tr("account.askTitle"),
+    tr("account.askBody"),
     [
-      { text: "Not now", style: "cancel" },
-      { text: "Turn on alerts", onPress: () => void registerDevice(true) },
+      { text: tr("account.notNow"), style: "cancel" },
+      { text: tr("account.turnOnAlerts"), onPress: () => void registerDevice(true) },
     ],
     { cancelable: true },
   );

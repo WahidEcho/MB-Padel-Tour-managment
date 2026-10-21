@@ -10,6 +10,7 @@ import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card } from "../../ui/Bits";
+import { useT } from "../../i18n";
 
 /**
  * Step two of a court (or master) code sign-in (migration 0035): the referee picks their
@@ -20,6 +21,7 @@ import { Button, Card } from "../../ui/Bits";
  */
 export default function RefereePin() {
   const { t } = useTheme();
+  const tr = useT();
   const waiting = pendingCode.get();
   const [pin, setPin] = useState("");
   const referees = waiting?.referees ?? [];
@@ -46,17 +48,17 @@ export default function RefereePin() {
   };
   return (
     <Screen tabs={false}>
-      <BackHeader label="Referee" />
-      <Eyebrow tone="live">{waiting?.master ? "Master referee" : waiting?.court ? "Court referee" : "Referee"}</Eyebrow>
-      <Display size={30} style={{ marginTop: 6 }}>{waiting?.master ? "Your PIN" : (waiting?.court ?? "Your PIN")}</Display>
+      <BackHeader label={tr("referee.referee")} />
+      <Eyebrow tone="live">{waiting?.master ? tr("referee.masterReferee") : waiting?.court ? tr("referee.courtReferee") : tr("referee.referee")}</Eyebrow>
+      <Display size={30} style={{ marginTop: 6 }}>{waiting?.master ? tr("referee.yourPin") : (waiting?.court ?? tr("referee.yourPin"))}</Display>
       {!waiting ? (
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body>Scan the court QR or type your referee code first.</Body>
-          <Button label="Referee home" onPress={() => router.replace("/referee")} />
+          <Body>{tr("referee.pinFirst")}</Body>
+          <Button label={tr("referee.refereeHome")} onPress={() => router.replace("/referee")} />
         </Card>
       ) : (
         <Card style={{ marginTop: 16, gap: 12 }}>
-          <Body tone="ink2" size={14}>{needName ? "Pick your name, then e" : "E"}nter your own 4-digit referee PIN from the organiser. It tells the desk who is on {waiting.master ? "duty" : waiting.court ? "this court" : "the event"}.</Body>
+          <Body tone="ink2" size={14}>{`${needName ? tr("referee.pinPickThenEnter") : tr("referee.pinEnter")} ${waiting.master ? tr("referee.pinTellsDuty") : waiting.court ? tr("referee.pinTellsCourt") : tr("referee.pinTellsEvent")}`}</Body>
           {needName ? <RefereeNamePicker referees={referees} selected={refereeId} onSelect={(id) => { setRefereeId(id); setErr(null); }} /> : null}
           <TextInput
             value={pin}
@@ -69,15 +71,15 @@ export default function RefereePin() {
             secureTextEntry
             keyboardType="number-pad"
             maxLength={PIN_LENGTH}
-            accessibilityLabel="Referee PIN"
+            accessibilityLabel={tr("referee.pinA11y")}
             placeholder="••••"
             placeholderTextColor={t.ink3}
             style={{ backgroundColor: t.chip, borderColor: err ? t.live : t.line, borderWidth: 1, borderRadius: 16, paddingVertical: 18, color: t.ink, fontSize: 34, letterSpacing: 18, textAlign: "center" }}
           />
           {err ? <Body tone="live" size={13} accessibilityRole="alert">{err}</Body> : null}
-          <Button label={busy ? "Checking…" : "Sign in"} disabled={pin.length !== PIN_LENGTH || busy || (needName && !refereeId)} onPress={() => void submit()} />
+          <Button label={busy ? tr("referee.checking") : tr("referee.signIn")} disabled={pin.length !== PIN_LENGTH || busy || (needName && !refereeId)} onPress={() => void submit()} />
           <View style={{ alignItems: "center" }}>
-            <Body tone="blue" size={13} onPress={() => { pendingCode.clear(); router.replace("/referee"); }}>Use another code</Body>
+            <Body tone="blue" size={13} onPress={() => { pendingCode.clear(); router.replace("/referee"); }}>{tr("referee.useAnotherCode")}</Body>
           </View>
         </Card>
       )}

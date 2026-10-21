@@ -5,6 +5,8 @@ import { useOnline } from "../api/network";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "./Text";
 import { LoadState } from "./LoadState";
+import { fmt } from "../i18n/t";
+import { useT } from "../i18n";
 
 /** Data on a live screen counts as old after this long without a fresh answer. */
 const OLD_AFTER_MS = 30_000;
@@ -17,16 +19,10 @@ export interface QueryLike {
   dataUpdatedAt: number;
 }
 
-const clock = (ms: number) => {
-  try {
-    return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(ms));
-  } catch {
-    return new Date(ms).toISOString().slice(11, 16);
-  }
-};
+const clock = (ms: number) => fmt().time(ms) || new Date(ms).toISOString().slice(11, 16);
 
 /** No phone signal (or the server is unreachable) and nothing saved to show. Prefer <LoadState queries={…} />, which reads the queries itself. */
-export function OfflineState({ onRetry, what = "this page" }: { onRetry: () => unknown; what?: string }) {
+export function OfflineState({ onRetry, what }: { onRetry: () => unknown; what?: string }) {
   return <LoadState kind="offline" onRetry={onRetry} what={what} />;
 }
 
@@ -42,6 +38,7 @@ export function failedOffline(...qs: QueryLike[]): boolean {
  */
 export function StaleBanner({ queries, live = false }: { queries: QueryLike[]; live?: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   const online = useOnline();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -57,7 +54,7 @@ export function StaleBanner({ queries, live = false }: { queries: QueryLike[]; l
   // The oldest answer on screen is the honest one to name. 0 = saved on the phone before this visit.
   const times = [...failed, ...old].map((q) => q.dataUpdatedAt);
   const since = Math.min(...times);
-  const label = `${failed.length ? "Offline" : "Reconnecting"} · ${since > 0 ? `showing scores from ${clock(since)}` : "showing saved scores"}`;
+  const label = `${failed.length ? tr("ui.staleOffline") : tr("ui.reconnecting")} · ${since > 0 ? tr("ui.showingFrom", { time: clock(since) }) : tr("ui.showingSaved")}`;
   return (
     <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, marginBottom: 10 }}>
       <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.ink3 }} />

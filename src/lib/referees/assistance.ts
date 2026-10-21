@@ -13,6 +13,7 @@ import { takeRateLimit } from "../ratelimit";
 import { courtKey } from "../orgs/courtScope";
 import { isUuid } from "../orgs/roles";
 import { sendExpo, type ExpoMessage } from "../notify/drain";
+import { alertLang, aw } from "../notify/i18n";
 import type { StaffPrincipal } from "../auth/staff";
 import { mastersOnDuty } from "./server";
 import { matchDayRules } from "../matchday/rules";
@@ -99,17 +100,22 @@ export async function alertMasters(call: AssistanceCall): Promise<number> {
   if (!duty.installationIds.length) return 0;
   const { data } = await db()
     .from("push_devices")
-    .select("id, expo_push_token")
+    .select("id, expo_push_token, locale")
     .in("installation_id", duty.installationIds.slice(0, 200))
     .is("disabled_at", null)
     .not("expo_push_token", "is", null);
-  const devices = (data ?? []) as { id: string; expo_push_token: string }[];
+  const devices = (data ?? []) as { id: string; expo_push_token: string; locale?: string | null }[];
   if (!devices.length) return 0;
-  const body = assistanceMessage(call.requested_by_name, call.court_name);
+  // In each phone's language (English: the shared wording the web console shows too).
+  const words = (locale: string | null | undefined) => {
+    const lang = alertLang(locale);
+    return lang === "en"
+      ? { title: "Call for assistance", body: assistanceMessage(call.requested_by_name, call.court_name) }
+      : { title: aw(lang, "assistance"), body: aw(lang, "assistanceBody", { name: call.requested_by_name.trim(), court: call.court_name.trim() }) };
+  };
   const messages: ExpoMessage[] = devices.map((d) => ({
     to: d.expo_push_token,
-    title: "Call for assistance",
-    body,
+    ...words(d.locale),
     data: { url: "movescore://referee/master", kind: "assistance", callId: call.id },
     sound: "default",
     channelId: "assistance",

@@ -4,11 +4,12 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
-import { RUBBER_LABELS, clockText, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
+import { clockText, isDoneStatus, isLiveStatus, type MMatch, type MTimelinePoint } from "@core";
 import { useTick } from "../../referee/V2";
 import { useBundle, useConfig, useLive, useMatch, useMatchStats, useTimeline, useVenue } from "../../api/queries";
 import { StatsCard } from "../../ui/StatsCard";
-import { dayIn, isAwaitingResult, makeView, matchA11y, timeIn } from "../../api/model";
+import { dayIn, isAwaitingResult, makeView, matchA11y, rubberName, timeIn } from "../../api/model";
+import { useT } from "../../i18n";
 import { SkinScope, useTheme } from "../../theme/ThemeProvider";
 import { CONTENT_MAX_WIDTH, Screen } from "../../ui/Screen";
 import { LiveVideoBadge, LiveVideoPlayer } from "../../ui/LiveVideo";
@@ -44,6 +45,7 @@ function scorer(prev: MMatch["score"], next: MMatch["score"]): "A" | "B" | null 
 
 function Board({ m, v, aNames, bNames, scoredBy }: { m: MMatch; v: ReturnType<typeof makeView>; aNames: string[]; bNames: string[]; scoredBy: "A" | "B" | null }) {
   const { t, calm } = useTheme();
+  const tr = useT();
   const s = m.score;
   const live = isLiveStatus(m.status);
   const sets = s?.sets ?? [];
@@ -69,7 +71,7 @@ function Board({ m, v, aNames, bNames, scoredBy }: { m: MMatch; v: ReturnType<ty
             {(side === "A" ? aNames : bNames).map((n, i) => (
               <Body key={i} weight="bold" size={rowH === ROW_H ? 15 : 14} numberOfLines={1}>{n}</Body>
             ))}
-            <Eyebrow size={10} tone={won ? "ink" : "ink3"}>{won ? `${team?.code ?? ""} · WON` : (team?.code ?? "")}</Eyebrow>
+            <Eyebrow size={10} tone={won ? "ink" : "ink3"}>{won ? tr("screens.wonCaps", { code: team?.code ?? "" }) : (team?.code ?? "")}</Eyebrow>
           </View>
         </View>
         {sets.map((x, i) => (
@@ -100,15 +102,16 @@ function Board({ m, v, aNames, bNames, scoredBy }: { m: MMatch; v: ReturnType<ty
 }
 
 function Feed({ points, aCode, bCode }: { points: MTimelinePoint[]; aCode: string; bCode: string }) {
+  const tr = useT();
   const games = points.filter((p) => p.game).slice(-6).reverse();
-  if (!games.length) return <Body tone="ink2" size={13}>Games appear here as they finish.</Body>;
+  if (!games.length) return <Body tone="ink2" size={13}>{tr("screens.gamesAppear")}</Body>;
   return (
     <View style={{ gap: 9 }}>
       {games.map((g, i) => (
         <View key={i} style={{ flexDirection: "row", gap: 12 }}>
           <Num size={14} tone="ink3" style={{ width: 42 }}>{g.game!.replace("-", "–")}</Num>
           <Body size={13.5}>
-            <Body weight="semi" size={13.5}>{g.w === "A" ? aCode : bCode}</Body> took the game · set {g.set}
+            <Body weight="semi" size={13.5}>{g.w === "A" ? aCode : bCode}</Body> {tr("screens.tookGame", { set: g.set })}
           </Body>
         </View>
       ))}
@@ -118,26 +121,27 @@ function Feed({ points, aCode, bCode }: { points: MTimelinePoint[]; aCode: strin
 
 /** Everyone and everything this match belongs to, each opening its own page. */
 function MatchLinks({ m, v, slug }: { m: MMatch; v: ReturnType<typeof makeView>; slug: string }) {
-  const tr = v.bundle.tournament;
+  const tr = useT();
+  const tour = v.bundle.tournament;
   const tie = v.tieOf(m);
   const sides = (["A", "B"] as const).map((side) => ({ team: v.team(side === "A" ? m.a : m.b), players: v.sidePlayers(m, side) }));
   const players = sides.flatMap((s) => s.players.map((p) => ({ p, team: s.team })));
   return (
     <Card style={{ marginTop: 12, gap: 10 }}>
-      <Eyebrow>In this match</Eyebrow>
+      <Eyebrow>{tr("screens.inThisMatch")}</Eyebrow>
       {players.length > 0 && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {players.map(({ p, team }) => (
-            <LinkChip key={p.id} label={p.name} accessibilityLabel={`${p.name}, player page`} onPress={() => openPlayer(p.id, slug)} leading={team ? <Flag iso2={team.iso2} code={team.code} size={18} /> : undefined} />
+            <LinkChip key={p.id} label={p.name} accessibilityLabel={tr("screens.pagePlayer", { name: p.name })} onPress={() => openPlayer(p.id, slug)} leading={team ? <Flag iso2={team.iso2} code={team.code} size={18} /> : undefined} />
           ))}
         </View>
       )}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {sides.map(({ team }) =>
-          team ? <LinkChip key={team.id} label={team.name} accessibilityLabel={`${team.name}, ${tr.isTies ? "nation" : "team"} page`} onPress={() => openTeam(team, slug, tr.isTies)} leading={<Flag iso2={team.iso2} code={team.code} size={18} />} /> : null,
+          team ? <LinkChip key={team.id} label={team.name} accessibilityLabel={tr(tour.isTies ? "screens.pageNation" : "screens.pageTeam", { name: team.name })} onPress={() => openTeam(team, slug, tour.isTies)} leading={<Flag iso2={team.iso2} code={team.code} size={18} />} /> : null,
         )}
-        {tie ? <LinkChip label={`${v.team(tie.a)?.code ?? "TBD"} v ${v.team(tie.b)?.code ?? "TBD"} · the tie`} accessibilityLabel="The whole tie" onPress={() => openTie(tie.id)} /> : null}
-        <LinkChip label={tr.name} accessibilityLabel={`${tr.name}, tournament page`} onPress={() => openTournament(slug)} />
+        {tie ? <LinkChip label={tr("screens.theTie", { tie: `${v.team(tie.a)?.code ?? tr("common.tbd")} ${tr("common.vs")} ${v.team(tie.b)?.code ?? tr("common.tbd")}` })} accessibilityLabel={tr("screens.wholeTie")} onPress={() => openTie(tie.id)} /> : null}
+        <LinkChip label={tour.name} accessibilityLabel={tr("screens.pageTournament", { name: tour.name })} onPress={() => openTournament(slug)} />
       </View>
     </Card>
   );
@@ -145,6 +149,7 @@ function MatchLinks({ m, v, slug }: { m: MMatch; v: ReturnType<typeof makeView>;
 
 function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const { t, calm } = useTheme();
+  const tr = useT();
   const cfg = useConfig();
   const flags = cfg.data?.flags ?? {};
   const q = useMatch(id);
@@ -213,7 +218,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
     const seen = prevSituation.current !== "";
     if (seen && sit.kind && (sit.kind === "match" || sit.kind === "set") && prevSituation.current.split(":").slice(0, 2).join(":") !== `${sit.kind}:${sit.side}`) {
       const team = v?.team(sit.side === "A" ? m.a : m.b);
-      play({ key, kicker: `${v?.court(m.courtId) ?? "Court"} · LIVE`, words: sit.kind === "match" ? ["Match", "point"] : ["Set", "point"], who: `${team?.code ?? ""} · ${sit.side === "A" ? aLabel : bLabel}`, final: false });
+      play({ key, kicker: `${v?.court(m.courtId) ?? tr("common.court")} · ${tr("screens.liveCaps")}`, words: sit.kind === "match" ? [tr("screens.takeMatch1"), tr("screens.takeMatch2")] : [tr("screens.takeSet1"), tr("screens.takeSet2")], who: `${team?.code ?? ""} · ${sit.side === "A" ? aLabel : bLabel}`, final: false });
     }
     prevSituation.current = key;
     if (prevStatus.current && ["live", "paused", "pending_sync"].includes(prevStatus.current) && isDoneStatus(m.status) && m.winner) {
@@ -223,13 +228,13 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
       play({
         key: `final:${m.id}`,
         kicker: b.data?.tournament.name.toUpperCase() ?? "",
-        words: tieWon ? ["Tie", "won"] : m.tieId ? ["Rubber", "won"] : ["Match", "won"],
+        words: tieWon ? [tr("screens.takeTie1"), tr("screens.takeTie2")] : m.tieId ? [tr("screens.takeRubber1"), tr("screens.takeRubber2")] : [tr("screens.takeMatchWon1"), tr("screens.takeMatchWon2")],
         who: tieWon && tie ? `${winnerTeam?.name} ${tie.winner === tie.a ? `${tie.rubbersA}–${tie.rubbersB}` : `${tie.rubbersB}–${tie.rubbersA}`}` : `${winnerTeam?.code ?? ""} · ${m.winner === m.a ? aLabel : bLabel}`,
         final: true,
       });
     }
     prevStatus.current = m.status;
-  }, [q.data, m, v, aLabel, bLabel, b.data, flags.takeovers]);
+  }, [q.data, m, v, aLabel, bLabel, b.data, flags.takeovers, tr]);
 
   const share = useCallback(() => {
     setMoment(null);
@@ -239,8 +244,8 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   if (!m || !v || !b.data) {
     return (
       <Screen tabs={false} onRefresh={() => b.refetch()}>
-        <BackHeader label="Back" />
-        <LoadState queries={[b]} what="this match" notFound={<Empty title="This match is not available" />} />
+        <BackHeader label={tr("common.back")} />
+        <LoadState queries={[b]} what={tr("screens.whatMatch")} notFound={<Empty title={tr("screens.matchNA")} />} />
       </Screen>
     );
   }
@@ -249,34 +254,34 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const sit = q.data!.situation;
   const awaiting = isAwaitingResult(m);
   const callText = isDoneStatus(m.status)
-    ? "Final"
+    ? tr("common.final")
     : awaiting
-      ? "Match over · awaiting confirmation"
+      ? tr("screens.awaiting")
       : m.status === "paused"
-      ? "Play suspended"
+      ? tr("screens.suspended")
       : sit.kind === "match" || sit.kind === "set"
-        ? `${sit.kind === "match" ? "Match" : "Set"} point ${sit.side === "A" ? aCode : bCode}`
+        ? tr(sit.kind === "match" ? "screens.matchPoint" : "screens.setPoint", { code: sit.side === "A" ? aCode : bCode })
         : sit.kind === "break"
-          ? `Break point ${sit.side === "A" ? aCode : bCode}`
+          ? tr("screens.breakPoint", { code: sit.side === "A" ? aCode : bCode })
           : m.score?.tiebreak
-            ? "Tie-break"
+            ? tr("screens.tiebreak")
             : live && m.score?.serving
-              ? `${m.score.serving === "A" ? aCode : bCode} to serve`
+              ? tr("screens.toServe", { code: m.score.serving === "A" ? aCode : bCode })
               : m.scheduledTime
                 ? `${dayIn(m.scheduledTime, tz)} · ${timeIn(m.scheduledTime, tz)}`
-                : "Not started";
+                : tr("screens.notStarted");
   // Scoring v2 (when the organiser shows them): a running timer, the ACE moment, the aces count.
   const clockNow = m.score?.clock ? Math.max(0, Math.floor((now - Date.parse(m.score.clock.startedAt)) / 1000)) : 0;
-  const v2Call = live && m.score?.clock ? `${m.score.clock.label} ${clockText(clockNow)}` : live && m.score?.ace && m.score.serving ? `Ace · ${m.score.serving === "A" ? aCode : bCode}` : null;
+  const v2Call = live && m.score?.clock ? `${m.score.clock.label} ${clockText(clockNow)}` : live && m.score?.ace && m.score.serving ? tr("screens.ace", { code: m.score.serving === "A" ? aCode : bCode }) : null;
   const hot = !awaiting && (sit.kind === "match" || sit.kind === "set" || Boolean(v2Call && m.score?.ace));
   const summary = `${matchA11y(m, v)}${hot || sit.kind === "break" ? `. ${callText}` : ""}`;
   return (
     <View style={{ flex: 1 }}>
       <Screen tabs={false} stage={false} onRefresh={() => Promise.all([q.refetch(), tl.refetch(), st.refetch()])}>
         <BackHeader
-          label={tie ? `${v.team(tie.a)?.code ?? ""} v ${v.team(tie.b)?.code ?? ""}` : b.data.tournament.name.split(" ").slice(0, 2).join(" ")}
+          label={tie ? `${v.team(tie.a)?.code ?? ""} ${tr("common.vs")} ${v.team(tie.b)?.code ?? ""}` : b.data.tournament.name.split(" ").slice(0, 2).join(" ")}
           fallback={tie ? { pathname: "/tie/[id]", params: { id: tie.id } } : { pathname: "/t/[slug]", params: { slug } }}
-          right={<ToggleButton compact on={starred} onLabel="★ Starred" offLabel="☆ Star" onPress={() => void toggleFollow("match", id, b.data!.tournament.id)} />}
+          right={<ToggleButton compact on={starred} onLabel={tr("screens.starred")} offLabel={tr("screens.star")} onPress={() => void toggleFollow("match", id, b.data!.tournament.id)} />}
         />
         <StaleBanner queries={[q, l]} live={live || m.status === "pending_sync"} />
         {m.liveVideo ? (
@@ -292,16 +297,16 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           <View accessible accessibilityLabel={summary} style={{ borderRadius: 26, backgroundColor: t.scheme === "dark" ? "rgba(10,16,34,0.88)" : "rgba(255,255,255,0.94)", borderWidth: 1, borderColor: t.line, paddingVertical: 14, paddingRight: 12 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: 18, marginBottom: 6 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                {live && !awaiting ? <LivePill label={m.status === "paused" ? "PAUSED" : `LIVE${m.rubberType ? ` · ${m.rubberType}` : ""}`} /> : <Chip label={isDoneStatus(m.status) ? "Final" : awaiting ? "Match over" : m.status === "cancelled" ? "Not played" : "Up next"} />}
+                {live && !awaiting ? <LivePill label={m.status === "paused" ? tr("screens.pausedCaps") : `${tr("screens.liveCaps")}${m.rubberType ? ` · ${m.rubberType}` : ""}`} /> : <Chip label={isDoneStatus(m.status) ? tr("common.final") : awaiting ? tr("screens.matchOver") : m.status === "cancelled" ? tr("screens.notPlayed") : tr("common.upNext")} />}
                 {m.liveVideo ? <LiveVideoBadge compact /> : null}
               </View>
-              <Chip label={[v.court(m.courtId), m.rubberType ? RUBBER_LABELS[m.rubberType as keyof typeof RUBBER_LABELS] : m.round].filter(Boolean).join(" · ")} />
+              <Chip label={[v.court(m.courtId), m.rubberType ? rubberName(m.rubberType) : m.round].filter(Boolean).join(" · ")} />
             </View>
             <Board m={m} v={v} aNames={names("A")} bNames={names("B")} scoredBy={scoredBy} />
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: 18, marginTop: 8 }}>
               <Body tone="ink2" size={12}>
-                {tie ? `${v.team(tie.a)?.code} ${tie.rubbersA}–${tie.rubbersB} ${v.team(tie.b)?.code} in the tie` : (m.round ?? "")}
-                {m.score?.aces && (m.score.aces.a || m.score.aces.b) ? ` · Aces ${aCode} ${m.score.aces.a} – ${m.score.aces.b} ${bCode}` : ""}
+                {tie ? tr("screens.inTheTie", { a: v.team(tie.a)?.code ?? "", ra: tie.rubbersA, rb: tie.rubbersB, b: v.team(tie.b)?.code ?? "" }) : (m.round ?? "")}
+                {m.score?.aces && (m.score.aces.a || m.score.aces.b) ? ` · ${tr("screens.acesLine", { a: aCode, na: m.score.aces.a, nb: m.score.aces.b, b: bCode })}` : ""}
               </Body>
               <View style={{ backgroundColor: hot ? t.ball : "transparent", borderRadius: 6, paddingHorizontal: hot ? 7 : 0, paddingVertical: 3 }}>
                 <Eyebrow size={11} tone={hot ? "onBall" : "ink"} testID={v2Call ? "v2-call" : undefined}>{v2Call ?? callText}</Eyebrow>
@@ -314,12 +319,12 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
         ) : null}
         {flags.momentum !== false && (tl.data?.points.length ?? 0) > 1 && (
           <Card style={{ marginTop: 4 }}>
-            <Eyebrow style={{ marginBottom: 10 }}>Momentum</Eyebrow>
+            <Eyebrow style={{ marginBottom: 10 }}>{tr("screens.momentum")}</Eyebrow>
             <Momentum points={tl.data!.points} aLabel={aCode} bLabel={bCode} />
           </Card>
         )}
         <Card style={{ marginTop: 12 }}>
-          <Eyebrow style={{ marginBottom: 10 }}>Game by game</Eyebrow>
+          <Eyebrow style={{ marginBottom: 10 }}>{tr("screens.gameByGame")}</Eyebrow>
           <Feed points={tl.data?.points ?? []} aCode={aCode} bCode={bCode} />
         </Card>
         {st.data && (st.data.stats.available || st.data.stats.reason === "final_score") ? (
@@ -328,25 +333,25 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
             sides={st.data.stats.available ? st.data.stats.sides : null}
             aLabel={aCode}
             bLabel={bCode}
-            time={st.data.stats.available ? { label: "Match time", seconds: st.data.stats.durationSeconds } : null}
+            time={st.data.stats.available ? { label: tr("screens.matchTime"), seconds: st.data.stats.durationSeconds } : null}
             sets={st.data.stats.available ? st.data.stats.sets : undefined}
             note={st.data.stats.available ? null : st.data.stats.note}
           />
         ) : null}
         <MatchLinks m={m} v={v} slug={slug} />
         {venue.data && m.courtId ? (
-          <Button kind="ghost" label={`Show ${v.court(m.courtId) ?? "the court"} on the map`} onPress={() => openVenueMap(slug, m.courtId)} style={{ marginTop: 12 }} />
+          <Button kind="ghost" label={tr("screens.showCourtOnMap", { court: v.court(m.courtId) ?? tr("screens.theCourt") })} onPress={() => openVenueMap(slug, m.courtId)} style={{ marginTop: 12 }} />
         ) : null}
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-          <Button kind="ghost" label="Share card" onPress={share} style={{ flex: 1 }} />
+          <Button kind="ghost" label={tr("screens.shareCard")} onPress={share} style={{ flex: 1 }} />
           {live && flags.live_activity && lockScreenSupported() && !lockScreenOff ? (
             <Button
-              label="Lock screen"
+              label={tr("screens.lockScreen")}
               onPress={() => void startLockScreen(m, { a: aCode, b: bCode, court: v.court(m.courtId) ?? "" })}
               style={{ flex: 1 }}
             />
           ) : (
-            <Button label="My pass" onPress={() => router.push("/pass")} style={{ flex: 1 }} />
+            <Button label={tr("screens.myPass")} onPress={() => router.push("/pass")} style={{ flex: 1 }} />
           )}
         </View>
         {Platform.OS === "web" ? null : <View style={{ height: 10 }} />}
@@ -357,14 +362,15 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
 }
 
 export default function MatchRoute() {
+  const tr = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const q = useMatch(id);
   const b = useBundle(q.data?.tournamentSlug);
   if (!q.data) {
     return (
       <Screen tabs={false} onRefresh={() => q.refetch()}>
-        <BackHeader label="Back" />
-        <LoadState queries={[q]} what="this match" notFound={<Empty title="This match is not available" body="It may have been removed from the order of play." />} />
+        <BackHeader label={tr("common.back")} />
+        <LoadState queries={[q]} what={tr("screens.whatMatch")} notFound={<Empty title={tr("screens.matchNA")} body={tr("screens.matchRemovedBody")} />} />
       </Screen>
     );
   }

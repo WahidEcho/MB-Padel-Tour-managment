@@ -10,6 +10,7 @@ import { Screen } from "../../ui/Screen";
 import { BackHeader } from "../../ui/Header";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card } from "../../ui/Bits";
+import { useT } from "../../i18n";
 
 /**
  * "Complete your registration": a player who signed in with their code adds an
@@ -18,6 +19,7 @@ import { Button, Card } from "../../ui/Bits";
  * follows and pass.
  */
 export default function CompleteRegistration() {
+  const tr = useT();
   const user = session.use((s) => s.user);
   const [email, setEmail] = useState(user?.pendingEmail ?? "");
   const [password, setPassword] = useState("");
@@ -34,9 +36,9 @@ export default function CompleteRegistration() {
   if (!user) {
     return (
       <Screen tabs={false}>
-        <BackHeader label="Account" fallback="/account" />
-        <Display size={26}>Sign in first</Display>
-        <Button label="Back to Account" onPress={() => router.replace("/account")} style={{ marginTop: 16 }} />
+        <BackHeader label={tr("ui.account")} fallback="/account" />
+        <Display size={26}>{tr("auth.signInFirst")}</Display>
+        <Button label={tr("auth.backToAccount")} onPress={() => router.replace("/account")} style={{ marginTop: 16 }} />
       </Screen>
     );
   }
@@ -44,13 +46,13 @@ export default function CompleteRegistration() {
   if (user.registrationComplete !== false) {
     return (
       <Screen tabs={false}>
-        <BackHeader label="Account" fallback="/account" />
-        <Eyebrow tone="live">Registration complete</Eyebrow>
-        <Display size={28} style={{ marginTop: 6 }}>You&apos;re all set</Display>
+        <BackHeader label={tr("ui.account")} fallback="/account" />
+        <Eyebrow tone="live">{tr("auth.regComplete")}</Eyebrow>
+        <Display size={28} style={{ marginTop: 6 }}>{tr("auth.allSet")}</Display>
         <Body tone="ink2" size={14} style={{ marginTop: 8 }}>
-          {user.email ? `From now on, sign in with ${user.email} and your password.` : "From now on, sign in with your email and password."}
+          {user.email ? tr("auth.fromNowOnEmail", { email: user.email }) : tr("auth.fromNowOn")}
         </Body>
-        <Button label="Done" onPress={() => router.replace("/account")} style={{ marginTop: 18 }} />
+        <Button label={tr("common.done")} onPress={() => router.replace("/account")} style={{ marginTop: 18 }} />
       </Screen>
     );
   }
@@ -74,25 +76,25 @@ export default function CompleteRegistration() {
   return (
     <Screen tabs={false}>
       <>
-        <BackHeader label="Account" fallback="/account" />
-        <Eyebrow tone="live">{user.name ? `Welcome, ${user.name}` : "Welcome"}</Eyebrow>
-        <Display size={28} style={{ marginTop: 6 }}>{sentTo ? "Check your inbox" : "Complete your registration"}</Display>
+        <BackHeader label={tr("ui.account")} fallback="/account" />
+        <Eyebrow tone="live">{user.name ? tr("auth.welcomeName", { name: user.name }) : tr("auth.welcome")}</Eyebrow>
+        <Display size={28} style={{ marginTop: 6 }}>{sentTo ? tr("auth.checkInbox") : tr("auth.completeRegistration")}</Display>
         {sentTo ? (
           <Sent email={sentTo} onChange={() => setSentTo(null)} />
         ) : (
           <>
             <Body tone="ink2" size={14} style={{ marginTop: 8, marginBottom: 14 }}>
-              You&apos;re signed in with your player code. Add your email and a password so you can sign in on any phone and recover your account.
+              {tr("auth.completeBody")}
             </Body>
             <Card style={{ gap: 14 }}>
               <EmailField value={email} onChangeText={setEmail} returnKeyType="next" />
               <PasswordField isNew value={password} onChangeText={setPassword} returnKeyType="next" />
               <PasswordChecklist password={password} email={cleanEmail} />
-              <PasswordField isNew label="Confirm password" value={confirm} onChangeText={setConfirm} error={confirm.length > 0 && confirm !== password} />
-              {confirm.length > 0 && confirm !== password ? <Body tone="live" size={12.5}>The two passwords don&apos;t match.</Body> : null}
+              <PasswordField isNew label={tr("auth.confirmPassword")} value={confirm} onChangeText={setConfirm} error={confirm.length > 0 && confirm !== password} />
+              {confirm.length > 0 && confirm !== password ? <Body tone="live" size={12.5}>{tr("auth.mismatch")}</Body> : null}
               {err ? <Body tone="live" size={13} accessibilityLiveRegion="polite">{err}</Body> : null}
               <Button
-                label={busy ? "Sending…" : "Send confirmation email"}
+                label={busy ? tr("auth.sending") : tr("auth.sendConfirmation")}
                 disabled={!isValidEmail(cleanEmail) || !isStrongPassword(password, cleanEmail) || confirm !== password || busy}
                 onPress={() => void submit()}
               />
@@ -105,6 +107,7 @@ export default function CompleteRegistration() {
 }
 
 function Sent({ email, onChange }: { email: string; onChange: () => void }) {
+  const tr = useT();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -112,14 +115,14 @@ function Sent({ email, onChange }: { email: string; onChange: () => void }) {
   return (
     <Card style={{ gap: 14, marginTop: 14 }}>
       <Body size={15}>
-        {"Check your inbox to confirm "}
+        {tr("auth.inboxBefore")}
         <Body weight="bold" size={15}>{email}</Body>
-        {". Tap the link in the email — on this phone or any computer — and your registration is complete."}
+        {tr("auth.inboxAfterComplete")}
       </Body>
       <View style={{ gap: 8 }}>
-        <Field label="Or enter the 6-digit code from the email" value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} placeholder="123456" />
+        <Field label={tr("auth.codeLabel")} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} placeholder="123456" />
         <Button
-          label={busy ? "Checking…" : "Confirm with code"}
+          label={busy ? tr("auth.checking") : tr("auth.confirmCode")}
           disabled={digits.length !== 6 || busy}
           onPress={() => {
             setBusy(true);
@@ -133,18 +136,18 @@ function Sent({ email, onChange }: { email: string; onChange: () => void }) {
       {msg ? <Body tone="live" size={13} accessibilityLiveRegion="polite">{msg}</Body> : null}
       <Button
         kind="ghost"
-        label="I've confirmed"
+        label={tr("auth.confirmed")}
         onPress={() => {
           setMsg(null);
           refreshAccount().then(
             () => {
-              if (session.get().user?.registrationComplete === false) setMsg("Not confirmed yet. Tap the link in the newest email, then try again.");
+              if (session.get().user?.registrationComplete === false) setMsg(tr("auth.notConfirmedNewest"));
             },
             (e: unknown) => setMsg(errorMessage(e)),
           );
         }}
       />
-      <Button kind="ghost" label="Change email or resend" onPress={onChange} />
+      <Button kind="ghost" label={tr("auth.changeOrResend")} onPress={onChange} />
     </Card>
   );
 }

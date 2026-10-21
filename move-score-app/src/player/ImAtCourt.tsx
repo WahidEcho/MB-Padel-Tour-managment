@@ -11,6 +11,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { Body, Eyebrow, Num } from "../ui/Text";
 import { Button, Card } from "../ui/Bits";
 import { markHere, useMyCall } from "./here";
+import { useT } from "../i18n";
 
 function useTick(on: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -25,6 +26,7 @@ function useTick(on: boolean): number {
 /** The card on the match screen: shown only for the player's own match while it is called. */
 export function ImAtCourtCard({ matchId, waiting, sideNames }: { matchId: string; waiting: boolean; sideNames: { A: string; B: string } }) {
   const { t } = useTheme();
+  const tr = useT();
   const q = useMyCall(matchId, waiting);
   const c = q.data?.call;
   const open = waiting && c?.status === "called";
@@ -45,7 +47,7 @@ export function ImAtCourtCard({ matchId, waiting, sideNames }: { matchId: string
       await markHere(matchId);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Try again.");
+      setErr(e instanceof Error ? e.message : tr("player.tryAgain"));
     } finally {
       setBusy(false);
     }
@@ -54,25 +56,25 @@ export function ImAtCourtCard({ matchId, waiting, sideNames }: { matchId: string
     <Card style={{ marginTop: 4, gap: 10, borderWidth: 1, borderColor: here ? t.success : due ? t.live : t.ball }}>
       <View
         accessible
-        accessibilityLabel={`Your match is called to court. ${due ? "The deadline has passed." : `${callClock(left)} left.`} ${here ? "You are marked at the court." : ""}`}
+        accessibilityLabel={[tr("player.calledA11y"), due ? tr("player.deadlinePassed") : tr("player.timeLeft", { time: callClock(left) }), here ? tr("player.markedA11y") : ""].filter(Boolean).join(" ")}
         style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
       >
         <View style={{ gap: 2, flex: 1 }}>
-          <Eyebrow size={10.5} tone={due ? "live" : "ink"}>Called to court</Eyebrow>
-          <Body tone="ink2" size={12.5}>{due ? "The deadline has passed: get to the court now." : "Get to the court before the time runs out."}</Body>
+          <Eyebrow size={10.5} tone={due ? "live" : "ink"}>{tr("player.calledToCourt")}</Eyebrow>
+          <Body tone="ink2" size={12.5}>{due ? tr("player.deadlineNow") : tr("player.getToCourt")}</Body>
         </View>
         <Num size={34} tone={due ? "live" : "ink"}>{callClock(left)}</Num>
       </View>
       {here ? (
         <Body weight="semi" style={{ color: t.success }} accessibilityLiveRegion="polite">
-          ✓ You are marked at the court
+          {`✓ ${tr("player.marked")}`}
         </Body>
       ) : q.data.imAtCourt ? (
-        <Button label={busy ? "Telling the referee…" : "I'm at court"} disabled={busy} onPress={() => void press()} accessibilityHint="Tells the referee your side is at the court" />
+        <Button label={busy ? tr("player.telling") : tr("player.imAtCourt")} disabled={busy} onPress={() => void press()} accessibilityHint={tr("player.imAtCourtHint")} />
       ) : (
-        <Body tone="ink2" size={13}>Tell the referee when you are at the court.</Body>
+        <Body tone="ink2" size={13}>{tr("player.tellReferee")}</Body>
       )}
-      <Body tone="ink3" size={12}>{`${sideNames[other]}: ${otherHere ? "at the court" : "not here yet"}`}</Body>
+      <Body tone="ink3" size={12}>{`${sideNames[other]}: ${otherHere ? tr("player.atCourt") : tr("player.notHereYet")}`}</Body>
       {err ? (
         <Body tone="live" size={13} accessibilityLiveRegion="polite">
           {err}
@@ -85,13 +87,14 @@ export function ImAtCourtCard({ matchId, waiting, sideNames }: { matchId: string
 /** The compact button on the live courts hero's called card (the card itself opens the match). */
 export function ImAtCourtPill({ matchId }: { matchId: string }) {
   const { t } = useTheme();
+  const tr = useT();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="I'm at court"
-      accessibilityHint={err ?? "Tells the referee your side is at the court"}
+      accessibilityLabel={tr("player.imAtCourt")}
+      accessibilityHint={err ?? tr("player.imAtCourtHint")}
       hitSlop={10}
       disabled={busy}
       onPress={() => {
@@ -99,12 +102,12 @@ export function ImAtCourtPill({ matchId }: { matchId: string }) {
         setErr(null);
         void markHere(matchId)
           .then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}))
-          .catch((e: unknown) => setErr(e instanceof Error ? e.message : "Try again."))
+          .catch((e: unknown) => setErr(e instanceof Error ? e.message : tr("player.tryAgain")))
           .finally(() => setBusy(false));
       }}
       style={({ pressed }) => ({ minHeight: 34, paddingHorizontal: 12, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: err ? t.liveFill : t.btnBg, opacity: busy ? 0.6 : pressed ? 0.85 : 1 })}
     >
-      <Eyebrow size={10.5} style={{ color: err ? "#FFFFFF" : t.btnInk }}>{busy ? "Sending…" : err ? "Try again" : "I'm at court"}</Eyebrow>
+      <Eyebrow size={10.5} style={{ color: err ? "#FFFFFF" : t.btnInk }}>{busy ? tr("auth.sending") : err ? tr("common.retry") : tr("player.imAtCourt")}</Eyebrow>
     </Pressable>
   );
 }

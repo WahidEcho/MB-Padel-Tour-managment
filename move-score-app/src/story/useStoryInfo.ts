@@ -10,7 +10,9 @@ import { isAwaitingResult, makeView, whenIn, type View } from "../api/model";
 import { useFeaturedGroup } from "../api/featured";
 import { usePass } from "../pass/usePass";
 import { eventToday } from "../pass/day";
-import { eventDays, serialOf, storyDate, type StoryInfo, type StoryPass, type StorySide } from "./model";
+import { eventDays, headline as head, serialOf, storyDate, type StoryInfo, type StoryPass, type StorySide } from "./model";
+import { useT } from "../i18n";
+import { tr as trNow } from "../i18n/t";
 
 export interface StoryState {
   info: StoryInfo | null;
@@ -36,7 +38,7 @@ function usePassFor(group: MEventGroup | null, bundle: MBundle | undefined, slug
 }
 
 function sideOf(team: MTeam | undefined, label: string, sets: number[], games: number | null, won: boolean): StorySide {
-  return { code: team?.code ?? "TBD", iso2: team?.iso2 ?? null, label, sets, games, won };
+  return { code: team?.code ?? trNow("story.tbd"), iso2: team?.iso2 ?? null, label, sets, games, won };
 }
 
 function matchSides(m: MMatch, v: View): [StorySide, StorySide] {
@@ -52,6 +54,7 @@ function matchSides(m: MMatch, v: View): [StorySide, StorySide] {
 }
 
 export function useMatchStory(id: string): StoryState {
+  const tr = useT();
   const q = useMatch(id);
   const slug = q.data?.tournamentSlug;
   const b = useBundle(slug);
@@ -74,16 +77,16 @@ export function useMatchStory(id: string): StoryState {
   const tieWon = tie?.status === "completed" && tie.winner === m.winner;
   const live = isLiveStatus(m.status);
   const headline: [string, string] = done
-    ? [tieWon ? "Tie" : m.tieId ? "Rubber" : "Match", "won"]
+    ? head(tieWon ? "story.headTieWon" : m.tieId ? "story.headRubberWon" : "story.headMatchWon")
     : isAwaitingResult(m)
-      ? ["Match", "over"]
+      ? head("story.headMatchOver")
       : live
-        ? ["Live", "now"]
+        ? head("story.headLive")
         : m.status === "cancelled"
-          ? ["Not", "played"]
-          : ["Coming", "up"];
+          ? head("story.headNotPlayed")
+          : head("story.headComingUp");
   const sides = matchSides(m, v);
-  const note = tie ? `${v.team(tie.a)?.code ?? "TBD"} ${tie.rubbersA}–${tie.rubbersB} ${v.team(tie.b)?.code ?? "TBD"} in the tie` : null;
+  const note = tie ? tr("story.noteTie", { a: v.team(tie.a)?.code ?? tr("story.tbd"), ra: tie.rubbersA, rb: tie.rubbersB, b: v.team(tie.b)?.code ?? tr("story.tbd") }) : null;
   // "Group A · Round 1 · S2": the stage, then the rubber (the round label also names the tie and rubber in full).
   const round = [...(m.round ?? "").split(" · ").filter(Boolean).slice(0, m.rubberType ? 2 : 3), m.rubberType].filter(Boolean).join(" · ") || null;
   const winner = sides.find((s) => s.won);
@@ -103,7 +106,9 @@ export function useMatchStory(id: string): StoryState {
       serial: serialOf(m.id),
       holder: pass?.pass.holderName ?? null,
       pass,
-      a11y: `${sides[0].label} against ${sides[1].label}, ${headline.join(" ").toLowerCase()}${winner ? `, ${winner.label} won` : ""}, at ${t.name}`,
+      a11y: winner
+        ? tr("story.a11yMatchWon", { a: sides[0].label, b: sides[1].label, state: headline.join(" ").toLowerCase(), winner: winner.label, event: t.name })
+        : tr("story.a11yMatch", { a: sides[0].label, b: sides[1].label, state: headline.join(" ").toLowerCase(), event: t.name }),
     },
     problem: null,
     retry,
@@ -111,6 +116,7 @@ export function useMatchStory(id: string): StoryState {
 }
 
 export function useTieStory(tieId: string, slug: string | undefined): StoryState {
+  const tr = useT();
   const b = useBundle(slug);
   const l = useLive(slug, 20_000);
   const group = useFeaturedGroup();
@@ -128,16 +134,18 @@ export function useTieStory(tieId: string, slug: string | undefined): StoryState
   const t = b.data.tournament;
   const done = tie.status === "completed";
   const sides: [StorySide, StorySide] = [
-    sideOf(v.team(tie.a), v.team(tie.a)?.code ?? "TBD", [tie.rubbersA], null, done && tie.winner === tie.a),
-    sideOf(v.team(tie.b), v.team(tie.b)?.code ?? "TBD", [tie.rubbersB], null, done && tie.winner === tie.b),
+    sideOf(v.team(tie.a), v.team(tie.a)?.code ?? tr("story.tbd"), [tie.rubbersA], null, done && tie.winner === tie.a),
+    sideOf(v.team(tie.b), v.team(tie.b)?.code ?? tr("story.tbd"), [tie.rubbersB], null, done && tie.winner === tie.b),
   ];
-  const headline: [string, string] = done ? ["Tie", "won"] : tie.status === "live" ? ["Live", "now"] : ["Coming", "up"];
+  const headline: [string, string] = head(done ? "story.headTieWon" : tie.status === "live" ? "story.headLive" : "story.headComingUp");
+  const nameA = v.team(tie.a)?.name ?? tr("story.tbd");
+  const nameB = v.team(tie.b)?.name ?? tr("story.tbd");
   const winner = sides.find((s) => s.won);
   return {
     info: {
       kind: "tie",
       event: t.name,
-      round: tie.roundName ?? (tie.stage === "group" ? "Group stage" : "Placement"),
+      round: tie.roundName ?? (tie.stage === "group" ? tr("story.groupStage") : tr("story.placement")),
       place: [v.court(tie.courtId), t.city].filter(Boolean).join(" · ") || null,
       city: t.city,
       date: storyDate(new Date(), t.timezone),
@@ -145,11 +153,13 @@ export function useTieStory(tieId: string, slug: string | undefined): StoryState
       status: done ? "final" : tie.status === "live" ? "live" : "upcoming",
       headline,
       sides,
-      note: `${v.team(tie.a)?.name ?? "TBD"} v ${v.team(tie.b)?.name ?? "TBD"}, rubbers won`,
+      note: tr("story.noteTieRubbers", { a: nameA, b: nameB }),
       serial: serialOf(tie.id),
       holder: pass?.pass.holderName ?? null,
       pass,
-      a11y: `${v.team(tie.a)?.name ?? "TBD"} against ${v.team(tie.b)?.name ?? "TBD"}, ${tie.rubbersA}–${tie.rubbersB} in rubbers${winner ? `, ${winner.code} won the tie` : ""}, at ${t.name}`,
+      a11y: winner
+        ? tr("story.a11yTieWon", { a: nameA, b: nameB, ra: tie.rubbersA, rb: tie.rubbersB, winner: winner.code, event: t.name })
+        : tr("story.a11yTie", { a: nameA, b: nameB, ra: tie.rubbersA, rb: tie.rubbersB, event: t.name }),
     },
     problem: null,
     retry,
@@ -157,6 +167,7 @@ export function useTieStory(tieId: string, slug: string | undefined): StoryState
 }
 
 export function usePassStory(): StoryState {
+  const tr = useT();
   const group = useFeaturedGroup();
   const first = group?.tournaments[0]?.slug;
   const b = useBundle(first);
@@ -177,19 +188,22 @@ export function usePassStory(): StoryState {
     info: {
       kind: "pass",
       event: group.name,
-      round: p.edition === "staff" ? (p.staffRole ?? "Accredited") : onsite ? "On-site pass" : "Event pass",
+      round: p.edition === "staff" ? (p.staffRole ?? tr("story.accredited")) : onsite ? tr("story.onsitePass") : tr("story.eventPass"),
       place: [group.venue, group.city].filter(Boolean).join(" · ") || null,
       city: group.city,
       date: storyDate(new Date(), group.timezone),
       when: null,
       status: "here",
-      headline: onsite || p.stamps.includes(today) ? ["I'm", "here"] : ["I'm", "following"],
+      headline: head(onsite || p.stamps.includes(today) ? "story.headHere" : "story.headFollowing"),
       sides: null,
-      note: onsite ? `${days} ${days === 1 ? "day" : "days"} on-site` : null,
-      serial: `No. ${String(p.serial).padStart(6, "0")}`,
+      note: onsite ? tr("story.daysOnsite", { count: days }) : null,
+      noteBig: onsite ? tr("story.daysOnsiteBig", { count: days }) : null,
+      serial: tr("story.serial", { n: String(p.serial).padStart(6, "0") }),
       holder: p.holderName,
       pass,
-      a11y: `${p.holderName ?? "A Move Score fan"}'s pass for ${group.name}, number ${p.serial}${onsite ? `, ${days} ${days === 1 ? "day" : "days"} on-site` : ""}`,
+      a11y: onsite
+        ? tr("story.a11yPassOnsite", { holder: p.holderName ?? tr("story.aFan"), event: group.name, serial: p.serial, days: tr("story.daysOnsite", { count: days }) })
+        : tr("story.a11yPass", { holder: p.holderName ?? tr("story.aFan"), event: group.name, serial: p.serial }),
     },
     problem: null,
     retry,

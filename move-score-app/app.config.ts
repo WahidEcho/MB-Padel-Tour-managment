@@ -121,6 +121,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
   },
   web: { bundler: "metro", output: "single", favicon: "./assets/brand/icon.png" },
+  // The system's permission prompts in Spanish and French (the app's own words: src/i18n).
+  locales: { es: "./locales/es.json", fr: "./locales/fr.json" },
   plugins: [
     "expo-router",
     ["expo-splash-screen", { image: "./assets/brand/splash.png", imageWidth: 220, resizeMode: "contain", backgroundColor: "#00000b" }],
@@ -128,7 +130,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-sqlite",
     // Keychain storage without biometrics (no requireAuthentication), so no Face ID string.
     ["expo-secure-store", { faceIDPermission: false }],
-    "expo-localization",
+    // English, Spanish and French: the iPhone's per-app Language setting and Android 13's
+    // app languages list them, and "Automatic" (Account → Language) follows that choice.
+    ["expo-localization", { supportedLocales: { ios: ["en", "es", "fr"], android: ["en", "es", "fr"] } }],
     // Google sign-in runs in the in-app browser sheet (ASWebAuthenticationSession /
     // Custom Tabs) and comes back on the movescore:// scheme: no Google SDK or URL scheme.
     "expo-web-browser",
