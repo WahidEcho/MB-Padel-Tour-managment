@@ -23,6 +23,7 @@ import { getJson, setJson } from "../state/kv";
 import { report } from "../monitoring";
 import { flushPrefs } from "./prefs";
 import { getLang, onLangChange, tr } from "../i18n/t";
+import { handleAssistanceResponse, registerAssistanceCategory } from "./assistanceActions";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true }),
@@ -308,7 +309,10 @@ export function openLink(url: string | undefined) {
 
 export function listenForTaps(): () => void {
   if (Platform.OS === "web") return () => {};
-  const sub = Notifications.addNotificationResponseReceivedListener((r) => openLink(r.notification.request.content.data?.url as string | undefined));
-  void Notifications.getLastNotificationResponseAsync().then((r) => r && openLink(r.notification.request.content.data?.url as string | undefined));
+  // Calls for assistance (0042): the Coming / Decline buttons, and a tap opens that call on the master desk.
+  void registerAssistanceCategory();
+  const respond = (r: Notifications.NotificationResponse) => handleAssistanceResponse(r) || openLink(r.notification.request.content.data?.url as string | undefined);
+  const sub = Notifications.addNotificationResponseReceivedListener(respond);
+  void Notifications.getLastNotificationResponseAsync().then((r) => r && respond(r));
   return () => sub.remove();
 }

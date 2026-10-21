@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CallStatus } from "@/lib/referees/rules";
+import type { CallAnswer, CallStatus, MasterAnswerRow } from "@/lib/referees/rules";
+import { callWord } from "@/lib/referees/callWords";
 
 interface Call {
   id: string;
@@ -17,6 +18,11 @@ interface Call {
   acknowledgedAt: string | null;
   resolvedBy: string | null;
   resolvedAt: string | null;
+  // 0042 (older servers send none of these)
+  going?: string | null;
+  responses?: MasterAnswerRow[];
+  mine?: CallAnswer | null;
+  escalatedAt?: string | null;
 }
 
 const API = "/api/mobile/v1/referee/assistance";
@@ -62,7 +68,7 @@ export default function MasterCalls({ banner = false }: { banner?: boolean }) {
       if (body.role !== "master" && body.role !== "organiser") return;
       const list = body.open ?? [];
       // A new open call since the last look: sound and vibration.
-      const fresh = list.filter((c) => c.status === "open" && known.current && !known.current.has(c.id));
+      const fresh = list.filter((c) => c.status === "open" && c.mine !== "declined" && known.current && !known.current.has(c.id));
       if (fresh.length) {
         alarm(ctx.current);
         try {
@@ -88,9 +94,9 @@ export default function MasterCalls({ banner = false }: { banner?: boolean }) {
     };
   }, [load]);
 
-  const act = async (callId: string, action: "acknowledge" | "resolve") => {
+  const act = async (callId: string, body: { action: "respond"; answer: CallAnswer } | { action: "resolve" }) => {
     setError(null);
-    const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, callId }) });
+    const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, callId }) });
     if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Not saved.");
     await load();
   };
@@ -131,9 +137,25 @@ export default function MasterCalls({ banner = false }: { banner?: boolean }) {
             <p className="text-base font-black">
               {c.status === "open" ? "🆘 " : "🏃 "}Referee {c.requestedBy} is calling for assistance at {c.court}
             </p>
+            {c.status === "acknowledged" && (
+              <p className="text-sm font-bold text-success" data-testid="call-going">
+                {callWord("en", "goingDesk", { name: c.going ?? c.acknowledgedBy ?? "A master referee", court: c.court })}
+              </p>
+            )}
+            {c.status === "open" && c.mine === "declined" && (
+              <p className="text-sm font-semibold text-muted" data-testid="call-mine">
+                {callWord("en", "youDeclined")}
+              </p>
+            )}
+            {(c.responses ?? []).some((r) => r.answer === "declined") && (
+              <p className="text-xs text-muted">
+                {callWord("en", "declinedList", { names: (c.responses ?? []).filter((r) => r.answer === "declined").map((r) => r.name).join(", ") })}
+              </p>
+            )}
             <p className="text-xs text-muted">
               Called {time(c.requestedAt)}
               {c.status === "acknowledged" ? ` · ${c.acknowledgedBy} on the way since ${time(c.acknowledgedAt)}` : ""}
+              {c.status === "open" && c.escalatedAt ? ` · ${callWord("en", "organiserAlerted")}` : ""}
               {c.matchId ? (
                 <>
                   {" · "}
@@ -144,12 +166,19 @@ export default function MasterCalls({ banner = false }: { banner?: boolean }) {
           </div>
           <div className="flex gap-2">
             {c.status === "open" && (
-              <button type="button" onClick={() => void act(c.id, "acknowledge")} className="btn-primary" data-testid="on-my-way">
-                On my way
-              </button>
+              <>
+                <button type="button" onClick={() => void act(c.id, { action: "respond", answer: "coming" })} className="btn-primary px-6 py-3 text-base" data-testid="on-my-way">
+                  {callWord("en", "coming")}
+                </button>
+                {c.mine !== "declined" && (
+                  <button type="button" onClick={() => void act(c.id, { action: "respond", answer: "declined" })} className="btn-secondary px-6 py-3 text-base" data-testid="decline-call">
+                    {callWord("en", "decline")}
+                  </button>
+                )}
+              </>
             )}
-            <button type="button" onClick={() => void act(c.id, "resolve")} className="btn-secondary" data-testid="resolve-call">
-              Resolved
+            <button type="button" onClick={() => void act(c.id, { action: "resolve" })} className="btn-secondary" data-testid="resolve-call">
+              {callWord("en", "resolve")}
             </button>
           </div>
         </div>

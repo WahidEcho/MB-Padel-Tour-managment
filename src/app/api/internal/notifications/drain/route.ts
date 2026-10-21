@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { safeEqual } from "@/lib/auth/safeEqual";
 import { checkReceipts, drainNotifications } from "@/lib/notify/drain";
+import { tickOpenCalls } from "@/lib/referees/assistance";
 
 /**
  * Sends due alerts. Called right after each hook from inside the request, and by
@@ -20,7 +21,12 @@ async function run(request: Request) {
     console.error("[push:receipts] pass failed", err);
     return { checked: 0, failed: 0 };
   });
-  return NextResponse.json({ ok: true, ...result, receipts }, { headers: { "Cache-Control": "no-store" } });
+  // Calls for assistance nobody has taken (0042): the reminders and the escalation when no phone is polling them.
+  const assistance = await tickOpenCalls().catch((err: unknown) => {
+    console.error("[assistance] sweep failed", err);
+    return { checked: 0 };
+  });
+  return NextResponse.json({ ok: true, ...result, receipts, assistance }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export const GET = run;

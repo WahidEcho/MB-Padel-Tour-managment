@@ -1,23 +1,48 @@
 /**
- * Calls for assistance (migration 0035), server side. A court referee (court code +
- * PIN) taps "Call for assistance"; every master referee on duty for that court's
- * events gets an alert (push to their phones, high priority, sound; plus the live
- * banner of the web console and the app); the first "On my way" acknowledges it with
- * the master's name, which the court referee sees; a master (or the organiser) closes
- * it as resolved. One open call per physical court: more taps join it (deduped), and
- * new calls per court are rate-limited. Staff and the organiser only: nothing here is
- * ever on a TV, a public page or a public API. Pure rules: rules.ts.
+ * Calls for assistance (migrations 0035 and 0042), server side. A court referee (court
+ * code + PIN) taps "Call for assistance"; every master referee on duty for that court's
+ * events gets a time-sensitive alert (push to their phones, with Coming / Decline
+ * buttons; plus the live banner of the web console and the app). Each master answers:
+ * - Coming: the first one takes the call (compare-and-set), the court referee sees
+ *   "Sara is coming to Court 2", every other master on duty gets "Master referee Sara is
+ *   going to the emergency call at Court 2", and the reminders stop;
+ * - Decline: the call stays open for the others; that master gets no more reminders.
+ * While nobody has taken it, every REMINDER_SECONDS the masters who have not declined get
+ * the alert again (one reminder per window: claimed with a compare-and-set on
+ * `reminders_sent`, by whoever reads the call first: the court phone's poll, a master's
+ * desk or the scheduled drain), and after ESCALATE_SECONDS (or once every master on duty
+ * declined) the organisation's owners and admins are alerted once (push + staff_alert
+ * email). A master (or the organiser) closes it as resolved. One open call per physical
+ * court: more taps join it, new calls per court are rate-limited. Staff and the organiser
+ * only: nothing here is ever on a TV, a public page or a public API. Pure rules: rules.ts;
+ * words: callWords.ts.
  */
 import { db } from "../supabase";
 import { takeRateLimit } from "../ratelimit";
 import { courtKey } from "../orgs/courtScope";
 import { isUuid } from "../orgs/roles";
 import { sendExpo, type ExpoMessage } from "../notify/drain";
-import { alertLang, aw } from "../notify/i18n";
 import type { StaffPrincipal } from "../auth/staff";
 import { mastersOnDuty } from "./server";
 import { matchDayRules } from "../matchday/rules";
-import { CALLS_PER_COURT, TAP_DEDUPE_SECONDS, assistanceMessage, isOpenCall, nextCallStatus, shouldRealert, type CallAction, type CallStatus } from "./rules";
+import {
+  CALLS_PER_COURT,
+  ESCALATE_SECONDS,
+  TAP_DEDUPE_SECONDS,
+  escalationDue,
+  isOpenCall,
+  masterAnswers,
+  nextCallStatus,
+  reminderDue,
+  reminderRecipients,
+  shouldRealert,
+  type CallAction,
+  type CallAnswer,
+  type CallResponse,
+  type CallStatus,
+  type MasterAnswerRow,
+} from "./rules";
+import { callLang, callWord, type CallLang, type CallWordKey } from "./callWords";
 
 export interface AssistanceCall {
   id: string;
@@ -42,12 +67,26 @@ export interface AssistanceCall {
   resolved_by: string | null;
   resolved_by_name: string | null;
   alerted: number;
+  // 0042
+  last_alert_at: string | null;
+  reminders_sent: number;
+  escalated_at: string | null;
 }
 export const CALL_COLS =
-  "id, organization_id, event_group_id, tournament_id, match_id, court_name, court_key, scope_key, code_id, requested_by, requested_by_name, status, requested_at, taps, last_tap_at, acknowledged_at, acknowledged_by, acknowledged_by_name, resolved_at, resolved_by, resolved_by_name, alerted";
+  "id, organization_id, event_group_id, tournament_id, match_id, court_name, court_key, scope_key, code_id, requested_by, requested_by_name, status, requested_at, taps, last_tap_at, acknowledged_at, acknowledged_by, acknowledged_by_name, resolved_at, resolved_by, resolved_by_name, alerted, last_alert_at, reminders_sent, escalated_at";
 
-/** What the phones and the console get: no organisation ids, no code ids. */
-export function publicCall(c: AssistanceCall) {
+/** What a call's answers add to its public shape: every master on duty with their answer (names only), and the caller's own answer on a master's desk. */
+export interface CallExtras {
+  answers: MasterAnswerRow[];
+  mine?: CallAnswer | null;
+}
+
+/**
+ * What the phones and the console get: no organisation ids, no code ids, no referee ids,
+ * never a phone. Fields after `resolvedAt` are additive (0042); Move Score 1.0.1 reads the
+ * ones before.
+ */
+export function publicCall(c: AssistanceCall, extras?: CallExtras) {
   return {
     id: c.id,
     court: c.court_name,
@@ -60,11 +99,20 @@ export function publicCall(c: AssistanceCall) {
     acknowledgedAt: c.acknowledged_at,
     resolvedBy: c.resolved_by_name,
     resolvedAt: c.resolved_at,
+    /** The master who said Coming and is on the way (null until then). */
+    going: c.status === "acknowledged" ? c.acknowledged_by_name : null,
+    /** Every master on duty with their answer: coming | declined | none, and when. */
+    responses: extras?.answers ?? [],
+    remindersSent: c.reminders_sent ?? 0,
+    escalatedAt: c.escalated_at ?? null,
+    ...(extras && "mine" in extras ? { mine: extras.mine ?? null } : {}),
   };
 }
 export type PublicCall = ReturnType<typeof publicCall>;
 
-export type CallOutcome = { ok: true; call: AssistanceCall; deduped?: boolean } | { ok: false; status: number; error: string; code: string; retryAfterSeconds?: number };
+export type CallOutcome =
+  | { ok: true; call: AssistanceCall; deduped?: boolean }
+  | { ok: false; status: number; error: string; code: string; retryAfterSeconds?: number; takenBy?: string | null; call?: AssistanceCall };
 
 const refusal = (status: number, code: string, error: string, retryAfterSeconds?: number): CallOutcome => ({ ok: false, status, code, error, retryAfterSeconds });
 
@@ -94,35 +142,77 @@ async function openCallAt(orgId: string, scopeKey: string, key: string): Promise
   return (data as AssistanceCall | null) ?? null;
 }
 
-/** Sends the alert to the master referees on duty for the call's events. Returns how many phones it went to. */
-export async function alertMasters(call: AssistanceCall): Promise<number> {
-  const duty = await mastersOnDuty(call.organization_id, { eventGroupId: call.event_group_id, tournamentId: call.tournament_id });
-  if (!duty.installationIds.length) return 0;
-  const { data } = await db()
-    .from("push_devices")
-    .select("id, expo_push_token, locale")
-    .in("installation_id", duty.installationIds.slice(0, 200))
-    .is("disabled_at", null)
-    .not("expo_push_token", "is", null);
-  const devices = (data ?? []) as { id: string; expo_push_token: string; locale?: string | null }[];
-  if (!devices.length) return 0;
-  // In each phone's language (English: the shared wording the web console shows too).
-  const words = (locale: string | null | undefined) => {
-    const lang = alertLang(locale);
-    return lang === "en"
-      ? { title: "Call for assistance", body: assistanceMessage(call.requested_by_name, call.court_name) }
-      : { title: aw(lang, "assistance"), body: aw(lang, "assistanceBody", { name: call.requested_by_name.trim(), court: call.court_name.trim() }) };
+/* ---------------- who is on duty, who answered ---------------- */
+
+interface Duty {
+  refereeIds: string[];
+  byReferee: Record<string, string[]>;
+  roster: { id: string; name: string }[];
+}
+
+/** The master referees on duty for a call's events, with their names and their phones. */
+async function dutyFor(call: Pick<AssistanceCall, "organization_id" | "event_group_id" | "tournament_id">, nowMs = Date.now()): Promise<Duty> {
+  const duty = await mastersOnDuty(call.organization_id, { eventGroupId: call.event_group_id, tournamentId: call.tournament_id }, nowMs);
+  if (!duty.refereeIds.length) return { refereeIds: [], byReferee: {}, roster: [] };
+  const { data } = await db().from("referees").select("id, name").eq("organization_id", call.organization_id).eq("status", "active").in("id", duty.refereeIds.slice(0, 100));
+  const names = new Map(((data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
+  const refereeIds = duty.refereeIds.filter((id) => names.has(id));
+  return { refereeIds, byReferee: duty.byReferee, roster: refereeIds.map((id) => ({ id, name: names.get(id)! })) };
+}
+
+/** The answers given to these calls, by call. */
+async function responsesFor(callIds: string[]): Promise<Map<string, CallResponse[]>> {
+  const out = new Map<string, CallResponse[]>();
+  if (!callIds.length) return out;
+  const { data } = await db().from("assistance_responses").select("call_id, referee_id, referee_name, answer, answered_at").in("call_id", callIds.slice(0, 100));
+  for (const r of (data ?? []) as { call_id: string; referee_id: string; referee_name: string; answer: CallAnswer; answered_at: string }[]) {
+    const list = out.get(r.call_id) ?? [];
+    list.push({ refereeId: r.referee_id, name: r.referee_name, answer: r.answer, at: r.answered_at });
+    out.set(r.call_id, list);
+  }
+  return out;
+}
+
+/**
+ * The public shape of these calls with every master's answer (open calls list every master
+ * on duty, "none" for no answer yet; closed ones only those who answered). `mineFor`: the
+ * master referee whose desk this is.
+ */
+export async function describeCalls(calls: AssistanceCall[], mineFor?: string | null): Promise<PublicCall[]> {
+  if (!calls.length) return [];
+  const responses = await responsesFor(calls.map((c) => c.id));
+  const duties = new Map<string, Promise<Duty>>();
+  const dutyOf = (c: AssistanceCall) => {
+    const key = `${c.organization_id}:${c.event_group_id ?? ""}:${c.tournament_id ?? ""}`;
+    if (!duties.has(key)) duties.set(key, dutyFor(c));
+    return duties.get(key)!;
   };
-  const messages: ExpoMessage[] = devices.map((d) => ({
-    to: d.expo_push_token,
-    ...words(d.locale),
-    data: { url: "movescore://referee/master", kind: "assistance", callId: call.id },
-    sound: "default",
-    channelId: "assistance",
-    priority: "high",
-    interruptionLevel: "time-sensitive",
-    ttl: 600,
-  }));
+  return Promise.all(
+    calls.map(async (c) => {
+      const r = responses.get(c.id) ?? [];
+      const roster = isOpenCall(c.status) ? (await dutyOf(c)).roster : [];
+      const extras: CallExtras = { answers: masterAnswers(roster, r) };
+      if (mineFor !== undefined) extras.mine = r.find((x) => x.refereeId === mineFor)?.answer ?? null;
+      return publicCall(c, extras);
+    }),
+  );
+}
+
+/* ---------------- pushes ---------------- */
+
+type Words = (lang: CallLang) => { title: string; body: string };
+
+/** Sends one push per phone, in each phone's language. Returns how many Expo accepted. */
+async function pushTo(installationIds: string[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
+  const ids = [...new Set(installationIds)].slice(0, 200);
+  if (!ids.length) return 0;
+  const { data } = await db().from("push_devices").select("id, expo_push_token, locale").in("installation_id", ids).is("disabled_at", null).not("expo_push_token", "is", null);
+  return sendTo((data ?? []) as { expo_push_token: string; locale: string | null }[], words, extra);
+}
+
+async function sendTo(devices: { expo_push_token: string; locale: string | null }[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
+  if (!devices.length) return 0;
+  const messages: ExpoMessage[] = devices.map((d) => ({ to: d.expo_push_token, ...words(callLang(d.locale)), ...extra }));
   try {
     const tickets = await sendExpo(messages);
     return tickets.filter((t) => t.status === "ok").length;
@@ -132,12 +222,163 @@ export async function alertMasters(call: AssistanceCall): Promise<number> {
   }
 }
 
+const titled = (title: CallWordKey, body: CallWordKey, vars: Record<string, string | number>): Words => (lang) => ({ title: callWord(lang, title, vars), body: callWord(lang, body, vars) });
+
+/** The time-sensitive alert with the Coming / Decline buttons (notification category `assistance_call`). */
+const urgent = (call: AssistanceCall, extraData: Record<string, unknown> = {}): Omit<ExpoMessage, "to" | "title" | "body"> => ({
+  data: { url: "movescore://referee/master", kind: "assistance", callId: call.id, ...extraData },
+  sound: "default",
+  channelId: "assistance",
+  priority: "high",
+  interruptionLevel: "time-sensitive",
+  categoryId: "assistance_call",
+  ttl: 600,
+});
+
+/** The masters' phones for these referees (all on duty when `onlyRefereeIds` is absent). */
+function phonesOf(duty: Duty, onlyRefereeIds?: string[]): string[] {
+  const ids = onlyRefereeIds ?? duty.refereeIds;
+  return ids.flatMap((id) => duty.byReferee[id] ?? []);
+}
+
 /**
- * "Call for assistance" from a court referee (court code + PIN). One open call per
- * physical court: a tap while one is open joins it (a tap within TAP_DEDUPE_SECONDS
- * is the same tap; later taps re-alert at most once a minute). New calls per court:
- * at most CALLS_PER_COURT per window.
+ * Sends the call's alert to the master referees on duty (only `onlyRefereeIds` when
+ * given: a reminder skips those who declined). Returns how many phones it went to.
  */
+export async function alertMasters(call: AssistanceCall, onlyRefereeIds?: string[], duty?: Duty): Promise<number> {
+  const d = duty ?? (await dutyFor(call));
+  return pushTo(phonesOf(d, onlyRefereeIds), titled("pushTitle", "pushBody", { name: call.requested_by_name, court: call.court_name }), urgent(call));
+}
+
+/** A step the system took on a call (reminder, "is going", escalation): an audit row with who it went to. */
+async function auditStep(call: AssistanceCall, action: string, value: Record<string, unknown>): Promise<void> {
+  await db()
+    .from("audit_logs")
+    .insert({ organization_id: call.organization_id, tournament_id: call.tournament_id, actor_role: "system", action, entity_type: "assistance_call", entity_id: call.id, new_value: { court: call.court_name, ...value } });
+}
+
+async function addAlerted(callId: string, n: number): Promise<void> {
+  if (!n) return;
+  const { data } = await db().from("assistance_calls").select("alerted").eq("id", callId).maybeSingle();
+  const now = (data as { alerted: number } | null)?.alerted ?? 0;
+  await db().from("assistance_calls").update({ alerted: now + n }).eq("id", callId);
+}
+
+/* ---------------- the timed steps ---------------- */
+
+/** The organiser's owners and admins: a push to their phones (signed in to the app) and a staff_alert email. Once per call (claimed by the caller). */
+async function escalate(call: AssistanceCall, reason: "unanswered" | "all_declined", nowMs: number): Promise<void> {
+  try {
+    const minutes = Math.max(1, Math.round((nowMs - Date.parse(call.requested_at)) / 60_000));
+    const vars = { name: call.requested_by_name, court: call.court_name, minutes };
+    const { data } = await db().from("organization_members").select("id, auth_user_id, invited_email").eq("organization_id", call.organization_id).eq("status", "active").in("role", ["owner", "admin"]).limit(20);
+    const members = (data ?? []) as { id: string; auth_user_id: string | null; invited_email: string | null }[];
+    const userIds = [...new Set(members.map((m) => m.auth_user_id).filter((x): x is string => Boolean(x)))];
+    let phones = 0;
+    if (userIds.length) {
+      const { data: devices } = await db().from("push_devices").select("expo_push_token, locale").in("user_id", userIds).is("disabled_at", null).not("expo_push_token", "is", null).limit(100);
+      phones = await sendTo((devices ?? []) as { expo_push_token: string; locale: string | null }[], titled("escalationTitle", "escalationBody", vars), {
+        data: { kind: "assistance_escalated", callId: call.id },
+        sound: "default",
+        channelId: "assistance",
+        priority: "high",
+        interruptionLevel: "time-sensitive",
+        ttl: 600,
+      });
+    }
+    const { sendTransactional } = await import("../messaging/queue");
+    const { siteUrl } = await import("../messaging/links");
+    let emails = 0;
+    const seen = new Set<string>();
+    for (const m of members) {
+      const to = m.invited_email?.trim().toLowerCase();
+      if (!to || seen.has(to)) continue;
+      seen.add(to);
+      await sendTransactional({
+        to,
+        channel: "email",
+        template: "staff_alert",
+        vars: { title: callWord("en", "escalationTitle"), message: callWord("en", "escalationBody", vars), cta_label: "Open the calls", link: `${siteUrl()}/admin/org/referees/calls` },
+        idempotencyKey: `assistance-escalated:${call.id}:${m.id}`,
+        recipient: { kind: "adhoc", name: null },
+      });
+      emails++;
+    }
+    await auditStep(call, "ASSISTANCE_ESCALATED", { reason, phones, emails });
+  } catch (err) {
+    console.error("[assistance] escalation not sent:", err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Every timed step of an open call that nobody has taken, idempotent (safe from any number
+ * of polls at once): the due reminder (claimed per 30-second window with a compare-and-set
+ * on `reminders_sent`, then pushed to the masters on duty who have not declined) and the
+ * escalation at ESCALATE_SECONDS (claimed by setting `escalated_at` where it is null).
+ * Returns the call as it is now.
+ */
+export async function tickCall(call: AssistanceCall, nowMs = Date.now()): Promise<AssistanceCall> {
+  if (call.status !== "open") return call;
+  let cur = call;
+  const nowIso = new Date(nowMs).toISOString();
+  const due = reminderDue(cur, nowMs);
+  if (due !== null) {
+    const { data: claimed } = await db()
+      .from("assistance_calls")
+      .update({ reminders_sent: due, last_alert_at: nowIso })
+      .eq("id", cur.id)
+      .eq("status", "open")
+      .eq("reminders_sent", cur.reminders_sent)
+      .select(CALL_COLS)
+      .maybeSingle();
+    if (claimed) {
+      cur = claimed as AssistanceCall;
+      const [duty, responses] = await Promise.all([dutyFor(cur, nowMs), responsesFor([cur.id])]);
+      const to = reminderRecipients(duty.refereeIds, responses.get(cur.id) ?? []);
+      const phones = await pushTo(phonesOf(duty, to), titled("reminderTitle", "reminderBody", { court: cur.court_name }), urgent(cur, { reminder: due }));
+      await addAlerted(cur.id, phones);
+      await auditStep(cur, "ASSISTANCE_REMINDED", { window: due, to, phones });
+      cur = { ...cur, alerted: cur.alerted + phones };
+    } else {
+      // Someone else claimed this window (or the call changed): read it again.
+      const { data } = await db().from("assistance_calls").select(CALL_COLS).eq("id", cur.id).maybeSingle();
+      if (data) cur = data as AssistanceCall;
+    }
+  }
+  if (escalationDue(cur, nowMs)) cur = await claimEscalation(cur, "unanswered", nowMs);
+  return cur;
+}
+
+async function claimEscalation(call: AssistanceCall, reason: "unanswered" | "all_declined", nowMs: number): Promise<AssistanceCall> {
+  const { data: claimed } = await db()
+    .from("assistance_calls")
+    .update({ escalated_at: new Date(nowMs).toISOString() })
+    .eq("id", call.id)
+    .eq("status", "open")
+    .is("escalated_at", null)
+    .select(CALL_COLS)
+    .maybeSingle();
+  if (!claimed) return call;
+  await escalate(claimed as AssistanceCall, reason, nowMs);
+  return claimed as AssistanceCall;
+}
+
+/** The scheduled drain's backstop for phones that stopped polling: the timed steps of every open call (oldest first, at most 50). */
+export async function tickOpenCalls(nowMs = Date.now()): Promise<{ checked: number }> {
+  const { data } = await db()
+    .from("assistance_calls")
+    .select(CALL_COLS)
+    .eq("status", "open")
+    .lte("requested_at", new Date(nowMs - 25_000).toISOString())
+    .order("requested_at")
+    .limit(50);
+  const calls = (data ?? []) as AssistanceCall[];
+  for (const c of calls) await tickCall(c, nowMs);
+  return { checked: calls.length };
+}
+
+/* ---------------- the court referee's call ---------------- */
+
 /**
  * Whether "Call master referee" (Admin → Scoring features, `features.callMaster`) is on
  * for a court referee (audit L1): the match's own tournament when the call names one,
@@ -151,6 +392,12 @@ export async function callMasterEnabled(staff: Pick<StaffPrincipal, "scopeCourt"
   return ((data ?? []) as { sport: string | null; match_day_rules: unknown }[]).some((t) => matchDayRules(t.match_day_rules, t).features.callMaster);
 }
 
+/**
+ * "Call for assistance" from a court referee (court code + PIN). One open call per
+ * physical court: a tap while one is open joins it (a tap within TAP_DEDUPE_SECONDS
+ * is the same tap; later taps re-alert the masters who have not declined, at most once a
+ * minute). New calls per court: at most CALLS_PER_COURT per window.
+ */
 export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?: string | null; tournamentId?: string | null } = {}, nowMs = Date.now()): Promise<CallOutcome> {
   if (!isCourtReferee(staff)) return refusal(403, "court_referee_only", "Only a court referee signed in with their PIN can call for assistance.");
   if (!(await callMasterEnabled(staff, opts.tournamentId ?? null))) {
@@ -176,8 +423,9 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
       .maybeSingle();
     const updated = (data as AssistanceCall | null) ?? open;
     if (data && realert) {
-      const n = await alertMasters(updated);
-      if (n) await db().from("assistance_calls").update({ alerted: updated.alerted + n }).eq("id", updated.id);
+      const [duty, responses] = await Promise.all([dutyFor(updated, nowMs), responsesFor([updated.id])]);
+      const n = await alertMasters(updated, reminderRecipients(duty.refereeIds, responses.get(updated.id) ?? []), duty);
+      if (n) await db().from("assistance_calls").update({ alerted: updated.alerted + n, last_alert_at: nowIso }).eq("id", updated.id);
     }
     return { ok: true, call: updated, deduped: true };
   };
@@ -204,6 +452,7 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
       status: "open",
       requested_at: nowIso,
       last_tap_at: nowIso,
+      last_alert_at: nowIso,
     })
     .select(CALL_COLS)
     .single();
@@ -224,11 +473,83 @@ export function masterCovers(staff: Pick<StaffPrincipal, "orgId" | "scopeTournam
   return call.organization_id === staff.orgId && Boolean(call.tournament_id && staff.scopeTournamentIds?.includes(call.tournament_id));
 }
 
-/** "On my way", "Resolved" (master referees, the organiser) and "Cancel" (the court referee who called). */
-export async function actOnCall(staff: StaffPrincipal, callId: string, action: CallAction, nowMs = Date.now()): Promise<CallOutcome> {
-  if (!isUuid(callId)) return refusal(404, "not_found", "Not found");
+async function loadCall(staff: StaffPrincipal, callId: string): Promise<AssistanceCall | null> {
+  if (!isUuid(callId)) return null;
   const { data } = await db().from("assistance_calls").select(CALL_COLS).eq("id", callId).eq("organization_id", staff.orgId).maybeSingle();
-  const call = data as AssistanceCall | null;
+  return (data as AssistanceCall | null) ?? null;
+}
+
+/**
+ * A master referee's answer (0042). Coming: the first one takes the call (compare-and-set
+ * open → acknowledged), the other masters on duty are told who is going, the reminders
+ * stop; a Coming after someone else took it is 409 `already_taken` with their name.
+ * Decline: recorded (it replaces an earlier answer), the call stays open, that master's
+ * reminders stop; when every master on duty declined, the organiser is alerted at once.
+ */
+export async function respondToCall(staff: StaffPrincipal, callId: string, answer: CallAnswer, nowMs = Date.now()): Promise<CallOutcome> {
+  const call = await loadCall(staff, callId);
+  // Not theirs: the same answer as a call that does not exist.
+  if (!call || !isMasterReferee(staff) || !masterCovers(staff, call)) return refusal(404, "not_found", "Not found");
+  const referee = staff.referee!;
+  if (!isOpenCall(call.status)) return refusal(409, "closed", "This call is already closed.");
+  const nowIso = new Date(nowMs).toISOString();
+  const taken = (c: AssistanceCall): CallOutcome => ({
+    ok: false,
+    status: 409,
+    code: "already_taken",
+    error: callWord("en", "alreadyTaken", { name: c.acknowledged_by_name ?? "A master referee" }),
+    takenBy: c.acknowledged_by_name,
+    call: c,
+  });
+  const record = (a: CallAnswer) =>
+    db()
+      .from("assistance_responses")
+      .upsert({ call_id: call.id, referee_id: referee.id, organization_id: call.organization_id, referee_name: referee.name, answer: a, answered_at: nowIso }, { onConflict: "call_id,referee_id" });
+
+  if (answer === "coming") {
+    if (call.status !== "open") return taken(call);
+    // Compare-and-set: two masters tapping Coming at once, one wins.
+    const { data: changed } = await db()
+      .from("assistance_calls")
+      .update({ status: "acknowledged", acknowledged_at: nowIso, acknowledged_by: referee.id, acknowledged_by_name: referee.name })
+      .eq("id", call.id)
+      .eq("status", "open")
+      .select(CALL_COLS)
+      .maybeSingle();
+    if (!changed) {
+      const now = (await loadCall(staff, call.id)) ?? call;
+      return now.status === "acknowledged" ? taken(now) : refusal(409, "changed", "Someone else answered this call first.");
+    }
+    const won = changed as AssistanceCall;
+    await record("coming");
+    // Everyone else on duty: "Master referee Sara is going to the emergency call at Court 2" (not time-sensitive).
+    const duty = await dutyFor(won, nowMs);
+    const others = duty.refereeIds.filter((id) => id !== referee.id);
+    const phones = await pushTo(phonesOf(duty, others), titled("goingTitle", "goingBody", { name: referee.name, court: won.court_name }), {
+      data: { url: "movescore://referee/master", kind: "assistance_going", callId: won.id },
+      sound: "default",
+      channelId: "matches",
+      ttl: 600,
+    });
+    await auditStep(won, "ASSISTANCE_GOING_SENT", { going: referee.name, to: others, phones });
+    return { ok: true, call: won };
+  }
+
+  if (call.status === "acknowledged" && call.acknowledged_by === referee.id) return refusal(409, "not_allowed", "You are on the way: mark it resolved once it is sorted.");
+  await record("declined");
+  if (call.status === "open") {
+    const [duty, responses] = await Promise.all([dutyFor(call, nowMs), responsesFor([call.id])]);
+    if (escalationDue(call, nowMs, duty.refereeIds, responses.get(call.id) ?? [])) {
+      const reason = nowMs - Date.parse(call.requested_at) >= ESCALATE_SECONDS * 1000 ? "unanswered" : "all_declined";
+      return { ok: true, call: await claimEscalation(call, reason, nowMs) };
+    }
+  }
+  return { ok: true, call };
+}
+
+/** "Coming" (as acknowledge, Move Score 1.0.1's "On my way"), "Resolved" (master referees, the organiser) and "Cancel" (the court referee who called). */
+export async function actOnCall(staff: StaffPrincipal, callId: string, action: CallAction, nowMs = Date.now()): Promise<CallOutcome> {
+  const call = await loadCall(staff, callId);
   if (!call) return refusal(404, "not_found", "Not found");
   let who: "master" | "court" | "staff" | null = null;
   if (isMasterReferee(staff) && masterCovers(staff, call)) who = "master";
@@ -236,20 +557,20 @@ export async function actOnCall(staff: StaffPrincipal, callId: string, action: C
   else if (isOrganiser(staff)) who = "staff";
   // Not theirs: the same answer as a call that does not exist.
   if (!who) return refusal(404, "not_found", "Not found");
+  // 1.0.1's "On my way" is the new Coming (the other masters are told, reminders stop).
+  if (action === "acknowledge" && who === "master") return respondToCall(staff, callId, "coming", nowMs);
   const next = nextCallStatus(call.status, action, who);
   if (!next) return refusal(409, isOpenCall(call.status) ? "not_allowed" : "closed", isOpenCall(call.status) ? "Not allowed" : "This call is already closed.");
   const nowIso = new Date(nowMs).toISOString();
   const name = staff.referee?.name ?? (staff.kind === "member" ? "The organiser" : "Tournament desk");
   const patch: Record<string, unknown> = { status: next };
-  if (next === "acknowledged") Object.assign(patch, { acknowledged_at: nowIso, acknowledged_by: staff.referee?.id ?? null, acknowledged_by_name: name });
   if (next === "resolved" || next === "cancelled") Object.assign(patch, { resolved_at: nowIso, resolved_by: staff.referee?.id ?? null, resolved_by_name: name });
-  // Compare-and-set: two masters tapping "On my way" at once, one wins.
   const { data: changed } = await db().from("assistance_calls").update(patch).eq("id", call.id).eq("status", call.status).select(CALL_COLS).maybeSingle();
   if (!changed) return refusal(409, "changed", "Someone else answered this call first.");
   return { ok: true, call: changed as AssistanceCall };
 }
 
-/** The open calls a master referee covers (oldest first), and the ones closed in the last half hour. */
+/** The open calls a master referee covers (oldest first, their timed steps run first), and the ones closed in the last half hour. */
 export async function callsForMaster(staff: StaffPrincipal, nowMs = Date.now()): Promise<{ open: AssistanceCall[]; recent: AssistanceCall[] }> {
   const ids = staff.scopeTournamentIds ?? [];
   if (!ids.length) return { open: [], recent: [] };
@@ -258,17 +579,19 @@ export async function callsForMaster(staff: StaffPrincipal, nowMs = Date.now()):
     db().from("assistance_calls").select(CALL_COLS).eq("organization_id", staff.orgId).in("tournament_id", ids).in("status", ["open", "acknowledged"]).order("requested_at").limit(50),
     db().from("assistance_calls").select(CALL_COLS).eq("organization_id", staff.orgId).in("tournament_id", ids).in("status", ["resolved", "cancelled"]).gte("resolved_at", since).order("resolved_at", { ascending: false }).limit(20),
   ]);
-  return { open: (open ?? []) as AssistanceCall[], recent: (recent ?? []) as AssistanceCall[] };
+  const ticked: AssistanceCall[] = [];
+  for (const c of (open ?? []) as AssistanceCall[]) ticked.push(await tickCall(c, nowMs));
+  return { open: ticked, recent: (recent ?? []) as AssistanceCall[] };
 }
 
-/** The court referee's own court: its open call, or the last one closed in the past two minutes. */
+/** The court referee's own court: its open call (its timed steps run first), or the last one closed in the past two minutes. */
 export async function callForCourt(staff: StaffPrincipal, nowMs = Date.now()): Promise<AssistanceCall | null> {
   if (!isCourtReferee(staff)) return null;
   const court = staff.scopeCourt!;
   const scopeKey = court.eventGroupId ?? staff.scopeTournamentId ?? court.tournamentIds[0] ?? null;
   if (!scopeKey) return null;
   const open = await openCallAt(staff.orgId, scopeKey, courtKey(court.name));
-  if (open) return open;
+  if (open) return tickCall(open, nowMs);
   const { data } = await db()
     .from("assistance_calls")
     .select(CALL_COLS)
@@ -282,8 +605,10 @@ export async function callForCourt(staff: StaffPrincipal, nowMs = Date.now()): P
   return (data as AssistanceCall | null) ?? null;
 }
 
-/** Every call of the organisation, newest first (Admin → Referees → Calls for assistance). */
-export async function callLog(orgId: string, limit = 300): Promise<AssistanceCall[]> {
+/** Every call of the organisation, newest first (Admin → Referees → Calls for assistance), with the declines. */
+export async function callLog(orgId: string, limit = 300): Promise<(AssistanceCall & { declined: string[] })[]> {
   const { data } = await db().from("assistance_calls").select(CALL_COLS).eq("organization_id", orgId).order("requested_at", { ascending: false }).limit(limit);
-  return (data ?? []) as AssistanceCall[];
+  const calls = (data ?? []) as AssistanceCall[];
+  const responses = await responsesFor(calls.slice(0, 100).map((c) => c.id));
+  return calls.map((c) => ({ ...c, declined: (responses.get(c.id) ?? []).filter((r) => r.answer === "declined").map((r) => r.name) }));
 }

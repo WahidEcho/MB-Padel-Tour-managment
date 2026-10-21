@@ -379,6 +379,130 @@ async function main() {
   }
   check(statuses.slice(0, 5).every((s) => s === 201) && statuses[5] === 429, "a sixth new call from one court in ten minutes: 429 (the first call counted too)", statuses);
 
+  /* ---------------- Coming / Decline, reminders, "X is going", escalation (0042) ---------------- */
+  section("Two masters on duty: Coming / Decline, 30-second reminders, \"X is going\", the organiser after 2 minutes");
+  {
+    await db().from("request_counters").delete().like("bucket_key", "staff-assist:%");
+    const KARIM = await addRef("Karim", "master_referee");
+    const mc2 = await callAction("src/app/admin/org/referees/actions.ts", "createMasterCodeAction", [null, form({ referee_id: KARIM.id, event_group_id: made.group!, expires_days: "7" })], ADMIN);
+    const code2 = shownState(mc2.text, "code");
+    const fan2 = await f.device("master2");
+    const install2 = mintInstallToken(fan2.installationId);
+    const ks = await http("POST", SESSION, { ...ip(40), "X-Install-Token": install2 }, { code: code2, refereeId: KARIM.id, pin: KARIM.pin });
+    check(ks.status === 200, "a second master referee (Karim) signs in on his phone", ks.status);
+    const MASTER2: Who = { ...bearer(String(ks.json?.token)), "X-Install-Token": install2 };
+    await http("GET", ASSIST, MASTER);
+    await http("GET", ASSIST, MASTER2);
+    type Answer = { name: string; answer: string; at: string | null };
+    type View = { id: string; status: string; going: string | null; responses: Answer[]; remindersSent: number; escalatedAt: string | null; mine?: string | null; acknowledgedBy: string | null; resolvedBy: string | null };
+    const courtCall = async () => (await http("GET", ASSIST, REF)).json?.call as View | null;
+    const steps = async (id: string, action: string) => {
+      const { data } = await db().from("audit_logs").select("new_value, created_at").eq("entity_id", id).eq("action", action).order("created_at");
+      return ((data ?? []) as { new_value: { to?: string[]; phones?: number; reason?: string; going?: string } }[]).map((r) => r.new_value);
+    };
+    const backdate = (id: string, secs: number) => db().from("assistance_calls").update({ requested_at: new Date(Date.now() - secs * 1000).toISOString() }).eq("id", id);
+    const answerOf = (v: View | null, name: string) => v?.responses.find((r) => r.name === name);
+
+    const c = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id });
+    const id = String((c.json?.call as { id: string } | undefined)?.id);
+    check(c.status === 201 && c.json?.alerted === 2, "the call: both masters' phones alerted (time-sensitive, dry run)", c.json?.alerted);
+    const v0 = await courtCall();
+    check(
+      v0?.status === "open" && v0.responses.length === 2 && v0.responses.every((r) => r.answer === "none" && r.at === null) && !!answerOf(v0, OMAR.name) && !!answerOf(v0, KARIM.name) && v0.remindersSent === 0 && v0.escalatedAt === null,
+      "the court referee sees every master on duty: Omar, Karim — no answer yet",
+      v0,
+    );
+    check(v0!.responses.every((r) => Object.keys(r).sort().join() === "answer,at,name") && !/\+20|phone|referee_id|refereeId/.test(JSON.stringify(v0)), "names only: no phones, no ids", v0?.responses);
+    check((await steps(id, "ASSISTANCE_REMINDED")).length === 0, "no reminder before 30 s");
+
+    await backdate(id, 31);
+    const [p1, p2, p3] = await Promise.all([courtCall(), courtCall(), http("GET", ASSIST, MASTER)]);
+    const r1 = await steps(id, "ASSISTANCE_REMINDED");
+    check(r1.length === 1, "after 30 s, three reads at once (court phone ×2, a desk): one reminder", r1);
+    check(r1[0]?.to?.length === 2 && r1[0].to.includes(OMAR.id) && r1[0].to.includes(KARIM.id) && r1[0].phones === 2, "…to both masters (neither has answered)", r1[0]);
+    check([p1, p2].some((p) => p?.remindersSent === 1) && p3.status === 200, "the court referee's card: Reminder sent", [p1?.remindersSent, p2?.remindersSent]);
+    check((await courtCall())?.remindersSent === 1, "a read in the same window sends nothing more");
+
+    const dec = await http("POST", ASSIST, MASTER, { action: "respond", callId: id, answer: "declined" });
+    check(dec.status === 200 && (dec.json?.call as View).status === "open" && (dec.json?.call as View).mine === "declined", "Omar declines: the call stays open, his desk shows his answer", dec.json?.call);
+    const v1 = await courtCall();
+    check(answerOf(v1, OMAR.name)?.answer === "declined" && Boolean(answerOf(v1, OMAR.name)?.at) && answerOf(v1, KARIM.name)?.answer === "none", "the court referee sees ✗ Omar — Declined, … Karim — no answer yet", v1?.responses);
+    const deskK = await http("GET", ASSIST, MASTER2);
+    const kOpen = ((deskK.json?.open ?? []) as View[]).find((x) => x.id === id);
+    check(kOpen?.mine === null && kOpen.responses.some((r) => r.name === OMAR.name && r.answer === "declined"), "Karim's desk: still his to answer, Omar declined", kOpen);
+
+    await backdate(id, 61);
+    await courtCall();
+    const r2 = await steps(id, "ASSISTANCE_REMINDED");
+    check(r2.length === 2 && r2[1].to?.length === 1 && r2[1].to[0] === KARIM.id && r2[1].phones === 1, "the next reminder (60 s): only Karim (Omar declined)", r2[1]);
+    check((await steps(id, "ASSISTANCE_ESCALATED")).length === 0, "no escalation before 2 minutes");
+
+    await backdate(id, 121);
+    await Promise.all([courtCall(), courtCall()]);
+    await courtCall();
+    const e1 = await steps(id, "ASSISTANCE_ESCALATED");
+    check(e1.length === 1 && e1[0].reason === "unanswered", "after 2 minutes unanswered: the organiser alerted, once", e1);
+    const v2 = await courtCall();
+    check(Boolean(v2?.escalatedAt) && v2?.status === "open", "the court referee's card: Organiser alerted (the call stays open)", v2?.escalatedAt);
+    const remindersBefore = (await steps(id, "ASSISTANCE_REMINDED")).length;
+
+    const com = await http("POST", ASSIST, MASTER2, { action: "respond", callId: id, answer: "coming" });
+    const comCall = com.json?.call as View;
+    check(com.status === 200 && comCall.status === "acknowledged" && comCall.going === KARIM.name && comCall.mine === "coming", "Karim: Coming — the call is his", com.json?.call);
+    const g = await steps(id, "ASSISTANCE_GOING_SENT");
+    check(g.length === 1 && g[0].to?.length === 1 && g[0].to[0] === OMAR.id && g[0].phones === 1 && g[0].going === KARIM.name, "Omar's phone gets \"Master referee Karim is going to the emergency call at Court 1\"", g);
+    const v3 = await courtCall();
+    check(v3?.going === KARIM.name && v3.acknowledgedBy === KARIM.name && v3.responses[0]?.name === KARIM.name && v3.responses[0].answer === "coming" && answerOf(v3, OMAR.name)?.answer === "declined", "the court referee: Karim is coming to Court 1 (✓ Karim — Coming, ✗ Omar — Declined)", v3);
+    const deskO = await http("GET", ASSIST, MASTER);
+    const oOpen = ((deskO.json?.open ?? []) as View[]).find((x) => x.id === id);
+    check(oOpen?.going === KARIM.name, "Omar's desk: Karim is going · Court 1", oOpen);
+    await backdate(id, 240);
+    await courtCall();
+    check((await steps(id, "ASSISTANCE_REMINDED")).length === remindersBefore, "taken: no more reminders", remindersBefore);
+    const late = await http("POST", ASSIST, MASTER, { action: "respond", callId: id, answer: "coming" });
+    check(late.status === 409 && late.json?.code === "already_taken" && late.json.takenBy === KARIM.name, "Omar's later Coming: 409 already_taken, Karim's name", late.json);
+    const doneK = await http("POST", ASSIST, MASTER2, { action: "resolve", callId: id });
+    check(doneK.status === 200, "Karim resolves it", doneK.status);
+    const v4 = await courtCall();
+    check(v4?.status === "resolved" && v4.resolvedBy === KARIM.name, "the court referee: Resolved by Karim", v4);
+    const log = await http("GET", "/admin/org/referees/calls", ADMIN);
+    const logText = log.text.replace(/<!-- -->/g, "");
+    check(log.status === 200 && logText.includes('data-testid="call-escalated"') && logText.includes(`Declined: ${OMAR.name}`), "the admin log: Organiser alerted, Declined: Omar", log.status);
+
+    section("Every master declines: the organiser at once; Move Score 1.0.1's On my way is Coming");
+    const d = await http("POST", ASSIST, REF, { action: "request" });
+    const id2 = String((d.json?.call as { id: string } | undefined)?.id);
+    check(d.status === 201, "a second call", d.status);
+    await http("POST", ASSIST, MASTER, { action: "respond", callId: id2, answer: "declined" });
+    check((await steps(id2, "ASSISTANCE_ESCALATED")).length === 0, "one of two declined: not yet", id2);
+    const d2 = await http("POST", ASSIST, MASTER2, { action: "respond", callId: id2, answer: "declined" });
+    const e2 = await steps(id2, "ASSISTANCE_ESCALATED");
+    check(d2.status === 200 && e2.length === 1 && e2[0].reason === "all_declined" && Boolean((d2.json?.call as View).escalatedAt), "both declined: the organiser alerted at once", e2);
+    const bad = await http("POST", ASSIST, MASTER, { action: "respond", callId: id2, answer: "maybe" });
+    check(bad.status === 400, "an answer that is neither coming nor declined: 400", bad.status);
+    const changed = await http("POST", ASSIST, MASTER, { action: "acknowledge", callId: id2 });
+    check(changed.status === 200 && (changed.json?.call as View).acknowledgedBy === OMAR.name, "Omar changes his mind with 1.0.1's acknowledge: the call is his", changed.json?.call);
+    const g2 = await steps(id2, "ASSISTANCE_GOING_SENT");
+    check(g2.length === 1 && g2[0].to?.[0] === KARIM.id, "…and Karim is told Omar is going", g2);
+    await http("POST", ASSIST, MASTER, { action: "resolve", callId: id2 });
+
+    if (process.env.CRON_SECRET) {
+      section("Nobody polling: the scheduled drain sends the reminder");
+      const s = await http("POST", ASSIST, REF, { action: "request" });
+      const id3 = String((s.json?.call as { id: string } | undefined)?.id);
+      await backdate(id3, 35);
+      const drain = await http("POST", "/api/internal/notifications/drain", { Authorization: `Bearer ${process.env.CRON_SECRET}` }, {});
+      const r3 = await steps(id3, "ASSISTANCE_REMINDED");
+      check(drain.status === 200 && ((drain.json?.assistance as { checked: number } | undefined)?.checked ?? 0) >= 1 && r3.length === 1 && r3[0].to?.length === 2, "the drain's sweep: one reminder to both masters", { drain: drain.json?.assistance, r3 });
+      await http("POST", "/api/internal/notifications/drain", { Authorization: `Bearer ${process.env.CRON_SECRET}` }, {});
+      check((await steps(id3, "ASSISTANCE_REMINDED")).length === 1, "a second sweep in the same window: nothing more");
+      const cancel = await http("POST", ASSIST, REF, { action: "cancel", callId: id3 });
+      const v5 = await courtCall();
+      check(cancel.status === 200 && v5?.status === "cancelled", "the court referee cancels it: Call cancelled", v5?.status);
+    }
+    await db().from("audit_logs").delete().in("entity_id", [id, id2]);
+  }
+
   section("Never on a TV or a public route; staff only");
   const { data: slugRow } = await db().from("tournaments").select("slug").eq("id", BOYS).single();
   const slug = (slugRow as { slug: string }).slug;

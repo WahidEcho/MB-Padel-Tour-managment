@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import type { CallStatus } from "@core";
+import type { CallAnswer, CallStatus, MasterAnswerRow } from "@core";
+import { ct } from "../../referee/callText";
 import { api, ApiError } from "../../api/client";
 import { session } from "../../state/session";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -27,6 +28,11 @@ interface Call {
   requestedAt: string;
   acknowledgedBy: string | null;
   resolvedBy: string | null;
+  // 0042 (older servers send none of these)
+  going?: string | null;
+  responses?: MasterAnswerRow[];
+  mine?: CallAnswer | null;
+  escalatedAt?: string | null;
 }
 interface PickerMatch {
   id: string;
@@ -54,6 +60,8 @@ export default function MasterReferee() {
   const [court, setCourt] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const known = useRef<Set<string> | null>(null);
+  // Opened from a call's alert: that call first.
+  const { call: focusCall } = useLocalSearchParams<{ call?: string }>();
   // Sent with the install token, so the server records this phone for the alerts.
   const calls = useQuery({
     queryKey: ["assistance", staff?.token],
@@ -61,9 +69,12 @@ export default function MasterReferee() {
     enabled: Boolean(staff),
     refetchInterval: 4_000,
   });
-  const open = useMemo(() => calls.data?.open ?? [], [calls.data]);
+  const open = useMemo(() => {
+    const list = calls.data?.open ?? [];
+    return focusCall ? [...list].sort((a, b) => Number(b.id === focusCall) - Number(a.id === focusCall)) : list;
+  }, [calls.data, focusCall]);
   useEffect(() => {
-    const fresh = open.filter((c) => c.status === "open" && known.current && !known.current.has(c.id));
+    const fresh = open.filter((c) => c.status === "open" && c.mine !== "declined" && known.current && !known.current.has(c.id));
     if (fresh.length) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     known.current = new Set(open.map((c) => c.id));
   }, [open]);
@@ -107,10 +118,10 @@ export default function MasterReferee() {
     .filter((m) => court && m.court?.trim().toLowerCase() === court.toLowerCase() && !FINISHED.has(m.status))
     .sort((a, b) => Date.parse(a.scheduledTime ?? "9999") - Date.parse(b.scheduledTime ?? "9999"));
 
-  const act = async (callId: string, action: "acknowledge" | "resolve") => {
+  const act = async (callId: string, body: { action: "respond"; answer: CallAnswer } | { action: "resolve" }) => {
     setErr(null);
     try {
-      await api("/api/mobile/v1/referee/assistance", { who: "staff", body: { action, callId } });
+      await api("/api/mobile/v1/referee/assistance", { who: "staff", body: { ...body, callId } });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : tr("referee.noConnection"));
@@ -137,15 +148,32 @@ export default function MasterReferee() {
       <View style={{ gap: 8 }}>
         {open.map((c) => (
           <Card key={c.id} style={{ gap: 8, borderWidth: 2, borderColor: c.status === "open" ? t.live : t.warning }}>
-            <Body weight="bold" size={16}>{tr("referee.callingAt", { name: c.requestedBy, court: c.court })}</Body>
+            <Body weight="bold" size={16}>{ct("calledBy", { name: c.requestedBy, court: c.court })}</Body>
             <Body tone="ink2" size={13}>
-              {tr("referee.calledAt", { time: time(c.requestedAt) })}
-              {c.status === "acknowledged" ? ` · ${tr("referee.ackBy", { name: c.acknowledgedBy ?? tr("referee.aMaster") })}` : ""}
+              {ct("calledAt", { time: time(c.requestedAt) })}
+              {c.status === "open" && c.escalatedAt ? ` · ${ct("organiserAlerted")}` : ""}
             </Body>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              {c.status === "open" && <Button label={tr("referee.onMyWay")} onPress={() => void act(c.id, "acknowledge")} style={{ flex: 1 }} />}
-              <Button kind="ghost" label={tr("referee.resolved")} onPress={() => void act(c.id, "resolve")} style={{ flex: 1 }} />
-            </View>
+            {c.status === "acknowledged" ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Glyph name="check" color={t.success} size={18} />
+                <Body weight="bold" size={15} style={{ color: t.success, flex: 1 }}>
+                  {ct("goingDesk", { name: c.going ?? c.acknowledgedBy ?? "", court: c.court })}
+                </Body>
+              </View>
+            ) : null}
+            {c.status === "open" && c.mine === "declined" ? <Body tone="ink2" weight="semi" size={13}>{ct("youDeclined")}</Body> : null}
+            {(c.responses ?? []).some((r) => r.answer === "declined") ? (
+              <Body tone="ink3" size={12}>{ct("declinedList", { names: (c.responses ?? []).filter((r) => r.answer === "declined").map((r) => r.name).join(", ") })}</Body>
+            ) : null}
+            {c.status === "open" ? (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Button label={ct("coming")} icon={<Glyph name="check" color="#FFFFFF" size={20} />} onPress={() => void act(c.id, { action: "respond", answer: "coming" })} style={{ flex: 1, minHeight: 56 }} />
+                {c.mine !== "declined" ? (
+                  <Button kind="ghost" label={ct("decline")} icon={<Glyph name="cross" color={t.ink} size={20} />} onPress={() => void act(c.id, { action: "respond", answer: "declined" })} style={{ flex: 1, minHeight: 56 }} />
+                ) : null}
+              </View>
+            ) : null}
+            <Button kind="ghost" label={ct("resolve")} onPress={() => void act(c.id, { action: "resolve" })} />
             {c.matchId ? <Body tone="blue" size={13} onPress={() => router.push({ pathname: "/referee/score/[matchId]", params: { matchId: c.matchId! } })}>{tr("referee.openMatch")}</Body> : null}
           </Card>
         ))}
