@@ -26,7 +26,7 @@ import { randomUUID } from "crypto";
 import { db } from "../../src/lib/supabase";
 import { awardPoint, initialScoreState, type ScoreState } from "../../src/lib/scoring/engine";
 import { DEFAULT_SCORING_CONFIG, type Match } from "../../src/lib/types";
-import { formatEventCode, hashEventCode, openEventCode } from "../../src/lib/orgs/codes";
+import { formatEventCode, hashEventCode, normalizeEventCode, openEventCode } from "../../src/lib/orgs/codes";
 import QRCode from "qrcode";
 import { courtLink, parseCourtLink } from "../../src/lib/orgs/courtScope";
 import { siteUrl } from "../../src/lib/messaging/links";
@@ -147,7 +147,7 @@ async function main() {
     const want = await QRCode.toString(candidate, { type: "svg", margin: 1, errorCorrectionLevel: "M", color: { dark: "#05060a", light: "#ffffff" } });
     if (sheet.text.includes(pathOf(want).slice(0, 400))) link = candidate;
   }
-  check(Boolean(link) && new URL(link).pathname === "/r" && parseCourtLink(link) === C1.code, "Court 1's QR encodes <public site>/r#<its code>", link.replace(/#.*/, "#…"));
+  check(Boolean(link) && new URL(link).pathname === "/r" && normalizeEventCode(parseCourtLink(link) ?? "") === normalizeEventCode(C1.code), "Court 1's QR encodes <public site>/r#<its code> (a short code in its XXXX-COURT-CODE form)", link.replace(/#.*/, "#…"));
 
   const { data: refRow, error: refErr } = await db()
     .from("referees")
