@@ -49,6 +49,9 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "MS_ALLOW_NO_PUSH": "1"
       }
     },
     "production-local-creds": {
