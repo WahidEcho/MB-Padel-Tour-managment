@@ -3,6 +3,9 @@ import { en } from "./en";
 import { es } from "./es";
 import { fr } from "./fr";
 import { formatters } from "./format";
+import { LOCK_WORDS } from "../../../src/lib/notify/lockWords";
+import { lock as esLock } from "./es/lock";
+import { lock as frLock } from "./fr/lock";
 import { getLang, setLang, tr, trIn } from "./t";
 import { interpolate, keysOf, langOfTag, pickLang, pluralForm, translate, type Dict, type Entry } from "./translate";
 
@@ -138,5 +141,14 @@ describe("dates and times", () => {
   it("survives a bad zone and a bad date", () => {
     expect(formatters("en").time(at, "Not/AZone")).toMatch(/^\d\d:\d\d$/);
     expect(formatters("fr").day("not a date")).toBe("");
+  });
+});
+
+describe("lock-screen cards pushed by the server", () => {
+  it("say the same words as the app", () => {
+    for (const [lang, app] of [["es", esLock], ["fr", frLock]] as const) {
+      const server = LOCK_WORDS[lang];
+      for (const k of Object.keys(server) as (keyof typeof server)[]) expect(server[k], `${lang}.${k}`).toBe(app[k as keyof typeof app]);
+    }
   });
 });

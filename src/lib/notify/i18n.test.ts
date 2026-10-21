@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ALERT_DICTS, alertLang, aw, labelIn, playStatusWords, statusWord, wordsFor } from "./i18n";
 import { composeCalledToCourt, composeCallReminder, composeLineups, composeMatchFinished, composeMatchLive, composeMatchScheduled, composeMatchSoon, composeNightMatch, composeTieDecided, composeTieSchedule, composeTieStarting, composeAnnouncement } from "./compose";
 import { coachCalled, coachFinished, coachLineup, coachRubberSoon, coachStarted, coachTieResult, coachTieSoon } from "../coaches/alerts";
-import { LOCK_WORDS, lockLabelsFor, startAlertIn, stateIn } from "./lockWords";
+import { lockLabelsFor, startAlertIn, stateIn } from "./lockWords";
 import { startAlert, upcomingState } from "./liveActivity";
-import { lock as esLock } from "../../../move-score-app/src/i18n/es/lock";
-import { lock as frLock } from "../../../move-score-app/src/i18n/fr/lock";
 
 const holes = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
@@ -159,12 +157,8 @@ describe("alerts in Spanish and French", () => {
 });
 
 describe("lock-screen cards", () => {
-  it("say the same words as the app", () => {
-    for (const [lang, app] of [["es", esLock], ["fr", frLock]] as const) {
-      const server = LOCK_WORDS[lang];
-      for (const k of Object.keys(server) as (keyof typeof server)[]) expect(server[k], `${lang}.${k}`).toBe(app[k as keyof typeof app]);
-    }
-  });
+  // "Say the same words as the app" lives in move-score-app/src/i18n/i18n.test.ts: Vercel's build
+  // has no move-score-app folder, so nothing under src/ may import from it.
   it("English cards carry no labels (the card's own words)", () => {
     const s = upcomingState({ matchId: "m", phase: "called", a: "EGY", b: "JPN", court: "Court 1", until: null });
     expect(stateIn(s, "en")).toBe(s);
