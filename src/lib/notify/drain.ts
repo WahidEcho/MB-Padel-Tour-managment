@@ -161,6 +161,8 @@ export type ExpoMessage = {
   priority?: "default" | "normal" | "high";
   interruptionLevel?: "active" | "time-sensitive";
   ttl?: number;
+  /** A notification category the app registered (action buttons): "assistance_call" = Coming / Decline. */
+  categoryId?: string;
 };
 
 export async function sendExpo(messages: ExpoMessage[]): Promise<Ticket[]> {

@@ -59,6 +59,8 @@ const MUST_STAY_CLOSED = [
   "referees",
   "referee_sessions",
   "assistance_calls",
+  // 0042: each master referee's Coming / Decline to a call for assistance.
+  "assistance_responses",
   // 0037 (team coaches): code hashes and sealed codes, coaches' phones.
   "coach_codes",
   "coach_sessions",

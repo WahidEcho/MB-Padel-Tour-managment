@@ -4,7 +4,7 @@ import Svg, { Circle, Path, Rect } from "react-native-svg";
  * Small line icons drawn with SVG. Emoji in labels can render as "?" boxes on
  * some iPhones with the app's fonts, so buttons and rows use these instead.
  */
-export type GlyphName = "megaphone" | "help" | "stopwatch" | "clock" | "cup" | "restroom" | "drop" | "sun" | "warning" | "hourglass" | "phone";
+export type GlyphName = "megaphone" | "help" | "stopwatch" | "clock" | "cup" | "restroom" | "drop" | "sun" | "warning" | "hourglass" | "phone" | "check" | "cross" | "dots";
 
 export function Glyph({ name, color, size = 18 }: { name: GlyphName; color: string; size?: number }) {
   const p = { fill: "none", stroke: color, strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -63,6 +63,9 @@ export function Glyph({ name, color, size = 18 }: { name: GlyphName; color: stri
           <Circle cx={12} cy={17.2} r={1} fill={color} />
         </>
       )}
+      {name === "check" && <Path {...p} strokeWidth={2.4} d="M5 12.5l4.5 4.5L19 7.5" />}
+      {name === "cross" && <Path {...p} strokeWidth={2.4} d="M6 6l12 12M18 6L6 18" />}
+      {name === "dots" && <Path {...p} strokeWidth={3} d="M6 12h.01M12 12h.01M18 12h.01" />}
       {name === "hourglass" && <Path {...p} d="M6.5 3h11M6.5 21h11M7.5 3c0 5 9 5 9 9s-9 4-9 9M16.5 3c0 5-9 5-9 9s9 4 9 9" />}
       {name === "phone" && (
         <>

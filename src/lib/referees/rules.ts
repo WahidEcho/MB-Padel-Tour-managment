@@ -153,3 +153,106 @@ export function callStatusLine(call: { status: CallStatus; acknowledged_by_name?
   if (call.status === "resolved") return `Resolved${call.resolved_by_name ? ` by ${call.resolved_by_name}` : ""}`;
   return "Call cancelled";
 }
+
+/* ---------------- Coming / Decline, reminders, escalation (migration 0042) ---------------- */
+
+/** A master referee's answer to a call: "coming" (they take it) or "declined" (they cannot; the call stays open for the others). */
+export type CallAnswer = "coming" | "declined";
+export const isCallAnswer = (a: unknown): a is CallAnswer => a === "coming" || a === "declined";
+
+/** An open call nobody has taken is pushed again to the masters who have not declined, every this many seconds. */
+export const REMINDER_SECONDS = 30;
+/** At most this many reminders per call (ten minutes of them); the call itself stays open. */
+export const MAX_REMINDERS = 20;
+/** An open call nobody has taken after this many seconds is escalated to the organiser's owners and admins, once. */
+export const ESCALATE_SECONDS = 120;
+/** A closed call stays on the court referee's card this long ("Resolved by Sara"), then the card hides. */
+export const CLOSED_SHOWN_SECONDS = 60;
+
+export interface CallResponse {
+  refereeId: string;
+  name: string;
+  answer: CallAnswer;
+  at: string;
+}
+
+interface TimedCall {
+  status: CallStatus;
+  requested_at: string;
+  reminders_sent: number;
+  escalated_at: string | null;
+}
+
+/**
+ * How many reminder windows have passed since the call (one each REMINDER_SECONDS, capped at
+ * MAX_REMINDERS). The server claims a window with a compare-and-set on `reminders_sent`, so
+ * whoever reads the call first sends that window's reminder and nobody sends it twice.
+ */
+export function reminderWindows(requestedAt: string, nowMs: number): number {
+  const at = Date.parse(requestedAt);
+  if (!Number.isFinite(at) || nowMs < at) return 0;
+  return Math.min(MAX_REMINDERS, Math.floor((nowMs - at) / (REMINDER_SECONDS * 1000)));
+}
+
+/**
+ * The reminder window to claim now (the latest one passed), or null when none is due: the call
+ * is taken or closed, or this window's reminder went out. Missed windows (nobody read the call
+ * for a while) collapse into one reminder.
+ */
+export function reminderDue(call: TimedCall, nowMs: number): number | null {
+  if (call.status !== "open") return null;
+  const w = reminderWindows(call.requested_at, nowMs);
+  return w > call.reminders_sent ? w : null;
+}
+
+/** Who gets a reminder: the masters on duty who have not answered (a Decline stops them; a Coming takes the call). */
+export function reminderRecipients(dutyRefereeIds: readonly string[], responses: readonly Pick<CallResponse, "refereeId" | "answer">[]): string[] {
+  const answered = new Set(responses.map((r) => r.refereeId));
+  return [...new Set(dutyRefereeIds)].filter((id) => !answered.has(id));
+}
+
+/**
+ * Whether the organiser's owners and admins are alerted now (once per call): an open call
+ * nobody took within ESCALATE_SECONDS, or one every master on duty declined.
+ */
+export function escalationDue(call: TimedCall, nowMs: number, dutyRefereeIds: readonly string[] = [], responses: readonly Pick<CallResponse, "refereeId" | "answer">[] = []): boolean {
+  if (call.status !== "open" || call.escalated_at) return false;
+  const at = Date.parse(call.requested_at);
+  if (Number.isFinite(at) && nowMs - at >= ESCALATE_SECONDS * 1000) return true;
+  const declined = new Set(responses.filter((r) => r.answer === "declined").map((r) => r.refereeId));
+  const duty = [...new Set(dutyRefereeIds)];
+  return duty.length > 0 && duty.every((id) => declined.has(id));
+}
+
+export type MasterAnswerRow = { name: string; answer: CallAnswer | "none"; at: string | null };
+
+/** Every master on duty with their answer, for the court referee's card: coming first, then no answer yet, then declined. Names only. */
+export function masterAnswers(duty: readonly { id: string; name: string }[], responses: readonly CallResponse[]): MasterAnswerRow[] {
+  const byId = new Map(responses.map((r) => [r.refereeId, r]));
+  const rows = new Map<string, MasterAnswerRow>();
+  for (const d of duty) {
+    const r = byId.get(d.id);
+    rows.set(d.id, { name: r?.name ?? d.name, answer: r?.answer ?? "none", at: r?.at ?? null });
+  }
+  // A master who answered and has since gone off duty still shows their answer.
+  for (const r of responses) if (!rows.has(r.refereeId)) rows.set(r.refereeId, { name: r.name, answer: r.answer, at: r.at });
+  const order = { coming: 0, none: 1, declined: 2 } as const;
+  return [...rows.values()].sort((a, b) => order[a.answer] - order[b.answer] || a.name.localeCompare(b.name));
+}
+
+/** Whether a closed call still shows on the court referee's card (CLOSED_SHOWN_SECONDS after it closed). */
+export function closedCallShown(call: { status: CallStatus; resolvedAt: string | null }, nowMs: number): boolean {
+  if (isOpenCall(call.status) || !call.resolvedAt) return false;
+  const at = Date.parse(call.resolvedAt);
+  return Number.isFinite(at) && nowMs - at < CLOSED_SHOWN_SECONDS * 1000;
+}
+
+/** "0:42", "2:05", "1:02:10": the running time since a call, for the court referee's card. */
+export function elapsedClock(sinceIso: string, nowMs: number): string {
+  const s = Math.max(0, Math.floor((nowMs - Date.parse(sinceIso)) / 1000));
+  if (!Number.isFinite(s)) return "0:00";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}

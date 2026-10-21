@@ -125,14 +125,44 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
   token), `priority: high`, `interruptionLevel: time-sensitive`, Android channel `assistance` (max importance,
   vibration, bypasses Do Not Disturb), sound; plus a live banner with alarm sound and vibration on every web referee
   page of a master, and polling in the app. `PUSH_DRY_RUN=1` sends nothing.
-- "On my way" (master; compare-and-set, the first one wins) → the court referee sees "<name> is on the way".
-  "Resolved" (master or organiser). "Cancel" (the court referee, before anyone answered).
-- Staff only: the route is `private, no-store`; no TV, public page or public API reads `assistance_calls`.
+- **Coming / Decline** (migration `0042_assistance_responses.sql`): each master answers `POST { action: "respond",
+  callId, answer: "coming" | "declined" }` from the desk (web `/referee/master`, app `referee/master`) or straight
+  from the alert's buttons (notification category `assistance_call`, `move-score-app/src/push/assistanceActions.ts`;
+  Coming opens the app on that call, Decline answers without opening it where the phone allows). Answers are rows
+  of `assistance_responses` (call, master, name, answer, time).
+  - Coming: the first one takes the call (compare-and-set open → acknowledged); every **other** master on duty gets
+    "Master referee Sara is going to the emergency call at Court 2" (not time-sensitive, channel `matches`) and their
+    desk shows "Sara is going · Court 2"; reminders stop. A later Coming: 409 `already_taken` with `takenBy`.
+    Move Score 1.0.1's `acknowledge` ("On my way") is the same as Coming.
+  - Decline: the call stays open for the others; that master gets no more reminders and may still press Coming
+    while it is open.
+- **Reminders**: while nobody has taken the call, every 30 s (`REMINDER_SECONDS`, at most `MAX_REMINDERS` = 20) the
+  masters on duty who have not declined get the time-sensitive alert again ("Court 2 still needs a master referee —
+  tap to answer"). One reminder per 30-second window: `tickCall` claims it with a compare-and-set on
+  `assistance_calls.reminders_sent`, whoever reads the open call first: the court phone's 5-second poll (GET), a
+  master's desk (GET), the organiser's GET, or the scheduled notification drain (`tickOpenCalls`, every minute, for
+  when no phone is polling). Missed windows collapse into one reminder.
+- **Escalation**: after 2 minutes unanswered (`ESCALATE_SECONDS`), or as soon as every master on duty declined, the
+  organisation's active owners and admins get a push on their signed-in phones and a `staff_alert` email, once
+  (`escalated_at` claimed where null). The call stays open.
+- What the court referee sees (app `AssistanceCard`, web `AssistanceButton`, polled every 5 s): "Calling the master
+  referees… no answer yet · 0:42" with "Reminder sent" and "Organiser alerted"; every master on duty with their
+  answer (Coming since / Declined at / No answer yet, drawn icons); then "Sara is coming to Court 2" in green with the
+  declines below; "Resolved by Sara" or "Call cancelled" for a minute after it closes. GET carries, additively,
+  `going`, `responses: [{ name, answer: "coming" | "declined" | "none", at }]` (names only, never a phone or id),
+  `remindersSent`, `escalatedAt`, and `mine` on a master's desk.
+- Every push, the cards and the desks are in English, Spanish or French (`src/lib/referees/callWords.ts`, via
+  `@core`; pushes in each phone's `push_devices.locale`). System steps are audit rows `ASSISTANCE_REMINDED`
+  (`to`: master ids, `phones`), `ASSISTANCE_GOING_SENT`, `ASSISTANCE_ESCALATED` (`reason`); masters' answers
+  `ASSISTANCE_COMING` / `ASSISTANCE_DECLINED`. The admin log shows declines and "Organiser alerted".
+- "Resolved" (master or organiser). "Cancel" (the court referee, before anyone answered).
+- Staff only: the route is `private, no-store`; no TV, public page or public API reads `assistance_calls` or
+  `assistance_responses`.
 
 ## Gates
 
 - Unit: `src/lib/referees/*.test.ts` (PIN hashing / generation, 1.0.1 split, call state machine, master permissions
-  and reach, tokens, On court now).
+  and reach, tokens, On court now; `callFlow.test.ts`: reminder windows, who is reminded, escalation, answers, words).
 - `npm run e2e:referees` (stand-in; server with `PUSH_DRY_RUN=1`).
 - `e2e:court-codes` and `e2e:old-app` sign in court codes with a PIN.
 
@@ -148,3 +178,7 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
    (`move-score-app/docs/device-install.md`, step 2.6). Without it the signed build fails.
 4. Whole-event referee codes now need a PIN too: referees signed in with one before this deploy sign in again with
    their PIN.
+5. Owner applies `0042_assistance_responses.sql` on the live project **before** deploying the Coming / Decline build
+   (the calls route selects its new columns). The reminders' backstop is the existing `movescore-drain-notifications`
+   cron; nothing new to schedule. The push buttons need a new app build (older builds show the alert without
+   buttons and answer on the desk).

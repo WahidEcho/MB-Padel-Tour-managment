@@ -258,6 +258,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `/referee/tournaments/[id]/desk`; app `referee/master`, `referee/pin`, `AssistanceCard`. Admin `admin/org/referees` (+ `/live`,
   `/calls`). Calls route `api/mobile/v1/referee/assistance` (staff only, never public). Gate `npm run e2e:referees` (stand-in,
   `PUSH_DRY_RUN=1`).
+  Coming / Decline (migration `0042_assistance_responses.sql`, not yet on the live project; apply before deploying): masters answer
+  `respond` (1.0.1's `acknowledge` = Coming; first Coming wins, others get "X is going", later Coming 409 `already_taken`), answers in
+  `assistance_responses`; reminders every 30 s to masters who have not declined and the 2-minute escalation to owners/admins run in
+  `tickCall` (CAS on `reminders_sent` / `escalated_at`), driven by any GET of the open call and the notification drain's `tickOpenCalls`.
+  Push buttons: category `assistance_call` (`move-score-app/src/push/assistanceActions.ts`). Words en/es/fr in
+  `src/lib/referees/callWords.ts` (via `@core`); court card shows every master's answer (names only).
 - Line-ups on match day (no migration): pure checks `src/lib/tennis/lineupRules.ts` (problems refuse; warnings — order of merit
   Reg 43, retired player Reg 50 — need accepting; a change after the lock needs a reason), regulation summaries in our own words
   `src/lib/tennis/regulations.ts` (page `/regulations/itf-junior-team/[reg]`, button to the ITF site), Excel sheet pure

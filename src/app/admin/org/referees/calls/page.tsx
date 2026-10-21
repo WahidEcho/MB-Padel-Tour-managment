@@ -60,7 +60,14 @@ export default async function AssistanceCallsPage() {
                   <p className="text-xs text-muted">{c.tournament_id ? (tName.get(c.tournament_id) ?? "") : ""}{c.taps > 1 ? ` · ${c.taps} taps` : ""}</p>
                 </td>
                 <td className="px-2 py-1">{c.requested_by_name}</td>
-                <td className="px-2 py-1 whitespace-nowrap" data-testid="call-requested">{at(c.requested_at)}<p className="text-xs text-muted">{c.alerted} phone{c.alerted === 1 ? "" : "s"} alerted</p></td>
+                <td className="px-2 py-1 whitespace-nowrap" data-testid="call-requested">{at(c.requested_at)}
+                  <p className="text-xs text-muted">
+                    {c.alerted} phone{c.alerted === 1 ? "" : "s"} alerted
+                    {c.reminders_sent ? ` · ${c.reminders_sent} reminder window${c.reminders_sent === 1 ? "" : "s"}` : ""}
+                  </p>
+                  {c.escalated_at ? <p className="text-xs font-semibold text-danger" data-testid="call-escalated">Organiser alerted {at(c.escalated_at)}</p> : null}
+                  {c.declined.length ? <p className="text-xs text-muted" data-testid="call-declined">Declined: {c.declined.join(", ")}</p> : null}
+                </td>
                 <td className="px-2 py-1 whitespace-nowrap" data-testid="call-acknowledged">
                   {c.acknowledged_at ? (
                     <>

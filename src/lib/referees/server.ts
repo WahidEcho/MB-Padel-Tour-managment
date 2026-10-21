@@ -547,7 +547,11 @@ export async function signInHistory(orgId: string, limit = 100): Promise<(Sessio
 }
 
 /** The master referees on duty now (signed in with their code, seen recently): their phones' installation ids. */
-export async function mastersOnDuty(orgId: string, scope: { eventGroupId: string | null; tournamentId: string | null }, nowMs = Date.now()): Promise<{ refereeIds: string[]; installationIds: string[] }> {
+export async function mastersOnDuty(
+  orgId: string,
+  scope: { eventGroupId: string | null; tournamentId: string | null },
+  nowMs = Date.now(),
+): Promise<{ refereeIds: string[]; installationIds: string[]; byReferee: Record<string, string[]> }> {
   const since = new Date(nowMs - 12 * 3600_000).toISOString();
   const { data } = await db()
     .from("referee_sessions")
@@ -573,5 +577,11 @@ export async function mastersOnDuty(orgId: string, scope: { eventGroupId: string
     : { data: [] };
   const working = new Set(((codes ?? []) as { id: string; revoked_at: string | null; expires_at: string | null }[]).filter((c) => !c.revoked_at && !(c.expires_at && Date.parse(c.expires_at) <= nowMs)).map((c) => c.id));
   const ok = live.filter((s) => s.code_id && working.has(s.code_id));
-  return { refereeIds: [...new Set(ok.map((s) => s.referee_id))], installationIds: [...new Set(ok.map((s) => s.installation_id).filter((x): x is string => Boolean(x)))] };
+  // Each master's own phones (reminders skip a master who declined; "X is going" skips X).
+  const byReferee: Record<string, string[]> = {};
+  for (const s of ok) {
+    const list = (byReferee[s.referee_id] ??= []);
+    if (s.installation_id && !list.includes(s.installation_id)) list.push(s.installation_id);
+  }
+  return { refereeIds: [...new Set(ok.map((s) => s.referee_id))], installationIds: [...new Set(ok.map((s) => s.installation_id).filter((x): x is string => Boolean(x)))], byReferee };
 }

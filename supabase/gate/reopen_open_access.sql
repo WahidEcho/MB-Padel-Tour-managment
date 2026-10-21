@@ -10,7 +10,7 @@
 --   league_code_holders,
 --   match_calls, live_activity_start_tokens, live_activity_starts,
 --   registration_settings, registrations, registration_payments, move_tick_events,
---   referees, referee_sessions, assistance_calls,
+--   referees, referee_sessions, assistance_calls, assistance_responses,
 --   coach_codes, coach_sessions
 -- They hold event-code hashes, member emails, platform admins, organisations'
 -- private player notes, invite and one-time-code hashes and their status, league
@@ -52,6 +52,7 @@ declare
     'referees',
     'referee_sessions',
     'assistance_calls',
+    'assistance_responses',
     'coach_codes',
     'coach_sessions',
     'venue_maps'
