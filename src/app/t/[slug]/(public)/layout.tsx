@@ -13,6 +13,7 @@ import { watchTargets } from "@/lib/watch";
 import { hasPublicVenue } from "@/lib/venue/server";
 import PlayNotice from "@/components/PlayNotice";
 import { hasPublicEventInfo } from "@/lib/eventInfo/server";
+import { scoreDelayNotice, scoreDelaySeconds } from "@/lib/live/delay";
 
 // Rendered at most every 10s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -72,6 +73,8 @@ export default async function PublicLayout({
   // The event info for fans, once the organiser has published it.
   const hasInfo = await hasPublicEventInfo(slug);
   const backdrop = backgroundFor(tournament.branding_config, "public");
+  // The audience delay (Admin → In the app → Score delay): say so while it is on.
+  const delayNote = scoreDelayNotice(scoreDelaySeconds(tournament.branding_config));
 
   return (
     <div className={`relative isolate flex min-h-screen flex-col${backdrop ? " bc-page-backdrop" : ""}`}>
@@ -115,6 +118,11 @@ export default async function PublicLayout({
       </header>
       {/* Rain delay / play suspended / resumed and the latest major announcement. */}
       <PlayNotice tournament={tournament} />
+      {delayNote && (
+        <p className="relative z-20 mx-auto w-full max-w-7xl px-4 pt-2 text-xs text-muted" data-testid="score-delay-note">
+          {delayNote}
+        </p>
+      )}
       <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 p-4">{children}</main>
       {footer.length > 0 && (
         <footer className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-4">

@@ -12,6 +12,7 @@ import { updateBranding } from "@/lib/backgroundStorage";
 import { formResult, refusal, type FormState } from "@/lib/refusal";
 import { playStatusProblem, playStatusPush, type PlayStatusConfig, type PlayStatusKind } from "@/lib/notices/playStatus";
 import { dayKeyIn } from "@/lib/schedule/orderOfPlay";
+import { parseScoreDelayInput, sanitizeScoreDelay, scoreDelayPreview, type ScoreDelayConfig } from "@/lib/live/delay";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const path = (id: string) => `/admin/tournaments/${id}/app`;
@@ -203,5 +204,34 @@ export async function savePlayStatus(_prev: FormState, formData: FormData): Prom
     }
     revalidatePath(path(id));
     return typed === "normal" ? "Saved. The banner is off." : push ? "Saved. The banner is up and followers are being told." : "Saved. The banner is up.";
+  });
+}
+
+/**
+ * The audience delay ("delay meter"): fans see every score `seconds` after the
+ * referee records it, on the app and the public website, and their alerts and
+ * lock-screen scores wait as long (src/lib/live/delay.ts). Referee consoles, the
+ * master referee desk, admin pages, venue TVs and the stream overlay stay live.
+ * Stored in `branding_config.scoreDelay` (no migration) with updateBranding's
+ * compare-and-set; 0 turns it off.
+ */
+export async function saveScoreDelay(_prev: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get("tournament_id") ?? "");
+  const { staff } = await requireTournamentPermission("manage_tournament", id);
+  // A friendly session's hidden row has no app settings of its own.
+  refuse(await tournamentRowRefusal(id));
+  return formResult(async () => {
+    const parsed = parseScoreDelayInput(formData.get("seconds"));
+    if (!parsed.ok) refusal(parsed.message);
+    const next: ScoreDelayConfig = { seconds: parsed.seconds, updatedAt: new Date().toISOString() };
+    let before: ScoreDelayConfig | null = null;
+    const written = await updateBranding(id, (current) => {
+      before = current.scoreDelay === undefined ? null : sanitizeScoreDelay(current.scoreDelay);
+      return { ...current, scoreDelay: next };
+    });
+    if (!written.ok) refusal("Could not save the score delay. Reload the page and try again.");
+    await audit({ tournament_id: id, actor_role: staff.role, action: "SCORE_DELAY_SET", entity_type: "tournament", entity_id: id, old_value: before, new_value: next });
+    revalidatePath(path(id));
+    return `Saved. ${scoreDelayPreview(parsed.seconds)}`;
   });
 }

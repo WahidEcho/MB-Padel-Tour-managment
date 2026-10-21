@@ -335,6 +335,12 @@ export interface BrandingConfig {
    * (toPublicTournament drops it), only through GET /api/mobile/v1/t/<slug>/info.
    */
   eventInfo?: unknown;
+  /**
+   * The audience delay ("delay meter", Admin → In the app → Score delay): fans see
+   * every score this many seconds after the referee records it. `{ seconds }`, 0–120,
+   * read only through sanitizeScoreDelay / scoreDelaySeconds (src/lib/live/delay.ts).
+   */
+  scoreDelay?: unknown;
 }
 
 /** One court's live video. */

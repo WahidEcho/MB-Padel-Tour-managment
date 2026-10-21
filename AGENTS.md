@@ -339,3 +339,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (`src/lib/auth/accountProfile.ts`); user choices live under `custom_name`/`name_custom` and `custom_avatar_url`/`avatar_custom` (only
   trusted inside our own `media/accounts/` folder) so a later Apple/Google sign-in never overwrites them. Apple sends the name only on the
   first authorization. App sheet `move-score-app/src/auth/EditProfileSheet.tsx` (Account → Edit name and photo). Gate `npm run e2e:mobile-signin`.
+- Audience delay / delay meter (no migration): `branding_config.scoreDelay = { seconds }` (0 = off, max 120), set on Admin → In the app →
+  Score delay (`saveScoreDelay`, CAS via `updateBranding`, audit `SCORE_DELAY_SET`; meter `src/components/ScoreDelayMeter.tsx`). Pure rules
+  `src/lib/live/delay.ts` (via `@core`: sanitiser, `matchAsOf`, `snapshotRowFromState` — the one snapshot mapper, ops.ts writes with it —
+  `snapshotAsOf`, `tiesAsOf`, advancement masks, `SCORE_ALERT_KINDS`), server `src/lib/live/delayServer.ts` (`audienceView`: delay 0 = input
+  untouched, no query; else the window's score events in one query, the event before it in a second). Delayed: app public + `me/` routes
+  (live, match, timeline, stats, standings/placings, bundle/discover live counts, courts hero, widget, My matches, `/me/player` matches), coach
+  views and log, the public website `/t/[slug]/**` (+ "Scores are shown N s behind live." note), and `match_live`/`match_finished`/`tie_decided`/
+  coach result alerts (`fire_at` later) and Live Activity pushes (outbox kind `live_activity_deferred`, sent by the drain from the view then).
+  Never delayed: referee consoles and `/api/matches/[id]/state`, master desk, admin, TV feed `/api/t/[slug]/live` and screens, OBS overlay,
+  calls to court / match soon / line-ups. Additive `scoreDelaySeconds` on MLive and tournament cards. Gate `npm run e2e:score-delay` (stand-in).

@@ -9,7 +9,7 @@
  * features: "Show aces on TV & app").
  */
 import { db } from "../supabase";
-import type { Match, ScoringConfig, Tie } from "../types";
+import type { Match, MatchSnapshot, ScoringConfig, Tie } from "../types";
 import type { ScoreState } from "../scoring/engine";
 import { scoringConfigForMatch } from "../scoring/rules";
 import { sportOf } from "../sports/registry";
@@ -17,9 +17,11 @@ import { computeMatchStats, statsUnavailable, swapSides, tieStats, type MatchSta
 import { memo } from "./http";
 import { scoreExtrasOf } from "./projection";
 import type { MMatchStats, MTieStats } from "./contract";
+import { cutoffFor, matchAsOf, scoreDelaySeconds } from "../live/delay";
+import { snapshotsAsOf } from "../live/delayServer";
 
 const STATS_MATCH_COLUMNS =
-  "id, tournament_id, stage, bracket_id, tie_id, rubber_no, rubber_type, team_a_id, team_b_id, team_a_player_ids, status, result_source";
+  "id, tournament_id, stage, bracket_id, tie_id, rubber_no, rubber_type, team_a_id, team_b_id, team_a_player_ids, status, result_source, winner_team_id, started_at, ended_at";
 
 /** Of each event: the type, side, payload and time, and the parts of the state before it that stats read. */
 const EVENT_COLUMNS = [
@@ -47,12 +49,22 @@ interface TournamentRow {
   public_access_enabled: boolean;
   scoring_config: ScoringConfig | null;
   match_day_rules: unknown;
+  branding_config: { scoreDelay?: unknown } | null;
 }
 
-type StatsMatch = Pick<Match, "id" | "tournament_id" | "stage" | "bracket_id" | "tie_id" | "rubber_no" | "rubber_type" | "team_a_id" | "team_b_id" | "team_a_player_ids" | "status" | "result_source">;
+type StatsMatch = Pick<
+  Match,
+  "id" | "tournament_id" | "stage" | "bracket_id" | "tie_id" | "rubber_no" | "rubber_type" | "team_a_id" | "team_b_id" | "team_a_player_ids" | "status" | "result_source" | "winner_team_id" | "started_at" | "ended_at"
+>;
+
+/** The audience delay's moment for this tournament (ms), or null when scores are live. */
+function cutoffOf(t: TournamentRow, now = Date.now()): number | null {
+  const s = scoreDelaySeconds(t.branding_config);
+  return s > 0 ? cutoffFor(now, s) : null;
+}
 
 async function publicTournament(id: string): Promise<TournamentRow | null> {
-  const { data } = await db().from("tournaments").select("id, kind, sport, public_access_enabled, scoring_config, match_day_rules").eq("id", id).maybeSingle();
+  const { data } = await db().from("tournaments").select("id, kind, sport, public_access_enabled, scoring_config, match_day_rules, branding_config").eq("id", id).maybeSingle();
   const t = data as TournamentRow | null;
   return t && t.public_access_enabled && t.kind === "tournament" ? t : null;
 }
@@ -84,7 +96,7 @@ function toRow(r: Record<string, unknown>): StatsEventRow & { match_id: string }
 }
 
 /** Stats for each of these matches (one tournament), from their events and snapshots. */
-async function statsFor(matches: StatsMatch[], t: TournamentRow): Promise<Map<string, MatchStatsResult>> {
+async function statsFor(matches: StatsMatch[], t: TournamentRow, cutoffMs: number | null = null): Promise<Map<string, MatchStatsResult>> {
   const out = new Map<string, MatchStatsResult>();
   if (!matches.length) return out;
   if (sportOf(t).engine !== "games") {
@@ -93,9 +105,12 @@ async function statsFor(matches: StatsMatch[], t: TournamentRow): Promise<Map<st
   }
   const ids = matches.map((m) => m.id);
   const bracketIds = [...new Set(matches.map((m) => m.bracket_id).filter((v): v is string => Boolean(v)))];
+  // The audience delay: only what was recorded by the moment fans see.
+  let eventsQuery = db().from("score_events").select(EVENT_COLUMNS).in("match_id", ids);
+  if (cutoffMs !== null) eventsQuery = eventsQuery.lte("created_at_server", new Date(cutoffMs).toISOString());
   const [events, snaps, brackets] = await Promise.all([
-    db().from("score_events").select(EVENT_COLUMNS).in("match_id", ids).order("event_number").limit(20000),
-    db().from("match_score_snapshots").select("match_id, snapshot_json").in("match_id", ids),
+    eventsQuery.order("event_number").limit(20000),
+    db().from("match_score_snapshots").select("match_id, snapshot_json, updated_at, last_undo_event_number").in("match_id", ids),
     bracketIds.length ? db().from("brackets").select("id, tier").in("id", bracketIds) : Promise.resolve({ data: [] }),
   ]);
   const rowsOf = new Map<string, StatsEventRow[]>();
@@ -103,7 +118,9 @@ async function statsFor(matches: StatsMatch[], t: TournamentRow): Promise<Map<st
     const r = toRow(raw);
     rowsOf.set(r.match_id, [...(rowsOf.get(r.match_id) ?? []), r]);
   }
-  const stateOf = new Map(((snaps.data ?? []) as { match_id: string; snapshot_json: unknown }[]).map((s) => [s.match_id, s.snapshot_json as ScoreState | null]));
+  const storedSnaps = (snaps.data ?? []) as unknown as MatchSnapshot[];
+  const asOf = cutoffMs !== null ? await snapshotsAsOf(matches, storedSnaps, cutoffMs) : null;
+  const stateOf = new Map(storedSnaps.map((s) => [s.match_id, ((asOf ? asOf.get(s.match_id)?.snapshot_json : s.snapshot_json) ?? null) as ScoreState | null]));
   const tierOf = new Map(((brackets.data ?? []) as { id: string; tier: "cup" | "plate" }[]).map((b) => [b.id, b.tier]));
   const showAces = scoreExtrasOf(t)?.aces ?? false;
   for (const m of matches) {
@@ -134,28 +151,32 @@ export function getMatchStats(matchId: string): Promise<MMatchStats | null> {
     if (!m) return null;
     const t = await publicTournament(m.tournament_id);
     if (!t) return null;
-    const stats = (await statsFor([m], t)).get(m.id)!;
-    return { matchId: m.id, a: m.team_a_id, b: m.team_b_id, status: m.status, stats };
+    const cutoff = cutoffOf(t);
+    const stats = (await statsFor([m], t, cutoff)).get(m.id)!;
+    return { matchId: m.id, a: m.team_a_id, b: m.team_b_id, status: cutoff !== null ? matchAsOf(m, cutoff).status : m.status, stats };
   });
 }
 
 /** A tie's stats: its rubbers' summed per nation (rubbers listing the teams the other way round are turned). */
 export function getTieStats(tieId: string): Promise<MTieStats | null> {
   return memo(`stats:tie:${tieId}`, 3_000, async () => {
-    const { data } = await db().from("ties").select("id, tournament_id, team_a_id, team_b_id, status").eq("id", tieId).maybeSingle();
-    const tie = data as Pick<Tie, "id" | "tournament_id" | "team_a_id" | "team_b_id" | "status"> | null;
+    const { data } = await db().from("ties").select("id, tournament_id, team_a_id, team_b_id, status, ended_at").eq("id", tieId).maybeSingle();
+    const tie = data as Pick<Tie, "id" | "tournament_id" | "team_a_id" | "team_b_id" | "status" | "ended_at"> | null;
     if (!tie) return null;
     const t = await publicTournament(tie.tournament_id);
     if (!t) return null;
     const { data: rubbers } = await db().from("matches").select(STATS_MATCH_COLUMNS).eq("tie_id", tieId).order("rubber_no");
     const ms = ((rubbers ?? []) as unknown as StatsMatch[]).filter((m) => m.status !== "cancelled");
-    const byId = await statsFor(ms, t);
+    const cutoff = cutoffOf(t);
+    const byId = await statsFor(ms, t, cutoff);
     const list: TieRubberStats[] = ms.map((m) => {
       const s = byId.get(m.id)!;
       const turned = Boolean(tie.team_a_id && m.team_b_id === tie.team_a_id);
       return { matchId: m.id, rubberNo: m.rubber_no ?? null, rubberType: m.rubber_type ?? null, stats: turned ? swapSides(s) : s };
     });
-    return { tieId: tie.id, a: tie.team_a_id, b: tie.team_b_id, status: tie.status, stats: tieStats(list, scoreExtrasOf(t)?.aces ?? false) };
+    // A tie decided inside the delay's window is still being played for its fans.
+    const status = cutoff !== null && tie.status === "completed" && tie.ended_at && Date.parse(tie.ended_at) > cutoff ? "live" : tie.status;
+    return { tieId: tie.id, a: tie.team_a_id, b: tie.team_b_id, status, stats: tieStats(list, scoreExtrasOf(t)?.aces ?? false) };
   });
 }
 

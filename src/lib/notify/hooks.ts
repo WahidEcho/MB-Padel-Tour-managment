@@ -28,9 +28,11 @@ import {
   type Side,
 } from "./compose";
 import type { AlertTranslations } from "./i18n";
+import { DEFERRED_LIVE_ACTIVITY, LIVE_ACTIVITY_BUCKET_MS, SCORE_ALERT_KINDS } from "../live/delay";
+import { audienceMatch, scoreDelayFor } from "../live/delayServer";
 
 async function enqueue(row: {
-  kind: AlertKind;
+  kind: AlertKind | typeof DEFERRED_LIVE_ACTIVITY;
   tournamentId: string | null;
   matchId?: string | null;
   tieId?: string | null;
@@ -38,6 +40,17 @@ async function enqueue(row: {
   payload: AlertPayload;
   fireAt?: string;
 }) {
+  // The audience delay (Admin → In the app → Score delay): an alert that tells how
+  // play is going goes out when the fans' screens show it, `seconds` later, through
+  // the scheduled drain (as the call reminder does). Calls to court never wait.
+  let fireAt = row.fireAt;
+  if (!fireAt && row.tournamentId && SCORE_ALERT_KINDS.has(row.kind)) {
+    const delay = await scoreDelayFor(row.tournamentId);
+    if (delay > 0) {
+      fireAt = new Date(Date.now() + delay * 1000).toISOString();
+      lateKick(delay * 1000);
+    }
+  }
   const { error } = await db()
     .from("notification_events")
     .upsert(
@@ -48,7 +61,7 @@ async function enqueue(row: {
         tie_id: row.tieId ?? null,
         dedupe_key: row.dedupeKey,
         payload: row.payload,
-        fire_at: row.fireAt ?? new Date().toISOString(),
+        fire_at: fireAt ?? new Date().toISOString(),
       },
       { onConflict: "dedupe_key", ignoreDuplicates: true },
     );
@@ -59,6 +72,22 @@ async function enqueue(row: {
 function kick() {
   try {
     after(async () => {
+      const { drainNotifications } = await import("./drain");
+      await drainNotifications();
+    });
+  } catch {
+    // Outside a request (a script): the scheduled drain picks it up.
+  }
+}
+
+/**
+ * Sends what falls due `ms` from now, still inside this request (after the
+ * response). Best effort: the scheduled drain (every minute) sends it otherwise.
+ */
+function lateKick(ms: number) {
+  try {
+    after(async () => {
+      await new Promise((r) => setTimeout(r, ms + 1_000));
       const { drainNotifications } = await import("./drain");
       await drainNotifications();
     });
@@ -452,8 +481,70 @@ export function notifyMatchLive(match: Match) {
         players: coachPlayers(ctx, match, teamId),
       }),
     }));
-    await later("live activity start", () => liveActivityPhase(match, ctx, { phase: "live" }));
+    await later("live activity start", async () => {
+      // With the audience delay on, the lock-screen card starts when the fans' screens show the match live.
+      if (await deferLiveActivity(match, "live")) return;
+      await liveActivityPhase(match, ctx, { phase: "live" });
+    });
   });
+}
+
+/* ---------------- lock screen behind the audience delay ---------------- */
+
+export type DeferredLiveActivityOp = "score" | "live" | "end";
+
+/**
+ * With the tournament's audience delay on, holds a lock-screen push back: an
+ * outbox row due `seconds` later (a second's margin, so the match's own times are
+ * inside the view then) that the drain turns into the push (runDeferredLiveActivity),
+ * built from the audience view at that moment. Pushes of one match within
+ * LIVE_ACTIVITY_BUCKET_MS share a row. Returns false (nothing held) when the delay is off.
+ */
+export async function deferLiveActivity(match: Pick<Match, "id" | "tournament_id" | "tie_id">, op: DeferredLiveActivityOp, important = false): Promise<boolean> {
+  const delay = await scoreDelayFor(match.tournament_id);
+  if (!delay) return false;
+  const fireMs = Date.now() + delay * 1000 + 1_000;
+  const bucket = Math.floor(fireMs / LIVE_ACTIVITY_BUCKET_MS);
+  await enqueue({
+    kind: DEFERRED_LIVE_ACTIVITY,
+    tournamentId: match.tournament_id,
+    matchId: match.id,
+    tieId: match.tie_id ?? null,
+    dedupeKey: `la:${op}:${important ? 1 : 0}:${match.id}:${bucket}`,
+    fireAt: new Date(fireMs).toISOString(),
+    // Never sent as an alert: the drain hands `deferred` to runDeferredLiveActivity.
+    payload: { title: "", body: "", url: "", targets: [], category: "live", deferred: { op, matchId: match.id, important } } as AlertPayload,
+  });
+  lateKick(delay * 1000 + 1_000);
+  return true;
+}
+
+/** The drain's half of deferLiveActivity: the push, from what the audience sees now. Never throws. */
+export async function runDeferredLiveActivity(d: { op?: string; matchId?: string; important?: boolean } | null | undefined): Promise<void> {
+  try {
+    if (!d?.matchId) return;
+    const { data } = await db().from("matches").select("*").eq("id", d.matchId).maybeSingle();
+    const match = data as Match | null;
+    if (!match) return;
+    const ctx = await context(match.tournament_id);
+    if (d.op === "live") return await liveActivityPhase(match, ctx, { phase: "live" });
+    if (d.op === "end") return await endLiveActivities(match, ctx);
+    const { getConfig } = await import("../mobile/server");
+    if (!(await getConfig()).flags.live_activity) return;
+    const [{ pushLiveActivities, liveState }, { toScore }, { getSnapshot }] = await Promise.all([import("./apns"), import("../mobile/projection"), import("../data")]);
+    const seen = await audienceMatch(match, await getSnapshot(match.id));
+    const label = (teamId: string | null) => {
+      const t = teamId ? ctx.teams.get(teamId) : undefined;
+      return t?.nation_code ?? t?.team_name ?? "";
+    };
+    await pushLiveActivities(
+      match.id,
+      liveState(toScore(seen.match, seen.snapshot), { a: label(match.team_a_id), b: label(match.team_b_id), court: match.court_id ? ctx.courts.get(match.court_id) ?? "" : "", status: "Live" }),
+      { important: Boolean(d.important) },
+    );
+  } catch (err) {
+    console.error("deferred live activity failed", err);
+  }
 }
 
 /* ---------------- lock screen (Live Activities) ---------------- */
@@ -495,7 +586,9 @@ async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { ph
   let state: import("./liveActivity").LiveScoreState;
   if (p.phase === "live") {
     const [{ toScore }, { getSnapshot }] = await Promise.all([import("../mobile/projection"), import("../data")]);
-    state = la.liveState(toScore(match, await getSnapshot(match.id)), { a: label(match.team_a_id), b: label(match.team_b_id), court, status: "Live" }, { matchId: match.id });
+    // The score as the audience sees it (the audience delay; the stored one when it is off).
+    const seen = await audienceMatch(match, await getSnapshot(match.id));
+    state = la.liveState(toScore(seen.match, seen.snapshot), { a: label(match.team_a_id), b: label(match.team_b_id), court, status: "Live" }, { matchId: match.id });
   } else {
     state = la.upcomingState({
       matchId: match.id,
@@ -596,7 +689,11 @@ export function notifyMatchFinished(matchId: string) {
       dedupeKey: `coach:${teamId}:match:${matchId}:finished:${match.winner_team_id}`,
       payload: (await coachWords()).coachFinished({ us, them, matchId, label: rubberLabel(match), won: match.winner_team_id === teamId, score: setsOf(s), status: match.status }),
     }));
-    await later("live activity end", () => endLiveActivities(match, ctx));
+    await later("live activity end", async () => {
+      // With the audience delay on, the card shows the result when the fans' screens do.
+      if (await deferLiveActivity(match, "end")) return;
+      await endLiveActivities(match, ctx);
+    });
   });
 }
 
@@ -618,10 +715,12 @@ async function endLiveActivities(match: Match, ctx: Ctx) {
     const t = teamId ? ctx.teams.get(teamId) : undefined;
     return t?.nation_code ?? t?.team_name ?? "";
   };
-  const status = match.status === "completed" ? "Final" : match.status.charAt(0).toUpperCase() + match.status.slice(1);
+  // As the audience sees it (the audience delay; the stored rows when it is off).
+  const seen = await audienceMatch(match, latest);
+  const status = seen.match.status === "completed" ? "Final" : seen.match.status.charAt(0).toUpperCase() + seen.match.status.slice(1);
   await pushLiveActivities(
     match.id,
-    liveState(toScore(match, latest), {
+    liveState(toScore(seen.match, seen.snapshot), {
       a: label(match.team_a_id),
       b: label(match.team_b_id),
       court: match.court_id ? ctx.courts.get(match.court_id) ?? "" : "",

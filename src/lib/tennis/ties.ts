@@ -87,6 +87,20 @@ export function tieOutcome(rubbers: RubberResult[], playDeadRubbers: boolean): T
   return { rubbersA, rubbersB, winner, status, cancel, restore };
 }
 
+/** The final places the decided placement ties give, 1st first (each tie decides its two places). */
+export function placingsFromTies(
+  ties: { stage: string; places_from: number | null; places_to: number | null; winner_team_id: string | null; team_a_id: string | null; team_b_id: string | null }[],
+): { place: number; team_id: string }[] {
+  const out: { place: number; team_id: string }[] = [];
+  for (const t of ties) {
+    if (t.stage !== "placement" || t.places_from === null || !t.winner_team_id) continue;
+    const loser = t.winner_team_id === t.team_a_id ? t.team_b_id : t.team_a_id;
+    out.push({ place: t.places_from, team_id: t.winner_team_id });
+    if (loser) out.push({ place: t.places_to!, team_id: loser });
+  }
+  return out.sort((a, b) => a.place - b.place);
+}
+
 /**
  * The problems that refuse a captain's line-up for one side (Reg 43): both singles
  * named, different people, from the team; the doubles pair "to be named" or two

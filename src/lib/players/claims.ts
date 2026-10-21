@@ -250,7 +250,11 @@ async function myMatches(rows: PlayerRow[], teamOf: Map<string, TeamRow>, tourOf
   });
   if (!mine.length) return [];
   const { data: snaps } = await db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).in("match_id", mine.map((m) => m.id));
-  const snapOf = new Map(((snaps ?? []) as unknown as MatchSnapshot[]).map((s) => [s.match_id, s]));
+  // The audience delay of each event (src/lib/live/delay.ts): a player's own list shows what the fans see.
+  const { audienceMatches } = await import("../live/delayServer");
+  const seen = await audienceMatches(mine, (snaps ?? []) as unknown as MatchSnapshot[]);
+  const seenOf = new Map(seen.matches.map((m) => [m.id, m]));
+  const snapOf = new Map(seen.snapshots.map((s) => [s.match_id, s]));
   const others = [...new Set(mine.flatMap((m) => [m.team_a_id, m.team_b_id]).filter((id): id is string => Boolean(id) && !teamOf.has(id!)))];
   if (others.length) {
     const { data } = await db().from("teams").select("id, team_name, nation_code, iso2").in("id", others);
@@ -260,7 +264,7 @@ async function myMatches(rows: PlayerRow[], teamOf: Map<string, TeamRow>, tourOf
   const out: MMyMatch[] = mine
     .filter((m) => tourOf.has(m.tournament_id))
     .map((m) => ({
-      ...toMatch(m, snapOf.get(m.id) ?? null),
+      ...toMatch(seenOf.get(m.id) ?? m, snapOf.get(m.id) ?? null),
       tournamentSlug: tourOf.get(m.tournament_id)!.slug,
       tournamentName: tourOf.get(m.tournament_id)!.name,
       aName: m.team_a_id ? (teamOf.get(m.team_a_id)?.team_name ?? null) : null,

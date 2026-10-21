@@ -20,6 +20,7 @@ import { SIDES, redBlueTeams } from "../sides";
 import { toPublicPlayer } from "../public";
 import { itfRanksOf } from "../players/publicInfo";
 import { orgSkinDefaults } from "../orgs/profile";
+import { scoreDelaySeconds } from "../live/delay";
 import type {
   AppSkin,
   MBundle,
@@ -100,6 +101,8 @@ export function toCard(t: TournamentRow, liveCount: number, teamCount: number, o
     teamCount,
     skin: toSkin(t, org),
     organization: org ? { slug: org.slug, name: org.name } : null,
+    // Additive (the audience delay): only while it is on.
+    ...(scoreDelaySeconds(t.branding_config) > 0 ? { scoreDelaySeconds: scoreDelaySeconds(t.branding_config) } : {}),
   };
 }
 

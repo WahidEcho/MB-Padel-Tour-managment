@@ -10,6 +10,9 @@ import { db } from "../supabase";
 import type { BrandingConfig, Match, MatchSnapshot, ScoringConfig, Standing, Team, Tie } from "../types";
 import { activeLiveVideos, withLiveVideo } from "../stream/liveVideo";
 import { publicPlayStatus } from "../notices/playStatus";
+import { MAX_SCORE_DELAY_SECONDS, cutoffFor, matchAsOf, scoreDelaySeconds } from "../live/delay";
+import { placingsFromTies } from "../tennis/ties";
+import { audienceTables, audienceView, eventCutoffIso } from "../live/delayServer";
 import type { ScoreState } from "../scoring/engine";
 import { getTeams, profilesWithoutPhoto } from "../data";
 import { eventYear, publicAge } from "../players/publicInfo";
@@ -87,11 +90,43 @@ async function visibleTournaments(includeDemo: boolean): Promise<TournamentRow[]
   return (data ?? []) as unknown as TournamentRow[];
 }
 
-async function liveCounts(ids: string[]): Promise<Map<string, number>> {
+/**
+ * Matches in play per tournament. A tournament with an audience delay counts what
+ * its fans see (src/lib/live/delay.ts): a match started inside the window is not
+ * in play yet, one finished inside it still is.
+ */
+async function liveCounts(ids: string[], delays: Map<string, number> = new Map()): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (!ids.length) return out;
-  const { data } = await db().from("matches").select("tournament_id").in("tournament_id", ids).in("status", ["live", "paused"]);
-  for (const r of (data ?? []) as { tournament_id: string }[]) out.set(r.tournament_id, (out.get(r.tournament_id) ?? 0) + 1);
+  const plain = ids.filter((id) => !delays.get(id));
+  const delayed = ids.filter((id) => delays.get(id));
+  if (plain.length) {
+    const { data } = await db().from("matches").select("tournament_id").in("tournament_id", plain).in("status", ["live", "paused"]);
+    for (const r of (data ?? []) as { tournament_id: string }[]) out.set(r.tournament_id, (out.get(r.tournament_id) ?? 0) + 1);
+  }
+  if (delayed.length) {
+    const now = Date.now();
+    const since = new Date(cutoffFor(now, MAX_SCORE_DELAY_SECONDS)).toISOString();
+    const cols = "tournament_id, status, winner_team_id, started_at, ended_at";
+    const [inPlay, justDone] = await Promise.all([
+      db().from("matches").select(cols).in("tournament_id", delayed).in("status", ["live", "paused"]),
+      db().from("matches").select(cols).in("tournament_id", delayed).in("status", ["completed", "walkover", "retired", "disqualified"]).gt("ended_at", since),
+    ]);
+    for (const r of [...(inPlay.data ?? []), ...(justDone.data ?? [])] as Pick<Match, "tournament_id" | "status" | "winner_team_id" | "started_at" | "ended_at">[]) {
+      const seen = matchAsOf(r, cutoffFor(now, delays.get(r.tournament_id) ?? 0));
+      if (seen.status === "live" || seen.status === "paused") out.set(r.tournament_id, (out.get(r.tournament_id) ?? 0) + 1);
+    }
+  }
+  return out;
+}
+
+/** The tournaments among these with an audience delay on, from their own rows. */
+function delaysOf(rows: Pick<TournamentRow, "id" | "branding_config">[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const s = scoreDelaySeconds(r.branding_config);
+    if (s > 0) out.set(r.id, s);
+  }
   return out;
 }
 
@@ -108,7 +143,7 @@ export function getDiscover(includeDemo: boolean): Promise<MDiscover> {
     const rows = await visibleTournaments(includeDemo);
     const ids = rows.map((r) => r.id);
     const [live, teams, groupsRes, orderRes, orgs] = await Promise.all([
-      liveCounts(ids),
+      liveCounts(ids, delaysOf(rows)),
       teamCounts(ids),
       db().from("event_groups").select("*").order("featured_rank", { ascending: true }),
       db().from("platform_settings").select("value_json").eq("key", DISCOVER_ORDER_KEY).maybeSingle(),
@@ -202,7 +237,7 @@ export function getBundle(slug: string, scope: ReadScope = {}): Promise<MBundle 
       db().from("courts").select("id, court_name, court_order, is_active").eq("tournament_id", t.id).order("court_order"),
       db().from("groups").select("id, group_name, group_order").eq("tournament_id", t.id).order("group_order"),
       db().from("group_teams").select("team_id, group_id").eq("tournament_id", t.id),
-      liveCounts([t.id]),
+      liveCounts([t.id], delaysOf([t])),
       plateBrackets([t.id]),
       publicOrgBranding(),
       t.app_skin?.showAges === true ? publicAges(t) : Promise.resolve(null),
@@ -276,7 +311,16 @@ export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | nu
       getBundle(slug, scope),
       db().from("courts").select("id, court_name, is_active").eq("tournament_id", t.id),
     ]);
-    const snapOf = new Map(((snaps.data ?? []) as unknown as MatchSnapshot[]).map((s) => [s.match_id, s]));
+    // The audience delay (Admin → In the app → Score delay): the tournament as it stood `seconds` ago.
+    const delay = scoreDelaySeconds(t.branding_config);
+    const view = await audienceView({
+      delaySeconds: delay,
+      matches: (matches.data ?? []) as unknown as Match[],
+      snapshots: (snaps.data ?? []) as unknown as MatchSnapshot[],
+      ties: (ties.data ?? []) as Tie[],
+      playDead: (x) => x.stage === "group" || t.format_config?.ties?.playDeadRubbersInPlacement !== false,
+    });
+    const snapOf = new Map(view.snapshots.map((s) => [s.match_id, s]));
     const videos = activeLiveVideos(
       t.branding_config,
       ((courtRows.data ?? []) as { id: string; court_name: string; is_active: boolean }[]).map((c) => ({ id: c.id, name: c.court_name, is_active: c.is_active })),
@@ -285,13 +329,15 @@ export function getLive(slug: string, scope: ReadScope = {}): Promise<MLive | nu
       generatedAt: new Date().toISOString(),
       tournamentId: t.id,
       bundleVersion: bundle?.version ?? "",
-      ties: ((ties.data ?? []) as Tie[]).map(toTie),
-      matches: ((matches.data ?? []) as unknown as Match[])
+      ties: view.ties.map(toTie),
+      matches: view.matches
         .filter((m) => m.status !== "cancelled" || m.tie_id)
         .map((m) => withLiveVideo(toMatch(m, snapOf.get(m.id) ?? null, scoreExtrasOf(t)), videos)),
       announcements: ann,
       // Additive (1.0.1 ignores it): the organiser's rain delay / suspension banner.
       playStatus: publicPlayStatus(t.branding_config?.playStatus),
+      // Additive: the scores above are this many seconds behind live (absent when they are live).
+      ...(delay > 0 ? { scoreDelaySeconds: delay } : {}),
     };
   });
 }
@@ -323,12 +369,14 @@ export function getStandings(slug: string, scope: ReadScope = {}): Promise<MStan
       db().from("groups").select("id, group_name, group_order").eq("tournament_id", t.id).order("group_order"),
       db().from("standings_snapshots").select("*").eq("tournament_id", t.id).order("rank"),
     ]);
-    const standings = (rows.data ?? []) as Standing[];
+    // The audience delay: a result inside its window is not in the tables yet.
+    const tables = await audienceTables(t, (rows.data ?? []) as Standing[]);
+    const standings = tables.standings;
     let placings: { place: number; teamId: string }[] = [];
     if (t.format_config?.ties) {
       try {
         const { finalPlacings } = await import("../tennis/tieOps");
-        placings = (await finalPlacings(t.id)).map((p) => ({ place: p.place, teamId: p.team_id }));
+        placings = (tables.ties ? placingsFromTies(tables.ties) : await finalPlacings(t.id)).map((p) => ({ place: p.place, teamId: p.team_id }));
       } catch {
         placings = [];
       }
@@ -362,10 +410,13 @@ export function getMatchDetail(matchId: string): Promise<MMatchDetail | null> {
       db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).eq("match_id", matchId).maybeSingle(),
       m.court_id ? db().from("courts").select("id, court_name, is_active").eq("id", m.court_id).maybeSingle() : Promise.resolve({ data: null }),
     ]);
-    const snapshot = snap as unknown as MatchSnapshot | null;
+    // The audience delay: the match as it stood `seconds` ago.
+    const view = await audienceView({ delaySeconds: scoreDelaySeconds(tr.branding_config), matches: [m], snapshots: snap ? [snap as unknown as MatchSnapshot] : [] });
+    const match = view.matches[0];
+    const snapshot = view.snapshots[0] ?? null;
     const c = court as { id: string; court_name: string; is_active: boolean } | null;
     const videos = activeLiveVideos(tr.branding_config, c ? [{ id: c.id, name: c.court_name, is_active: c.is_active }] : []);
-    return { match: withLiveVideo(toMatch(m, snapshot, scoreExtrasOf(tr)), videos), tournamentSlug: tr.slug, situation: await situationOf(m, snapshot, tr) };
+    return { match: withLiveVideo(toMatch(match, snapshot, scoreExtrasOf(tr)), videos), tournamentSlug: tr.slug, situation: await situationOf(match, snapshot, tr) };
   });
 }
 
@@ -403,11 +454,15 @@ export function getTimeline(matchId: string): Promise<MTimeline | null> {
     if (!detail) return null;
     // Only the three numbers per event the chart needs, never the stored states:
     // full states are ~2 KB per point and would dominate the database's egress.
-    const { data } = await db()
+    // The audience delay: nothing recorded after the moment the match screen shows.
+    const { data: owner } = await db().from("matches").select("tournament_id").eq("id", matchId).maybeSingle();
+    const cutoff = owner ? await eventCutoffIso((owner as { tournament_id: string }).tournament_id) : null;
+    let q = db()
       .from("score_events")
       .select("event_number, event_type, team_id, ga:new_state_json->teamA->games, gb:new_state_json->teamB->games, set:new_state_json->currentSet")
-      .eq("match_id", matchId)
-      .order("event_number");
+      .eq("match_id", matchId);
+    if (cutoff) q = q.lte("created_at_server", cutoff);
+    const { data } = await q.order("event_number");
     const rows = ((data ?? []) as Record<string, unknown>[]).map(
       (r): TimelineRow => ({
         event_number: Number(r.event_number),

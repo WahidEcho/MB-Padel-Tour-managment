@@ -49,6 +49,7 @@ import {
   type WriterScope,
 } from "./eventGuard";
 import { matchDayRules } from "../matchday/rules";
+import { scoreDelaySeconds, servingTeamIdOf } from "../live/delay";
 import {
   RESULT_ENTERED,
   buildResultState,
@@ -104,7 +105,7 @@ interface OwnerRow {
   sport?: string;
   kind?: string;
   scoring_config?: { requireResultConfirmation?: boolean } & Record<string, unknown>;
-  branding_config?: { redBlueTeams?: boolean };
+  branding_config?: { redBlueTeams?: boolean; scoreDelay?: unknown };
   match_day_rules?: unknown;
   format_config?: { legs?: number } | null;
 }
@@ -472,8 +473,7 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
           ...statusUpdate,
           status: "live",
           started_at: match.started_at ?? new Date().toISOString(),
-          serving_team_id:
-            e.new_state.servingTeam === "A" ? match.team_a_id : e.new_state.servingTeam === "B" ? match.team_b_id : null,
+          serving_team_id: servingTeamIdOf(match, e.new_state),
         };
         break;
       case "MATCH_PAUSED":
@@ -486,8 +486,7 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
         statusUpdate = {
           ...statusUpdate,
           // Null in a tie-break, where the serve rotates by point: never team B by default.
-          serving_team_id:
-            e.new_state.servingTeam === "A" ? match.team_a_id : e.new_state.servingTeam === "B" ? match.team_b_id : null,
+          serving_team_id: servingTeamIdOf(match, e.new_state),
         };
         break;
       case "FORCE_END":
@@ -672,10 +671,19 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
   // iPhone lock-screen scores following this match.
   if (fresh.length > 0) {
     const ended = Boolean(finalize?.winner);
+    // The audience delay (Admin → In the app → Score delay): the lock screen is audience too.
+    const delayed = scoreDelaySeconds(ownerRow?.branding_config) > 0;
     defer(async () => {
       try {
         const { getConfig } = await import("../mobile/server");
         if (!(await getConfig()).flags.live_activity) return;
+        if (delayed) {
+          const gameChanged =
+            fresh.some((e) => e.event_type !== "POINT_AWARDED" && !LOG_ONLY_EVENTS.has(e.event_type) && e.event_type !== "FAULT" && e.event_type !== "LET") || (finalState?.teamA?.points === "0" && finalState?.teamB?.points === "0");
+          const { deferLiveActivity } = await import("../notify/hooks");
+          await deferLiveActivity(match, ended ? "end" : "score", gameChanged);
+          return;
+        }
         const [{ pushLiveActivities, liveState }, { toScore }] = await Promise.all([import("../notify/apns"), import("../mobile/projection")]);
         const latest = await getSnapshot(matchId);
         const [{ data: names }, { data: courtRow }] = await Promise.all([

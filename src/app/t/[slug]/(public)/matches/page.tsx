@@ -6,6 +6,7 @@ import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
 import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessLiveCard from "@/components/ChessLiveCard";
+import { tournamentAudience } from "@/lib/live/delayServer";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import type { Match } from "@/lib/types";
 
@@ -30,12 +31,14 @@ export default async function PublicMatches({ params }: { params: Promise<{ slug
   const tournament = await getTournamentBySlug(slug);
   if (!tournament) notFound();
   const id = tournament.id;
-  const [matches, teams, snapshots, courts] = await Promise.all([
+  const [allMatches, teams, allSnapshots, courts] = await Promise.all([
     getMatches(id),
     getTeams(id),
     getSnapshots(id),
     getCourts(id),
   ]);
+  // The audience delay (Admin → In the app → Score delay): the event as it stood `seconds` ago.
+  const { matches, snapshots } = await tournamentAudience(tournament, { matches: allMatches, snapshots: allSnapshots });
   const tm = teamMap(teams);
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));

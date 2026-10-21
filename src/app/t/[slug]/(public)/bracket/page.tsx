@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { getBrackets, getBracketSlots, getMatches, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
+import { tournamentAudience } from "@/lib/live/delayServer";
+import { maskBracketSlots } from "@/lib/live/delay";
 
 // Rendered at most every 8s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -12,11 +14,14 @@ export default async function PublicBracket({ params }: { params: Promise<{ slug
   const tournament = await getTournamentBySlug(slug);
   if (!tournament) notFound();
   const brackets = (await getBrackets(tournament.id)).filter((b) => b.status === "published");
-  const [slotsByBracket, matches, teams] = await Promise.all([
+  const [storedSlots, allMatches, teams] = await Promise.all([
     Promise.all(brackets.map((b) => getBracketSlots(b.id))),
     getMatches(tournament.id),
     getTeams(tournament.id),
   ]);
+  // The audience delay: a result inside its window has not advanced anyone yet.
+  const { matches, hidden } = await tournamentAudience(tournament, { matches: allMatches });
+  const slotsByBracket = storedSlots.map((slots) => maskBracketSlots(slots, hidden));
   const tm = teamMap(teams);
   const matchMap = new Map(matches.map((m) => [m.id, m]));
 

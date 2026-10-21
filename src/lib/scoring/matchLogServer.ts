@@ -15,16 +15,20 @@ export interface MatchLogView {
   entries: LogEntry[];
 }
 
-export async function loadMatchLog(matchId: string): Promise<MatchLogView | null> {
+/**
+ * `recordedBy` (an ISO time): only the events the server had recorded by then, the
+ * audience delay's view for a coach (src/lib/live/delay.ts). Officials read it all.
+ */
+export async function loadMatchLog(matchId: string, opts: { recordedBy?: string } = {}): Promise<MatchLogView | null> {
   const match = await getMatch(matchId);
   if (!match) return null;
+  let events = db()
+    .from("score_events")
+    .select("event_number, event_type, team_id, note, previous_state_json, new_state_json, created_at_client, created_at_server, created_by, created_by_role, sync_status")
+    .eq("match_id", matchId);
+  if (opts.recordedBy) events = events.lte("created_at_server", opts.recordedBy);
   const [{ data }, teams] = await Promise.all([
-    db()
-      .from("score_events")
-      .select("event_number, event_type, team_id, note, previous_state_json, new_state_json, created_at_client, created_at_server, created_by, created_by_role, sync_status")
-      .eq("match_id", matchId)
-      .order("event_number", { ascending: true })
-      .limit(5000),
+    events.order("event_number", { ascending: true }).limit(5000),
     getTeams(match.tournament_id),
   ]);
   type Row = {

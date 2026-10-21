@@ -31,6 +31,7 @@ export { SPORTS, sportOf } from "../../../src/lib/sports/registry";
 export type { SportDef, SportEngine, SportNouns, SportSupports } from "../../../src/lib/sports/registry";
 export { DEFAULT_MATCH_DAY_RULES, OFF_MATCH_DAY_RULES, matchDayRules, publicMatchDay, resolveScoringMode } from "../../../src/lib/matchday/rules";
 export type { MatchDayRules, ScoringModeChoice } from "../../../src/lib/matchday/rules";
+export { MAX_SCORE_DELAY_SECONDS, sanitizeScoreDelaySeconds, scoreDelayNotice } from "../../../src/lib/live/delay";
 export { validateFinalScore, stateFromFinalScore, finalScoreSummary, enteredSetsFromState, setKindAt, matchTiebreakSet, completeTiebreak } from "../../../src/lib/scoring/finalScore";
 export type { EnteredSet, FinalScoreProblem, FinalScoreProblemCode, FinalScoreBuild, FinalScoreSummary, SetKind } from "../../../src/lib/scoring/finalScore";
 export { chessGamePoints, chessOutcome, chessStateFromResults, validateChessResults, chessScoreLine } from "../../../src/lib/chess/result";
