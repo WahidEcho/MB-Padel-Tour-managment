@@ -329,14 +329,14 @@ async function main() {
   check(lapsed.status === 404, "the carry-over lapses by itself 30 minutes after the match finished", lapsed.status);
   await db().from("matches").update({ status: "live", ended_at: null }).eq("id", B0.id);
 
-  section("Web: a second court switch keeps the first switch's carry-over (and the name + PIN step)");
+  section("Web: a second court switch keeps the first switch's carry-over (and the PIN step)");
   {
     const C3w = codeOf("Court 3");
     const jar: Jar = new Map();
     const webDev = `web-${tag}`;
     const one = await webSignIn(jar, C1.code, made.referee!, PIN);
-    check(one.first.status === 303 && Boolean(one.first.location?.includes("pin=1")), "the code: on to the name + PIN step", one.first);
-    check(Boolean(one.page?.html.includes('data-testid="referee-picker"')) && one.page!.html.includes(`value="${made.referee}"`) && one.page!.html.includes(`E2E Court Ref ${tag}`), "the step lists the referee's name to pick", one.page?.status);
+    check(one.first.status === 303 && Boolean(one.first.location?.includes("pin=1")), "the code: on to the PIN step", one.first);
+    check(Boolean(one.page?.html.includes('data-testid="pin-step"')) && !one.page!.html.includes('data-testid="referee-picker"') && !one.page!.html.includes(`E2E Court Ref ${tag}`), "the step asks for the PIN only: no referee names", one.page?.status);
     check(one.done?.status === 303 && jar.has("mb_session") && jar.has("mb_device"), "name + PIN: signed in, with the browser's device cookie", one.done);
     const G1claim = await http("POST", `/api/matches/${G1.id}/claim`, jarCookie(jar), { deviceId: webDev, deviceLabel: "browser" });
     check(G1claim.status === 200, "the browser claims the girls' Court 1 match (its lease)", G1claim.status);

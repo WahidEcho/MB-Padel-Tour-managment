@@ -106,15 +106,12 @@ async function main() {
   const C2 = codeOf("Court 2");
 
   /* ---------------- PIN sign-in ---------------- */
-  section("A court code is useless without a PIN; the PIN step lists names, never phones");
+  section("A court code is useless without a PIN; the PIN step shows no names (the PIN says who)");
   const bare = await http("POST", SESSION, ip(1), { code: C1.code });
   check(bare.status === 401 && bare.json?.code === "pin_required" && (bare.json.court as { name: string } | null)?.name === "Court 1" && !("token" in (bare.json ?? {})), "no PIN: 401 pin_required, its court, no token", bare.json);
-  const names = (bare.json?.referees ?? []) as { id: string; name: string; photoUrl: string | null }[];
-  check(
-    [SARA, LINA, OMAR].every((r) => names.some((n) => n.id === r.id && n.name === r.name)) && !/phone|pin_hash|\+20/.test(JSON.stringify(names)) && names.every((n) => Object.keys(n).sort().join() === "id,name,photoUrl"),
-    "…with the names to pick from (id, name, photo only; masters may pick themselves on a court code)",
-    names,
-  );
+  check(Array.isArray(bare.json?.referees) && (bare.json!.referees as unknown[]).length === 0 && ![SARA, LINA, OMAR].some((r) => JSON.stringify(bare.json).includes(r.name)), "…and no referee names (anyone can scan a court QR)", bare.json?.referees);
+  const pinOnly = await http("POST", SESSION, ip(1), { code: C1.code, pin: LINA.pin });
+  check(pinOnly.status === 200 && (pinOnly.json?.referee as { name: string } | null)?.name === LINA.name, "the PIN alone signs in the referee it belongs to", pinOnly.json?.referee);
   const bareWeb = await http("GET", "/login?pin=1&court=Court%201");
   check(bareWeb.status === 200 && bareWeb.text.includes('data-testid="pin-step"'), "web: the PIN step page", bareWeb.status);
   const notListed = await http("POST", SESSION, ip(1), { code: C1.code, refereeId: randomUUID(), pin: SARA.pin });
@@ -142,64 +139,66 @@ async function main() {
     check(opBare.status === 200 && opBare.json?.role === "operator", "an operator (TV) code needs no PIN", opBare.status);
   }
 
-  section("Wrong PINs lock that referee only (5 in 5 minutes), never the court code; her own phone still gets in");
+  section("Wrong PINs block that phone only (5 in 5 minutes): never a referee, never the court code");
   const wrongPin = (pin: string) => (pin === "9182" ? "9183" : "9182");
   const saraFan = await f.device("sara-phone");
   const saraPhone = mintInstallToken(saraFan.installationId);
-  const own = await http("POST", SESSION, { ...ip(9), "X-Install-Token": saraPhone }, { code: C2.code, refereeId: SARA.id, pin: SARA.pin });
-  check(own.status === 200, "Sara signs in on her phone (it is now a known device for 24 h)", own.status);
+  const spamPhone = mintInstallToken(`ios-spam-${tag}-0000`);
   const tries: { status: number; error: string }[] = [];
   for (let i = 0; i < 5; i++) {
-    const r = await http("POST", SESSION, ip(10 + i), { code: C2.code, refereeId: SARA.id, pin: wrongPin(SARA.pin) });
+    const r = await http("POST", SESSION, { ...ip(10), "X-Install-Token": spamPhone }, { code: C2.code, pin: wrongPin(SARA.pin) });
     tries.push({ status: r.status, error: String(r.json?.error) });
   }
-  check(tries.every((t) => t.status === 401) && /4 tries left/.test(tries[0].error) && /now locked/.test(tries[4].error), "5 wrong PINs for Sara from 5 addresses: 401 each, with the tries left", tries.map((t) => t.error));
-  const locked = await http("POST", SESSION, ip(20), { code: C2.code, refereeId: SARA.id, pin: SARA.pin });
-  check(locked.status === 429 && locked.json?.code === "pin_locked" && String(locked.json?.error).includes(SARA.name), "the 6th, even her right PIN from a new device: 429 pin_locked, naming her", locked.json);
-  const lockSecs = await fetch(`${process.env.BASE_URL}${SESSION}`, { method: "POST", headers: { "Content-Type": "application/json", ...ip(21) }, body: JSON.stringify({ code: C2.code, refereeId: SARA.id, pin: SARA.pin }) }).then((r) => Number(r.headers.get("retry-after")));
-  check(lockSecs > 240 && lockSecs <= 300, "…locked for 5 minutes from the last wrong PIN", lockSecs);
-  const linaSame = await http("POST", SESSION, ip(20), { code: C2.code, refereeId: LINA.id, pin: LINA.pin });
-  check(linaSame.status === 200, "the same court code: Lina still signs in (no per-code lock)", linaSame.status);
-  const knownBack = await http("POST", SESSION, { ...ip(22), "X-Install-Token": saraPhone }, { code: C2.code, refereeId: SARA.id, pin: SARA.pin });
-  check(knownBack.status === 200 && (knownBack.json?.referee as { name: string } | null)?.name === SARA.name, "her own phone from today: back in with the right PIN while she is locked", knownBack.status);
+  check(tries.every((t) => t.status === 401) && /4 tries left on this phone/.test(tries[0].error) && /This phone is blocked/.test(tries[4].error), "5 wrong PINs from one phone: 401 each, with that phone's tries left", tries.map((t) => t.error));
+  const blocked = await http("POST", SESSION, { ...ip(10), "X-Install-Token": spamPhone }, { code: C2.code, pin: SARA.pin });
+  check(blocked.status === 429 && blocked.json?.code === "pin_locked" && /this phone/i.test(String(blocked.json?.error)), "the 6th from that phone, even a right PIN: 429 pin_locked (this phone)", blocked.json);
+  const lockSecs = await fetch(`${process.env.BASE_URL}${SESSION}`, { method: "POST", headers: { "Content-Type": "application/json", ...ip(10), "X-Install-Token": spamPhone }, body: JSON.stringify({ code: C2.code, pin: SARA.pin }) }).then((r) => Number(r.headers.get("retry-after")));
+  check(lockSecs > 240 && lockSecs <= 300, "…blocked for 5 minutes from the last wrong PIN", lockSecs);
+  const saraOwn = await http("POST", SESSION, { ...ip(10), "X-Install-Token": saraPhone }, { code: C2.code, pin: SARA.pin });
+  check(saraOwn.status === 200 && (saraOwn.json?.referee as { name: string } | null)?.name === SARA.name, "Sara on her own phone, same network: signs straight in (no referee lock)", saraOwn.json?.referee);
+  const linaSame = await http("POST", SESSION, ip(20), { code: C2.code, pin: LINA.pin });
+  check(linaSame.status === 200, "the same court code from another phone: Lina still signs in (no per-code lock)", linaSame.status);
   const { data: pinCounters } = await db().from("request_counters").select("bucket_key").like("bucket_key", "staff-pin%");
-  check(!((pinCounters ?? []) as { bucket_key: string }[]).some((r) => r.bucket_key.includes(C2.id)), "no counter is kept per court code", (pinCounters ?? []).map((r) => (r as { bucket_key: string }).bucket_key));
+  const counterKeys = ((pinCounters ?? []) as { bucket_key: string }[]).map((r) => r.bucket_key);
+  check(!counterKeys.some((k) => k.includes(C2.id) || k.startsWith("staff-pin-ref:")), "no counter per court code or per referee", counterKeys);
   await db().from("request_counters").delete().like("bucket_key", "staff-pin%");
 
-  section("The organisation's wrong-PIN budget: new devices pause, the admins are alerted, known devices still get in");
+  section("The organisation's count only alerts: the admins are emailed, nobody is locked out");
   {
     const fill: number[] = [];
-    const who = [SARA, LINA, OMAR];
-    for (let i = 0; i < 25; i++) {
-      const r = who[i % 3];
-      fill.push((await http("POST", SESSION, ip(100 + i), { code: C1.code, refereeId: r.id, pin: wrongPin(r.pin) })).status);
-      // Each referee stays under their own lock: these are many referees' guesses.
-      if (i % 3 === 2) await db().from("request_counters").delete().like("bucket_key", "staff-pin-ref:%");
-    }
-    check(fill.every((st) => st === 401), "25 wrong PINs across referees within 10 minutes: 401 each", fill.join(","));
-    const paused = await http("POST", SESSION, ip(140), { code: C1.code, refereeId: LINA.id, pin: LINA.pin });
-    check(paused.status === 429 && paused.json?.code === "pin_paused", "the next sign-in on a new device: 429 pin_paused", paused.json);
-    const known = await http("POST", SESSION, { ...ip(141), "X-Install-Token": saraPhone }, { code: C1.code, refereeId: SARA.id, pin: SARA.pin });
-    check(known.status === 200, "Sara's own phone still gets in", known.status);
+    for (let i = 0; i < 25; i++) fill.push((await http("POST", SESSION, { ...ip(100 + i), "X-Install-Token": mintInstallToken(`ios-guess-${tag}-${i}`) }, { code: C1.code, pin: wrongPin(LINA.pin) })).status);
+    check(fill.every((st) => st === 401), "25 wrong PINs from 25 phones within 10 minutes: 401 each", fill.join(","));
+    const notPaused = await http("POST", SESSION, ip(140), { code: C1.code, pin: LINA.pin });
+    check(notPaused.status === 200, "the next sign-in on a new phone: signs in (no organisation pause)", notPaused.status);
     const { data: brake } = await db().from("audit_logs").select("action, new_value").eq("organization_id", MB).eq("action", "REFEREE_PIN_BRAKE");
-    check((brake ?? []).length === 1, "one alert (audit row) for the organisation", brake);
+    check((brake ?? []).length >= 1, "an alert (audit row) for the organisation", brake);
     const banner = await http("GET", "/admin/org/referees", ADMIN);
     check(banner.status === 200 && banner.text.includes('data-testid="pin-brake-banner"'), "the admin banner on Admin → Referees", banner.status);
     await db().from("audit_logs").delete().eq("organization_id", MB).eq("action", "REFEREE_PIN_BRAKE");
     await db().from("request_counters").delete().like("bucket_key", "staff-pin%");
   }
 
-  section("Move Score 1.0.1's nameless PINs: the organisation's own tighter budget, never a referee lock");
+  section("Move Score 1.0.1's \"<code> <PIN>\": the same per-phone brake (its address, no install token)");
   {
     const legacy: number[] = [];
-    for (let i = 0; i < 11; i++) legacy.push((await http("POST", SESSION, ip(150 + i), { code: `${C1.code} ${wrongPin(LINA.pin)}` })).status);
-    check(legacy.slice(0, 10).every((st) => st === 401) && legacy[10] === 429, "10 nameless wrong PINs, then 429 pin_paused for the nameless path", legacy.join(","));
-    const named = await http("POST", SESSION, ip(162), { code: C1.code, refereeId: LINA.id, pin: LINA.pin });
-    check(named.status === 200, "a referee who picks their name still signs in", named.status);
+    for (let i = 0; i < 6; i++) legacy.push((await http("POST", SESSION, ip(150), { code: `${C1.code} ${wrongPin(LINA.pin)}` })).status);
+    check(legacy.slice(0, 5).every((st) => st === 401) && legacy[5] === 429, "5 nameless wrong PINs from one address, then 429 for that address", legacy.join(","));
+    const other = await http("POST", SESSION, ip(151), { code: `${C1.code} ${LINA.pin}` });
+    check(other.status === 200 && (other.json?.referee as { name: string } | null)?.name === LINA.name, "another phone's \"<code> <PIN>\" signs in", other.json?.referee);
+    await db().from("request_counters").delete().like("bucket_key", "staff-pin%");
+  }
+
+  section("The per-address ceiling against scripts: 60 wrong PINs in 15 minutes");
+  {
+    const st: number[] = [];
+    for (let i = 0; i < 61; i++) st.push((await http("POST", SESSION, { ...ip(170), "X-Install-Token": mintInstallToken(`ios-script-${tag}-${i}`) }, { code: C1.code, pin: wrongPin(LINA.pin) })).status);
+    check(st.slice(0, 60).every((x) => x === 401) && st[60] === 429, "60 wrong PINs from one address across new phones, then 429 pin_busy", `${st.filter((x) => x === 401).length}×401, last ${st[60]}`);
+    const elsewhere = await http("POST", SESSION, ip(171), { code: C1.code, pin: LINA.pin });
+    check(elsewhere.status === 200, "another address still signs in", elsewhere.status);
     await db().from("request_counters").delete().like("bucket_key", "staff-pin%");
     await db().from("audit_logs").delete().eq("organization_id", MB).eq("action", "REFEREE_PIN_BRAKE");
   }
-  const rightNow = await http("POST", SESSION, ip(31), { code: C2.code, refereeId: SARA.id, pin: SARA.pin });
+  const rightNow = await http("POST", SESSION, ip(31), { code: C2.code, pin: SARA.pin });
   check(rightNow.status === 200, "once the window ends (counters cleared here), the right PIN works", rightNow.status);
 
   section("The right PIN signs in with the referee's identity");
@@ -243,7 +242,7 @@ async function main() {
   const mBare = await http("POST", SESSION, ip(4), { code: masterCode });
   check(mBare.status === 401 && mBare.json?.code === "pin_required" && mBare.json.master === true, "master code alone: pin_required (master)", mBare.json);
   const mList0 = (mBare.json?.referees ?? []) as { id: string }[];
-  check(mList0.length === 1 && mList0[0].id === OMAR.id, "…listing only its own master referee", mList0);
+  check(mList0.length === 0, "…and no names", mList0);
   const mSara = await http("POST", SESSION, ip(4), { code: masterCode, pin: SARA.pin });
   check(mSara.status === 401 && mSara.json?.code === "wrong_pin", "another referee's PIN on a master's code: wrong PIN", mSara.json);
   const mSaraNamed = await http("POST", SESSION, ip(4), { code: masterCode, refereeId: SARA.id, pin: SARA.pin });
