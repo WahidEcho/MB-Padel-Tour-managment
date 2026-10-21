@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBrackets, getCourts, getGroups, getMatches, getSnapshots, getTeams, getTournament, teamMap } from "@/lib/data";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
+import ManualMatchForm from "@/components/matches/ManualMatchForm";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import { createManualMatch, deleteMatch, regenerateMatches, releaseScoringLock, updateMatchSchedule } from "./actions";
 import GroupStageRegenerateForm from "../GroupStageRegenerateForm";
@@ -274,35 +275,17 @@ export default async function MatchesPage({ params }: { params: Promise<{ id: st
 
       <div className="card max-w-2xl space-y-2">
         <h3 className="font-bold">Add match manually</h3>
-        <form action={createManualMatch} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <input type="hidden" name="tournament_id" value={id} />
-          <select name="team_a_id" required className="input">
-            <option value="">Team A…</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>{t.team_name}</option>
-            ))}
-          </select>
-          <select name="team_b_id" required className="input">
-            <option value="">Team B…</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>{t.team_name}</option>
-            ))}
-          </select>
-          <select name="group_id" className="input">
-            <option value="">No group (knockout/friendly)</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>{g.group_name}</option>
-            ))}
-          </select>
-          <input name="round_name" className="input" placeholder="Round name" />
-          <select name="court_id" className="input">
-            <option value="">Court…</option>
-            {courts.map((c) => (
-              <option key={c.id} value={c.id}>{c.court_name}</option>
-            ))}
-          </select>
-          <button className="btn-primary">Add match</button>
-        </form>
+        <ManualMatchForm
+          action={createManualMatch}
+          tournamentId={id}
+          teams={teams.map((t) => ({ id: t.id, name: t.team_name }))}
+          groups={groups.map((g) => ({ id: g.id, name: g.group_name }))}
+          courts={courts.map((c) => ({ id: c.id, name: c.court_name }))}
+          existing={matches.map((m) => ({ team_a_id: m.team_a_id, team_b_id: m.team_b_id, court_id: m.court_id, status: m.status, scheduled_time: m.scheduled_time, tie_id: m.tie_id ?? null }))}
+          tieFormat={Boolean(tournament.format_config?.ties)}
+          timeZone={EVENT_TIME_ZONE}
+          labels={{ a: "Team A…", b: "Team B…", noGroup: "No group (knockout/friendly)" }}
+        />
       </div>
     </div>
   );

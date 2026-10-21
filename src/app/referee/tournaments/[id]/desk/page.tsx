@@ -12,6 +12,8 @@ import { EVENT_TIME_ZONE } from "@/lib/tennis/ties";
 import { db } from "@/lib/supabase";
 import { sportOf } from "@/lib/sports/registry";
 import GroupStageRegenerateForm from "@/app/admin/tournaments/[id]/GroupStageRegenerateForm";
+import ManualMatchForm from "@/components/matches/ManualMatchForm";
+import type { ExistingMatch } from "@/lib/matches/manualMatchWarnings";
 import { createManualMatch, regenerateMatches } from "@/app/admin/tournaments/[id]/matches/actions";
 import { generateTiesAction } from "@/app/admin/tournaments/[id]/ties/actions";
 import { PlacementControls } from "@/app/admin/tournaments/[id]/ties/TieForms";
@@ -43,6 +45,9 @@ export default async function MatchDeskPage({ params }: { params: Promise<{ id: 
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   // The first rubber of each tie: the line-up page is reached through a rubber.
   const { data: rubberRows } = tieFormat ? await db().from("matches").select("id, tie_id, rubber_no").eq("tournament_id", id).not("tie_id", "is", null).order("rubber_no") : { data: [] };
+  // What a match added by hand would clash with (warnings only, ManualMatchForm).
+  const { data: existingRows } = await db().from("matches").select("team_a_id, team_b_id, court_id, status, scheduled_time, tie_id").eq("tournament_id", id);
+  const existing = (existingRows ?? []) as ExistingMatch[];
   const firstRubber = new Map<string, string>();
   for (const r of (rubberRows ?? []) as { id: string; tie_id: string }[]) if (!firstRubber.has(r.tie_id)) firstRubber.set(r.tie_id, r.id);
 
@@ -115,35 +120,18 @@ export default async function MatchDeskPage({ params }: { params: Promise<{ id: 
 
       <section className="card space-y-2">
         <h2 className="font-bold">Add a match</h2>
-        <form action={createManualMatch} className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="desk-add-match">
-          <input type="hidden" name="tournament_id" value={id} />
-          <select name="team_a_id" required className="input">
-            <option value="">Side A…</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>{t.team_name}</option>
-            ))}
-          </select>
-          <select name="team_b_id" required className="input">
-            <option value="">Side B…</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>{t.team_name}</option>
-            ))}
-          </select>
-          <select name="group_id" className="input">
-            <option value="">No group (knockout / friendly)</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>{g.group_name}</option>
-            ))}
-          </select>
-          <input name="round_name" className="input" placeholder="Round name" />
-          <select name="court_id" className="input">
-            <option value="">Court…</option>
-            {courts.map((c) => (
-              <option key={c.id} value={c.id}>{c.court_name}</option>
-            ))}
-          </select>
-          <button className="btn-primary">Add match</button>
-        </form>
+        <div data-testid="desk-add-match">
+          <ManualMatchForm
+            action={createManualMatch}
+            tournamentId={id}
+            teams={teams.map((t) => ({ id: t.id, name: t.team_name }))}
+            groups={groups.map((g) => ({ id: g.id, name: g.group_name }))}
+            courts={courts.map((c) => ({ id: c.id, name: c.court_name }))}
+            existing={existing}
+            tieFormat={tieFormat}
+            timeZone={EVENT_TIME_ZONE}
+          />
+        </div>
       </section>
     </div>
   );

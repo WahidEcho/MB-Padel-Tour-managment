@@ -21,6 +21,10 @@
  * Remove with: delete from tournaments where slug in ('davis-cup-junior-finals-2026', 'bjk-cup-junior-finals-2026');
  */
 import { DEFAULT_TENNIS_SCORING_CONFIG } from "../../src/lib/types";
+import { newTournamentMatchDayRules } from "../../src/lib/matchday/rules";
+
+/** Move Beyond, the organisation that runs both events (the live column's default too). */
+const MOVE_BEYOND_ORG = "82e0bf4b-3c46-4d9a-ace9-76cffa9f8088";
 import { nationByCode } from "../../src/lib/tennis/nations";
 
 const k = (...parts: (string | number)[]) => `cairo26:${parts.join(":")}`;
@@ -106,6 +110,9 @@ function build(ev: Event) {
       is_demo: false,
       public_access_enabled: false,
       created_by: "admin",
+      organization_id: MOVE_BEYOND_ORG,
+      // As a tournament created in the admin: match day on.
+      match_day_rules: newTournamentMatchDayRules("tennis"),
       scoring_config: { ...DEFAULT_TENNIS_SCORING_CONFIG, requireResultConfirmation: true },
       format_config: { type: "group_knockout", qualifyPerGroup: 2, thirdPlaceMatch: false, ties: {} },
       branding_config: {
