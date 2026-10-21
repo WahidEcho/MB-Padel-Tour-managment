@@ -34,6 +34,7 @@ const COACH_SECTIONS = [{ href: "/admin/org/coaches", label: "Team coaches" }];
 const PLATFORM_SECTIONS = [
   { href: "/admin/platform/organizations", label: "Organisations" },
   { href: "/admin/platform/discover", label: "Discover" },
+  { href: "/admin/platform/qr", label: "QR codes" },
 ];
 
 export default function AdminNav({ canManageCodes, canManageCoaches, canManageOrg, platformAdmin }: { canManageCodes?: boolean; canManageCoaches?: boolean; canManageOrg?: boolean; platformAdmin?: boolean }) {
