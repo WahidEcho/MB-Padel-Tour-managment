@@ -13,8 +13,10 @@ import { Screen } from "../ui/Screen";
 import { BackHeader } from "../ui/Header";
 import { Body, Display, Eyebrow, Num } from "../ui/Text";
 import { Button, Card, Chip, SectionHeader } from "../ui/Bits";
+import { useT } from "../i18n";
+import { fmt } from "../i18n/t";
 
-const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+const day = (iso: string) => fmt().date(iso);
 
 /**
  * My profile: the signed-in player's own history from GET /me/profile:
@@ -24,24 +26,25 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
  * their form can be shown the player's details from here.
  */
 export default function MyProfile() {
+  const tr = useT();
   const user = session.use((s) => s.user);
   const q = useMyProfile();
   if (!user) {
     return (
       <Screen tabs={false}>
-        <BackHeader label="Account" fallback="/account" />
-        <Display size={28}>My profile</Display>
+        <BackHeader label={tr("ui.account")} fallback="/account" />
+        <Display size={28}>{tr("player.myProfile")}</Display>
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body tone="ink2">Sign in to see your tournaments, sessions and results.</Body>
-          <Button kind="ghost" label="Back to Account" onPress={() => router.replace("/account")} />
+          <Body tone="ink2">{tr("player.signInProfile")}</Body>
+          <Button kind="ghost" label={tr("auth.backToAccount")} onPress={() => router.replace("/account")} />
         </Card>
       </Screen>
     );
   }
   return (
     <Screen tabs={false} onRefresh={() => q.refetch()}>
-      <BackHeader label="Account" fallback="/account" />
-      {q.data ? <Profile p={q.data} /> : <LoadState queries={[q]} what="your profile" />}
+      <BackHeader label={tr("ui.account")} fallback="/account" />
+      {q.data ? <Profile p={q.data} /> : <LoadState queries={[q]} what={tr("player.yourProfile")} />}
     </Screen>
   );
 }
@@ -57,6 +60,7 @@ function Stat({ value, label }: { value: number; label: string }) {
 
 function Profile({ p }: { p: MMyProfile }) {
   const { t } = useTheme();
+  const tr = useT();
   const [sharing, setSharing] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const tz = "Africa/Cairo";
@@ -64,12 +68,12 @@ function Profile({ p }: { p: MMyProfile }) {
   if (!p.linked) {
     return (
       <>
-        <Display size={28}>My profile</Display>
+        <Display size={28}>{tr("player.myProfile")}</Display>
         <Card style={{ marginTop: 16, gap: 10 }}>
-          <Body weight="semi">Link your history</Body>
-          <Body tone="ink2" size={13}>Your tournaments, sessions and results appear here once your account is linked to your player entries.</Body>
-          <Button label="Enter a player code" onPress={() => router.push("/player-code")} />
-          <Button kind="ghost" label="Use my phone number" onPress={() => router.push("/link-phone" as Href)} />
+          <Body weight="semi">{tr("player.linkYourHistory")}</Body>
+          <Body tone="ink2" size={13}>{tr("player.linkHistoryBody")}</Body>
+          <Button label={tr("player.enterPlayerCode")} onPress={() => router.push("/player-code")} />
+          <Button kind="ghost" label={tr("player.useMyPhone")} onPress={() => router.push("/link-phone" as Href)} />
         </Card>
       </>
     );
@@ -79,22 +83,22 @@ function Profile({ p }: { p: MMyProfile }) {
     <>
       <View style={{ alignItems: "center", gap: 10 }}>
         <PlayerAvatar player={{ name: p.name ?? "?", photoUrl: p.photoUrl }} size={88} />
-        <Display size={28} style={{ textAlign: "center" }}>{p.name ?? "My profile"}</Display>
+        <Display size={28} style={{ textAlign: "center" }}>{p.name ?? tr("player.myProfile")}</Display>
         {p.phone ? (
-          <Body tone="ink2" size={13}>{`${displayPhone(p.phone)}${p.phoneVerified ? " · confirmed" : ""}`}</Body>
+          <Body tone="ink2" size={13}>{p.phoneVerified ? tr("player.phoneConfirmed", { phone: displayPhone(p.phone) }) : displayPhone(p.phone)}</Body>
         ) : null}
       </View>
 
       <Card style={{ marginTop: 14, flexDirection: "row" }}>
-        <Stat value={p.totals.tournaments} label="Tournaments" />
-        <Stat value={p.totals.sessions} label="Sessions" />
-        <Stat value={p.totals.played} label="Played" />
-        <Stat value={p.totals.won} label="Won" />
+        <Stat value={p.totals.tournaments} label={tr("player.statTournaments")} />
+        <Stat value={p.totals.sessions} label={tr("player.statSessions")} />
+        <Stat value={p.totals.played} label={tr("player.statPlayed")} />
+        <Stat value={p.totals.won} label={tr("player.statWon")} />
       </Card>
 
       {p.upcoming.length > 0 && (
         <>
-          <SectionHeader title="Coming up" />
+          <SectionHeader title={tr("player.comingUp")} />
           <View style={{ gap: 8 }}>
             {p.upcoming.slice(0, 5).map((m) => (
               <MyMatchRow key={m.id} m={m} timezone={tz} />
@@ -103,29 +107,29 @@ function Profile({ p }: { p: MMyProfile }) {
         </>
       )}
 
-      <SectionHeader title="Tournaments" />
+      <SectionHeader title={tr("player.statTournaments")} />
       {p.tournaments.length === 0 ? (
-        <Body tone="ink2" size={13}>No tournaments linked yet.</Body>
+        <Body tone="ink2" size={13}>{tr("player.noTournaments")}</Body>
       ) : (
         <View style={{ gap: 8 }}>
           {p.tournaments.map((x) => (
             <Card key={x.tournamentId} onPress={() => router.push({ pathname: "/t/[slug]", params: { slug: x.slug } })} style={{ gap: 4 }}>
               <Body weight="semi">{x.name}</Body>
-              <Body tone="ink2" size={12.5}>{[x.organization?.name, x.teamName, x.played ? `${x.won} won of ${x.played}` : null].filter(Boolean).join(" · ")}</Body>
+              <Body tone="ink2" size={12.5}>{[x.organization?.name, x.teamName, x.played ? tr("player.wonOf", { won: x.won, played: x.played }) : null].filter(Boolean).join(" · ")}</Body>
             </Card>
           ))}
         </View>
       )}
 
-      <SectionHeader title="Sessions and nights" />
+      <SectionHeader title={tr("player.sessionsNights")} />
       {p.sessions.length === 0 ? (
-        <Body tone="ink2" size={13}>No sessions yet.</Body>
+        <Body tone="ink2" size={13}>{tr("player.noSessions")}</Body>
       ) : (
         <View style={{ gap: 8 }}>
           {p.sessions.map((s) => (
             <Card key={s.sessionId} style={{ gap: 4 }}>
               <Body weight="semi">{s.name}</Body>
-              <Body tone="ink2" size={12.5}>{[day(s.date), s.organization?.name, `${s.played} played`, `${s.points} pts`].filter(Boolean).join(" · ")}</Body>
+              <Body tone="ink2" size={12.5}>{[day(s.date), s.organization?.name, tr("player.nPlayed", { n: s.played }), tr("player.nPts", { n: s.points })].filter(Boolean).join(" · ")}</Body>
             </Card>
           ))}
         </View>
@@ -133,7 +137,7 @@ function Profile({ p }: { p: MMyProfile }) {
 
       {p.results.length > 0 && (
         <>
-          <SectionHeader title="Results" />
+          <SectionHeader title={tr("player.results")} />
           <View style={{ gap: 8 }}>
             {p.results.slice(0, 10).map((m) => (
               <MyMatchRow key={m.id} m={m} timezone={tz} />
@@ -142,33 +146,33 @@ function Profile({ p }: { p: MMyProfile }) {
         </>
       )}
 
-      <SectionHeader title="Registrations" />
-      <Card onPress={openRegistrations} accessibilityLabel="My registrations: status, payments and refunds" style={{ gap: 4 }}>
-        <Body weight="semi">My registrations</Body>
-        <Body tone="ink2" size={12.5}>Entries you registered for, what is paid and due, refunds.</Body>
+      <SectionHeader title={tr("account.registrations")} />
+      <Card onPress={openRegistrations} accessibilityLabel={tr("player.myRegistrationsA11y")} style={{ gap: 4 }}>
+        <Body weight="semi">{tr("account.myRegistrations")}</Body>
+        <Body tone="ink2" size={12.5}>{tr("player.myRegistrationsHint")}</Body>
       </Card>
 
-      <SectionHeader title="Leagues and ranks" />
+      <SectionHeader title={tr("player.leaguesRanks")} />
       <Card style={{ gap: 6 }}>
-        <Chip label="Coming soon" />
-        <Body tone="ink2" size={13}>League tables, points and your rank arrive with leagues.</Body>
+        <Chip label={tr("player.comingSoon")} />
+        <Body tone="ink2" size={13}>{tr("player.leaguesSoon")}</Body>
       </Card>
 
       {p.organizations.length > 0 && (
         <>
-          <SectionHeader title="Organisations" />
+          <SectionHeader title={tr("player.organisations")} />
           <View style={{ gap: 8 }}>
             {p.organizations.map((o) => (
               <Card key={o.id} style={{ gap: 6 }}>
                 <Body weight="semi" onPress={() => router.push({ pathname: "/org/[slug]", params: { slug: o.slug } })}>{o.name}</Body>
                 {o.sharing ? (
-                  <Body tone="ink2" size={12.5}>Sees your contact details.</Body>
+                  <Body tone="ink2" size={12.5}>{tr("player.seesContact")}</Body>
                 ) : o.canShare ? (
                   <>
-                    <Body tone="ink2" size={12.5}>{`${o.name} has your entries but not your contact details. Share them so they can reach you about matches?`}</Body>
+                    <Body tone="ink2" size={12.5}>{tr("player.shareQ", { org: o.name })}</Body>
                     <Button
                       kind="ghost"
-                      label={sharing === o.id ? "Sharing…" : "Share my details"}
+                      label={sharing === o.id ? tr("player.sharing") : tr("player.shareDetails")}
                       disabled={sharing !== null}
                       onPress={() => {
                         setSharing(o.id);
@@ -180,7 +184,7 @@ function Profile({ p }: { p: MMyProfile }) {
                     />
                   </>
                 ) : (
-                  <Body tone="ink2" size={12.5}>Does not see your contact details.</Body>
+                  <Body tone="ink2" size={12.5}>{tr("player.notSeesContact")}</Body>
                 )}
               </Card>
             ))}
@@ -189,12 +193,12 @@ function Profile({ p }: { p: MMyProfile }) {
       )}
       {err ? <Body tone="live" size={13} style={{ marginTop: 8 }}>{err}</Body> : null}
 
-      <SectionHeader title="Missing something?" />
+      <SectionHeader title={tr("player.missing")} />
       <Card style={{ gap: 8, borderColor: t.line }}>
-        <Body tone="ink2" size={13}>Link more of your history with a player code or with the phone number the tournament has for you.</Body>
+        <Body tone="ink2" size={13}>{tr("player.missingBody")}</Body>
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <Button kind="ghost" label="Player code" onPress={() => router.push("/player-code")} style={{ flex: 1 }} />
-          <Button kind="ghost" label="Phone number" onPress={() => router.push("/link-phone" as Href)} style={{ flex: 1 }} />
+          <Button kind="ghost" label={tr("player.playerCode")} onPress={() => router.push("/player-code")} style={{ flex: 1 }} />
+          <Button kind="ghost" label={tr("player.phoneNumber")} onPress={() => router.push("/link-phone" as Href)} style={{ flex: 1 }} />
         </View>
       </Card>
     </>

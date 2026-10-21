@@ -16,6 +16,7 @@
 import { api, ApiError } from "../api/client";
 import { resultRejection, sameState, type ResultRejection } from "@core";
 import { queue, type QueuedEvent } from "./queue";
+import { tr } from "../i18n/t";
 
 export type SyncState =
   | { kind: "synced" }
@@ -89,7 +90,7 @@ export function createSyncer(
         const applied = new Set(body.applied ?? []);
         if (await refuseResult(batch.filter((e) => !applied.has(e.client_event_id)), 409, body)) return;
         const stillLeft = body.applied?.length ? Math.max(0, left - body.applied.length) : left;
-        emit({ kind: "conflict", reason: body.conflict === "device_lock" ? "device_lock" : body.conflict === "sequence" ? "sequence" : "other", message: body.error ?? "The server refused these points.", pending: stillLeft });
+        emit({ kind: "conflict", reason: body.conflict === "device_lock" ? "device_lock" : body.conflict === "sequence" ? "sequence" : "other", message: body.error ?? tr("score.serverRefusedPoints"), pending: stillLeft });
         return;
       }
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {

@@ -6,12 +6,14 @@ import { checkInFeedback, checkInWith } from "../../pass/unlock";
 import { Body, Display } from "../../ui/Text";
 import { useTheme } from "../../theme/ThemeProvider";
 import { ApiError } from "../../api/client";
+import { tr as trNow, useT } from "../../i18n";
 
 /** A match's check-in code opened with the phone's own camera: the link lands here. */
 export default function MatchCheckInLink() {
   const { t } = useTheme();
+  const tr = useT();
   const { matchId, c, p } = useLocalSearchParams<{ matchId: string; c?: string; p?: string }>();
-  const [msg, setMsg] = useState("Checking you in…");
+  const [msg, setMsg] = useState(() => trNow("screens.checkingIn"));
   useEffect(() => {
     if (!c && !p) {
       router.replace({ pathname: "/match/[id]", params: { id: matchId } });
@@ -27,14 +29,14 @@ export default function MatchCheckInLink() {
         setTimeout(() => router.replace("/pass"), 1200);
       })
       .catch((e) => {
-        const f = e instanceof ApiError ? checkInFeedback({ ...((e.body as object | null) ?? {}), error: e.message }) : { text: "No connection. Open My pass and scan again.", haptic: "error" as const };
+        const f = e instanceof ApiError ? checkInFeedback({ ...((e.body as object | null) ?? {}), error: e.message }) : { text: trNow("screens.checkInOffline"), haptic: "error" as const };
         feel(f.haptic);
         setMsg(f.text);
       });
   }, [matchId, c, p]);
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.floor, padding: 24, gap: 10 }}>
-      <Display size={24}>Match check-in</Display>
+      <Display size={24}>{tr("screens.matchCheckIn")}</Display>
       <Body tone="ink2" style={{ textAlign: "center" }} accessibilityRole="alert">{msg}</Body>
     </View>
   );

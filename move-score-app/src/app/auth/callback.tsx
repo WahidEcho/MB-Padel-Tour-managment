@@ -8,6 +8,7 @@ import { useTheme } from "../../theme/ThemeProvider";
 import { Screen } from "../../ui/Screen";
 import { Button } from "../../ui/Bits";
 import { Body, Display } from "../../ui/Text";
+import { useT } from "../../i18n";
 
 /**
  * Where the sign-in browser sheet comes back to (movescore://auth/callback).
@@ -19,6 +20,7 @@ import { Body, Display } from "../../ui/Text";
  */
 export default function AuthCallback() {
   const { t } = useTheme();
+  const tr = useT();
   const p = useLocalSearchParams<{ code?: string; error?: string; error_code?: string; error_description?: string }>();
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => {
@@ -43,14 +45,14 @@ export default function AuthCallback() {
       <View style={{ paddingTop: 80, alignItems: "center", gap: 16 }}>
         {msg ? (
           <>
-            <Display size={22}>Not signed in</Display>
+            <Display size={22}>{tr("auth.notSignedIn")}</Display>
             <Body tone="ink2" size={14} style={{ textAlign: "center" }}>{msg}</Body>
-            <Button label="Back to account" onPress={() => router.replace("/account")} style={{ alignSelf: "stretch" }} />
+            <Button label={tr("auth.backToAccount")} onPress={() => router.replace("/account")} style={{ alignSelf: "stretch" }} />
           </>
         ) : (
           <>
             <ActivityIndicator color={t.ink} />
-            <Body tone="ink2" size={14}>Signing you in…</Body>
+            <Body tone="ink2" size={14}>{tr("auth.signingYouIn")}</Body>
           </>
         )}
       </View>

@@ -8,29 +8,31 @@ import { Display, Eyebrow } from "../../ui/Text";
 import { Empty, Flag } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
 import { TeamSection } from "../../ui/TeamSection";
+import { useT } from "../../i18n";
 
 /** A team of a club event (not a nation): its matches and players in that tournament. */
 export default function TeamScreen() {
+  const tr = useT();
   const { id, slug } = useLocalSearchParams<{ id: string; slug: string }>();
   const b = useBundle(slug);
   const team = b.data?.teams.find((x) => x.id === id);
   if (!b.data || !team) {
-    const notFound = <Empty title="Team not found" body="Open the team again from the tournament page." />;
+    const notFound = <Empty title={tr("screens.teamNotFound")} body={tr("screens.teamNotFoundBody")} />;
     return (
       <Screen tabs={false} onRefresh={slug ? () => b.refetch() : undefined}>
-        <BackHeader label="Back" fallback={slug ? { pathname: "/t/[slug]", params: { slug } } : "/"} />
-        {!slug || b.data ? notFound : <LoadState queries={[b]} what="this team" notFound={notFound} />}
+        <BackHeader label={tr("common.back")} fallback={slug ? { pathname: "/t/[slug]", params: { slug } } : "/"} />
+        {!slug || b.data ? notFound : <LoadState queries={[b]} what={tr("screens.whatTeam")} notFound={notFound} />}
       </Screen>
     );
   }
   return (
     <SkinScope skin={b.data.tournament.skin}>
       <Screen tabs={false} onRefresh={() => b.refetch()}>
-        <BackHeader label="Back" fallback={{ pathname: "/t/[slug]", params: { slug } }} />
+        <BackHeader label={tr("common.back")} fallback={{ pathname: "/t/[slug]", params: { slug } }} />
         <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 4 }}>
           {team.iso2 ? <Flag iso2={team.iso2} code={team.code} size={48} /> : null}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Eyebrow>{[team.code, team.seed ? `Seed ${team.seed}` : null].filter(Boolean).join(" · ")}</Eyebrow>
+            <Eyebrow>{[team.code, team.seed ? tr("screens.seed", { n: team.seed }) : null].filter(Boolean).join(" · ")}</Eyebrow>
             <Display size={24} style={{ marginTop: 4 }}>{team.name}</Display>
           </View>
         </View>

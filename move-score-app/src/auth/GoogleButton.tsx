@@ -2,6 +2,7 @@ import { ActivityIndicator, Pressable, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "../ui/Text";
+import { useT } from "../i18n";
 
 /** Google's "G", in its four colours (Google sign-in branding guidelines). */
 function GoogleG({ size = 18 }: { size?: number }) {
@@ -21,6 +22,7 @@ function GoogleG({ size = 18 }: { size?: number }) {
  */
 export function GoogleButton({ onPress, busy }: { onPress: () => void; busy?: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   const dark = t.scheme === "dark";
   const bg = dark ? "#131314" : "#FFFFFF";
   const border = dark ? "#8E918F" : "#747775";
@@ -28,7 +30,7 @@ export function GoogleButton({ onPress, busy }: { onPress: () => void; busy?: bo
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Sign in with Google"
+      accessibilityLabel={tr("auth.google")}
       accessibilityState={{ busy: !!busy, disabled: !!busy }}
       disabled={busy}
       onPress={onPress}
@@ -38,8 +40,8 @@ export function GoogleButton({ onPress, busy }: { onPress: () => void; busy?: bo
       ]}
     >
       <View style={{ width: 18, alignItems: "center" }}>{busy ? <ActivityIndicator size="small" color={ink} /> : <GoogleG />}</View>
-      <Body weight="semi" size={16} style={{ color: ink }}>
-        Sign in with Google
+      <Body weight="semi" size={16} style={{ color: ink, flexShrink: 1 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {tr("auth.google")}
       </Body>
     </Pressable>
   );

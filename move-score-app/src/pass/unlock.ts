@@ -1,6 +1,7 @@
 import type { MCheckInReply, MPass } from "@core";
 import { api } from "../api/client";
 import { rememberPass } from "./usePass";
+import { fmt, tr } from "../i18n/t";
 
 /** Parses the venue code's link: https://<site>/v/<event>?c=<code> */
 export function parseVenueLink(data: string): { groupSlug: string; code: string } | null {
@@ -35,20 +36,19 @@ export async function checkInWith(link: { matchId: string; c?: string; p?: strin
 /** What to tell the fan after a check-in, and how the phone should feel it. */
 export function checkInFeedback(r: MCheckInReply | { code?: string; error?: string; opensAt?: string | null }): { text: string; haptic: "success" | "warning" | "error" } {
   if ("status" in r) {
-    if (r.status === "already_checked_in") return { text: "Already checked in to this match", haptic: "warning" };
-    return { text: `Checked in · +${r.points} points`, haptic: "success" };
+    if (r.status === "already_checked_in") return { text: tr("pass.checkAlready"), haptic: "warning" };
+    return { text: tr("pass.checkedIn", { points: r.points }), haptic: "success" };
   }
   switch (r.code) {
     case "too_early": {
-      const at = r.opensAt ? new Date(r.opensAt) : null;
-      const time = at ? `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}` : null;
-      return { text: time ? `Too early: check-in opens at ${time}` : "Too early: check-in opens when the match is about to start", haptic: "warning" };
+      const time = r.opensAt ? fmt().time(r.opensAt) || null : null;
+      return { text: time ? tr("pass.checkTooEarlyAt", { time }) : tr("pass.checkTooEarly"), haptic: "warning" };
     }
     case "code_expired":
-      return { text: "That code has expired. Scan the screen at the court again.", haptic: "error" };
+      return { text: tr("pass.checkExpired"), haptic: "error" };
     case "closed":
-      return { text: "Check-in for this match has closed", haptic: "error" };
+      return { text: tr("pass.checkClosed"), haptic: "error" };
     default:
-      return { text: r.error ?? "That code is not for a match in Move Score.", haptic: "error" };
+      return { text: r.error ?? tr("pass.checkNotMatch"), haptic: "error" };
   }
 }

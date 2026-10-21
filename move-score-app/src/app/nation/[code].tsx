@@ -13,6 +13,7 @@ import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button, Card, Chip, Empty, Flag } from "../../ui/Bits";
 import { LoadState } from "../../ui/LoadState";
 import { TeamSection } from "../../ui/TeamSection";
+import { useT } from "../../i18n";
 
 /**
  * A nation across the events on now: follow it (alerts for every tie, and its
@@ -21,6 +22,7 @@ import { TeamSection } from "../../ui/TeamSection";
  */
 export default function NationScreen() {
   const { t } = useTheme();
+  const tr = useT();
   const params = useLocalSearchParams<{ code: string; slug?: string }>();
   const code = (params.code ?? "").toUpperCase();
   const discover = useDiscover();
@@ -48,11 +50,11 @@ export default function NationScreen() {
   if (!first) {
     // Not found only once every event it could be in has answered; until then, loading, offline or an error.
     const missing = slugs.length ? bundles.filter((b) => b.data === undefined) : discover.data ? [] : [discover];
-    const notFound = <Empty title="Nation not found" body={`${code || "This nation"} is not playing in the events on now.`} />;
+    const notFound = <Empty title={tr("screens.nationNotFound")} body={tr("screens.nationNotFoundBody", { code: code || tr("screens.thisNation") })} />;
     return (
       <Screen tabs={false} onRefresh={() => Promise.all([discover.refetch(), ...bundles.map((b) => b.refetch())])}>
-        <BackHeader label="Back" />
-        {missing.length ? <LoadState queries={missing} what="this nation" notFound={notFound} /> : notFound}
+        <BackHeader label={tr("common.back")} />
+        {missing.length ? <LoadState queries={missing} what={tr("screens.whatNation")} notFound={notFound} /> : notFound}
       </Screen>
     );
   }
@@ -69,35 +71,35 @@ export default function NationScreen() {
   const players = found.reduce((n, f) => n + f.team.players.length, 0);
   return (
     <Screen tabs={false} onRefresh={() => Promise.all([...bundles.map((b) => b.refetch()), pass.refetch()])}>
-      <BackHeader label="Back" />
+      <BackHeader label={tr("common.back")} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 4 }}>
         <Flag iso2={first.team.iso2} code={code} size={64} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Eyebrow>{[code, `${players} ${players === 1 ? "player" : "players"}`].join(" · ")}</Eyebrow>
+          <Eyebrow>{[code, tr("common.players", { count: players })].join(" · ")}</Eyebrow>
           <Display size={26} style={{ marginTop: 4 }}>{first.team.name}</Display>
         </View>
       </View>
 
       <Card style={{ marginTop: 16, gap: 12, borderColor: following ? t.ball : t.line, borderWidth: following ? 1.5 : 1 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <Body weight="bold" size={16} style={{ flex: 1 }}>{following ? `You follow ${first.team.name}` : `Follow ${first.team.name}`}</Body>
+          <Body weight="bold" size={16} style={{ flex: 1 }}>{following ? tr("screens.youFollowName", { name: first.team.name }) : tr("screens.followName", { name: first.team.name })}</Body>
           {hasPin ? (
             pinned ? (
               <Animated.View entering={ZoomIn}>
-                <Chip label="Pin collected" ball />
+                <Chip label={tr("screens.pinCollected")} ball />
               </Animated.View>
             ) : (
-              <Chip label="Pin to collect" />
+              <Chip label={tr("screens.pinToCollect")} />
             )
           ) : null}
         </View>
         <Body tone="ink2" size={13}>
           {following
-            ? `Alerts for every ${code} tie: set, moved, starting and the result.${hasPin ? " Its pin is on your pass." : ""}`
-            : `Get alerts for every ${code} tie${hasPin ? ` and collect the ${code} pin on your event pass` : ""}.`}
+            ? [tr("screens.nationAlertsOn", { code }), hasPin ? tr("screens.pinOnPass") : null].filter(Boolean).join(" ")
+            : tr(hasPin ? "screens.nationAlertsOffPin" : "screens.nationAlertsOff", { code })}
         </Body>
-        <Button kind={following ? "ghost" : "primary"} label={following ? "✓ Following" : `+ Follow ${code}`} disabled={busy} onPress={() => void follow()} />
-        {hasPin && pinned ? <Button kind="ghost" label="See it on my pass" onPress={() => router.push("/pass")} /> : null}
+        <Button kind={following ? "ghost" : "primary"} label={following ? tr("screens.followingBtn") : tr("screens.followCode", { code })} disabled={busy} onPress={() => void follow()} />
+        {hasPin && pinned ? <Button kind="ghost" label={tr("screens.seeOnPass")} onPress={() => router.push("/pass")} /> : null}
       </Card>
 
       {slugs.map((s) => (

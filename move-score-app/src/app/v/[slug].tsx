@@ -6,12 +6,14 @@ import { Body, Display } from "../../ui/Text";
 import { LoadState } from "../../ui/LoadState";
 import { useTheme } from "../../theme/ThemeProvider";
 import { ApiError } from "../../api/client";
+import { tr as trNow, useT } from "../../i18n";
 
 /** The venue code opened with the phone's own camera: the link lands here. */
 export default function VenueLink() {
   const { t } = useTheme();
+  const tr = useT();
   const { slug, c } = useLocalSearchParams<{ slug: string; c?: string }>();
-  const [msg, setMsg] = useState("Stamping your pass…");
+  const [msg, setMsg] = useState(() => trNow("screens.stamping"));
   const [offline, setOffline] = useState(false);
   const stamp = useCallback(async () => {
     if (!c) return;
@@ -35,8 +37,8 @@ export default function VenueLink() {
   }, [c, stamp]);
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.floor, padding: 24, gap: 10 }}>
-      <Display size={24}>On-site pass</Display>
-      {offline ? <LoadState compact kind="offline" onRetry={stamp} what="your pass stamp" /> : <Body tone="ink2">{msg}</Body>}
+      <Display size={24}>{tr("screens.onSitePass")}</Display>
+      {offline ? <LoadState compact kind="offline" onRetry={stamp} what={tr("screens.whatStamp")} /> : <Body tone="ink2">{msg}</Body>}
     </View>
   );
 }

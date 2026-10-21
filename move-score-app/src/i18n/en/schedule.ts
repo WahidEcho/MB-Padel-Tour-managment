@@ -1,0 +1,47 @@
+/** English (source of truth) for the "schedule" namespace: order of play, night tables, notices. */
+export const schedule = {
+  // Order of play
+  today: "TODAY",
+  todayA11y: "Today, {day}",
+  toBeScheduled: "To be scheduled",
+  byCourt: "By court",
+  byTime: "By time",
+  liveNow: "Live now",
+  notBefore: "Not before {time}",
+  notBeforeCaps: "NOT BEFORE",
+  followedBy: "Followed by",
+  followedByCaps: "FOLLOWED BY",
+  timeTbcCaps: "TIME TBC",
+  courtTbc: "Court TBC",
+  courtToBeConfirmed: "Court to be confirmed",
+  timeToBeConfirmed: "Time to be confirmed",
+  nothingThisDay: "Nothing on this day",
+  place: "Place {n}",
+  places: "Places {from}–{to}",
+  groupStage: "Group stage",
+  emptyTiesTitle: "The order of play is not out yet",
+  emptyTiesBody: "Ties appear here as soon as the groups are drawn.",
+  emptyMatchesTitle: "No matches yet",
+  emptyMatchesBody: "The order of play appears here once the draw is made.",
+
+  // League night tables
+  calledToCourt: "Called to court",
+  calledLabel: "Called · {label}",
+  estimates: "Times are estimates: each match starts when its court is free.",
+  about: "about {time}",
+  timeToCome: "Time to come",
+  onCourt: "On court",
+  finished: "Finished",
+  cancelled: "Cancelled",
+  courtToCome: "Court to come",
+
+  // Notices
+  eyebrowDelayed: "DELAY",
+  eyebrowSuspended: "SUSPENDED",
+  eyebrowResumed: "RESUMED",
+  eyebrowAnnouncement: "ANNOUNCEMENT",
+  playDelayed: "Play delayed",
+  playSuspended: "Play suspended",
+  playResumed: "Play resumed",
+  resumeAbout: "Play expected to resume about {time}",
+};

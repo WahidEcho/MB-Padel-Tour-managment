@@ -5,6 +5,7 @@ import { db } from "@/lib/supabase";
 import { requireScopedPermission, requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { notifyAnnouncement, notifyPlayStatus } from "@/lib/notify/hooks";
+import { playStatusWords } from "@/lib/notify/i18n";
 import { refuse, tournamentRowRefusal } from "@/lib/rowGuards";
 import { zonedToIso } from "@/lib/tennis/ties";
 import { updateBranding } from "@/lib/backgroundStorage";
@@ -195,8 +196,10 @@ export async function savePlayStatus(_prev: FormState, formData: FormData): Prom
     await audit({ tournament_id: id, actor_role: staff.role, action: "PLAY_STATUS_SET", entity_type: "tournament", entity_id: id, old_value: before, new_value: next });
     const push = formData.get("push") === "on" && typed !== "normal";
     if (push) {
-      const words = playStatusPush({ kind: typed as Exclude<PlayStatusKind, "normal">, eventName: name, message: next.message ?? null, resumeClock: next.resumeAt ? clock : null });
-      await notifyPlayStatus({ tournamentId: id, title: words.title, body: words.body, updatedAt: next.updatedAt });
+      const pushed = { kind: typed as Exclude<PlayStatusKind, "normal">, eventName: name, message: next.message ?? null, resumeClock: next.resumeAt ? clock : null };
+      const words = playStatusPush(pushed);
+      // Phones set to Spanish or French read the fixed words in their language (the message stays as typed).
+      await notifyPlayStatus({ tournamentId: id, title: words.title, body: words.body, updatedAt: next.updatedAt, tr: playStatusWords(pushed).tr });
     }
     revalidatePath(path(id));
     return typed === "normal" ? "Saved. The banner is off." : push ? "Saved. The banner is up and followers are being told." : "Saved. The banner is up.";

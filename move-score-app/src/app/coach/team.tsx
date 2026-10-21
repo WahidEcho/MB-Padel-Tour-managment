@@ -11,6 +11,7 @@ import { session } from "../../state/session";
 import { alerts, turnAlertsOn } from "../../push/register";
 import { signOutCoach, useCoachTeam } from "../../coach/session";
 import { GroupCard, ScheduleCard, TeamLine, TieCardCoach } from "../../coach/ui";
+import { useT } from "../../i18n";
 
 /**
  * "My team" (migration 0037): the coach's own team only. Its group table, the next and
@@ -19,6 +20,7 @@ import { GroupCard, ScheduleCard, TeamLine, TieCardCoach } from "../../coach/ui"
  */
 export default function MyTeam() {
   const { t } = useTheme();
+  const tr = useT();
   const coach = session.use((s) => s.coach);
   const q = useCoachTeam();
   const alertState = alerts.use((s) => s.status);
@@ -32,36 +34,36 @@ export default function MyTeam() {
   const rest = v?.ties.filter((x) => x.status !== "live" && x.id !== next?.id) ?? [];
   return (
     <Screen tabs={false} onRefresh={() => q.refetch()}>
-      <BackHeader label="Account" fallback="/account" />
+      <BackHeader label={tr("coach.account")} fallback="/account" />
       {!v ? (
-        <LoadState queries={[q]} what="your team" />
+        <LoadState queries={[q]} what={tr("coach.whatTeam")} />
       ) : (
         <View style={{ gap: 14 }}>
           <View style={{ gap: 6 }}>
-            <Eyebrow tone="live">{`Team coach · ${v.event.name}`}</Eyebrow>
+            <Eyebrow tone="live">{tr("coach.eyebrowEvent", { event: v.event.name })}</Eyebrow>
             <TeamLine team={v.team} size={30} />
-            <Body tone="ink2" size={13}>{v.place ? `Final place: ${v.place}` : v.landing ? `After the groups: ${v.landing}` : v.group ? (/^group\b/i.test(v.group.name) ? v.group.name : `Group ${v.group.name}`) : (v.event.group ?? "")}</Body>
+            <Body tone="ink2" size={13}>{v.place ? tr("coach.finalPlace", { place: v.place }) : v.landing ? tr("coach.afterGroups", { landing: v.landing }) : v.group ? (/^group\b/i.test(v.group.name) ? v.group.name : tr("coach.groupName", { name: v.group.name })) : (v.event.group ?? "")}</Body>
           </View>
           {alertState !== "on" ? (
             <Card style={{ gap: 8 }}>
-              <Body weight="semi">Alerts for your team</Body>
-              <Body tone="ink2" size={13}>Tie soon, called to court, started, results and line-ups, on this phone.</Body>
-              <Button label={alertState === "turning-on" ? "Turning on…" : "Turn on alerts"} onPress={() => void turnAlertsOn()} />
+              <Body weight="semi">{tr("coach.alertsTitle")}</Body>
+              <Body tone="ink2" size={13}>{tr("coach.alertsBody")}</Body>
+              <Button label={alertState === "turning-on" ? tr("coach.turningOn") : tr("coach.turnOnAlerts")} onPress={() => void turnAlertsOn()} />
             </Card>
           ) : null}
-          {live.length ? <SectionHeader title="Live now" /> : null}
+          {live.length ? <SectionHeader title={tr("coach.liveNow")} /> : null}
           {live.map((x) => <TieCardCoach key={x.id} tie={x} tz={tz} team={v.team} open />)}
-          {next ? <SectionHeader title="Next tie" /> : null}
+          {next ? <SectionHeader title={tr("coach.nextTie")} /> : null}
           {next ? <TieCardCoach tie={next} tz={tz} team={v.team} open /> : null}
-          {v.group ? <SectionHeader title={(/^group\b/i.test(v.group.name) ? v.group.name : `Group ${v.group.name}`)} /> : null}
+          {v.group ? <SectionHeader title={(/^group\b/i.test(v.group.name) ? v.group.name : tr("coach.groupName", { name: v.group.name }))} /> : null}
           {v.group ? <GroupCard group={v.group} teamId={v.team.id} /> : null}
-          <SectionHeader title="All ties" />
+          <SectionHeader title={tr("coach.allTies")} />
           {rest.map((x) => <TieCardCoach key={x.id} tie={x} tz={tz} team={v.team} />)}
-          {v.ties.length === 0 ? <Empty title="No ties yet" body="Your ties show here once the draw is made." /> : null}
-          <SectionHeader title="Players' schedule" />
+          {v.ties.length === 0 ? <Empty title={tr("coach.noTies")} body={tr("coach.noTiesBody")} /> : null}
+          <SectionHeader title={tr("coach.playersSchedule")} />
           {v.team.players.map((p) => <ScheduleCard key={p.id} player={p} slots={v.schedule.filter((s) => s.playerId === p.id)} tz={tz} />)}
-          <Body tone="ink3" size={12}>Read only. Line-ups are entered by the referee; for anything on court, speak to the referee.</Body>
-          <Button kind="ghost" label="Sign out on this phone" onPress={() => void signOutCoach().then(() => router.replace("/coach"))} />
+          <Body tone="ink3" size={12}>{tr("coach.readOnlyFooter")}</Body>
+          <Button kind="ghost" label={tr("coach.signOutPhone")} onPress={() => void signOutCoach().then(() => router.replace("/coach"))} />
           <View style={{ height: 24, backgroundColor: t.floor }} />
         </View>
       )}

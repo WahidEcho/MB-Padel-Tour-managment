@@ -6,10 +6,12 @@ import { useTheme } from "../theme/ThemeProvider";
 import { whenIn } from "../api/model";
 import { Body, Eyebrow, Num } from "../ui/Text";
 import { Card, Chip, Flag } from "../ui/Bits";
+import { useT } from "../i18n";
 
 /** The player's photo, or their initials on the stage colour. */
 export function PlayerAvatar({ player, size = 72 }: { player: Pick<MMyPlayer, "name" | "photoUrl">; size?: number }) {
   const { t } = useTheme();
+  const tr = useT();
   const initials = player.name
     .split(/\s+/)
     .filter(Boolean)
@@ -22,7 +24,7 @@ export function PlayerAvatar({ player, size = 72 }: { player: Pick<MMyPlayer, "n
         source={{ uri: player.photoUrl }}
         style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip }}
         contentFit="cover"
-        accessibilityLabel={`Photo of ${player.name}`}
+        accessibilityLabel={tr("player.photoOf", { name: player.name })}
       />
     );
   }
@@ -45,21 +47,22 @@ export function PlayerIdentity({ player }: { player: MMyPlayer }) {
 
 /** One of the player's matches: who against whom, when or the score. Opens the match. */
 export function MyMatchRow({ m, timezone, withDay = true }: { m: MMyMatch; timezone: string; withDay?: boolean }) {
+  const tr = useT();
   const live = isLiveStatus(m.status);
   const done = isDoneStatus(m.status);
   const won = done && m.winner && m.mySide ? (m.mySide === "A" ? m.winner === m.a : m.winner === m.b) : null;
-  const label = live ? "Live" : done ? (won === null ? "Result" : won ? "Won" : "Lost") : whenIn(m.scheduledTime, timezone, withDay);
+  const label = live ? tr("common.live") : done ? (won === null ? tr("player.result") : won ? tr("player.won") : tr("player.lost")) : whenIn(m.scheduledTime, timezone, withDay);
   const line = scoreLine(m.score);
-  const name = (side: "A" | "B") => (side === "A" ? m.aName : m.bName) ?? "To be decided";
+  const name = (side: "A" | "B") => (side === "A" ? m.aName : m.bName) ?? tr("player.toBeDecided");
   return (
     <Card
       onPress={() => router.push({ pathname: "/match/[id]", params: { id: m.id } })}
-      accessibilityLabel={`${name("A")} against ${name("B")}. ${label}${line ? `. ${line}` : ""}`}
+      accessibilityLabel={`${tr("ui.against", { a: name("A"), b: name("B") })}. ${label}${line ? `. ${line}` : ""}`}
       style={{ gap: 8 }}
     >
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 14, marginBottom: 2 }}>
         <Eyebrow size={10} style={{ flex: 1 }} numberOfLines={1}>{[m.tournamentName, m.round].filter(Boolean).join(" · ")}</Eyebrow>
-        {live ? <Chip label="LIVE" ball /> : <Eyebrow size={10} tone={won ? "ink" : "ink2"}>{label}</Eyebrow>}
+        {live ? <Chip label={tr("ui.livePill")} ball /> : <Eyebrow size={10} tone={won ? "ink" : "ink2"}>{label}</Eyebrow>}
       </View>
       {(["A", "B"] as const).map((side) => (
         <Body key={side} size={15} weight={m.mySide === side ? "bold" : "regular"} tone={m.mySide === side ? "ink" : "ink2"} numberOfLines={1}>

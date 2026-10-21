@@ -1,6 +1,7 @@
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import Svg, { Path, Rect } from "react-native-svg";
+import { useT } from "../i18n";
 
 /** The Wallet glyph: a stack of coloured cards tucked into a pocket. */
 function WalletGlyph({ size }: { size: number }) {
@@ -22,10 +23,11 @@ function WalletGlyph({ size }: { size: number }) {
  */
 export function AppleWalletButton({ onPress, busy, height = 48 }: { onPress: () => void; busy?: boolean; height?: number }) {
   const k = height / 48;
+  const tr = useT();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Add to Apple Wallet"
+      accessibilityLabel={tr("pass.walletA11y")}
       accessibilityState={{ busy: Boolean(busy) }}
       disabled={busy}
       onPress={() => {
@@ -54,7 +56,7 @@ export function AppleWalletButton({ onPress, busy, height = 48 }: { onPress: () 
         <>
           <WalletGlyph size={30 * k} />
           <View>
-            <Text allowFontScaling={false} style={{ color: "#FFFFFF", fontSize: 11 * k, lineHeight: 13 * k, fontWeight: "400", letterSpacing: 0.1 }}>Add to</Text>
+            <Text allowFontScaling={false} style={{ color: "#FFFFFF", fontSize: 11 * k, lineHeight: 13 * k, fontWeight: "400", letterSpacing: 0.1 }}>{tr("pass.walletAddTo")}</Text>
             <Text allowFontScaling={false} style={{ color: "#FFFFFF", fontSize: 19 * k, lineHeight: 22 * k, fontWeight: "600", letterSpacing: -0.3 }}>Apple Wallet</Text>
           </View>
         </>

@@ -7,12 +7,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import * as Haptics from "expo-haptics";
-import { callStatusLine, type CallStatus } from "@core";
+import type { CallStatus } from "@core";
 import { api, ApiError } from "../api/client";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "../ui/Text";
 import { Button, Card } from "../ui/Bits";
 import { Glyph } from "../ui/Glyph";
+import { tr as trNow, useT } from "../i18n";
+import { callStatusWords } from "./words";
 
 interface Call {
   id: string;
@@ -32,13 +34,14 @@ export async function requestAssistance(matchId?: string): Promise<{ ok: true } 
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     return { ok: true };
   } catch (e) {
-    return { ok: false, message: e instanceof ApiError && e.status !== 0 ? e.message : "No connection: call the desk." };
+    return { ok: false, message: e instanceof ApiError && e.status !== 0 ? e.message : trNow("referee.noConnDesk") };
   }
 }
 
 /** `statusOnly`: the call is made from More (scoring v2); the card shows only an open call. */
 export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: string; statusOnly?: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   const [call, setCall] = useState<Call | null>(null);
   // The server says whether Call master referee is on for this court's events (it refuses
   // a call with 409 feature_off otherwise); older servers say nothing: shown as before.
@@ -79,7 +82,7 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
       setCall(r.call);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     } catch (e) {
-      setErr(e instanceof ApiError && e.status !== 0 ? e.message : "No connection: call the desk.");
+      setErr(e instanceof ApiError && e.status !== 0 ? e.message : tr("referee.noConnDesk"));
     } finally {
       setBusy(false);
     }
@@ -90,8 +93,8 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
   if (!open) {
     return (
       <View style={{ gap: 4 }}>
-        <Button kind="danger" label={busy ? "Calling…" : "Call for assistance"} icon={busy ? undefined : <Glyph name="help" color="#FFFFFF" size={20} />} disabled={busy} onPress={() => void post({ action: "request", matchId })} accessibilityLabel="Call for assistance" />
-        {call?.status === "resolved" ? <Body tone="ink3" size={12}>Last call: {callStatusLine({ status: call.status, resolved_by_name: call.resolvedBy })}</Body> : null}
+        <Button kind="danger" label={busy ? tr("referee.calling") : tr("referee.callAssistance")} icon={busy ? undefined : <Glyph name="help" color="#FFFFFF" size={20} />} disabled={busy} onPress={() => void post({ action: "request", matchId })} accessibilityLabel={tr("referee.callAssistance")} />
+        {call?.status === "resolved" ? <Body tone="ink3" size={12}>{tr("referee.lastCall", { status: callStatusWords(call) })}</Body> : null}
         {err ? <Body tone="live" size={12}>{err}</Body> : null}
       </View>
     );
@@ -101,11 +104,11 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
     <Card style={{ gap: 8, borderWidth: 1, borderColor: ack ? t.success : t.warning }}>
       <Body weight="bold" accessibilityRole="alert" style={{ color: ack ? t.success : t.warning }}>
         {ack ? "✓ " : ""}
-        {callStatusLine({ status: call.status, acknowledged_by_name: call.acknowledgedBy })}
+        {callStatusWords(call)}
       </Body>
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button kind="ghost" label="Call again" disabled={busy} onPress={() => void post({ action: "request", matchId })} style={{ flex: 1 }} />
-        {!ack && <Button kind="ghost" label="Cancel" disabled={busy} onPress={() => void post({ action: "cancel", callId: call.id })} style={{ flex: 1 }} />}
+        <Button kind="ghost" label={tr("referee.callAgain")} disabled={busy} onPress={() => void post({ action: "request", matchId })} style={{ flex: 1 }} />
+        {!ack && <Button kind="ghost" label={tr("common.cancel")} disabled={busy} onPress={() => void post({ action: "cancel", callId: call.id })} style={{ flex: 1 }} />}
       </View>
       {err ? <Body tone="live" size={12}>{err}</Body> : null}
     </Card>

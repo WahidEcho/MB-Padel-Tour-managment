@@ -6,6 +6,7 @@
 import type { MPass } from "@core";
 import type { PassEvent } from "../ui/PassCard";
 import { config } from "../config";
+import { fmt, tr, type Key } from "../i18n/t";
 
 export type StoryKind = "match" | "tie" | "pass";
 export type StoryStatus = "live" | "final" | "upcoming" | "here";
@@ -46,6 +47,8 @@ export interface StoryInfo {
   sides: [StorySide, StorySide] | null;
   /** "USA 2–1 FRA in the tie", "3 days on-site". */
   note: string | null;
+  /** The pass's note set big on two lines ("3 days\non-site"), for the classic card. */
+  noteBig?: string | null;
   /** "No. 000123" on the pass, the ticket's serial otherwise. */
   serial: string;
   holder: string | null;
@@ -75,13 +78,33 @@ export interface Layout {
   pose: StickerPose;
 }
 
+/** A layout whose label and hint are read in the app's language each time. */
+function layout(id: LayoutId, label: Key, hint: Key, pose: StickerPose): Layout {
+  return {
+    id,
+    get label() {
+      return tr(label);
+    },
+    get hint() {
+      return tr(hint);
+    },
+    pose,
+  };
+}
+
 /** Layout styles in rail order. The sticker starts where the layout puts it; the fan can move it. */
 export const LAYOUTS: Layout[] = [
-  { id: "scoreboard", label: "Scoreboard", hint: "A glass score sticker", pose: { x: 0.5, y: 0.7, s: 1, r: 0 } },
-  { id: "pass", label: "Pass", hint: "Your event pass, foil and all", pose: { x: 0.5, y: 0.56, s: 0.94, r: -0.06 } },
-  { id: "minimal", label: "Minimal", hint: "Just the words, big", pose: { x: 0.5, y: 0.66, s: 1, r: 0 } },
-  { id: "ticket", label: "Ticket stub", hint: "A torn ticket stub", pose: { x: 0.5, y: 0.73, s: 1, r: -0.05 } },
+  layout("scoreboard", "story.layoutScoreboard", "story.layoutScoreboardHint", { x: 0.5, y: 0.7, s: 1, r: 0 }),
+  layout("pass", "story.layoutPass", "story.layoutPassHint", { x: 0.5, y: 0.56, s: 0.94, r: -0.06 }),
+  layout("minimal", "story.layoutMinimal", "story.layoutMinimalHint", { x: 0.5, y: 0.66, s: 1, r: 0 }),
+  layout("ticket", "story.layoutTicket", "story.layoutTicketHint", { x: 0.5, y: 0.73, s: 1, r: -0.05 }),
 ];
+
+/** A two-word headline from its "first|second" words. */
+export function headline(key: Key): [string, string] {
+  const [a = "", b = ""] = tr(key).split("|");
+  return [a, b];
+}
 
 /** The styles this story can use: "Pass" needs a pass for the event. */
 export function layoutsFor(info: StoryInfo): Layout[] {
@@ -135,15 +158,9 @@ export function photoBox(photo: Photo, pose: PhotoPose, W: number, H: number): {
   return { width, height, left: W / 2 + pose.tx * W - width / 2, top: H / 2 + pose.ty * W - height / 2 };
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "3 Oct 2026", in the event's own time zone when it has one. */
+/** "3 Oct 2026", in the event's own time zone when it has one, in the app's language. */
 export function storyDate(now: Date = new Date(), tz?: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-GB", { timeZone: tz, day: "numeric", month: "short", year: "numeric" }).format(now);
-  } catch {
-    return `${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
-  }
+  return fmt().date(now, tz) || now.toISOString().slice(0, 10);
 }
 
 /** The days of an event, YYYY-MM-DD, at most two weeks. */
@@ -164,7 +181,7 @@ export function appLink(): string {
 export function serialOf(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return `No. ${String(h % 1_000_000).padStart(6, "0")}`;
+  return tr("story.serial", { n: String(h % 1_000_000).padStart(6, "0") });
 }
 
 /** "Junior Team Finals" from "Junior Team Finals — Nations (Cairo 2026)": stickers have room for the name, not the subtitle. */

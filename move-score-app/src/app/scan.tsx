@@ -10,7 +10,8 @@ import { Body, Display, Eyebrow } from "../ui/Text";
 import { Button } from "../ui/Bits";
 import { checkInFeedback, checkInWith, parseMatchLink, parseVenueLink, unlockWith } from "../pass/unlock";
 import { useFeaturedGroup } from "../api/featured";
-import { ApiError, OFFLINE_MESSAGE } from "../api/client";
+import { ApiError, offlineMessage } from "../api/client";
+import { useT } from "../i18n";
 
 const buzz = (kind: "success" | "warning" | "error") => {
   const type = kind === "success" ? Haptics.NotificationFeedbackType.Success : kind === "warning" ? Haptics.NotificationFeedbackType.Warning : Haptics.NotificationFeedbackType.Error;
@@ -24,6 +25,7 @@ const buzz = (kind: "success" | "warning" | "error") => {
  */
 export default function Scan() {
   const { t } = useTheme();
+  const tr = useT();
   const insets = useSafeAreaInsets();
   const [perm, ask] = useCameraPermissions();
   const [msg, setMsg] = useState<{ text: string; tone: "success" | "warning" | "error" } | null>(null);
@@ -56,10 +58,10 @@ export default function Scan() {
     attempt(`v:${groupSlug}:${code.toUpperCase()}`, fromCamera, async () => {
       try {
         const r = await unlockWith(groupSlug, code);
-        done(r.stampedDay ? `Stamped · ${r.stampedDay}` : "On-site pass unlocked");
+        done(r.stampedDay ? tr("screens.stamped", { day: r.stampedDay }) : tr("screens.unlocked"));
       } catch (e) {
         buzz("error");
-        setMsg({ text: e instanceof ApiError ? e.message : OFFLINE_MESSAGE, tone: "error" });
+        setMsg({ text: e instanceof ApiError ? e.message : offlineMessage(), tone: "error" });
         throw e;
       }
     });
@@ -70,7 +72,7 @@ export default function Scan() {
         const f = checkInFeedback(r);
         done(f.text, f.haptic === "success" ? "success" : "warning");
       } catch (e) {
-        const f = e instanceof ApiError ? checkInFeedback({ ...((e.body as object | null) ?? {}), error: e.message }) : { text: OFFLINE_MESSAGE, haptic: "error" as const };
+        const f = e instanceof ApiError ? checkInFeedback({ ...((e.body as object | null) ?? {}), error: e.message }) : { text: offlineMessage(), haptic: "error" as const };
         buzz(f.haptic);
         setMsg({ text: f.text, tone: f.haptic === "success" ? "success" : f.haptic });
         throw e;
@@ -98,9 +100,9 @@ export default function Scan() {
         <Pressable style={StyleSheet.absoluteFill} onPress={Keyboard.dismiss} accessible={false} />
         <View pointerEvents="box-none" style={{ flex: 1, paddingTop: insets.top + 12, paddingHorizontal: 22, paddingBottom: insets.bottom + 20, justifyContent: "space-between" }}>
           <View style={{ gap: 6 }}>
-            <Eyebrow style={{ color: BALL }}>My pass</Eyebrow>
-            <Display size={26} style={{ color: "#E8ECF4" }}>Scan the gate or a match</Display>
-            <Body size={13} style={{ color: "#9AA4B8" }}>The gate code stamps your day. The code on the court screen checks you in to that match and adds to your score.</Body>
+            <Eyebrow style={{ color: BALL }}>{tr("screens.myPass")}</Eyebrow>
+            <Display size={26} style={{ color: "#E8ECF4" }}>{tr("screens.scanTitle")}</Display>
+            <Body size={13} style={{ color: "#9AA4B8" }}>{tr("screens.scanBody")}</Body>
           </View>
           <View pointerEvents="none" style={{ alignSelf: "center", width: 240, height: 240, flexShrink: 1, borderRadius: 28, borderWidth: 3, borderColor: msg ? tone : BALL }} />
           <View style={{ gap: 10 }}>
@@ -109,23 +111,23 @@ export default function Scan() {
                 {msg.text}
               </Body>
             ) : null}
-            {!perm?.granted && <Button label="Allow the camera" onPress={() => void ask()} />}
+            {!perm?.granted && <Button label={tr("screens.allowCamera")} onPress={() => void ask()} />}
             {group ? (
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput
                   value={staffCode}
                   onChangeText={setStaffCode}
-                  placeholder="Or the 6-digit code from staff"
+                  placeholder={tr("screens.staffPlaceholder")}
                   placeholderTextColor="#6B7590"
                   keyboardType="number-pad"
                   maxLength={6}
-                  accessibilityLabel="Six-digit venue code"
+                  accessibilityLabel={tr("screens.staffA11y")}
                   style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 14, paddingHorizontal: 14, color: "#E8ECF4", fontSize: 16 }}
                 />
-                <Button label="Use" disabled={staffCode.length !== 6} onPress={() => void tryVenue(group.slug, staffCode)} />
+                <Button label={tr("screens.use")} disabled={staffCode.length !== 6} onPress={() => void tryVenue(group.slug, staffCode)} />
               </View>
             ) : null}
-            <Button kind="ghost" label="Close" onPress={() => router.back()} style={{ backgroundColor: "rgba(255,255,255,0.08)" }} />
+            <Button kind="ghost" label={tr("common.close")} onPress={() => router.back()} style={{ backgroundColor: "rgba(255,255,255,0.08)" }} />
           </View>
         </View>
       </KeyboardAvoidingView>

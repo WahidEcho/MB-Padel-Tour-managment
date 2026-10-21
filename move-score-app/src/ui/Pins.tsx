@@ -7,6 +7,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { F } from "../theme/type";
 import { Flag } from "./Bits";
 import { openNation } from "../nav/links";
+import { useT } from "../i18n";
 
 export interface PinNation {
   code: string;
@@ -77,11 +78,12 @@ function PinFace({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
 
 /** A pin opens its nation: collected, to see its ties; not yet, to follow it and collect the pin. */
 function Pin({ n, got, d }: { n: PinNation; got: boolean; d: number }) {
+  const tr = useT();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={got ? `${n.name} pin, collected` : `${n.name} pin, not collected yet`}
-      accessibilityHint={got ? `Opens ${n.name}` : `Opens ${n.name}, where following it collects the pin`}
+      accessibilityLabel={got ? tr("hero.pinCollected", { name: n.name }) : tr("hero.pinNotYet", { name: n.name })}
+      accessibilityHint={got ? tr("hero.pinOpens", { name: n.name }) : tr("hero.pinOpensFollow", { name: n.name })}
       onPress={() => openNation(n.code)}
       style={({ pressed }) => ({ borderRadius: d / 2, opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] })}
     >

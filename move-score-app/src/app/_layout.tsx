@@ -9,6 +9,8 @@ import { Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold } f
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClientProvider } from "@tanstack/react-query";
+// The language first (the phone's, or Account → Language): everything below speaks it.
+import { useLang } from "../i18n";
 import { queryClient } from "../api/queries";
 import { ThemeProvider, useTheme } from "../theme/ThemeProvider";
 import { loadSession } from "../state/session";
@@ -44,6 +46,8 @@ function AlertTaps() {
 
 function Navigator() {
   const { t } = useTheme();
+  // Re-renders the screens when the language changes on Account.
+  useLang();
   return (
     <View style={{ flex: 1, backgroundColor: t.floor }}>
       <StatusBar style={t.scheme === "dark" ? "light" : "dark"} />

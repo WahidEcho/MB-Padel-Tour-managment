@@ -7,12 +7,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Console,
   chessCompetitionFor,
-  describeMatchRules,
   enteredSetsFromState,
   finalResultAllowed,
   queueableResult,
   OFFENCE_LABELS,
-  PENALTY_LABELS,
   currentServer,
   servingPlayer,
   receivingPlayer,
@@ -23,7 +21,6 @@ import {
   needsServeOrder,
   nationByCode,
   sidesSwapped,
-  TIMERS,
   type LogEntry,
   type TimeDecision,
   type TimerKind,
@@ -58,6 +55,9 @@ import { Button, Card, Chip, Flag } from "../../../ui/Bits";
 import { BackHeader } from "../../../ui/Header";
 import { LoadState, type LoadQuery } from "../../../ui/LoadState";
 import { Glyph, type GlyphName } from "../../../ui/Glyph";
+import { useT } from "../../../i18n";
+import { fmt } from "../../../i18n/t";
+import { offenceLabel, penaltyLabel, problemText, rulesText, timerLabel, winWhat } from "../../../referee/scoreWords";
 
 type Sheet =
   | { kind: "confirm-point"; team: TeamKey; what: string }
@@ -88,22 +88,25 @@ interface ResultForm {
 /** Statuses the server holds as over. */
 const SERVER_FINISHED = ["completed", "walkover", "disqualified", "retired", "cancelled"];
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Ends the screen names in words ("Ended: retirement."). */
+const ENDED_STATUS = ["walkover", "retired", "disqualified", "cancelled"];
 
 function SyncPill({ s, online }: { s: SyncState; online: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   const n = "pending" in s ? s.pending : 0;
   const [label, color] =
     s.kind === "conflict"
-      ? [s.reason === "device_lock" ? "Another phone has control" : "Sync problem", t.live]
+      ? [s.reason === "device_lock" ? tr("score.syncOtherPhone") : tr("score.syncProblem"), t.live]
       : s.kind === "signed_out"
-        ? ["Sign in again to send", t.live]
+        ? [tr("score.syncSignIn"), t.live]
         : !online || s.kind === "offline"
-          ? [`Offline · ${n} on this phone`, t.warning]
+          ? [tr("score.syncOffline", { count: n }), t.warning]
           : s.kind === "syncing"
-            ? [`Sending ${n}…`, t.blue]
+            ? [tr("score.syncSending", { count: n }), t.blue]
             : n > 0
-              ? [`${n} waiting to send`, t.warning]
-              : ["Online · all saved", t.success];
+              ? [tr("score.syncWaiting", { count: n }), t.warning]
+              : [tr("score.syncAllSaved"), t.success];
   return (
     <View accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, backgroundColor: t.chip }}>
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
@@ -118,6 +121,7 @@ function SyncPill({ s, online }: { s: SyncState; online: boolean }) {
  */
 function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string }) {
   const { t } = useTheme();
+  const tr = useT();
   const [code, setCode] = useState("");
   const [pin, setPin] = useState("");
   const [needPin, setNeedPin] = useState(false);
@@ -144,7 +148,7 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
       if (r.referees.length === 1) setRefereeId(r.referees[0].id);
     }
     setPin("");
-    setErr(r.pinRequired && !needPin ? `${r.court ?? "This code"}: pick your name and enter your 4-digit referee PIN.` : r.message);
+    setErr(r.pinRequired && !needPin ? tr("score.codePickName", { court: r.court ?? tr("score.thisCode") }) : r.message);
   };
   const input = { backgroundColor: t.chip, borderColor: t.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 14, color: t.ink, fontSize: 18 } as const;
   return (
@@ -156,9 +160,9 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
         secureTextEntry
         autoCapitalize="none"
         autoCorrect={false}
-        placeholder="Code from the tournament desk"
+        placeholder={tr("score.codePlaceholder")}
         placeholderTextColor={t.ink3}
-        accessibilityLabel="Referee access code"
+        accessibilityLabel={tr("score.codeA11y")}
         onSubmitEditing={() => void submit()}
         style={input}
       />
@@ -170,15 +174,15 @@ function StaffCodeForm({ onDone, note }: { onDone?: () => void; note?: string })
           secureTextEntry
           keyboardType="number-pad"
           maxLength={4}
-          placeholder="Your 4-digit PIN"
+          placeholder={tr("score.pinPlaceholder")}
           placeholderTextColor={t.ink3}
-          accessibilityLabel="Referee PIN"
+          accessibilityLabel={tr("score.pinA11y")}
           onSubmitEditing={() => void submit()}
           style={{ ...input, letterSpacing: 8, textAlign: "center" }}
         />
       )}
       {err ? <Body tone="live" size={13}>{err}</Body> : null}
-      <Button label={busy ? "Checking…" : "Sign in again"} disabled={!code || busy || (needPin && (pin.length !== 4 || (referees.length > 0 && !refereeId)))} onPress={() => void submit()} />
+      <Button label={busy ? tr("score.checking") : tr("score.signInAgain")} disabled={!code || busy || (needPin && (pin.length !== 4 || (referees.length > 0 && !refereeId)))} onPress={() => void submit()} />
     </View>
   );
 }
@@ -189,11 +193,10 @@ function pointText(s: ScoreState | null, k: TeamKey) {
   return k === "A" ? s.teamA.points : s.teamB.points;
 }
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
-
 function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: RefereeBootstrap; deviceId: string; sunlight: boolean; setSunlight: (v: boolean) => void }) {
   useKeepAwake();
   const { t } = useTheme();
+  const tr = useT();
   const insets = useSafeAreaInsets();
   const [online, setOnline] = useState(true);
   const c = useConsole(boot, deviceId, online);
@@ -325,7 +328,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       const r = await api<{ entries: LogEntry[] }>(`/api/matches/${m.id}/log`, { who: "staff", timeoutMs: 10_000 });
       setLog({ entries: r.entries, error: null });
     } catch (e) {
-      setLog({ entries: null, error: e instanceof ApiError && e.status !== 0 ? e.message : "No signal: the log needs a connection." });
+      setLog({ entries: null, error: e instanceof ApiError && e.status !== 0 ? e.message : tr("score.logNoSignal") });
     }
   };
   const [callNote, setCallNote] = useState<string | null>(null);
@@ -373,7 +376,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
     setHandNote(null);
     const ok = await c.drain();
     if (ok) await lease.respond(true);
-    else setHandNote("Points on this phone have not reached the server yet. Hand over once they are sent, or the next device starts without them.");
+    else setHandNote(tr("score.handNotSent"));
     setBusy(null);
   };
 
@@ -385,7 +388,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       await lease.release();
       setSheet(null);
     } else {
-      setHandNote("Not every point reached the server, so control was kept. Check the signal and try again.");
+      setHandNote(tr("score.releaseKept"));
     }
     setBusy(null);
   };
@@ -395,7 +398,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
     const ok = c.blocked && !c.question ? await c.reload() : await c.loadServerScore();
     setBusy(null);
     if (ok) setSheet(null);
-    else setHandNote("No signal: the server's score could not be loaded. Try again.");
+    else setHandNote(tr("score.noSignalServer"));
   };
 
   /**
@@ -406,7 +409,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
   const submitResult = async (payload: ResultPayload) => {
     if (busy || resultBusy) return;
     if (sync.kind === "conflict") {
-      setResultErr({ message: "Points are not reaching the server: sort that out first (What now?).", problems: [] });
+      setResultErr({ message: tr("score.conflictFirst"), problems: [] });
       return;
     }
     setResultBusy(true);
@@ -414,10 +417,10 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       let out: { ok: true } | { ok: false; message: string; problems: ResultProblem[] };
       if (boot.chess) {
         const e = chessEntry(payload, { mode, competition: chessCompetitionFor(m.stage), legs: boot.legs ?? 1, organiser });
-        out = e.ok ? await c.sendResultNow(e) : { ok: false, message: e.problems[0]?.message ?? "Check the result.", problems: e.problems };
+        out = e.ok ? await c.sendResultNow(e) : { ok: false, message: e.problems[0] ? problemText(e.problems[0]) : tr("score.checkTheResult"), problems: e.problems };
       } else if (finished) {
         const q = queueableResult({ mode, engine: "games", rules: boot.config, payload });
-        out = q.ok ? await c.sendResultNow({ payload: q.payload, state: q.state, winner: q.winner }) : { ok: false, message: q.problems[0]?.message ?? "Check the score.", problems: q.problems };
+        out = q.ok ? await c.sendResultNow({ payload: q.payload, state: q.state, winner: q.winner }) : { ok: false, message: q.problems[0] ? problemText(q.problems[0]) : tr("score.checkTheScore"), problems: q.problems };
       } else {
         out = await c.enterResult(payload);
       }
@@ -450,10 +453,10 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       problems={resultErr?.problems ?? null}
       note={
         readOnly
-          ? "Read-only: take control of the match to record a result."
+          ? tr("score.noteReadOnly")
           : boot.chess || form?.correcting
-            ? "Sent straight to the server: it needs a connection."
-            : "Saved on this phone first: it reaches the server as soon as there is signal."
+            ? tr("score.noteDirect")
+            : tr("score.noteQueued")
       }
       onSubmit={(p) => void submitResult(p)}
       onCancel={
@@ -487,9 +490,9 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
             const rcv = shown && pairs && !shown.matchOver ? receivingPlayer(shown) : null;
             const srv = shown && pairs && !shown.matchOver ? servingPlayer(shown) : null;
             const who =
-              srv?.team === k ? `Serving: ${s.players[srv.index]?.name ?? ""}` : rcv?.team === k ? `Receiving: ${s.players[rcv.index]?.name ?? ""}` : c.opts.doubles && servingIdx?.team === k ? `Serving: ${s.players[servingIdx.index]?.name ?? ""}` : s.players.map((p) => p.name).join(" / ");
+              srv?.team === k ? tr("score.servingName", { name: s.players[srv.index]?.name ?? "" }) : rcv?.team === k ? tr("score.receivingName", { name: s.players[rcv.index]?.name ?? "" }) : c.opts.doubles && servingIdx?.team === k ? tr("score.servingName", { name: s.players[servingIdx.index]?.name ?? "" }) : s.players.map((p) => p.name).join(" / ");
             const aces = f.ace && shown?.stats ? shown.stats.aces[k] : 0;
-            return <Eyebrow size={10} tone="ink2" numberOfLines={1}>{`${who}${aces ? ` · ${aces} ace${aces === 1 ? "" : "s"}` : ""}`}</Eyebrow>;
+            return <Eyebrow size={10} tone="ink2" numberOfLines={1}>{`${who}${aces ? ` · ${tr("score.aces", { count: aces })}` : ""}`}</Eyebrow>;
           })()}
         </View>
         {sets.map((x, i) => (
@@ -522,19 +525,19 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           {/* A rubber not started yet: its tie's line-up can still change (with a reason once locked). */}
           {m.tie_id && (status === "scheduled" || status === "ready") && (courtReferee || organiser || staff?.referee?.role === "master_referee") ? (
             <Pressable onPress={() => router.push({ pathname: "/referee/lineup/[matchId]", params: { matchId: m.id } })} accessibilityRole="button" hitSlop={8} style={{ marginRight: 6 }}>
-              <Chip label="Line-up" />
+              <Chip label={tr("score.lineup")} />
             </Pressable>
           ) : null}
           <Pressable onPress={() => setSunlight(!sunlight)} accessibilityRole="switch" accessibilityState={{ checked: sunlight }} hitSlop={8}>
-            <Chip label={sunlight ? "Sunlight on" : "Sunlight"} ball={sunlight} icon={<Glyph name="sun" color={sunlight ? t.ballInk : t.ink2} size={13} />} />
+            <Chip label={sunlight ? tr("score.sunlightOn") : tr("score.sunlight")} ball={sunlight} icon={<Glyph name="sun" color={sunlight ? t.ballInk : t.ink2} size={13} />} />
           </Pressable>
         </View>
         {scoreRow("A")}
         {scoreRow("B")}
-        <Body tone="ink3" size={11}>{describeMatchRules(boot.config)}</Body>
+        <Body tone="ink3" size={11}>{rulesText(boot.config)}</Body>
         {f.ace && aceMoment(shown) ? (
           <View testID="ace-moment" style={{ position: "absolute", left: 16, top: -11, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-            <Eyebrow size={11} style={{ color: BALL_INK }}>Ace</Eyebrow>
+            <Eyebrow size={11} style={{ color: BALL_INK }}>{tr("score.ace")}</Eyebrow>
           </View>
         ) : null}
       </Card>
@@ -549,81 +552,81 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         <Card style={{ marginTop: 10, gap: 6, borderColor: expired ? t.live : t.warning, borderWidth: 1 }}>
           <Body weight="semi">
             {expired
-              ? "Your referee code has expired. Points are kept on this phone but cannot be sent."
-              : `Your referee code expires at ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${expiresAt - clock > 12 * 60 * 60 * 1000 ? " tomorrow" : ""}. Re-enter it at a break.`}
+              ? tr("score.codeExpired")
+              : tr(expiresAt - clock > 12 * 60 * 60 * 1000 ? "score.codeExpiresTomorrow" : "score.codeExpiresAt", { time: fmt().time(expiresAt) })}
           </Body>
-          <Button kind="ghost" label="Re-enter the code" onPress={() => setSheet({ kind: "code" })} />
+          <Button kind="ghost" label={tr("score.reenterCode")} onPress={() => setSheet({ kind: "code" })} />
         </Card>
       )}
 
       {/* Control: who is scoring this match. A finished match has nothing to hand over (as on the web). */}
       {readOnly && lease.ready && !finished && (
         <Card style={{ marginTop: 10, gap: 8, borderColor: t.warning, borderWidth: 1 }}>
-          <Body weight="semi">{lease.lostTo ? `Control moved to ${lease.lostTo}` : lease.heldByOther ? `Read-only: ${lease.holderLabel} is scoring` : "Not scoring yet"}</Body>
+          <Body weight="semi">{lease.lostTo ? tr("score.controlMovedTo", { name: lease.lostTo }) : lease.heldByOther ? tr("score.readOnlyScoring", { name: lease.holderLabel }) : tr("score.notScoringYet")}</Body>
           {lease.lostTo ? (
             <Body tone="ink2" size={12.5}>
               {pendingN > 0
-                ? `This phone is read-only now. Unsent points on it: ${pendingN}. They are kept; ask for control to send them.`
-                : "This phone is read-only now. Ask for control to score again."}
+                ? tr("score.readOnlyUnsent", { count: pendingN })
+                : tr("score.readOnlyNow")}
             </Body>
           ) : null}
           {lease.heldByOther ? (
-            <Button label={lease.myRequestPending ? "Waiting for a reply… ask again" : "Request control"} kind="ghost" onPress={() => void lease.requestControl()} />
+            <Button label={lease.myRequestPending ? tr("score.waitingReply") : tr("score.requestControl")} kind="ghost" onPress={() => void lease.requestControl()} />
           ) : (
-            <Button label="Take control" onPress={() => void lease.claim()} />
+            <Button label={tr("score.takeControl")} onPress={() => void lease.claim()} />
           )}
         </Card>
       )}
       {lease.incomingRequest && (
         <Card style={{ marginTop: 10, gap: 8, borderColor: t.ball, borderWidth: 2 }}>
-          <Body weight="semi">{`${lease.incomingRequest.deviceLabel ?? "Another phone"} wants to score this match`}</Body>
-          {pendingN > 0 ? <Body tone="live" size={12.5}>{`${plural(pendingN, "point")} on this phone must reach the server before you hand over.`}</Body> : null}
+          <Body weight="semi">{tr("score.wantsToScore", { name: lease.incomingRequest.deviceLabel ?? tr("score.anotherPhone") })}</Body>
+          {pendingN > 0 ? <Body tone="live" size={12.5}>{tr("score.mustSendFirst", { count: pendingN })}</Body> : null}
           {handNote && sheet === null ? <Body tone="live" size={12.5}>{handNote}</Body> : null}
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button kind="ghost" label="Decline" onPress={() => void lease.respond(false)} style={{ flex: 1 }} />
+            <Button kind="ghost" label={tr("score.decline")} onPress={() => void lease.respond(false)} style={{ flex: 1 }} />
             {pendingN > 0 && busy !== "handover" ? (
-              <Button kind="ghost" label="Send now" onPress={() => c.syncNow()} style={{ flex: 1 }} />
+              <Button kind="ghost" label={tr("score.sendNow")} onPress={() => c.syncNow()} style={{ flex: 1 }} />
             ) : (
-              <Button label={busy === "handover" ? "Sending…" : "Hand over"} disabled={busy !== null || pendingN > 0} onPress={() => void handOver()} style={{ flex: 1 }} />
+              <Button label={busy === "handover" ? tr("score.sending") : tr("score.handOver")} disabled={busy !== null || pendingN > 0} onPress={() => void handOver()} style={{ flex: 1 }} />
             )}
           </View>
         </Card>
       )}
       {c.question && (
         <Card style={{ marginTop: 10, gap: 8, borderColor: t.live, borderWidth: 1 }}>
-          <Body weight="semi">{`This phone has ${plural(c.question.pending, "unsent point")}, but the server's score has moved on.`}</Body>
+          <Body weight="semi">{tr("score.unsentMovedOn", { count: c.question.pending })}</Body>
           <Body tone="ink2" size={12.5}>
-            {`Its points start at event ${c.question.first}; the server is at event ${c.question.serverNo}. Sent as they are, the server would refuse them.`}
+            {tr("score.eventsMismatch", { first: c.question.first, server: c.question.serverNo })}
           </Body>
-          <Button kind="ghost" label="Keep this phone's score" onPress={() => void c.keepLocal()} />
-          <Button kind="danger" label={busy === "load" ? "Loading…" : "Use the server's score"} disabled={busy !== null} onPress={() => void loadServer()} />
-          <Body tone="ink3" size={12}>The server's score sets this phone's unsent points aside; they are kept on the phone, never sent.</Body>
+          <Button kind="ghost" label={tr("score.keepPhoneScore")} onPress={() => void c.keepLocal()} />
+          <Button kind="danger" label={busy === "load" ? tr("common.loading") : tr("score.useServerScore")} disabled={busy !== null} onPress={() => void loadServer()} />
+          <Body tone="ink3" size={12}>{tr("score.serverSetsAside")}</Body>
         </Card>
       )}
       {c.blocked && !c.question && (
         <Card style={{ marginTop: 10, gap: 8, borderColor: t.warning, borderWidth: 1 }}>
           <Body weight="semi">{c.blocked}</Body>
-          <Button kind="ghost" label={busy === "load" ? "Loading…" : "Load the server score"} disabled={busy !== null} onPress={() => void loadServer()} />
+          <Button kind="ghost" label={busy === "load" ? tr("common.loading") : tr("score.loadServerScore")} disabled={busy !== null} onPress={() => void loadServer()} />
         </Card>
       )}
       {c.writeError && !c.question && (
         <Card style={{ marginTop: 10, gap: 6, borderColor: t.live, borderWidth: 1 }}>
           <Body weight="semi" tone="live">{c.writeError}</Body>
-          <Body tone="blue" weight="semi" onPress={c.clearWriteError}>Dismiss</Body>
+          <Body tone="blue" weight="semi" onPress={c.clearWriteError}>{tr("score.dismiss")}</Body>
         </Card>
       )}
       {sync.kind === "conflict" && (
         <Card style={{ marginTop: 10, gap: 6, borderColor: t.live, borderWidth: 1 }}>
           <Body weight="semi">{sync.message}</Body>
-          <Body tone="ink2" size={12.5}>Scoring is paused on this phone: points scored now would not reach the server either.</Body>
-          <Button kind="ghost" label="What now?" onPress={() => setSheet({ kind: "conflict" })} />
+          <Body tone="ink2" size={12.5}>{tr("score.conflictPaused")}</Body>
+          <Button kind="ghost" label={tr("score.whatNow")} onPress={() => setSheet({ kind: "conflict" })} />
         </Card>
       )}
       {c.rest && restLeft > 0 && !f.timerChangeover && !f.timerSetBreak && (
         <Card style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <Body weight="semi">{c.rest.kind === "set_break" ? "Set break" : c.rest.kind === "tiebreak" ? "Change ends" : c.rest.changeEnds ? "Changeover · change ends" : "Changeover"}</Body>
+          <Body weight="semi">{c.rest.kind === "set_break" ? tr("score.setBreak") : c.rest.kind === "tiebreak" ? tr("score.changeEnds") : c.rest.changeEnds ? tr("score.changeoverChangeEnds") : tr("score.changeover")}</Body>
           <Num size={26}>{`${Math.floor(restLeft / 60)}:${String(restLeft % 60).padStart(2, "0")}`}</Num>
-          <Body tone="blue" weight="semi" onPress={c.clearRest}>Dismiss</Body>
+          <Body tone="blue" weight="semi" onPress={c.clearRest}>{tr("score.dismiss")}</Body>
         </Card>
       )}
 
@@ -633,53 +636,55 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         {(boot.chess || resultOnly) && !finished ? (
           boot.chess && !resultAllowed ? (
             <Card style={{ flex: 1, justifyContent: "center", gap: 10 }}>
-              <Display size={20}>Chess is scored on the web</Display>
-              <Button label="Open the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
+              <Display size={20}>{tr("score.chessOnWeb")}</Display>
+              <Button label={tr("score.openWebConsole")} onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
             </Card>
           ) : (
             <Card style={{ flex: 1, padding: 0 }}>
               <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }} keyboardShouldPersistTaps="handled">
                 {resultEntry(true)}
-                {boot.chess ? <Button kind="ghost" label="Play the moves on the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} /> : null}
+                {boot.chess ? <Button kind="ghost" label={tr("score.playMovesWeb")} onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} /> : null}
               </ScrollView>
             </Card>
           )
         ) : !shown && !finished ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
-            <Display size={22}>Who serves first?</Display>
-            {(!A.checkedIn || !B.checkedIn) && !m.tie_id ? <Body tone="live" size={13}>{`${!A.checkedIn ? A.name : B.name} is not checked in yet.`}</Body> : null}
+            <Display size={22}>{tr("score.whoServesFirst")}</Display>
+            {(!A.checkedIn || !B.checkedIn) && !m.tie_id ? <Body tone="live" size={13}>{tr("score.notCheckedIn", { name: !A.checkedIn ? A.name : B.name })}</Body> : null}
             {(["A", "B"] as TeamKey[]).map((k) => (
               <Button key={k} label={side(k).name} disabled={readOnly} onPress={() => guard(() => void c.start(k))} />
             ))}
-            {resultAllowed ? <Button kind="ghost" label="Enter the final result instead" disabled={readOnly} onPress={() => guard(() => showResultSheet(false, null))} /> : null}
+            {resultAllowed ? <Button kind="ghost" label={tr("score.enterFinalInstead")} disabled={readOnly} onPress={() => guard(() => showResultSheet(false, null))} /> : null}
           </Card>
         ) : awaitingConfirm ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
-            <Display size={22}>{`${shown?.winner ? side(shown.winner).name : ""} wins?`}</Display>
-            <Body tone="ink2">The score is final. Confirm the result to send it to the standings and screens, or undo the last point.</Body>
-            <Button label="Confirm result" disabled={readOnly} onPress={() => guard(() => void c.confirmResult())} />
-            <Button kind="ghost" label="Undo last point" disabled={readOnly} onPress={() => guard(() => void c.undo())} />
+            <Display size={22}>{tr("score.winsQuestion", { name: shown?.winner ? side(shown.winner).name : "" })}</Display>
+            <Body tone="ink2">{tr("score.scoreIsFinal")}</Body>
+            <Button label={tr("score.confirmResult")} disabled={readOnly} onPress={() => guard(() => void c.confirmResult())} />
+            <Button kind="ghost" label={tr("score.undoLastPoint")} disabled={readOnly} onPress={() => guard(() => void c.undo())} />
           </Card>
         ) : finished ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
-            <Display size={22}>{winnerKey ? `${side(winnerKey).name} wins` : "Match finished"}</Display>
+            <Display size={22}>{winnerKey ? tr("score.nameWins", { name: side(winnerKey).name }) : tr("score.matchFinished")}</Display>
             <Body tone="ink2">
               {status === "pending_sync" || (pendingN > 0 && !readOnly)
-                ? `The result is saved on this phone. It becomes official once it reaches the server${pendingN > 0 ? ` (${pendingN} to send)` : ""}.`
+                ? pendingN > 0
+                  ? tr("score.savedOnPhoneN", { count: pendingN })
+                  : tr("score.savedOnPhone")
                 : status === "completed" || (shown?.matchOver && !SERVER_FINISHED.includes(status))
-                  ? "The result is in."
-                  : `Ended: ${status}.`}
+                  ? tr("score.resultIn")
+                  : tr("score.ended", { status: ENDED_STATUS.includes(status) ? tr(`score.status_${status}` as "score.status_walkover") : status })}
             </Body>
-            {!readOnly && c.canUndo ? <Button kind="ghost" label="Undo (reopen the match)" onPress={() => guard(() => setSheet({ kind: "reopen" }))} /> : null}
+            {!readOnly && c.canUndo ? <Button kind="ghost" label={tr("score.undoReopen")} onPress={() => guard(() => setSheet({ kind: "reopen" }))} /> : null}
             {correctable ? (
               <Button
                 kind="ghost"
-                label="Correct the result"
-                accessibilityHint="Replaces the recorded score. Needs a connection."
+                label={tr("score.correctResult")}
+                accessibilityHint={tr("score.correctHint")}
                 onPress={() => guard(() => showResultSheet(true, !boot.chess && shown?.completedSets.length ? { sets: enteredSetsFromState(shown) } : null))}
               />
             ) : null}
-            <Button label="Back to matches" onPress={() => router.back()} />
+            <Button label={tr("score.backToMatches")} onPress={() => router.back()} />
           </Card>
         ) : shown ? (
           <PadV2
@@ -708,36 +713,36 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         ) : null}
       </View>
 
-      <Sheetish open={sheet?.kind === "confirm-point"} onClose={() => setSheet(null)} title="Check">
+      <Sheetish open={sheet?.kind === "confirm-point"} onClose={() => setSheet(null)} title={tr("score.check")}>
         {sheet?.kind === "confirm-point" && (
           <>
-            <Body size={17} weight="semi">{`${side(sheet.team).name} is about to win ${sheet.what}.`}</Body>
-            <Button label="Yes, point" onPress={() => { void c.point(sheet.team); setSheet(null); }} />
-            <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+            <Body size={17} weight="semi">{tr("score.aboutToWin", { name: side(sheet.team).name, what: winWhat(sheet.what) })}</Body>
+            <Button label={tr("score.yesPoint")} onPress={() => { void c.point(sheet.team); setSheet(null); }} />
+            <Button kind="ghost" label={tr("common.cancel")} onPress={() => setSheet(null)} />
           </>
         )}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "reopen"} onClose={() => setSheet(null)} title="Reopen the match?">
-        <Body size={17} weight="semi">Undo takes the result back and puts the match live again.</Body>
-        <Body tone="ink2" size={13}>The standings, the draw and the venue screens lose this result until the match is finished again.</Body>
-        <Button kind="danger" label="Undo and reopen" onPress={() => { void c.undo(); setSheet(null); }} />
-        <Button kind="ghost" label="Keep the result" onPress={() => setSheet(null)} />
+      <Sheetish open={sheet?.kind === "reopen"} onClose={() => setSheet(null)} title={tr("score.reopenTitle")}>
+        <Body size={17} weight="semi">{tr("score.reopenBody")}</Body>
+        <Body tone="ink2" size={13}>{tr("score.reopenNote")}</Body>
+        <Button kind="danger" label={tr("score.undoAndReopen")} onPress={() => { void c.undo(); setSheet(null); }} />
+        <Button kind="ghost" label={tr("score.keepResult")} onPress={() => setSheet(null)} />
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "more"} onClose={() => setSheet(null)} title="More">
+      <Sheetish open={sheet?.kind === "more"} onClose={() => setSheet(null)} title={tr("score.more")}>
         {callMaster ? (
-          <Button kind="danger" label="Call master referee" icon={<Glyph name="megaphone" color="#FFFFFF" size={20} />} onPress={() => setSheet({ kind: "call" })} />
+          <Button kind="danger" label={tr("score.callMaster")} icon={<Glyph name="megaphone" color="#FFFFFF" size={20} />} onPress={() => setSheet({ kind: "call" })} />
         ) : null}
         {callNote ? <Body tone="ink2" size={12.5}>{callNote}</Body> : null}
-        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration ? <Eyebrow size={10} tone="ink3">Breaks</Eyebrow> : null}
+        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration ? <Eyebrow size={10} tone="ink3">{tr("score.breaks")}</Eyebrow> : null}
         {(
           [
-            ["break", f.breakStopwatch, "Break", "Stopwatch"],
-            ["changeover", f.timerChangeover, "Changeover", "1:30"],
-            ["set_break", f.timerSetBreak, "Set break", "2:00"],
-            ["bathroom", f.bathroom, "Bathroom break", "warns 10:00"],
-            ["hydration", f.hydration, "Hydration break", "10:00"],
+            ["break", f.breakStopwatch, timerLabel("break"), tr("score.stopwatch")],
+            ["changeover", f.timerChangeover, timerLabel("changeover"), "1:30"],
+            ["set_break", f.timerSetBreak, timerLabel("set_break"), "2:00"],
+            ["bathroom", f.bathroom, timerLabel("bathroom"), tr("score.warnsAt", { time: "10:00" })],
+            ["hydration", f.hydration, timerLabel("hydration"), "10:00"],
           ] as [TimerKind, boolean, string, string][]
         )
           .filter(([, on]) => on)
@@ -757,82 +762,82 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
               <Num size={13} tone="ink2">{hint}</Num>
             </Pressable>
           ))}
-        {f.manualSwap || f.matchLog ? <Eyebrow size={10} tone="ink3">Court</Eyebrow> : null}
+        {f.manualSwap || f.matchLog ? <Eyebrow size={10} tone="ink3">{tr("score.courtHeading")}</Eyebrow> : null}
         <View style={{ flexDirection: "row", gap: 8 }}>
-          {f.manualSwap ? <Button kind="ghost" label="Swap left / right" style={{ flex: 1 }} onPress={() => { toggleSwap(); setSheet(null); }} /> : null}
-          {f.matchLog ? <Button kind="ghost" label="Match log" style={{ flex: 1 }} onPress={() => void openLog()} /> : null}
+          {f.manualSwap ? <Button kind="ghost" label={tr("score.swapSides")} style={{ flex: 1 }} onPress={() => { toggleSwap(); setSheet(null); }} /> : null}
+          {f.matchLog ? <Button kind="ghost" label={tr("score.matchLog")} style={{ flex: 1 }} onPress={() => void openLog()} /> : null}
         </View>
-        <Eyebrow size={10} tone="ink3">Match</Eyebrow>
+        <Eyebrow size={10} tone="ink3">{tr("score.matchHeading")}</Eyebrow>
         {c.opts.doubles || pairs
-          ? (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={`Swap ${v2Sides[k].name}'s server`} onPress={() => guard(() => { void c.swapServer(k); setSheet(null); })} />)
+          ? (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={tr("score.swapServer", { name: v2Sides[k].name })} onPress={() => guard(() => { void c.swapServer(k); setSheet(null); })} />)
           : null}
-        {boot.tennis && <Button kind="ghost" label="Code violation" onPress={() => guard(() => setSheet({ kind: "violation", team: null }))} />}
-        {resultAllowed ? <Button kind="ghost" label="Enter the final result" onPress={() => guard(() => showResultSheet(false, null))} /> : null}
-        <Button kind="ghost" label="End the set" onPress={() => guard(() => setSheet({ kind: "end", event: "SET" }))} />
-        <Button kind="ghost" label="Retirement" onPress={() => guard(() => setSheet({ kind: "end", event: "RETIREMENT" }))} />
-        <Button kind="ghost" label="Walkover" onPress={() => guard(() => setSheet({ kind: "end", event: "WALKOVER" }))} />
-        <Button kind="ghost" label="Disqualification" onPress={() => guard(() => setSheet({ kind: "end", event: "DISQUALIFICATION" }))} />
-        <Button kind="ghost" label="End the match now" onPress={() => guard(() => setSheet({ kind: "end", event: "FORCE_END" }))} />
-        <Button kind="ghost" label="Hand over to another phone or the web" onPress={() => { setHandNote(null); setSheet({ kind: "handover" }); }} />
+        {boot.tennis && <Button kind="ghost" label={tr("score.codeViolation")} onPress={() => guard(() => setSheet({ kind: "violation", team: null }))} />}
+        {resultAllowed ? <Button kind="ghost" label={tr("score.enterFinal")} onPress={() => guard(() => showResultSheet(false, null))} /> : null}
+        <Button kind="ghost" label={tr("score.endSet")} onPress={() => guard(() => setSheet({ kind: "end", event: "SET" }))} />
+        <Button kind="ghost" label={tr("score.retirement")} onPress={() => guard(() => setSheet({ kind: "end", event: "RETIREMENT" }))} />
+        <Button kind="ghost" label={tr("score.walkover")} onPress={() => guard(() => setSheet({ kind: "end", event: "WALKOVER" }))} />
+        <Button kind="ghost" label={tr("score.disqualification")} onPress={() => guard(() => setSheet({ kind: "end", event: "DISQUALIFICATION" }))} />
+        <Button kind="ghost" label={tr("score.endMatchNow")} onPress={() => guard(() => setSheet({ kind: "end", event: "FORCE_END" }))} />
+        <Button kind="ghost" label={tr("score.handOverTo")} onPress={() => { setHandNote(null); setSheet({ kind: "handover" }); }} />
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "call"} onClose={() => setSheet(null)} title="Call master referee">
-        <Display size={20}>{`Call the master referee to ${boot.courtName}?`}</Display>
-        <Body tone="ink2">Every master referee on duty gets an alert.</Body>
+      <Sheetish open={sheet?.kind === "call"} onClose={() => setSheet(null)} title={tr("score.callMaster")}>
+        <Display size={20}>{tr("score.callMasterQuestion", { court: boot.courtName })}</Display>
+        <Body tone="ink2">{tr("score.callMasterNote")}</Body>
         <Button
           kind="danger"
-          label="Call"
+          label={tr("score.call")}
           onPress={() => {
             setSheet(null);
-            setCallNote("Calling…");
-            void requestAssistance(m.id).then((r) => setCallNote(r.ok ? "Master referee called: their answer shows under the score." : r.message));
+            setCallNote(tr("score.calling"));
+            void requestAssistance(m.id).then((r) => setCallNote(r.ok ? tr("score.masterCalled") : r.message));
           }}
         />
-        <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+        <Button kind="ghost" label={tr("common.cancel")} onPress={() => setSheet(null)} />
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "let"} onClose={() => setSheet(null)} title="Let">
+      <Sheetish open={sheet?.kind === "let"} onClose={() => setSheet(null)} title={tr("score.let")}>
         <Pressable testID="let-serve" accessibilityRole="button" onPress={() => { void c.callLet("serve"); setSheet(null); }} style={{ padding: 16, borderRadius: 18, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, gap: 4 }}>
-          <Body weight="bold" size={16}>⊕  Serve let — replay this serve</Body>
-          <Body tone="ink2" size={13}>{`Serve touched the net and landed in. Same serve again${shown?.serve ? ": still the 2nd serve." : "."}`}</Body>
+          <Body weight="bold" size={16}>{tr("score.serveLet")}</Body>
+          <Body tone="ink2" size={13}>{shown?.serve ? tr("score.serveLetNote2") : tr("score.serveLetNote")}</Body>
         </Pressable>
         <Pressable testID="let-point" accessibilityRole="button" onPress={() => { void c.callLet("point"); setSheet(null); }} style={{ padding: 16, borderRadius: 18, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, gap: 4 }}>
-          <Body weight="bold" size={16}>↶  Replay point — interference</Body>
-          <Body tone="ink2" size={13}>Something interfered with play. The whole point is replayed from the 1st serve.</Body>
+          <Body weight="bold" size={16}>{tr("score.replayPoint")}</Body>
+          <Body tone="ink2" size={13}>{tr("score.replayPointNote")}</Body>
         </Pressable>
-        <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+        <Button kind="ghost" label={tr("common.cancel")} onPress={() => setSheet(null)} />
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "confirm-v2"} onClose={() => setSheet(null)} title="Check">
+      <Sheetish open={sheet?.kind === "confirm-v2"} onClose={() => setSheet(null)} title={tr("score.check")}>
         {sheet?.kind === "confirm-v2" && (
           <>
-            <Body size={17} weight="semi">{`${sheet.action === "ace" ? "Ace" : "Double fault"}: ${side(sheet.team).name} is about to win ${sheet.what}.`}</Body>
-            <Button label="Yes" onPress={() => { void (sheet.action === "ace" ? c.ace() : c.fault()); setSheet(null); }} />
-            <Button kind="ghost" label="Cancel" onPress={() => setSheet(null)} />
+            <Body size={17} weight="semi">{tr(sheet.action === "ace" ? "score.aceAboutToWin" : "score.dfAboutToWin", { name: side(sheet.team).name, what: winWhat(sheet.what) })}</Body>
+            <Button label={tr("common.yes")} onPress={() => { void (sheet.action === "ace" ? c.ace() : c.fault()); setSheet(null); }} />
+            <Button kind="ghost" label={tr("common.cancel")} onPress={() => setSheet(null)} />
           </>
         )}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "break-team"} onClose={() => setSheet(null)} title={sheet?.kind === "break-team" ? `${TIMERS[sheet.timer].label}: which side?` : ""}>
+      <Sheetish open={sheet?.kind === "break-team"} onClose={() => setSheet(null)} title={sheet?.kind === "break-team" ? tr("score.whichSide", { what: timerLabel(sheet.timer) }) : ""}>
         {sheet?.kind === "break-team" &&
           (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={v2Sides[k].name} onPress={() => { void c.startBreak(sheet.timer, k); setSheet(null); }} />)}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "time-team"} onClose={() => setSheet(null)} title={sheet?.kind === "time-team" ? `${sheet.decision === "code_violation" ? "Code violation (time)" : "Warning"}: which side?` : ""}>
+      <Sheetish open={sheet?.kind === "time-team"} onClose={() => setSheet(null)} title={sheet?.kind === "time-team" ? tr("score.whichSide", { what: sheet.decision === "code_violation" ? tr("score.codeViolationTime") : tr("score.warning") }) : ""}>
         {sheet?.kind === "time-team" &&
           (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={v2Sides[k].name} onPress={() => { void c.decide(sheet.decision, k); setSheet(null); }} />)}
       </Sheetish>
 
-      <Sheetish tall open={sheet?.kind === "log"} onClose={() => setSheet(null)} title="Match log">
-        <Body tone="ink2" size={12.5}>Newest first · every point, call, violation and break</Body>
-        {log.error ? <Body tone="live">{log.error}</Body> : log.entries ? <MatchLogList entries={log.entries} /> : <Body tone="ink2">Loading…</Body>}
+      <Sheetish tall open={sheet?.kind === "log"} onClose={() => setSheet(null)} title={tr("score.matchLog")}>
+        <Body tone="ink2" size={12.5}>{tr("score.logNote")}</Body>
+        {log.error ? <Body tone="live">{log.error}</Body> : log.entries ? <MatchLogList entries={log.entries} /> : <Body tone="ink2">{tr("common.loading")}</Body>}
       </Sheetish>
 
-      <Sheetish tall open={askOrder && sheet === null} onClose={() => {}} title={`Start of set ${c.state?.currentSet ?? 1}`}>
+      <Sheetish tall open={askOrder && sheet === null} onClose={() => {}} title={tr("score.startOfSet", { n: c.state?.currentSet ?? 1 })}>
         {askOrder && c.state ? <ServeOrderForm key={c.state.currentSet} sides={v2Sides} teamFree={tossDecidesServer(c.state)} initial={c.state ? lockServeOrder(c.state, defaultServeOrder(c.state)) : defaultServeOrder(c.state)} onConfirm={(o) => guard(() => void c.serveOrder(c.state ? lockServeOrder(c.state, o) : o))} /> : null}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "violation"} onClose={() => setSheet(null)} title="Code violation">
+      <Sheetish open={sheet?.kind === "violation"} onClose={() => setSheet(null)} title={tr("score.codeViolation")}>
         {sheet?.kind === "violation" &&
           (sheet.team === null ? (
             (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={side(k).name} onPress={() => setSheet({ kind: "violation", team: k })} />)
@@ -841,7 +846,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
               <Button
                 key={o}
                 kind="ghost"
-                label={`${OFFENCE_LABELS[o]} → ${PENALTY_LABELS[c.penaltyFor(sheet.team!, o)]}`}
+                label={`${offenceLabel(o)} → ${penaltyLabel(c.penaltyFor(sheet.team!, o))}`}
                 onPress={() => {
                   void c.violation(sheet.team!, o);
                   setSheet(null);
@@ -851,7 +856,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           ))}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "end"} onClose={() => setSheet(null)} title={sheet?.kind === "end" ? ({ SET: "Who won the set?", FORCE_END: "Who won the match?", WALKOVER: "Who did not turn up?", RETIREMENT: "Who retired?", DISQUALIFICATION: "Who is disqualified?" } as const)[sheet.event] : ""}>
+      <Sheetish open={sheet?.kind === "end"} onClose={() => setSheet(null)} title={sheet?.kind === "end" ? tr(({ SET: "score.whoWonSet", FORCE_END: "score.whoWonMatch", WALKOVER: "score.whoNoShow", RETIREMENT: "score.whoRetired", DISQUALIFICATION: "score.whoDisqualified" } as const)[sheet.event]) : ""}>
         {sheet?.kind === "end" &&
           (["A", "B"] as TeamKey[]).map((k) => (
             <Button
@@ -869,24 +874,24 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           ))}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "conflict"} onClose={() => setSheet(null)} title="Points are not reaching the server">
-        <Body weight="semi">{sync.kind === "conflict" ? sync.message : "The server refused this phone's points."}</Body>
+      <Sheetish open={sheet?.kind === "conflict"} onClose={() => setSheet(null)} title={tr("score.notReachingTitle")}>
+        <Body weight="semi">{sync.kind === "conflict" ? sync.message : tr("score.serverRefused")}</Body>
         <Body tone="ink2" size={13}>
-          {`${plural(pendingN, "point")} on this phone ${pendingN === 1 ? "is" : "are"} waiting. Points scored now would be refused too, so scoring is paused here.`}
+          {tr("score.conflictWaiting", { count: pendingN })}
         </Body>
         {handNote ? <Body tone="live" size={12.5}>{handNote}</Body> : null}
-        <Button label="Try sending again" onPress={() => { c.syncNow(); setSheet(null); }} />
-        <Button kind="danger" label={busy === "load" ? "Loading…" : "Load the server score"} disabled={busy !== null} onPress={() => void loadServer()} />
-        <Body tone="ink3" size={12}>Loading the server score sets this phone's unsent points aside (kept on the phone, never sent); re-enter any that are missing.</Body>
-        <Button kind="ghost" label="Open the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
+        <Button label={tr("score.trySendAgain")} onPress={() => { c.syncNow(); setSheet(null); }} />
+        <Button kind="danger" label={busy === "load" ? tr("common.loading") : tr("score.loadServerScore")} disabled={busy !== null} onPress={() => void loadServer()} />
+        <Body tone="ink3" size={12}>{tr("score.loadingAside")}</Body>
+        <Button kind="ghost" label={tr("score.openWebConsole")} onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
       </Sheetish>
 
-      <Sheetish open={codeSheet} onClose={closeCode} title="Referee code">
+      <Sheetish open={codeSheet} onClose={closeCode} title={tr("score.refereeCode")}>
         <StaffCodeForm
           note={
             expired || sync.kind === "signed_out"
-              ? "The server no longer accepts this phone's referee code. Scoring carries on: points stay on this phone and send once the code is entered again."
-              : "Enter the code from the tournament desk to stay signed in. Points on this phone are kept."
+              ? tr("score.codeRefused")
+              : tr("score.codeStay")
           }
           onDone={() => {
             setSheet(null);
@@ -895,7 +900,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
             c.syncNow();
           }}
         />
-        <Button kind="ghost" label="Keep scoring on this phone" onPress={closeCode} />
+        <Button kind="ghost" label={tr("score.keepScoring")} onPress={closeCode} />
       </Sheetish>
 
       <Sheetish
@@ -907,19 +912,19 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           setForm(null);
           setResultErr(null);
         }}
-        title={form?.correcting ? "Correct the result" : "Final result"}
+        title={form?.correcting ? tr("score.correctResult") : tr("score.finalResult")}
       >
         {sheet?.kind === "result" ? resultEntry(false) : null}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "handover"} onClose={() => setSheet(null)} title="Hand over">
-        <Body>Send every point first, then release control. The next phone, or the web console, takes over from the server's score.</Body>
-        {pendingN > 0 ? <Body tone="ink2" size={12.5}>{`${plural(pendingN, "point")} still to send.`}</Body> : null}
+      <Sheetish open={sheet?.kind === "handover"} onClose={() => setSheet(null)} title={tr("score.handOver")}>
+        <Body>{tr("score.handOverBody")}</Body>
+        {pendingN > 0 ? <Body tone="ink2" size={12.5}>{tr("score.stillToSend", { count: pendingN })}</Body> : null}
         {handNote ? <Body tone="live" size={12.5}>{handNote}</Body> : null}
-        <Button label={busy === "release" ? "Sending…" : "Send and release"} disabled={busy !== null} onPress={() => void sendAndRelease()} />
-        <Button kind="ghost" label="Open the web console" onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
-        <Body tone="ink3" size={12}>If this phone cannot send its points, release anyway: the points on it are kept, never sent, and must be re-entered on the new device.</Body>
-        <Button kind="danger" label="Release without sending" disabled={busy !== null} onPress={() => void (async () => { await c.abandonQueue(); await lease.release(); setSheet(null); })()} />
+        <Button label={busy === "release" ? tr("score.sending") : tr("score.sendAndRelease")} disabled={busy !== null} onPress={() => void sendAndRelease()} />
+        <Button kind="ghost" label={tr("score.openWebConsole")} onPress={() => void Linking.openURL(`${config.apiBaseUrl}/referee/matches/${m.id}/score`)} />
+        <Body tone="ink3" size={12}>{tr("score.releaseNote")}</Body>
+        <Button kind="danger" label={tr("score.releaseWithout")} disabled={busy !== null} onPress={() => void (async () => { await c.abandonQueue(); await lease.release(); setSheet(null); })()} />
       </Sheetish>
     </View>
   );
@@ -932,6 +937,7 @@ const BREAK_GLYPH: Record<string, GlyphName> = { break: "stopwatch", changeover:
 
 export default function ScoreRoute() {
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
+  const tr = useT();
   const staff = session.use((s) => s.staff);
   const deviceId = session.use((s) => s.installationId) ?? "unknown";
   const [sunlight, setSun] = useState<boolean>(getJson("ms.sunlight", false));
@@ -976,7 +982,7 @@ export default function ScoreRoute() {
         <WaitingForLineups
           matchId={matchId}
           onSaved={() => void refetch()}
-          message={`${boot.data.waitingForLineups ?? "A nation"}'s captain has not nominated the players for this rubber yet. The court referee, a master referee or the tournament desk enters them. This page checks again every 10 seconds.`}
+          message={tr("score.waitingLineupsMessage", { nation: boot.data.waitingForLineups ?? tr("score.aNation") })}
         />
       </SchemeScope>
     );
@@ -991,11 +997,12 @@ export default function ScoreRoute() {
 /** Signed out (or the code lapsed while the app was closed): sign in right here, the match's points stay queued. */
 function SignInHere() {
   const { t } = useTheme();
+  const tr = useT();
   return (
     <View style={{ flex: 1, backgroundColor: t.floor, justifyContent: "center", gap: 12, padding: 24 }}>
-      <Display size={22}>Referee code needed</Display>
-      <StaffCodeForm note="Points already on this phone are kept, and send once you are signed in." />
-      <Button kind="ghost" label="Back" onPress={() => router.back()} />
+      <Display size={22}>{tr("score.codeNeeded")}</Display>
+      <StaffCodeForm note={tr("score.codeNeededNote")} />
+      <Button kind="ghost" label={tr("common.back")} onPress={() => router.back()} />
     </View>
   );
 }
@@ -1003,10 +1010,11 @@ function SignInHere() {
 /** The match is not on this phone yet: opening, no signal, or refused. Points already queued are untouched. */
 function Opening({ boot }: { boot: LoadQuery }) {
   const { t } = useTheme();
+  const tr = useT();
   return (
     <View style={{ flex: 1, backgroundColor: t.floor, justifyContent: "center", gap: 12, padding: 24 }}>
-      <LoadState queries={[boot]} what="the match" errorNote={boot.error instanceof ApiError && boot.error.status >= 400 && boot.error.status < 500 ? `${boot.error.message} Points already on this phone are safe.` : "Points already on this phone are safe. Try again in a moment."} />
-      <Button kind="ghost" label="Back" onPress={() => router.back()} />
+      <LoadState queries={[boot]} what={tr("score.theMatch")} errorNote={boot.error instanceof ApiError && boot.error.status >= 400 && boot.error.status < 500 ? tr("score.safeAfter", { message: boot.error.message }) : tr("score.safeNote")} />
+      <Button kind="ghost" label={tr("common.back")} onPress={() => router.back()} />
     </View>
   );
 }
@@ -1014,10 +1022,11 @@ function Opening({ boot }: { boot: LoadQuery }) {
 /** No players for this rubber yet: the court referee (or a master referee) enters them right here. */
 function WaitingForLineups({ matchId, message, onSaved }: { matchId: string; message: string; onSaved: () => void }) {
   const { t } = useTheme();
+  const tr = useT();
   const insets = useSafeAreaInsets();
   return (
     <ScrollView style={{ flex: 1, backgroundColor: t.floor }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24, gap: 12 }} keyboardShouldPersistTaps="handled">
-      <BackHeader label="Matches" />
+      <BackHeader label={tr("score.matches")} />
       <LineupScreenBody matchId={matchId} onSaved={onSaved} fallback={message} />
     </ScrollView>
   );
@@ -1025,11 +1034,12 @@ function WaitingForLineups({ matchId, message, onSaved }: { matchId: string; mes
 
 function Waiting({ error, message }: { error: boolean; message?: string }) {
   const { t } = useTheme();
+  const tr = useT();
   return (
     <View style={{ flex: 1, backgroundColor: t.floor, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
-      <Display size={22}>{message ? "Waiting for the line-ups" : error ? "Could not open the match" : "Opening the match…"}</Display>
-      <Body tone="ink2" style={{ textAlign: "center" }}>{message ?? (error ? "Check the signal. Points already on this phone are safe." : "")}</Body>
-      <Button kind="ghost" label="Back" onPress={() => router.back()} />
+      <Display size={22}>{message ? tr("score.waitingLineups") : error ? tr("score.couldNotOpen") : tr("score.opening")}</Display>
+      <Body tone="ink2" style={{ textAlign: "center" }}>{message ?? (error ? tr("score.checkSignalSafe") : "")}</Body>
+      <Button kind="ghost" label={tr("common.back")} onPress={() => router.back()} />
     </View>
   );
 }

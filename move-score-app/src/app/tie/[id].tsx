@@ -19,6 +19,7 @@ import { LoadState } from "../../ui/LoadState";
 import { toggleFollow, useFollowing } from "../../state/follows";
 import { session } from "../../state/session";
 import { openTeam, openTournament } from "../../nav/links";
+import { tr as trNow, useT } from "../../i18n";
 
 /** The server takes at most this many taps per call. */
 const MAX_PER_BATCH = 30;
@@ -37,6 +38,7 @@ type Sent = { nation: string; n: number; base: number; at: number };
  */
 function CheerMeter({ tieId, a, b, live }: { tieId: string; a: { code: string; iso2: string | null }; b: { code: string; iso2: string | null }; live: boolean }) {
   const { t } = useTheme();
+  const tr = useT();
   const q = useCheers(tieId, live);
   const { refetch } = q;
   const pending = useRef<Record<string, number>>({});
@@ -85,9 +87,9 @@ function CheerMeter({ tieId, a, b, live }: { tieId: string; a: { code: string; i
             setLocal((l) => ({ ...l, [nation]: Math.max(0, (l[nation] ?? 0) - n) }));
             if (e instanceof ApiError && e.status === 429) {
               restUntil.current = Date.now() + REST_MS;
-              setNote("What a crowd! You've cheered a lot this hour, so the meter is resting your taps for a few minutes.");
+              setNote(trNow("screens.cheerRest"));
             } else if (isOffline(e)) {
-              setNote("You're offline, so those cheers didn't reach the meter. Try again when you're back.");
+              setNote(trNow("screens.cheerOffline"));
             }
           });
       }
@@ -113,16 +115,16 @@ function CheerMeter({ tieId, a, b, live }: { tieId: string; a: { code: string; i
   };
   return (
     <Card style={{ gap: 12 }}>
-      <Eyebrow>Crowd meter</Eyebrow>
+      <Eyebrow>{tr("screens.crowdMeter")}</Eyebrow>
       <Animated.View style={[{ height: 14, borderRadius: 7, overflow: "hidden", flexDirection: "row", backgroundColor: t.chip }, pulse]}>
         <View style={{ flex: share, backgroundColor: t.ball }} />
         <View style={{ flex: 1 - share, backgroundColor: t.skinA }} />
       </Animated.View>
       <View style={{ flexDirection: "row", gap: 10 }}>
         {[a, b].map((n) => (
-          <Pressable key={n.code} accessibilityRole="button" accessibilityLabel={`Cheer for ${n.code}, ${count(n.code)} cheers`} onPress={() => cheer(n.code)} style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 16, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, transform: [{ scale: pressed ? 0.96 : 1 }] })}>
+          <Pressable key={n.code} accessibilityRole="button" accessibilityLabel={tr("screens.cheerA11y", { code: n.code, n: count(n.code) })} onPress={() => cheer(n.code)} style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 16, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, transform: [{ scale: pressed ? 0.96 : 1 }] })}>
             <Flag iso2={n.iso2} code={n.code} />
-            <Body weight="bold">Cheer {n.code}</Body>
+            <Body weight="bold" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{tr("screens.cheer", { code: n.code })}</Body>
             <Num size={15} tone="ink2">{count(n.code)}</Num>
           </Pressable>
         ))}
@@ -137,6 +139,7 @@ function CheerMeter({ tieId, a, b, live }: { tieId: string; a: { code: string; i
 }
 
 function TieScreen({ id, slug }: { id: string; slug: string }) {
+  const tr = useT();
   const b = useBundle(slug);
   const l = useLive(slug);
   const cfg = useConfig();
@@ -145,11 +148,11 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
   const st = useTieStats(id, tie?.status === "live");
   if (!b.data || !tie) {
     // Back is always there: loading, gone, or no signal.
-    const gone = <Empty title="This tie is not available" body="It may have been moved or removed from the order of play." />;
+    const gone = <Empty title={tr("screens.tieNA")} body={tr("screens.tieMovedBody")} />;
     return (
       <Screen tabs={false} onRefresh={() => Promise.all([b.refetch(), l.refetch()])}>
-        <BackHeader label={b.data ? b.data.tournament.name.split(" ").slice(0, 3).join(" ") : "Back"} fallback={{ pathname: "/t/[slug]", params: { slug } }} />
-        {b.data && l.data ? gone : <LoadState queries={[b, l]} what="this tie" notFound={gone} />}
+        <BackHeader label={b.data ? b.data.tournament.name.split(" ").slice(0, 3).join(" ") : tr("common.back")} fallback={{ pathname: "/t/[slug]", params: { slug } }} />
+        {b.data && l.data ? gone : <LoadState queries={[b, l]} what={tr("screens.whatTie")} notFound={gone} />}
       </Screen>
     );
   }
@@ -159,32 +162,32 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
   const tz = b.data.tournament.timezone;
   return (
     <Screen tabs={false} onRefresh={() => Promise.all([l.refetch(), st.refetch()])}>
-      <BackHeader label={b.data.tournament.name.split(" ").slice(0, 3).join(" ")} fallback={{ pathname: "/t/[slug]", params: { slug } }} right={<ToggleButton compact on={starred} onLabel="★ Following" offLabel="☆ Follow tie" onPress={() => void toggleFollow("tie", id, b.data!.tournament.id)} />} />
+      <BackHeader label={b.data.tournament.name.split(" ").slice(0, 3).join(" ")} fallback={{ pathname: "/t/[slug]", params: { slug } }} right={<ToggleButton compact on={starred} onLabel={tr("screens.followingTie")} offLabel={tr("screens.followTie")} onPress={() => void toggleFollow("tie", id, b.data!.tournament.id)} />} />
       <StaleBanner queries={[l]} live={tie.status === "live"} />
-      <Eyebrow>{[tie.roundName ?? (tie.stage === "group" ? "Group stage" : "Placement"), v.court(tie.courtId), tie.scheduledTime ? `${dayIn(tie.scheduledTime, tz)} ${timeIn(tie.scheduledTime, tz)}` : null].filter(Boolean).join(" · ")}</Eyebrow>
-      <Display size={24} style={{ marginTop: 6, marginBottom: 14 }}>{`${a?.name ?? "TBD"} v ${bb?.name ?? "TBD"}`}</Display>
+      <Eyebrow>{[tie.roundName ?? (tie.stage === "group" ? tr("screens.groupStage") : tr("screens.placement")), v.court(tie.courtId), tie.scheduledTime ? `${dayIn(tie.scheduledTime, tz)} ${timeIn(tie.scheduledTime, tz)}` : null].filter(Boolean).join(" · ")}</Eyebrow>
+      <Display size={24} style={{ marginTop: 6, marginBottom: 14 }}>{`${a?.name ?? tr("common.tbd")} ${tr("common.vs")} ${bb?.name ?? tr("common.tbd")}`}</Display>
       <TieCard tie={tie} v={v} />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
         {[a, bb].map((team) =>
-          team ? <LinkChip key={team.id} label={team.name} accessibilityLabel={`${team.name}, nation page`} onPress={() => openTeam(team, slug, b.data!.tournament.isTies)} leading={<Flag iso2={team.iso2} code={team.code} size={18} />} /> : null,
+          team ? <LinkChip key={team.id} label={team.name} accessibilityLabel={tr("screens.pageNation", { name: team.name })} onPress={() => openTeam(team, slug, b.data!.tournament.isTies)} leading={<Flag iso2={team.iso2} code={team.code} size={18} />} /> : null,
         )}
-        <LinkChip label={b.data.tournament.name} accessibilityLabel={`${b.data.tournament.name}, tournament page`} onPress={() => openTournament(slug)} />
+        <LinkChip label={b.data.tournament.name} accessibilityLabel={tr("screens.pageTournament", { name: b.data.tournament.name })} onPress={() => openTournament(slug)} />
       </View>
       {st.data && (st.data.stats.available || st.data.stats.rubbers.some((r) => !r.stats.available && r.stats.reason === "final_score")) ? (
         <StatsCard
-          title="Tie stats"
+          title={tr("screens.tieStats")}
           testID="tie-stats"
           sides={st.data.stats.sides}
           aLabel={a?.code ?? "A"}
           bLabel={bb?.code ?? "B"}
-          time={st.data.stats.available ? { label: "Time on court", seconds: st.data.stats.timeOnCourtSeconds } : null}
+          time={st.data.stats.available ? { label: tr("screens.timeOnCourt"), seconds: st.data.stats.timeOnCourtSeconds } : null}
           note={st.data.stats.note}
         />
       ) : null}
-      <Button kind="ghost" label={tie.status === "completed" ? "Share the result" : "Share · I'm here"} onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: id, kind: "tie", slug } })} style={{ marginTop: 12 }} />
+      <Button kind="ghost" label={tie.status === "completed" ? tr("screens.shareResult") : tr("screens.shareHere")} onPress={() => router.push({ pathname: "/share/[matchId]", params: { matchId: id, kind: "tie", slug } })} style={{ marginTop: 12 }} />
       {cfg.data?.flags.supporter_mode && a && bb && tie.status !== "completed" && (
         <>
-          <SectionHeader title="Support" />
+          <SectionHeader title={tr("screens.support")} />
           <CheerMeter tieId={id} a={a} b={bb} live={tie.status === "live"} />
         </>
       )}
@@ -193,14 +196,15 @@ function TieScreen({ id, slug }: { id: string; slug: string }) {
 }
 
 export default function TieRoute() {
+  const tr = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const where = useQuery({ queryKey: ["tie-where", id], queryFn: () => api<{ tournamentSlug: string }>(`/api/mobile/v1/ties/${id}`), staleTime: Infinity });
   const b = useBundle(where.data?.tournamentSlug);
   if (!where.data) {
     return (
       <Screen tabs={false} onRefresh={() => where.refetch()}>
-        <BackHeader label="Back" />
-        <LoadState queries={[where]} what="this tie" notFound={<Empty title="This tie is not available" />} />
+        <BackHeader label={tr("common.back")} />
+        <LoadState queries={[where]} what={tr("screens.whatTie")} notFound={<Empty title={tr("screens.tieNA")} />} />
       </Screen>
     );
   }

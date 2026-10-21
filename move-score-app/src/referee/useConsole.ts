@@ -29,6 +29,8 @@ import {
   SCORING_FEATURES_OFF,
 } from "@core";
 import { api, ApiError } from "../api/client";
+import { getLang, tr } from "../i18n/t";
+import { problemText } from "./scoreWords";
 import type { RefereeBootstrap } from "./types";
 import { queue, type LocalMatch, type QueuedEvent } from "./queue";
 import { createSyncer, type SyncState } from "./sync";
@@ -76,9 +78,10 @@ export interface ResultRefusal {
 
 const fromBoot = (b: RefereeBootstrap): ServerView => ({ snapshot: b.snapshot, history: b.history, status: b.match.status, reopenState: b.reopenState });
 
-const NOT_SAVED = "That was not saved on this phone, so nothing changed. Tap again.";
-const ANSWER_FIRST = "Choose which score to carry on from first.";
-const NEEDS_SERVER = "Load the server's score before scoring on (it needs signal).";
+// Read when shown, so they come in the language on screen.
+const NOT_SAVED = () => tr("score.notSaved");
+const ANSWER_FIRST = () => tr("score.answerFirst");
+const NEEDS_SERVER = () => tr("score.needsServer");
 
 export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boolean) {
   const m = boot.match;
@@ -176,7 +179,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
         else takeServer(v);
         if (choice === "ask") {
           setQuestion({ server: v, serverNo, pending: pending.length, first: pending[0]?.event_number ?? 0, last: pending.at(-1)?.event_number ?? 0 });
-          setBlocked(ANSWER_FIRST);
+          setBlocked(ANSWER_FIRST());
         } else {
           setQuestion(null);
           setBlocked(null);
@@ -248,7 +251,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
             { match_id: m.id, state: e.next, history, last_event_number: n, match_status: nextStatus },
           );
         } catch {
-          setWriteError(NOT_SAVED);
+          setWriteError(NOT_SAVED());
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
           return false;
         }
@@ -285,7 +288,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
           setBlocked(null);
         } else {
           // Offline: the server's score is unknown, so nothing more is recorded until it is loaded.
-          setBlocked(NEEDS_SERVER);
+          setBlocked(NEEDS_SERVER());
         }
         setQuestion(null);
         show();
@@ -318,7 +321,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
         /* the phone's copy is rebuilt from the server on the next open */
       }
       show();
-      setRefusal({ message: `Result not recorded: ${r.message}`, problems: r.problems, initial: resultPayloadOf(r.result) });
+      setRefusal({ message: tr("score.resultNotRecorded", { message: getLang() !== "en" && r.problems[0] ? problemText(r.problems[0]) : r.message }), problems: r.problems, initial: resultPayloadOf(r.result) });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     });
 
@@ -329,7 +332,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
    */
   const enterResult = async (payload: ResultPayload): Promise<{ ok: true } | { ok: false; message: string; problems: ResultProblem[] }> => {
     const q = queueableResult({ mode: boot.scoringMode ?? "point_by_point", engine: "games", rules: boot.config, payload });
-    if (!q.ok) return { ok: false, message: q.problems[0]?.message ?? "Check the score.", problems: q.problems };
+    if (!q.ok) return { ok: false, message: q.problems[0] ? problemText(q.problems[0]) : tr("score.checkTheScore"), problems: q.problems };
     setRefusal(null);
     const saved = await record(() => ({
       eventType: RESULT_ENTERED,
@@ -338,7 +341,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
       payload: q.payload as unknown as Record<string, unknown>,
       newStatus: q.over ? (online ? "completed" : "pending_sync") : "live",
     }));
-    return saved ? { ok: true } : { ok: false, message: blockRef.current ?? NOT_SAVED, problems: [] };
+    return saved ? { ok: true } : { ok: false, message: blockRef.current ?? NOT_SAVED(), problems: [] };
   };
 
   /**
@@ -353,7 +356,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
         await chain.current;
         return (await syncer.current?.flush()) ?? true;
       })())) {
-        return { ok: false, message: "Points on this phone have not reached the server yet. Send them first (check the signal).", problems: [] };
+        return { ok: false, message: tr("score.sendFirst"), problems: [] };
       }
       const st = await api<{ snapshot: MatchSnapshot | null }>(`/api/matches/${m.id}/state`, { who: "staff", timeoutMs: 10_000 });
       await api(`/api/matches/${m.id}/events`, {
@@ -380,7 +383,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
         const body = (e.body ?? {}) as { problems?: ResultProblem[] };
         return { ok: false, message: e.message, problems: Array.isArray(body.problems) ? body.problems : [] };
       }
-      return { ok: false, message: "A result sent from here needs a connection. Try again when online.", problems: [] };
+      return { ok: false, message: tr("score.needsConnection"), problems: [] };
     }
     setRefusal(null);
     const v = await fetchServer();
@@ -525,7 +528,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     loadServerScore: async (): Promise<boolean> => {
       const v = await fetchServer();
       if (!v) {
-        setWriteError("No signal: the server's score could not be loaded. Try again.");
+        setWriteError(tr("score.noSignalServer"));
         return false;
       }
       await dropLocal(v);

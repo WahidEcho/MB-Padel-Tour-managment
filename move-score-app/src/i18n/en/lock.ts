@@ -1,0 +1,22 @@
+/** English (source of truth) for the "lock" namespace: Live Activity and My matches widget. */
+export const lock = {
+  now: "Now",
+  soon: "Soon",
+  beOn: "Be on {court}",
+  headToCourt: "Head to your court",
+  nextOn: "Next on {court}",
+  upNext: "Up next",
+  final: "Final",
+  courtCaps: "COURT",
+  vs: "v",
+  statusLive: "Live",
+  statusPaused: "Paused",
+  statusWalkover: "Walkover",
+  statusRetired: "Retired",
+  statusCalled: "Called to court",
+  liveCaps: "LIVE",
+  tbc: "TBC",
+  noMatches: "No matches coming up",
+  signIn: "Sign in to see your matches",
+  myMatches: "MY MATCHES",
+};

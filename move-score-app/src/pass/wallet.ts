@@ -13,10 +13,12 @@
  */
 import { Linking, Platform } from "react-native";
 import { apiUrl } from "../api/client";
+import { tr } from "../i18n/t";
 
 export const GOOGLE_WALLET_BUTTON = false;
 
-export const WALLET_NOT_READY = "Apple Wallet is coming soon. Your pass works right here in the app until then.";
+/** The note while the server cannot sign passes yet (in the app's language when shown). */
+export const walletNotReady = () => tr("pass.walletNotReady");
 
 /** iPhone, iPad, or Safari on an Apple device (the web build). */
 function appleDevice(): boolean {
@@ -35,17 +37,17 @@ export function walletButton(flags: Record<string, boolean> | undefined): "apple
 
 /** Null when the Add Pass sheet was handed to the system; otherwise the note to show. */
 export async function addToAppleWallet(passId: string, ready: boolean | undefined): Promise<string | null> {
-  if (ready === false) return WALLET_NOT_READY;
+  if (ready === false) return walletNotReady();
   const url = apiUrl(`/api/mobile/v1/passes/${passId}/apple`);
   let status = 0;
   try {
     status = (await fetch(url, { method: "HEAD" })).status;
   } catch {
-    return "Can't reach Move Score right now. Check your connection and try again.";
+    return tr("pass.walletUnreachable");
   }
-  if (status === 503) return WALLET_NOT_READY;
-  if (status === 404) return "Your pass isn't on the server yet. Pull down to refresh, then try again.";
-  if (status < 200 || status >= 300) return "Apple Wallet didn't answer. Try again in a moment.";
+  if (status === 503) return walletNotReady();
+  if (status === 404) return tr("pass.walletNotOnServer");
+  if (status < 200 || status >= 300) return tr("pass.walletNoAnswer");
   // Safari downloads the signed pass and presents the system "Add to Apple Wallet" sheet.
   await Linking.openURL(url);
   return null;

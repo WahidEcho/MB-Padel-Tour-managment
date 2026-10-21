@@ -18,11 +18,14 @@ import { Button, Card, Chip, SectionHeader } from "../ui/Bits";
 import { answerSuggestion, declinedSuggestions, suggestionKey, canUseCamera, changePlayerPhoto, fetchMyPlayer, markPlayerPromptAsked, playerPromptAsked, savePlayerPhone, unlinkPlayer, useLinkSuggestions, useMyPlayer } from "./me";
 import type { MLinkSuggestion } from "@core";
 import { MyMatchRow, PlayerAvatar, PlayerIdentity } from "./ui";
+import { useT } from "../i18n";
+import { tr as trNow } from "../i18n/t";
 
 const failed = (e: unknown) =>
-  e instanceof ApiError ? (e.status ? e.message : "No connection. Try again.") : e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
+  e instanceof ApiError ? (e.status ? e.message : trNow("auth.noConnection")) : e instanceof Error && e.message ? e.message : trNow("auth.wrongTryAgain");
 
 export function PlayerSection() {
+  const tr = useT();
   const user = session.use((s) => s.user);
   const cfg = useConfig();
   const codeSignIn = cfg.data?.signIn?.playerCode === true;
@@ -53,16 +56,16 @@ export function PlayerSection() {
 
   return (
     <>
-      <SectionHeader title={player ? "My player profile" : "Player"} />
+      <SectionHeader title={player ? tr("player.myPlayerProfile") : tr("player.player")} />
       {suggestions.map((s) => (
         <SuggestionCard key={s.id} s={s} />
       ))}
       {player ? (
         <>
           <Profile />
-          <Card onPress={() => router.push("/profile" as Href)} style={{ gap: 4, marginTop: 8 }} accessibilityLabel="My profile">
-            <Body weight="semi">My profile</Body>
-            <Body tone="ink2" size={12.5}>Your tournaments, sessions and results in one place.</Body>
+          <Card onPress={() => router.push("/profile" as Href)} style={{ gap: 4, marginTop: 8 }} accessibilityLabel={tr("player.myProfile")}>
+            <Body weight="semi">{tr("player.myProfile")}</Body>
+            <Body tone="ink2" size={12.5}>{tr("player.myProfileHint")}</Body>
           </Card>
         </>
       ) : prompt && user ? (
@@ -74,21 +77,21 @@ export function PlayerSection() {
           }}
         />
       ) : (
-        <Card onPress={openCode} style={{ gap: 4 }} accessibilityLabel="Player code">
-          <Body weight="semi">Player code</Body>
+        <Card onPress={openCode} style={{ gap: 4 }} accessibilityLabel={tr("player.playerCode")}>
+          <Body weight="semi">{tr("player.playerCode")}</Body>
           <Body tone="ink2" size={12.5}>
             {user
-              ? "Playing? Enter the code the tournament sent you to see your matches and add your photo."
+              ? tr("player.codeHintUser")
               : codeSignIn
-                ? "Playing? Enter the code the tournament sent you. It signs you in, no account needed."
-                : "Playing? Sign in above, then enter the code the tournament sent you."}
+                ? tr("player.codeHintSignIn")
+                : tr("player.codeHintFirst")}
           </Body>
         </Card>
       )}
       {user && !player ? (
-        <Card onPress={() => router.push("/link-phone" as Href)} style={{ gap: 4, marginTop: 8 }} accessibilityLabel="Link with your phone number">
-          <Body weight="semi">No code? Use your phone number</Body>
-          <Body tone="ink2" size={12.5}>We send a code on WhatsApp to the number you gave the tournament.</Body>
+        <Card onPress={() => router.push("/link-phone" as Href)} style={{ gap: 4, marginTop: 8 }} accessibilityLabel={tr("player.linkPhoneA11y")}>
+          <Body weight="semi">{tr("player.noCode")}</Body>
+          <Body tone="ink2" size={12.5}>{tr("player.noCodeHint")}</Body>
         </Card>
       ) : null}
     </>
@@ -98,6 +101,7 @@ export function PlayerSection() {
 /** "Is this you?": confirm or decline a suggestion; nothing links before "That's me". */
 function SuggestionCard({ s }: { s: MLinkSuggestion }) {
   const { t } = useTheme();
+  const tr = useT();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const answer = (accept: boolean) => {
@@ -109,18 +113,18 @@ function SuggestionCard({ s }: { s: MLinkSuggestion }) {
   };
   return (
     <Card style={{ gap: 8, borderColor: t.ball, borderWidth: 1, marginBottom: 8 }}>
-      <Chip label="Is this you?" ball />
+      <Chip label={tr("player.isThisYou")} ball />
       <Body weight="semi" size={16}>{s.name}</Body>
       <Body tone="ink2" size={13}>
         {s.kind === "offer"
-          ? `${s.organization ?? "An organiser"} says this account is ${s.name}.`
-          : "A tournament entered a player with your email address."}
+          ? tr("player.offerSays", { org: s.organization ?? tr("player.anOrganiser"), name: s.name })
+          : tr("player.emailMatch")}
         {s.entries.length ? ` ${s.entries.join(" · ")}` : ""}
       </Body>
       {err ? <Body tone="live" size={13}>{err}</Body> : null}
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button kind="ghost" label="Not me" disabled={busy} onPress={() => answer(false)} style={{ flex: 1 }} />
-        <Button label={busy ? "Linking…" : "That's me"} disabled={busy} onPress={() => answer(true)} style={{ flex: 1 }} />
+        <Button kind="ghost" label={tr("player.notMe")} disabled={busy} onPress={() => answer(false)} style={{ flex: 1 }} />
+        <Button label={busy ? tr("player.linking") : tr("player.thatsMe")} disabled={busy} onPress={() => answer(true)} style={{ flex: 1 }} />
       </View>
     </Card>
   );
@@ -128,14 +132,15 @@ function SuggestionCard({ s }: { s: MLinkSuggestion }) {
 
 function PromptCard({ onEnter, onSkip }: { onEnter: () => void; onSkip: () => void }) {
   const { t } = useTheme();
+  const tr = useT();
   return (
     <Card style={{ gap: 10, borderColor: t.ball, borderWidth: 1 }}>
-      <Chip label="New" ball />
-      <Body weight="semi" size={16}>Are you playing? Enter your player code</Body>
-      <Body tone="ink2" size={13}>The tournament sends each player a private code on WhatsApp or by email. It links your matches, photo and phone to this account.</Body>
+      <Chip label={tr("player.new")} ball />
+      <Body weight="semi" size={16}>{tr("player.promptTitle")}</Body>
+      <Body tone="ink2" size={13}>{tr("player.promptBody")}</Body>
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button kind="ghost" label="Not now" onPress={onSkip} style={{ flex: 1 }} />
-        <Button label="Enter code" onPress={onEnter} style={{ flex: 1 }} />
+        <Button kind="ghost" label={tr("account.notNow")} onPress={onSkip} style={{ flex: 1 }} />
+        <Button label={tr("player.enterCode")} onPress={onEnter} style={{ flex: 1 }} />
       </View>
     </Card>
   );
@@ -143,6 +148,7 @@ function PromptCard({ onEnter, onSkip }: { onEnter: () => void; onSkip: () => vo
 
 function Profile() {
   const { t } = useTheme();
+  const tr = useT();
   const q = useMyPlayer();
   const p = q.data!;
   const [choosing, setChoosing] = useState(false);
@@ -177,7 +183,7 @@ function Profile() {
     try {
       const next = await savePlayerPhone(phone.trim());
       setDraft(null);
-      setPhoneMsg({ ok: true, text: next.phone ? "Saved." : "Removed." });
+      setPhoneMsg({ ok: true, text: next.phone ? tr("player.saved") : tr("player.removed") });
     } catch (e) {
       setPhoneMsg({ ok: false, text: failed(e) });
     } finally {
@@ -191,13 +197,13 @@ function Profile() {
         <Pressable
           onPress={() => setChoosing((c) => !c)}
           accessibilityRole="button"
-          accessibilityLabel={p.photoUrl ? "Change your photo" : "Add your photo"}
+          accessibilityLabel={p.photoUrl ? tr("auth.changePhoto") : tr("player.addYourPhoto")}
           disabled={photoBusy}
           style={{ opacity: photoBusy ? 0.5 : 1 }}
         >
           <PlayerAvatar player={p} size={76} />
           <View style={{ position: "absolute", right: -2, bottom: -2, backgroundColor: t.ball, borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2 }}>
-            <Body size={11} weight="bold" tone="onBall">{photoBusy ? "…" : p.photoUrl ? "Edit" : "Add"}</Body>
+            <Body size={11} weight="bold" tone="onBall">{photoBusy ? "…" : p.photoUrl ? tr("common.edit") : tr("player.add")}</Body>
           </View>
         </Pressable>
         <View style={{ flex: 1, gap: 6 }}>
@@ -207,14 +213,14 @@ function Profile() {
       </View>
       {choosing && (
         <View style={{ flexDirection: "row", gap: 8 }}>
-          {canUseCamera && <Button kind="ghost" label="Take photo" onPress={() => void pickPhoto("camera")} style={{ flex: 1 }} />}
-          <Button kind="ghost" label="Choose photo" onPress={() => void pickPhoto("library")} style={{ flex: 1 }} />
+          {canUseCamera && <Button kind="ghost" label={tr("player.takePhoto")} onPress={() => void pickPhoto("camera")} style={{ flex: 1 }} />}
+          <Button kind="ghost" label={tr("player.choosePhoto")} onPress={() => void pickPhoto("library")} style={{ flex: 1 }} />
         </View>
       )}
       {err ? <Body tone="live" size={13}>{err}</Body> : null}
 
       <View style={{ gap: 6, borderTopWidth: 1, borderColor: t.line, paddingTop: 12 }}>
-        <Eyebrow size={10}>Phone (only the organisers see it)</Eyebrow>
+        <Eyebrow size={10}>{tr("player.phoneLabel")}</Eyebrow>
         <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
           <TextInput
             value={phone}
@@ -227,22 +233,22 @@ function Profile() {
             autoComplete="tel"
             placeholder="0100 123 4567"
             placeholderTextColor={t.ink3}
-            accessibilityLabel="Your phone number"
+            accessibilityLabel={tr("player.yourPhone")}
             style={{ flex: 1, backgroundColor: t.chip, borderColor: valid ? t.line : t.live, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: t.ink, fontSize: 16 }}
           />
-          {changed && <Button label={savingPhone ? "Saving…" : "Save"} disabled={!valid || savingPhone} onPress={() => void savePhone()} />}
+          {changed && <Button label={savingPhone ? tr("common.saving") : tr("common.save")} disabled={!valid || savingPhone} onPress={() => void savePhone()} />}
         </View>
         {!valid ? (
-          <Body tone="live" size={12}>That doesn't look like a phone number. Use +country code if it isn't Egyptian.</Body>
+          <Body tone="live" size={12}>{tr("player.badPhone")}</Body>
         ) : phoneMsg ? (
           <Body tone={phoneMsg.ok ? "ink2" : "live"} size={12}>{phoneMsg.text}</Body>
         ) : null}
       </View>
 
       <View style={{ gap: 8, borderTopWidth: 1, borderColor: t.line, paddingTop: 12 }}>
-        <Eyebrow size={10}>My matches</Eyebrow>
+        <Eyebrow size={10}>{tr("player.myMatches")}</Eyebrow>
         {p.matches.length === 0 ? (
-          <Body tone="ink2" size={13}>No matches scheduled yet. They appear here as soon as the draw is made.</Body>
+          <Body tone="ink2" size={13}>{tr("player.noMatches")}</Body>
         ) : (
           p.matches.map((m) => <MyMatchRow key={m.id} m={m} timezone={tzOf(m.tournamentSlug)} />)
         )}
@@ -253,12 +259,12 @@ function Profile() {
 
       {confirmUnlink ? (
         <View style={{ gap: 8 }}>
-          <Body size={13}>{`Unlink ${p.name} from this account? A photo you added is removed. You can link again with the same code.`}</Body>
+          <Body size={13}>{tr("player.unlinkConfirm", { name: p.name })}</Body>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button kind="ghost" label="Keep" onPress={() => setConfirmUnlink(false)} style={{ flex: 1 }} />
+            <Button kind="ghost" label={tr("player.keep")} onPress={() => setConfirmUnlink(false)} style={{ flex: 1 }} />
             <Button
               kind="danger"
-              label="Unlink"
+              label={tr("player.unlink")}
               onPress={() =>
                 void unlinkPlayer()
                   .then(() => setConfirmUnlink(false))
@@ -269,7 +275,7 @@ function Profile() {
           </View>
         </View>
       ) : (
-        <Body tone="blue" weight="semi" size={13} onPress={() => setConfirmUnlink(true)}>Not you? Unlink</Body>
+        <Body tone="blue" weight="semi" size={13} onPress={() => setConfirmUnlink(true)}>{tr("player.notYouUnlink")}</Body>
       )}
     </Card>
   );

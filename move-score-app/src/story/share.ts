@@ -7,6 +7,7 @@
 import { Platform } from "react-native";
 import * as Sharing from "expo-sharing";
 import { config } from "../config";
+import { tr } from "../i18n/t";
 
 export type ShareResult = "shared" | "closed" | "failed";
 
@@ -34,7 +35,7 @@ async function shareOnWeb(uri: string, name: string): Promise<ShareResult> {
 export async function shareImage(uri: string, mimeType: "image/jpeg" | "image/png" = "image/jpeg"): Promise<ShareResult> {
   try {
     if (Platform.OS === "web") return await shareOnWeb(uri, mimeType === "image/png" ? "move-score.png" : "move-score-story.jpg");
-    await Sharing.shareAsync(uri, { mimeType, UTI: mimeType === "image/png" ? "public.png" : "public.jpeg", dialogTitle: "Share your story" });
+    await Sharing.shareAsync(uri, { mimeType, UTI: mimeType === "image/png" ? "public.png" : "public.jpeg", dialogTitle: tr("story.shareStory") });
     return "shared";
   } catch {
     return "closed";

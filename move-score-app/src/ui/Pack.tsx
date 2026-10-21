@@ -8,6 +8,7 @@ import { BALL } from "../theme/palette";
 import { F } from "../theme/type";
 import { Eyebrow } from "./Text";
 import { DISPLAY_SCALE, usePassSize } from "./PassCard";
+import { useT } from "../i18n";
 
 // The wordmark and title shrink with the pass, so the pack keeps its proportions.
 const MARK = Math.round(190 * DISPLAY_SCALE);
@@ -18,6 +19,7 @@ const TITLE = Math.round(30 * DISPLAY_SCALE);
  * the top flies off and the pass rises out (see the Pass tab). Same size as the pass.
  */
 export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
+  const tr = useT();
   const { w: PASS_W, h: PASS_H } = usePassSize();
   const tear = useSharedValue(0);
   const gone = useSharedValue(0);
@@ -63,10 +65,10 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
         style={{ width: PASS_W, height: PASS_H }}
         accessible
         accessibilityRole="button"
-        accessibilityLabel="Sealed event pass"
-        accessibilityHint="Opens your event pass. Or drag across the top to tear it open."
+        accessibilityLabel={tr("hero.packA11y")}
+        accessibilityHint={tr("hero.packHint")}
         // A screen reader's double-tap is "activate": it never reaches the gesture handlers.
-        accessibilityActions={[{ name: "activate", label: "Open the pass" }]}
+        accessibilityActions={[{ name: "activate", label: tr("hero.packOpen") }]}
         onAccessibilityAction={(e) => {
           if (e.nativeEvent.actionName !== "activate" || gone.value) return;
           gone.value = 1;
@@ -76,7 +78,9 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
       >
         <Animated.View style={[{ height: 64, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderBottomLeftRadius: 4, borderBottomRightRadius: 4, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, top]}>
           <LinearGradient colors={["#0b1640", "#01041A"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Eyebrow size={11} style={{ color: BALL, letterSpacing: 3 }}>← DRAG TO OPEN →</Eyebrow>
+            <Eyebrow size={11} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ color: BALL, letterSpacing: 3 }}>
+              {tr("hero.packDrag")}
+            </Eyebrow>
           </LinearGradient>
         </Animated.View>
         <View style={{ height: 6, marginHorizontal: 10, borderTopWidth: 2, borderStyle: "dashed", borderColor: "rgba(252,252,0,0.7)" }}>
@@ -87,7 +91,7 @@ export function Pack({ title, onOpen }: { title: string; onOpen: () => void }) {
             <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ width: MARK, height: MARK * (74 / 997) }} contentFit="contain" />
             <Animated.Text style={{ fontFamily: F.display, fontSize: TITLE, lineHeight: TITLE - 1, color: "#E8ECF4", textTransform: "uppercase", textAlign: "center" }}>{title}</Animated.Text>
             <View style={{ backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
-              <Eyebrow size={10} style={{ color: "#05060A" }}>Event pass</Eyebrow>
+              <Eyebrow size={10} style={{ color: "#05060A" }}>{tr("hero.eventPass")}</Eyebrow>
             </View>
           </LinearGradient>
         </Animated.View>

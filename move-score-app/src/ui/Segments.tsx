@@ -20,7 +20,7 @@ export function Segments<T extends string>({ value, options, onChange }: { value
             }}
             style={{ flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center", backgroundColor: on ? t.surface : "transparent" }}
           >
-            <Body weight="semi" size={13} tone={on ? "ink" : "ink2"}>
+            <Body weight="semi" size={13} tone={on ? "ink" : "ink2"} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
               {o.label}
             </Body>
           </Pressable>

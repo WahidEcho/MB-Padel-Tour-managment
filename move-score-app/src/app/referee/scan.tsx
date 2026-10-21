@@ -9,6 +9,7 @@ import { BALL } from "../../theme/palette";
 import { Body, Display, Eyebrow } from "../../ui/Text";
 import { Button } from "../../ui/Bits";
 import { pendingCode, signInWithCode } from "../../referee/courtSignIn";
+import { useT } from "../../i18n";
 
 /**
  * "Scan court QR": the QR on a court's referee table (https://tour.mbeg.org/r#<code>,
@@ -18,13 +19,14 @@ import { pendingCode, signInWithCode } from "../../referee/courtSignIn";
  */
 export default function ScanCourt() {
   const insets = useSafeAreaInsets();
+  const tr = useT();
   const [perm, ask] = useCameraPermissions();
   const [msg, setMsg] = useState<string | null>(null);
   const busy = useRef(false);
   const last = useRef<{ code: string; at: number } | null>(null);
   const done = (court: string | null, carried: number) => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    setMsg(`${court ? `Signed in · ${court}` : "Signed in"}${carried ? ` · the old court's ${carried === 1 ? "match stays" : `${carried} matches stay`} yours until sent and finished` : ""}`);
+    setMsg(`${court ? tr("referee.signedInCourt", { court }) : tr("referee.signedIn")}${carried ? ` · ${tr("referee.carriedStays", { count: carried })}` : ""}`);
     setTimeout(() => router.replace("/referee"), 1200);
   };
   const onScan = async (data: string) => {
@@ -34,7 +36,7 @@ export default function ScanCourt() {
     if (last.current && last.current.code === code && Date.now() - last.current.at < 8_000) return;
     last.current = { code, at: Date.now() };
     busy.current = true;
-    setMsg("Signing in…");
+    setMsg(tr("referee.signingIn"));
     const r = await signInWithCode(code);
     busy.current = false;
     if (r.ok) return done(r.court, r.carried);
@@ -55,15 +57,15 @@ export default function ScanCourt() {
       ) : null}
       <View style={{ flex: 1, paddingTop: insets.top + 12, paddingHorizontal: 22, paddingBottom: insets.bottom + 20, justifyContent: "space-between" }}>
         <View style={{ gap: 6 }}>
-          <Eyebrow style={{ color: BALL }}>Referee</Eyebrow>
-          <Display size={26} style={{ color: "#E8ECF4" }}>Scan the court QR</Display>
-          <Body size={13} style={{ color: "#9AA4B8" }}>The QR code on the court&apos;s referee table signs this phone in to that court. You then see only its matches today.</Body>
+          <Eyebrow style={{ color: BALL }}>{tr("referee.referee")}</Eyebrow>
+          <Display size={26} style={{ color: "#E8ECF4" }}>{tr("referee.scanTitle")}</Display>
+          <Body size={13} style={{ color: "#9AA4B8" }}>{tr("referee.scanBody")}</Body>
         </View>
         <View pointerEvents="none" style={{ alignSelf: "center", width: 240, height: 240, flexShrink: 1, borderRadius: 28, borderWidth: 3, borderColor: BALL }} />
         <View style={{ gap: 10 }}>
           {msg ? <Body weight="bold" accessibilityRole="alert" style={{ color: "#E8ECF4", textAlign: "center" }}>{msg}</Body> : null}
-          {!perm?.granted && <Button label="Allow the camera" onPress={() => void ask()} />}
-          <Button kind="ghost" label="Close" onPress={() => router.back()} style={{ backgroundColor: "rgba(255,255,255,0.08)" }} />
+          {!perm?.granted && <Button label={tr("referee.allowCamera")} onPress={() => void ask()} />}
+          <Button kind="ghost" label={tr("common.close")} onPress={() => router.back()} style={{ backgroundColor: "rgba(255,255,255,0.08)" }} />
         </View>
       </View>
     </View>

@@ -10,25 +10,27 @@ import { LoadState } from "../../../ui/LoadState";
 import { useCoachMatch } from "../../../coach/session";
 import { session } from "../../../state/session";
 import { RubberCard } from "../../../coach/ui";
+import { useT } from "../../../i18n";
 
 /** One of the coach's own rubbers: live score and match log (never who entered it). */
 export default function CoachMatch() {
   const { t } = useTheme();
+  const tr = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const q = useCoachMatch(id);
   const tz = session.use((s) => s.coach?.event.timeZone) ?? "Africa/Cairo";
   const m = q.data;
   return (
     <Screen tabs={false} onRefresh={() => q.refetch()}>
-      <BackHeader label="My team" fallback="/coach/team" />
+      <BackHeader label={tr("coach.myTeam")} fallback="/coach/team" />
       {!m ? (
-        <LoadState queries={[q]} what="this match" />
+        <LoadState queries={[q]} what={tr("coach.whatMatch")} />
       ) : (
         <View style={{ gap: 10 }}>
           <RubberCard r={m.rubber} tz={tz} us={m.team} them={m.opponent} />
-          {m.tieId ? <LinkChip label="The whole tie" onPress={() => router.push({ pathname: "/coach/tie/[id]", params: { id: m.tieId! } })} /> : null}
-          <SectionHeader title="Match log" />
-          {m.log.length === 0 ? <Body tone="ink2" size={13}>Nothing yet: the log starts with the first point.</Body> : null}
+          {m.tieId ? <LinkChip label={tr("coach.wholeTie")} onPress={() => router.push({ pathname: "/coach/tie/[id]", params: { id: m.tieId! } })} /> : null}
+          <SectionHeader title={tr("coach.matchLog")} />
+          {m.log.length === 0 ? <Body tone="ink2" size={13}>{tr("coach.logEmpty")}</Body> : null}
           {[...m.log].reverse().map((e) => (
             <Card key={e.n} style={{ gap: 2, opacity: e.undone ? 0.5 : 1 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>

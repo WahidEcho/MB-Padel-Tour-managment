@@ -15,12 +15,16 @@ import { Body } from "../ui/Text";
 import { Button } from "../ui/Bits";
 import { canUseCamera } from "../player/me";
 import { changeAccountPhoto, removeAccountPhoto, saveAccountName } from "./profile";
+import { displayNameError } from "./fields";
+import { useT } from "../i18n";
+import { tr as trNow } from "../i18n/t";
 
 const failed = (e: unknown) =>
-  e instanceof ApiError ? (e.status ? e.message : "No connection. Try again.") : e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
+  e instanceof ApiError ? (e.status ? e.message : trNow("auth.noConnection")) : e instanceof Error && e.message ? e.message : trNow("auth.wrongTryAgain");
 
 export function EditProfileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTheme();
+  const tr = useT();
   const user = session.use((s) => s.user);
   const [name, setName] = useState(user?.name ?? "");
   const [busy, setBusy] = useState<null | "name" | "photo" | "remove">(null);
@@ -51,20 +55,20 @@ export function EditProfileSheet({ open, onClose }: { open: boolean; onClose: ()
     }
   };
   const save = async () => {
-    if (!check.ok) return setErr(check.error);
+    if (!check.ok) return setErr(displayNameError(check.error));
     if (await run("name", () => saveAccountName(check.name))) onClose();
   };
   const pick = (source: "camera" | "library") => void run("photo", () => changeAccountPhoto(source));
 
   return (
-    <Sheet open={open} onClose={onClose} title="Edit name and photo">
+    <Sheet open={open} onClose={onClose} title={tr("auth.editNamePhoto")}>
       <View style={{ alignItems: "center", gap: 12, paddingVertical: 4 }}>
         <Pressable
           onPress={() => pick("library")}
           disabled={busy !== null}
           accessibilityRole="button"
-          accessibilityLabel={user.avatarUrl ? "Change your photo" : "Add a photo"}
-          accessibilityHint="Opens your photo library"
+          accessibilityLabel={user.avatarUrl ? tr("auth.changePhoto") : tr("auth.addPhoto")}
+          accessibilityHint={tr("auth.opensLibrary")}
           style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
         >
           {user.avatarUrl ? (
@@ -81,17 +85,17 @@ export function EditProfileSheet({ open, onClose }: { open: boolean; onClose: ()
           )}
         </Pressable>
         <Body tone="blue" weight="semi" size={14} onPress={busy ? undefined : () => pick("library")} accessibilityRole="button">
-          {user.avatarUrl ? "Choose another photo" : "Add a photo"}
+          {user.avatarUrl ? tr("auth.anotherPhoto") : tr("auth.addPhoto")}
         </Body>
         {canUseCamera && (
           <Body tone="ink2" weight="semi" size={13} onPress={busy ? undefined : () => pick("camera")} accessibilityRole="button">
-            Take a photo
+            {tr("auth.takePhoto")}
           </Body>
         )}
       </View>
 
       <View style={{ gap: 6 }}>
-        <Body weight="semi" size={14}>Your name</Body>
+        <Body weight="semi" size={14}>{tr("auth.yourName")}</Body>
         <TextInput
           value={name}
           onChangeText={(v) => {
@@ -105,12 +109,12 @@ export function EditProfileSheet({ open, onClose }: { open: boolean; onClose: ()
           autoCorrect={false}
           returnKeyType="done"
           onSubmitEditing={() => void save()}
-          placeholder="First and last name"
+          placeholder={tr("auth.namePlaceholder")}
           placeholderTextColor={t.ink3}
-          accessibilityLabel="Your name"
+          accessibilityLabel={tr("auth.yourName")}
           style={{ backgroundColor: t.chip, borderColor: err ? t.live : t.line, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, color: t.ink, fontSize: 16 }}
         />
-        <Body tone="ink3" size={12}>Shown on your account. Organisers still use the name on your entry.</Body>
+        <Body tone="ink3" size={12}>{tr("auth.nameNote")}</Body>
       </View>
 
       {err ? (
@@ -119,11 +123,11 @@ export function EditProfileSheet({ open, onClose }: { open: boolean; onClose: ()
         </Body>
       ) : null}
 
-      <Button label={busy === "name" ? "Saving…" : "Save"} disabled={busy !== null || !changed || !check.ok} onPress={() => void save()} />
+      <Button label={busy === "name" ? tr("common.saving") : tr("common.save")} disabled={busy !== null || !changed || !check.ok} onPress={() => void save()} />
       {user.avatarUrl ? (
-        <Button kind="ghost" label={busy === "remove" ? "Removing…" : "Remove photo"} disabled={busy !== null} onPress={() => void run("remove", removeAccountPhoto)} />
+        <Button kind="ghost" label={busy === "remove" ? tr("auth.removing") : tr("auth.removePhoto")} disabled={busy !== null} onPress={() => void run("remove", removeAccountPhoto)} />
       ) : null}
-      <Button kind="ghost" label="Done" onPress={onClose} disabled={busy === "name"} />
+      <Button kind="ghost" label={tr("common.done")} onPress={onClose} disabled={busy === "name"} />
     </Sheet>
   );
 }

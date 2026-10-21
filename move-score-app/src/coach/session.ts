@@ -7,7 +7,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import type { MCoachLineupDraft, MCoachLineupEntry, MCoachMatch, MCoachSession, MCoachTeamView, MCoachTie } from "@core";
-import { api, ApiError, OFFLINE_MESSAGE } from "../api/client";
+import { api, ApiError, offlineMessage } from "../api/client";
 import { useScreenFocused } from "../api/queries";
 import { saveCoach, session } from "../state/session";
 import { registerDevice } from "../push/register";
@@ -24,7 +24,7 @@ export async function signInCoach(code: string): Promise<CoachSignInResult> {
     return { ok: true, team: r.team.name };
   } catch (e) {
     if (e instanceof ApiError && e.status !== 0) return { ok: false, message: e.message };
-    return { ok: false, message: OFFLINE_MESSAGE };
+    return { ok: false, message: offlineMessage() };
   }
 }
 

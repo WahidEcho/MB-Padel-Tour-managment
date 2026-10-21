@@ -23,11 +23,13 @@ import { canShareToStories, shareImage, shareToStories } from "./share";
 import { pickFromLibrary } from "./photo";
 import { DESIGN_W, type Photo } from "./model";
 import type { StoryState } from "./useStoryInfo";
+import { useT } from "../i18n";
 
 type Step = "start" | "camera" | "compose";
 
 export function ShareFlow({ state }: { state: StoryState }) {
   const { t, calm } = useTheme();
+  const tr = useT();
   const insets = useSafeAreaInsets();
   const { width: sw, height: sh } = useWindowDimensions();
   const cfg = useConfig();
@@ -65,7 +67,7 @@ export function ShareFlow({ state }: { state: StoryState }) {
       setFrom("library");
       setStep("compose");
     } catch {
-      setNote("Your photos couldn't be opened. Try again, or take a photo instead.");
+      setNote(tr("story.photosFailed"));
     }
   };
 
@@ -76,7 +78,7 @@ export function ShareFlow({ state }: { state: StoryState }) {
       if (to === "stories") await shareToStories(uri);
       else await shareImage(uri, "image/png");
     } catch {
-      setNote("The card couldn't be made. Try again.");
+      setNote(tr("story.cardFailed"));
     } finally {
       setBusy(false);
     }
@@ -117,11 +119,11 @@ export function ShareFlow({ state }: { state: StoryState }) {
   const dark = t.scheme === "dark";
   return (
     <View style={{ flex: 1, backgroundColor: dark ? "rgba(0,0,8,0.84)" : "rgba(246,247,249,0.94)", alignItems: "center", justifyContent: "center", gap: 18, paddingTop: insets.top, paddingBottom: insets.bottom }}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => router.back()} accessibilityLabel="Close" accessibilityRole="button" />
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={() => router.back()} style={{ position: "absolute", top: insets.top + 12, right: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: t.chip, alignItems: "center", justifyContent: "center" }}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => router.back()} accessibilityLabel={tr("story.close")} accessibilityRole="button" />
+      <Pressable accessibilityRole="button" accessibilityLabel={tr("story.close")} hitSlop={10} onPress={() => router.back()} style={{ position: "absolute", top: insets.top + 12, right: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: t.chip, alignItems: "center", justifyContent: "center" }}>
         <CloseIcon color={t.ink} />
       </Pressable>
-      <View style={{ width: CARD_W * k, height: CARD_H * k }} accessible accessibilityLabel={info ? `Share card. ${info.a11y}` : "Share card"}>
+      <View style={{ width: CARD_W * k, height: CARD_H * k }} accessible accessibilityLabel={info ? tr("story.shareCardA11y", { info: info.a11y }) : tr("story.shareCard")}>
         <View style={{ width: CARD_W, height: CARD_H, transformOrigin: "0 0", transform: [{ scale: k }] }}>
           <View ref={card} collapsable={false}>
             <ClassicCard info={info} problem={state.problem} onRetry={state.retry} />
@@ -129,12 +131,12 @@ export function ShareFlow({ state }: { state: StoryState }) {
         </View>
       </View>
       <View style={{ width: Math.min(sw - 40, 340), gap: 8 }}>
-        <Button label="I'm here · add a photo" icon={<CameraIcon color={t.btnInk} />} onPress={() => setStep("camera")} disabled={!info || busy} />
-        <Button kind="ghost" label="Choose from library" icon={<LibraryIcon color={t.ink} size={20} />} onPress={() => void library()} disabled={!info || busy} />
-        <Button kind="ghost" label="Share without photo" onPress={() => void shareCard("sheet")} disabled={!info || busy} />
+        <Button label={tr("story.imHereAddPhoto")} icon={<CameraIcon color={t.btnInk} />} onPress={() => setStep("camera")} disabled={!info || busy} />
+        <Button kind="ghost" label={tr("story.chooseLibrary")} icon={<LibraryIcon color={t.ink} size={20} />} onPress={() => void library()} disabled={!info || busy} />
+        <Button kind="ghost" label={tr("story.shareNoPhoto")} onPress={() => void shareCard("sheet")} disabled={!info || busy} />
         {storiesOn ? (
           <Body tone="blue" weight="semi" size={13} accessibilityRole="button" onPress={() => (busy || !info ? undefined : void shareCard("stories"))} style={{ textAlign: "center", marginTop: 4 }}>
-            Card to Instagram Stories
+            {tr("story.cardToStories")}
           </Body>
         ) : null}
         {note ? (

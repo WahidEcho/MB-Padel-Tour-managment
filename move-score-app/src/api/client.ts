@@ -8,6 +8,7 @@ import { config } from "../config";
 import { session, saveUser } from "../state/session";
 import { isSessionRevoked } from "@core";
 import { credentialHeaders, type Who } from "./headers";
+import { tr } from "../i18n/t";
 
 export class ApiError extends Error {
   constructor(
@@ -19,10 +20,14 @@ export class ApiError extends Error {
   }
 }
 
+/** English, kept for older callers; show `offlineMessage()` (the app's language) instead. */
 export const OFFLINE_MESSAGE = "Can't reach Move Score right now. Check your connection and try again.";
 
+/** "Can't reach Move Score right now…" in the app's language. */
+export const offlineMessage = () => tr("ui.offlineMessage");
+
 /** A message fit to show a person, whatever was thrown. */
-export const errorMessage = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE_MESSAGE);
+export const errorMessage = (e: unknown) => (e instanceof ApiError ? e.message : offlineMessage());
 
 /** What each call carries: see headers.ts (personal calls never carry the staff token). */
 async function headersFor(who: Who, path: string): Promise<Record<string, string>> {
@@ -113,7 +118,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     } catch (e) {
       // No response at all: offline, server down, or timed out. Status 0 marks it for callers.
       if (opts.signal?.aborted) throw e;
-      throw new ApiError(0, OFFLINE_MESSAGE, null);
+      throw new ApiError(0, offlineMessage(), null);
     }
     const text = await res.text();
     const json = text ? (JSON.parse(text) as unknown) : null;
@@ -125,7 +130,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
         lastRecovery = Date.now();
         void installRejected();
       }
-      const msg = (json as { error?: string } | null)?.error ?? `Request failed (${res.status})`;
+      const msg = (json as { error?: string } | null)?.error ?? tr("ui.requestFailed", { status: res.status });
       throw new ApiError(res.status, msg, json);
     }
     return json as T;

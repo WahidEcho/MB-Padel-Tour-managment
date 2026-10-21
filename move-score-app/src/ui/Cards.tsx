@@ -7,15 +7,18 @@ import { LiveVideoBadge } from "./LiveVideo";
 import type { View as Model } from "../api/model";
 import { dayIn, isAwaitingResult, matchA11y, timeIn, whenIn } from "../api/model";
 import { isNation, openMatch, openTeam, openTie } from "../nav/links";
+import { useT } from "../i18n";
 
 function ServeMark() {
   const { t } = useTheme();
-  return <View accessibilityLabel="serving" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.ball, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk }} />;
+  const tr = useT();
+  return <View accessibilityLabel={tr("ui.serving")} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.ball, borderWidth: t.scheme === "light" ? 1.5 : 0, borderColor: t.ballInk }} />;
 }
 
 /** A live (or finished) match in two lines: who, sets, the game in play. */
 export function MatchMini({ m, v, width, withDay = false, timeLabel }: { m: MMatch; v: Model; width?: number; withDay?: boolean; timeLabel?: string }) {
   const { t } = useTheme();
+  const tr = useT();
   // Over but not confirmed (or not yet synced from the referee's phone): the sets stand, nothing is in play.
   const awaiting = isAwaitingResult(m);
   const live = isLiveStatus(m.status) && !awaiting;
@@ -57,15 +60,15 @@ export function MatchMini({ m, v, width, withDay = false, timeLabel }: { m: MMat
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         {live ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <LivePill label={m.status === "paused" ? "PAUSED" : "LIVE"} />
+            <LivePill label={m.status === "paused" ? tr("ui.pausedPill") : tr("ui.livePill")} />
             {m.liveVideo ? <LiveVideoBadge compact /> : null}
           </View>
         ) : done ? (
-          <Chip label="Final" />
+          <Chip label={tr("common.final")} />
         ) : awaiting ? (
-          <Chip label="Match over" />
+          <Chip label={tr("ui.matchOver")} />
         ) : m.status === "cancelled" ? (
-          <Chip label="Not played" />
+          <Chip label={tr("ui.notPlayed")} />
         ) : (
           <Num size={14} tone="ink2">{timeLabel ?? whenIn(m.scheduledTime, tz, withDay)}</Num>
         )}
@@ -85,17 +88,18 @@ export function MatchMini({ m, v, width, withDay = false, timeLabel }: { m: MMat
  * order of play by court); `note` adds a line under the row (the round, places).
  */
 export function TieRow({ tie, v, onPress, withDay = false, caption, note }: { tie: MTie; v: Model; onPress?: () => void; withDay?: boolean; caption?: string; note?: string | null }) {
+  const tr = useT();
   const a = v.team(tie.a);
   const b = v.team(tie.b);
   const tz = v.bundle.tournament.timezone;
   const court = v.court(tie.courtId);
   const label = [
-    `${a?.name ?? "TBD"} against ${b?.name ?? "TBD"}`,
+    tr("ui.against", { a: a?.name ?? tr("common.tbd"), b: b?.name ?? tr("common.tbd") }),
     tie.status === "scheduled"
       ? tie.scheduledTime
-        ? `Starts ${dayIn(tie.scheduledTime, tz)} at ${timeIn(tie.scheduledTime, tz)}`
-        : "Time to be confirmed"
-      : `${tie.status === "live" ? "Live" : "Final"}, rubbers ${tie.rubbersA}–${tie.rubbersB}`,
+        ? tr("ui.startsAt", { day: dayIn(tie.scheduledTime, tz), time: timeIn(tie.scheduledTime, tz) })
+        : tr("ui.timeToBeConfirmed")
+      : tr("ui.tieStatusA11y", { status: tie.status === "live" ? tr("common.live") : tr("common.final"), a: tie.rubbersA, b: tie.rubbersB }),
     court,
     note,
   ]
@@ -105,20 +109,20 @@ export function TieRow({ tie, v, onPress, withDay = false, caption, note }: { ti
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
         <Flag iso2={a?.iso2} code={a?.code} />
-        <Body weight="bold" size={14} numberOfLines={1}>{a?.code ?? "TBD"}</Body>
+        <Body weight="bold" size={14} numberOfLines={1}>{a?.code ?? tr("ui.tbdCode")}</Body>
       </View>
       <View style={{ alignItems: "center", minWidth: 88 }}>
         {tie.status === "scheduled" ? <Num size={19}>{timeIn(tie.scheduledTime, tz)}</Num> : <Num size={24}>{`${tie.rubbersA}–${tie.rubbersB}`}</Num>}
         <Eyebrow size={9.5} tone="ink3">
           {tie.status === "live"
-            ? "LIVE"
+            ? tr("ui.livePill")
             : tie.status === "completed"
-              ? "FINAL"
-              : (caption ?? [withDay && tie.scheduledTime ? dayIn(tie.scheduledTime, tz) : null, court ?? "Court TBC"].filter(Boolean).join(" · "))}
+              ? tr("common.final")
+              : (caption ?? [withDay && tie.scheduledTime ? dayIn(tie.scheduledTime, tz) : null, court ?? tr("ui.courtTbc")].filter(Boolean).join(" · "))}
         </Eyebrow>
       </View>
       <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "flex-end", minWidth: 0 }}>
-        <Body weight="bold" size={14} numberOfLines={1}>{b?.code ?? "TBD"}</Body>
+        <Body weight="bold" size={14} numberOfLines={1}>{b?.code ?? tr("ui.tbdCode")}</Body>
         <Flag iso2={b?.iso2} code={b?.code} />
       </View>
     </View>
@@ -138,6 +142,7 @@ export function TieRow({ tie, v, onPress, withDay = false, caption, note }: { ti
 /** A tie with its rubbers: the main card of a nations event. Each nation opens its page; `linkTie` makes the score open the tie. */
 export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; linkTie?: boolean }) {
   const { t } = useTheme();
+  const tx = useT();
   const a = v.team(tie.a);
   const b = v.team(tie.b);
   const rubbers = v.rubbers(tie.id);
@@ -149,7 +154,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
       <>
         <Flag iso2={team?.iso2} code={team?.code} size={34} />
         <Body weight="bold" size={13} numberOfLines={1}>
-          {team?.name ?? "TBD"}
+          {team?.name ?? tx("common.tbd")}
           {team ? <Body tone="ink3" weight="bold" size={13}>{" ›"}</Body> : null}
         </Body>
       </>
@@ -158,7 +163,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
     return (
       <Pressable
         accessibilityRole="link"
-        accessibilityLabel={`${team.name}${isNation(team, tr.isTies) ? ", nation page" : ", team page"}`}
+        accessibilityLabel={isNation(team, tr.isTies) ? tx("ui.nationPage", { name: team.name }) : tx("ui.teamPage", { name: team.name })}
         onPress={() => openTeam(team, tr.slug, tr.isTies)}
         hitSlop={6}
         style={({ pressed: p }) => [{ flex: 1, gap: 6, alignItems: align }, p && pressed]}
@@ -171,7 +176,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
     <>
       <Num size={38}>{tie.status === "scheduled" && !tie.rubbersA && !tie.rubbersB ? timeIn(tie.scheduledTime, tz) : `${tie.rubbersA}–${tie.rubbersB}`}</Num>
       <Eyebrow size={10} tone="ink3">
-        {tie.status === "live" ? "LIVE" : tie.status === "completed" ? "FINAL" : [v.court(tie.courtId), tie.roundName].filter(Boolean).join(" · ") || "Scheduled"}
+        {tie.status === "live" ? tx("ui.livePill") : tie.status === "completed" ? tx("common.final") : [v.court(tie.courtId), tie.roundName].filter(Boolean).join(" · ") || tx("ui.scheduled")}
         {linkTie ? "  ›" : ""}
       </Eyebrow>
     </>
@@ -183,7 +188,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
         {linkTie ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Open the tie, ${a?.name ?? "TBD"} against ${b?.name ?? "TBD"}, ${tie.status === "scheduled" ? "not started" : `rubbers ${tie.rubbersA}–${tie.rubbersB}`}`}
+            accessibilityLabel={tx("ui.openTieA11y", { a: a?.name ?? tx("common.tbd"), b: b?.name ?? tx("common.tbd"), state: tie.status === "scheduled" ? tx("ui.notStarted") : tx("ui.rubbersScore", { a: tie.rubbersA, b: tie.rubbersB }) })}
             onPress={() => openTie(tie.id)}
             hitSlop={8}
             style={({ pressed: p }) => [{ alignItems: "center", paddingHorizontal: 6, paddingVertical: 4, borderRadius: 12 }, p && { backgroundColor: t.chip }]}
@@ -201,7 +206,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
         const done = isDoneStatus(r.status);
         const sets = (r.score?.sets ?? []).map((s) => `${s.a}–${s.b}`).join(" ");
         return (
-          <Card key={r.id} accessibilityLabel={`${RUBBER_SHORT[r.rubberType as keyof typeof RUBBER_SHORT] ?? r.rubberType ?? "Rubber"}. ${matchA11y(r, v)}`} onPress={() => openMatch(r.id)} style={{ borderRadius: 0, borderWidth: 0, borderTopWidth: 1, borderColor: t.line, backgroundColor: "transparent", flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Card key={r.id} accessibilityLabel={`${RUBBER_SHORT[r.rubberType as keyof typeof RUBBER_SHORT] ?? r.rubberType ?? tx("ui.rubber")}. ${matchA11y(r, v)}`} onPress={() => openMatch(r.id)} style={{ borderRadius: 0, borderWidth: 0, borderTopWidth: 1, borderColor: t.line, backgroundColor: "transparent", flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Num size={14} tone="ink3" style={{ width: 28 }}>{RUBBER_SHORT[r.rubberType as keyof typeof RUBBER_SHORT] ?? r.rubberType}</Num>
             <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
               <Body numberOfLines={1} size={13.5} weight={done && r.winner === r.a ? "bold" : "regular"} tone={done && r.winner !== r.a ? "ink2" : "ink"}>
@@ -217,7 +222,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
                   {r.liveVideo ? <LiveVideoBadge compact /> : null}
                   <LivePill />
                 </View>
-              ) : awaiting ? <Chip label="Match over" /> : r.status === "cancelled" ? <Chip label="Not needed" /> : !done ? <Chip label={timeIn(r.scheduledTime, tz)} /> : null}
+              ) : awaiting ? <Chip label={tx("ui.matchOver")} /> : r.status === "cancelled" ? <Chip label={tx("ui.notNeeded")} /> : !done ? <Chip label={timeIn(r.scheduledTime, tz)} /> : null}
               <Num size={15} tone={done ? "ink" : "ink2"}>{live && r.score?.games ? `${sets ? `${sets} ` : ""}${r.score.games.a}–${r.score.games.b}` : sets}</Num>
             </View>
           </Card>
@@ -225,7 +230,7 @@ export function TieCard({ tie, v, linkTie = false }: { tie: MTie; v: Model; link
       })}
       {rubbers.length === 0 && (
         <View style={{ padding: 14, borderTopWidth: 1, borderColor: t.line }}>
-          <Body tone="ink2" size={13}>Line-ups are announced before play.</Body>
+          <Body tone="ink2" size={13}>{tx("ui.lineupsBefore")}</Body>
         </View>
       )}
     </View>

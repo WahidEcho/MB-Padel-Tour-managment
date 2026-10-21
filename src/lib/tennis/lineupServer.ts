@@ -22,6 +22,7 @@
 import { db } from "../supabase";
 import { audit } from "../audit";
 import { sendExpo, type ExpoMessage } from "../notify/drain";
+import { alertLang, aw } from "../notify/i18n";
 import type { StaffPrincipal } from "../auth/staff";
 import { isCourtReferee, isMasterReferee, isOrganiser } from "../referees/assistance";
 import { mastersOnDuty } from "../referees/server";
@@ -300,14 +301,20 @@ export async function recordLineupException(actor: ExceptionActor, actorRole: st
     if (duty.installationIds.length) {
       const { data } = await db()
         .from("push_devices")
-        .select("id, expo_push_token")
+        .select("id, expo_push_token, locale")
         .in("installation_id", duty.installationIds.slice(0, 200))
         .is("disabled_at", null)
         .not("expo_push_token", "is", null);
-      const messages: ExpoMessage[] = ((data ?? []) as { expo_push_token: string }[]).map((d) => ({
+      // The sentence in each phone's language; the issue lines (names, regulations) stay as the rules write them.
+      const words = (locale: string | null | undefined) => {
+        const lang = alertLang(locale);
+        if (lang === "en") return { title: "Line-up exception", body: text };
+        const court = b.court ? aw(lang, "onCourtName", { court: b.court }) : "";
+        return { title: aw(lang, "lineupException"), body: aw(lang, "lineupExceptionBody", { actor: actor.label, court, issues: issues.map(exceptionLine).join("; ") }) };
+      };
+      const messages: ExpoMessage[] = ((data ?? []) as { expo_push_token: string; locale?: string | null }[]).map((d) => ({
         to: d.expo_push_token,
-        title: "Line-up exception",
-        body: text,
+        ...words(d.locale),
         data: { url: "movescore://referee/master", kind: "lineup_exception", tieId: b.tie.id },
         sound: "default",
         channelId: "assistance",

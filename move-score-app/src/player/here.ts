@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { queryClient, useScreenFocused } from "../api/queries";
 import { session } from "../state/session";
+import { tr } from "../i18n/t";
 
 export interface MyCall {
   side: "A" | "B";
@@ -49,8 +50,8 @@ export async function markHere(matchId: string): Promise<MyCall> {
     void queryClient.invalidateQueries({ queryKey: ["courts-live"] });
     return next;
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) throw new Error("No signal. Try again, or tell the referee you are here.");
-    if (e instanceof ApiError && e.status === 401) throw new Error("Sign in to mark yourself at the court.");
-    throw new Error(e instanceof ApiError ? e.message : "Something went wrong. Tell the referee you are here.");
+    if (e instanceof ApiError && e.status === 0) throw new Error(tr("player.hereNoSignal"));
+    if (e instanceof ApiError && e.status === 401) throw new Error(tr("player.hereSignIn"));
+    throw new Error(e instanceof ApiError ? e.message : tr("player.hereWrong"));
   }
 }

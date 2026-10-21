@@ -13,6 +13,8 @@ import { QR } from "./QR";
 import { Flag } from "./Bits";
 import { useTheme } from "../theme/ThemeProvider";
 import { CONTENT_MAX_WIDTH } from "./Screen";
+import { useT } from "../i18n";
+import { fmt } from "../i18n/t";
 
 /**
  * The design prototype's pass (design/prototype.src.html, `.pass`) is 270 × 400;
@@ -61,13 +63,12 @@ export interface PassEvent {
   days: string[]; // YYYY-MM-DD
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** "2–8 Nov", or "29 Sep – 5 Oct" when the event crosses a month. */
+/** "2–8 Nov", or "29 Sep – 5 Oct" when the event crosses a month (month names in the app's language). */
 export function dateRange(days: string[]): string | null {
   if (!days.length) return null;
   const [a, b] = [days[0], days[days.length - 1]];
   const d = (s: string) => Number(s.slice(8));
-  const m = (s: string) => MONTHS[Number(s.slice(5, 7)) - 1];
+  const m = (s: string) => fmt().custom(`${s}T12:00:00Z`, { month: "short", timeZone: "UTC" });
   if (a === b) return `${d(a)} ${m(a)}`;
   return m(a) === m(b) ? `${d(a)}–${d(b)} ${m(b)}` : `${d(a)} ${m(a)} – ${d(b)} ${m(b)}`;
 }
@@ -146,6 +147,7 @@ function TiltSensor({ gx, gy, base, gyro }: { gx: SharedValue<number>; gy: Share
  */
 export function PassCard({ pass, event, nationIso2, today, width, pose }: { pass: MPass; event: PassEvent; nationIso2?: string | null; today?: string; width?: number; pose?: { x: number; y: number } }) {
   const { calm } = useTheme();
+  const tr = useT();
   const auto = usePassSize();
   const w = width ?? auto.w;
   const h = Math.round(w * PASS_RATIO);
@@ -210,7 +212,7 @@ export function PassCard({ pass, event, nationIso2, today, width, pose }: { pass
     <Animated.View
       style={[{ width: w, height: h, borderRadius: s(24), overflow: "hidden", borderWidth: BORDER, borderColor: "rgba(255,255,255,0.14)" }, card]}
       accessible
-      accessibilityLabel={`${onsite ? "On-site pass" : "Event pass"} for ${event.name}, number ${pass.serial}. ${attended} ${attended === 1 ? "match" : "matches"} attended, ${points} points.`}
+      accessibilityLabel={tr("pass.cardA11y", { kind: tr(onsite ? "pass.onsitePass" : "pass.eventPass"), event: event.name, serial: pass.serial, matches: tr("pass.matchesAttended", { count: attended }), points })}
     >
       {moving && <TiltSensor gx={gx} gy={gy} base={base} gyro={gyro} />}
       <LinearGradient colors={["#0a1438", "#01041A"]} locations={[0, 0.7]} start={{ x: 0.41, y: 0 }} end={{ x: 0.59, y: 1 }} style={{ position: "absolute", inset: 0 }} />
@@ -219,7 +221,7 @@ export function PassCard({ pass, event, nationIso2, today, width, pose }: { pass
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <Image source={require("../../assets/brand/movescore-wordmark.png")} style={{ height: s(10), width: s(10) * (997 / 74) }} contentFit="contain" accessibilityLabel="Move Score" />
           <View style={{ backgroundColor: onsite ? BALL : "rgba(255,255,255,0.08)", borderRadius: s(6), paddingHorizontal: s(7), paddingVertical: s(4) }}>
-            <Eyebrow size={s(9.5)} style={{ color: onsite ? BALL_INK : "#E8ECF4", letterSpacing: s(1.9), fontFamily: F.bodyBold }}>{onsite ? "ON-SITE" : "SPECTATOR"}</Eyebrow>
+            <Eyebrow size={s(9.5)} style={{ color: onsite ? BALL_INK : "#E8ECF4", letterSpacing: s(1.9), fontFamily: F.bodyBold }}>{onsite ? tr("pass.badgeOnsite") : tr("pass.badgeSpectator")}</Eyebrow>
           </View>
         </View>
         <View style={{ marginTop: s(26) }}>
@@ -239,17 +241,17 @@ export function PassCard({ pass, event, nationIso2, today, width, pose }: { pass
           })}
         </View>
         <View style={{ marginTop: "auto", flexDirection: "row", gap: s(12), paddingTop: s(12), marginBottom: s(14), borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.10)", width: "62%" }}>
-          {stat("Matches", attended, false)}
-          {stat("Score", points, true)}
+          {stat(tr("pass.statMatches"), attended, false)}
+          {stat(tr("pass.statScore"), points, true)}
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", gap: 8 }}>
           <View style={{ flexShrink: 1 }}>
-            <Eyebrow size={s(9.5)} style={{ color: "#9AA4B8", letterSpacing: s(1.7) }}>Holder</Eyebrow>
+            <Eyebrow size={s(9.5)} style={{ color: "#9AA4B8", letterSpacing: s(1.7) }}>{tr("pass.holder")}</Eyebrow>
             <View style={{ flexDirection: "row", gap: s(6), alignItems: "center", marginTop: s(3) }}>
-              <Body weight="bold" size={s(15)} numberOfLines={1} style={{ color: "#E8ECF4", flexShrink: 1, lineHeight: s(20) }}>{pass.holderName ?? "Move Score fan"}</Body>
+              <Body weight="bold" size={s(15)} numberOfLines={1} style={{ color: "#E8ECF4", flexShrink: 1, lineHeight: s(20) }}>{pass.holderName ?? tr("pass.fan")}</Body>
               {pass.nationCode ? <Flag iso2={nationIso2} code={pass.nationCode} size={Math.round(s(22))} /> : null}
             </View>
-            <Body size={s(11)} style={{ color: "#9AA4B8", lineHeight: s(15) }}>{`No. ${String(pass.serial).padStart(6, "0")}`}</Body>
+            <Body size={s(11)} style={{ color: "#9AA4B8", lineHeight: s(15) }}>{tr("pass.serial", { n: String(pass.serial).padStart(6, "0") })}</Body>
           </View>
           <View style={{ width: s(54), height: s(54), borderRadius: s(8), backgroundColor: "#FFFFFF", padding: s(5) }}>
             <QR value={`movescore://pass/${pass.id}`} size={s(44)} />
@@ -266,7 +268,7 @@ export function PassCard({ pass, event, nationIso2, today, width, pose }: { pass
       </Animated.View>
       {onsite && (
         <View style={{ position: "absolute", right: s(16), top: Math.round(h * 0.43), width: s(86), height: s(86), borderRadius: s(43), borderWidth: s(3), borderColor: BALL, alignItems: "center", justifyContent: "center", opacity: 0.95, transform: [{ rotate: "-14deg" }] }}>
-          <Animated.Text style={{ fontFamily: F.display, fontSize: s(10), lineHeight: s(11), letterSpacing: 0.6, color: BALL, textAlign: "center" }}>{`ON-SITE\n${(event.city ?? "").toUpperCase()}\n${event.days[0]?.slice(0, 4) ?? ""}`}</Animated.Text>
+          <Animated.Text style={{ fontFamily: F.display, fontSize: s(10), lineHeight: s(11), letterSpacing: 0.6, color: BALL, textAlign: "center" }}>{`${tr("pass.badgeOnsite")}\n${(event.city ?? "").toUpperCase()}\n${event.days[0]?.slice(0, 4) ?? ""}`}</Animated.Text>
         </View>
       )}
     </Animated.View>
