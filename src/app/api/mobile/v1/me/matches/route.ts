@@ -4,6 +4,7 @@ import { ownerOf } from "@/lib/mobile/identity";
 import { privateJson } from "@/lib/mobile/http";
 import { toMatch } from "@/lib/mobile/projection";
 import type { Match } from "@/lib/types";
+import { audienceMatches } from "@/lib/live/delayServer";
 
 /** My Matches: every match of the players this account has claimed, soonest first. */
 export async function GET(request: Request) {
@@ -28,5 +29,7 @@ export async function GET(request: Request) {
     const nominees = [...(m.team_a_player_ids ?? []), ...(m.team_b_player_ids ?? [])];
     return nominees.length === 0 || nominees.some((n) => ids.has(n));
   });
-  return privateJson({ players, matches: mine.map((m) => toMatch(m, null)) });
+  // The audience delay of each event: a player's own list shows results when the fans see them.
+  const seen = await audienceMatches(mine, []);
+  return privateJson({ players, matches: seen.matches.map((m) => toMatch(m, null)) });
 }

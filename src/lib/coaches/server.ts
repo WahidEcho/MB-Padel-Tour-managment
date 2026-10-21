@@ -22,11 +22,12 @@ import { nationByCode } from "../tennis/nations";
 import { RUBBER_LABELS } from "../tennis/ties";
 import { toScore, toStandingRow } from "../mobile/projection";
 import { SNAPSHOT_COLUMNS } from "../mobile/server";
-import type { MatchSnapshot, RubberType, Standing } from "../types";
+import type { MatchSnapshot, MatchStatus, RubberType, Standing, Tournament } from "../types";
 import type { MatchStatusLite, MCoachMatch, MCoachPlayer, MCoachRubber, MCoachSlot, MCoachTeamRef, MCoachTeamView, MCoachTie } from "../mobile/contract";
 import { COACH_APP_HOURS, COACH_TOKEN_PREFIX, coachSecret, isCoachTokenShaped, signCoachToken, verifyCoachToken } from "./token";
 import { coachCodeLabel, coachReaches, coachSideOf, landingFrom, opponentsShown, orientScore, resultFor, tieStageLabel, type CoachSide } from "./rules";
 import type { CourtCodeEvent } from "../orgs/courtCodes";
+import { audienceTables, audienceView, scoreDelayFor } from "../live/delayServer";
 
 /* ---------------- codes ---------------- */
 
@@ -338,7 +339,8 @@ export async function endCoachSession(sessionId: string, reason: "signed_out" | 
 /* ---------------- the coach's view ---------------- */
 
 const RUBBER_COLUMNS = "id, tournament_id, tie_id, rubber_no, rubber_type, round_name, match_order, court_id, scheduled_time, team_a_id, team_b_id, status, winner_team_id, started_at, ended_at, team_a_player_ids, team_b_player_ids";
-const TIE_COLUMNS = "id, tournament_id, stage, group_id, draw_from, draw_to, places_from, places_to, round_no, round_name, tie_order, court_id, scheduled_time, team_a_id, team_b_id, status, rubbers_a, rubbers_b, winner_team_id, lineup_locked_at";
+const TIE_COLUMNS =
+  "id, tournament_id, stage, group_id, draw_from, draw_to, places_from, places_to, round_no, round_name, tie_order, court_id, scheduled_time, team_a_id, team_b_id, status, rubbers_a, rubbers_b, winner_team_id, lineup_locked_at, ended_at, winner_to_tie_id, winner_to_side, loser_to_tie_id, loser_to_side";
 
 interface RubberRow {
   id: string;
@@ -381,6 +383,38 @@ interface TieRow {
   rubbers_b: number;
   winner_team_id: string | null;
   lineup_locked_at: string | null;
+  ended_at: string | null;
+  winner_to_tie_id: string | null;
+  winner_to_side: "A" | "B" | null;
+  loser_to_tie_id: string | null;
+  loser_to_side: "A" | "B" | null;
+}
+
+/**
+ * Coaches are audience too: with the event's audience delay on, their ties,
+ * rubbers and scores are as the fans see them (src/lib/live/delay.ts). A tie the
+ * team only reaches through a result inside the window is left out until then.
+ */
+async function coachAudience(
+  coach: CoachPrincipal,
+  ties: TieRow[],
+  rubbers: RubberRow[],
+  snaps: Map<string, MatchSnapshot>,
+): Promise<{ ties: TieRow[]; rubbers: RubberRow[]; snaps: Map<string, MatchSnapshot>; delay: number }> {
+  const delay = await scoreDelayFor(coach.tournamentId);
+  if (!delay) return { ties, rubbers, snaps, delay };
+  const v = await audienceView({
+    delaySeconds: delay,
+    matches: rubbers as unknown as (RubberRow & { status: MatchStatus })[],
+    snapshots: [...snaps.values()],
+    ties,
+  });
+  return {
+    ties: v.ties.filter((t) => coachReaches(coach.teamId, t)),
+    rubbers: (v.matches as unknown as RubberRow[]).filter((r) => coachReaches(coach.teamId, r)),
+    snaps: new Map(v.snapshots.map((s) => [s.match_id, s])),
+    delay,
+  };
 }
 
 interface Names {
@@ -493,8 +527,9 @@ export async function coachTeamView(coach: CoachPrincipal): Promise<MCoachTeamVi
     t.event_group_id ? db().from("event_groups").select("name").eq("id", t.event_group_id).maybeSingle().then((r) => (r.data as { name: string } | null)?.name ?? null) : Promise.resolve(null),
   ]);
   const ids = [...new Set(rubbers.flatMap((r) => [...(r.team_a_player_ids ?? []), ...(r.team_b_player_ids ?? [])]))];
-  const [n, snaps] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor(rubbers.map((r) => r.id))]);
-  const tieViews = await withEntryBadges(coach, ties.map((x) => tieView(x, coach.teamId, rubbers, n, snaps)).sort((a, b) => byTime(a, b)));
+  const [n, storedSnaps] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor(rubbers.map((r) => r.id))]);
+  const seen = await coachAudience(coach, ties, rubbers, storedSnaps);
+  const tieViews = await withEntryBadges(coach, seen.ties.map((x) => tieView(x, coach.teamId, seen.rubbers, n, seen.snaps)).sort((a, b) => byTime(a, b)));
 
   // The group table: every team of the coach's group, results only.
   const groupId = (gt as { group_id: string } | null)?.group_id ?? null;
@@ -502,7 +537,12 @@ export async function coachTeamView(coach: CoachPrincipal): Promise<MCoachTeamVi
   let ownStatus: string | null = null;
   if (groupId) {
     const { data: rows } = await db().from("standings_snapshots").select("*").eq("tournament_id", coach.tournamentId).eq("group_id", groupId).order("rank");
-    const standings = (rows ?? []) as Standing[];
+    let standings = (rows ?? []) as Standing[];
+    if (seen.delay) {
+      // A result inside the delay's window is not in the coach's table yet either.
+      const { data: tr } = await db().from("tournaments").select("id, branding_config, format_config").eq("id", coach.tournamentId).maybeSingle();
+      if (tr) standings = (await audienceTables(tr as Pick<Tournament, "id" | "branding_config" | "format_config">, standings)).standings.filter((s) => s.group_id === groupId).sort((a, b) => a.rank - b.rank);
+    }
     ownStatus = standings.find((s) => s.team_id === coach.teamId)?.status ?? null;
     group = {
       id: groupId,
@@ -514,10 +554,10 @@ export async function coachTeamView(coach: CoachPrincipal): Promise<MCoachTeamVi
   const { data: draws } = await db().from("ties").select("draw_from, draw_to").eq("tournament_id", coach.tournamentId).eq("stage", "placement").limit(200);
   const blocks = [...new Map(((draws ?? []) as { draw_from: number | null; draw_to: number | null }[]).filter((d) => d.draw_from && d.draw_to).map((d) => [`${d.draw_from}-${d.draw_to}`, { from: d.draw_from!, to: d.draw_to! }])).values()];
   const ownDraw = tieViews.find((x) => x.stage === "placement");
-  const placementTie = ownDraw ? ties.find((x) => x.id === ownDraw.id) : undefined;
+  const placementTie = ownDraw ? seen.ties.find((x) => x.id === ownDraw.id) : undefined;
   const landing = placementTie?.draw_from ? tieStageLabel({ ...placementTie, round_name: null }, null) : landingFrom(ownStatus, blocks);
   let place: number | null = null;
-  const decided = ties.find((x) => x.stage === "placement" && x.places_from && x.places_to && x.winner_team_id && x.status === "completed" && x.places_to - x.places_from === 1);
+  const decided = seen.ties.find((x) => x.stage === "placement" && x.places_from && x.places_to && x.winner_team_id && x.status === "completed" && x.places_to - x.places_from === 1);
   if (decided) place = decided.winner_team_id === coach.teamId ? decided.places_from : decided.places_to;
 
   const players = ((squad ?? []) as { id: string; full_name: string }[]).map((p) => ({ id: p.id, name: p.full_name }));
@@ -552,8 +592,10 @@ export async function coachTie(coach: CoachPrincipal, tieId: string): Promise<MC
   const { data: m } = await db().from("matches").select(RUBBER_COLUMNS).eq("tie_id", tie.id).order("rubber_no");
   const rubbers = ((m ?? []) as RubberRow[]).filter((r) => coachReaches(coach.teamId, r));
   const ids = [...new Set(rubbers.flatMap((r) => [...(r.team_a_player_ids ?? []), ...(r.team_b_player_ids ?? [])]))];
-  const [n, snaps] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor(rubbers.map((r) => r.id))]);
-  return (await withEntryBadges(coach, [tieView(tie, coach.teamId, rubbers, n, snaps)]))[0]!;
+  const [n, storedSnaps] = await Promise.all([names(coach.tournamentId, ids), snapshotsFor(rubbers.map((r) => r.id))]);
+  const seen = await coachAudience(coach, [tie], rubbers, storedSnaps);
+  if (!seen.ties.length) return null;
+  return (await withEntryBadges(coach, [tieView(seen.ties[0], coach.teamId, seen.rubbers, n, seen.snaps)]))[0]!;
 }
 
 /** Coach line-up entry (additive): `lineupEntry` on each tie only while the event's switch is on. */
@@ -579,20 +621,23 @@ export async function coachMatch(coach: CoachPrincipal, matchId: string): Promis
   if (!r || !coachReaches(coach.teamId, r)) return null;
   const side = coachSideOf(coach.teamId, r)!;
   const ids = [...(r.team_a_player_ids ?? []), ...(r.team_b_player_ids ?? [])];
-  const [n, snaps, { loadMatchLog }, tie] = await Promise.all([
+  const [n, storedSnaps, { loadMatchLog }, tie] = await Promise.all([
     names(coach.tournamentId, ids),
     snapshotsFor([r.id]),
     import("../scoring/matchLogServer"),
     r.tie_id ? db().from("ties").select("lineup_locked_at").eq("id", r.tie_id).eq("tournament_id", coach.tournamentId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
-  const log = await loadMatchLog(r.id);
+  // The audience delay: the score and the log as the fans see them.
+  const seen = await coachAudience(coach, [], [r], storedSnaps);
+  const snaps = seen.snaps;
+  const log = await loadMatchLog(r.id, seen.delay ? { recordedBy: new Date(Date.now() - seen.delay * 1000).toISOString() } : {});
   const oppId = side === "A" ? r.team_b_id : r.team_a_id;
   const opp = oppId ? n.teams.get(oppId) : undefined;
   return {
     tieId: r.tie_id,
     team: coach.team,
     opponent: opp ? toRef(opp) : null,
-    rubber: rubberView(r, side, coach.teamId, n, snaps.get(r.id) ?? null, Boolean((tie.data as { lineup_locked_at: string | null } | null)?.lineup_locked_at)),
+    rubber: rubberView(seen.rubbers[0] ?? r, side, coach.teamId, n, snaps.get(r.id) ?? null, Boolean((tie.data as { lineup_locked_at: string | null } | null)?.lineup_locked_at)),
     // Who entered each event (a referee's name) is staff-only: never in a coach's log.
     log: (log?.entries ?? []).filter((e) => !e.superseded).map((e) => ({ n: e.n, at: e.at, title: e.title, detail: e.detail, tag: e.tag, chip: e.chip, set: e.set, undone: e.undone })),
   };

@@ -56,6 +56,8 @@ export interface MTournamentCard {
   skin: AppSkin;
   /** The organisation running it (its page: /api/mobile/v1/orgs/{slug}). Absent from older servers. */
   organization?: MOrgRef | null;
+  /** Scores of this tournament are this many seconds behind live (the audience delay). Absent when live; 1.0.1 ignores it. */
+  scoreDelaySeconds?: number;
 }
 
 export interface MOrgRef {
@@ -329,6 +331,12 @@ export interface MLive {
    * normally. Absent from older servers; 1.0.1 ignores it.
    */
   playStatus?: MPlayStatus | null;
+  /**
+   * The organiser's audience delay (Admin → In the app → Score delay; src/lib/live/delay.ts):
+   * every score here is this many seconds behind the referee. Absent when scores are live,
+   * and from older servers; 1.0.1 ignores it.
+   */
+  scoreDelaySeconds?: number;
 }
 
 export interface MStandingRow {

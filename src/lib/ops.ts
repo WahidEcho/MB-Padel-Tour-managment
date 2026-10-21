@@ -3,7 +3,6 @@ import { audit, slugify } from "./audit";
 import { roundRobin } from "./roundrobin";
 import { calculateStandings, applyQualification, isFinished, type MatchResultInput } from "./standings";
 import { scoringConfigForMatch } from "./scoring/rules";
-import { currentServer, type ScoreState } from "./scoring/engine";
 import { DEFAULT_FOCAL } from "./portrait";
 import {
   advanceTarget,
@@ -55,6 +54,7 @@ import { endLease, endLeasesForTournament } from "./scoringControl";
 import { newTournamentMatchDayRules } from "./matchday/rules";
 import { withoutLiveVideo } from "./stream/liveVideo";
 import { withoutEventInfo } from "./eventInfo/clean";
+import { snapshotRowFromState } from "./live/delay";
 
 /* ------------------------------------------------------------------ */
 /* Group match generation                                              */
@@ -403,11 +403,27 @@ export async function recalcStandings(tournamentId: string) {
   if (!tournament) throw new Error("Tournament not found");
   const { isTieFormat, recalcTieStandings } = await import("./tennis/tieOps");
   if (isTieFormat(tournament)) return recalcTieStandings(tournamentId);
+  const rows = await standingsRows(tournament);
+  await db().from("standings_snapshots").delete().eq("tournament_id", tournamentId);
+  if (rows.length > 0) {
+    const { error } = await db().from("standings_snapshots").insert(rows);
+    if (error) throw new Error(error.message);
+  }
+  return rows;
+}
+
+/**
+ * The group tables of a (non-tie) tournament, computed and not written. `asOf`
+ * swaps in other matches and snapshots: the audience delay's view of the table
+ * before a result inside its window (src/lib/live/delayServer.ts).
+ */
+export async function standingsRows(tournament: Tournament, asOf?: { matches: Match[]; snapshots: MatchSnapshot[] }): Promise<Standing[]> {
+  const tournamentId = tournament.id;
   const [groups, groupTeams, matches, snapshots, existing] = await Promise.all([
     getGroups(tournamentId),
     getGroupTeams(tournamentId),
-    getMatches(tournamentId),
-    getSnapshots(tournamentId),
+    asOf ? Promise.resolve(asOf.matches) : getMatches(tournamentId),
+    asOf ? Promise.resolve(asOf.snapshots) : getSnapshots(tournamentId),
     getStandings(tournamentId),
   ]);
   const { data: teams } = await db()
@@ -444,12 +460,6 @@ export async function recalcStandings(tournamentId: string) {
       }
     }
     rows.push(...standings);
-  }
-
-  await db().from("standings_snapshots").delete().eq("tournament_id", tournamentId);
-  if (rows.length > 0) {
-    const { error } = await db().from("standings_snapshots").insert(rows);
-    if (error) throw new Error(error.message);
   }
   return rows;
 }
@@ -1373,16 +1383,6 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
 /* Snapshot helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-/**
- * The team serving the next point, as a team id. In a tie-break `servingTeam` is null
- * (the serve rotates every two points from the tie-break's first server), so this asks
- * the engine: every screen reading `serving_team_id` then shows the ball in a tie-break too.
- */
-export function servingTeamIdOf(state: EngineStateLike, match: { team_a_id: string | null; team_b_id: string | null }): string | null {
-  const server = state.isTiebreak ? currentServer(state as unknown as ScoreState) : state.servingTeam;
-  return server === "A" ? match.team_a_id : server === "B" ? match.team_b_id : null;
-}
-
 export interface EngineStateLike {
   currentSet: number;
   teamA: { points: string; games: number; sets: number; tiebreakPoints: number };
@@ -1408,63 +1408,11 @@ export async function upsertSnapshotFromState(
   lastEventNumber: number,
   facts: SnapshotEventFacts = {},
 ) {
-  // Optional so scripts and older callers keep compiling; a snapshot written
-  // without them simply reads as "no undo seen", which is the safe default.
-  const eventFacts = {
-    last_event_type: facts.lastEventType ?? null,
-    last_event_team_id: facts.lastEventTeamId ?? null,
-    last_undo_event_number: facts.lastUndoEventNumber ?? 0,
-  };
-  // Non-padel (e.g. chess) state has no padel set/game fields — store the JSON and
-  // leave the padel-specific columns at neutral defaults. Padel path is unchanged.
-  const loose = state as unknown as { teamA?: unknown; fen?: string; games?: unknown };
-  if (loose.teamA === undefined || loose.games !== undefined || loose.fen !== undefined) {
-    const chessRow = {
-      match_id: match.id,
-      tournament_id: match.tournament_id,
-      current_set_number: 1,
-      team_a_point_label: "",
-      team_b_point_label: "",
-      team_a_games: 0,
-      team_b_games: 0,
-      team_a_sets: 0,
-      team_b_sets: 0,
-      is_tiebreak: false,
-      tiebreak_team_a_points: 0,
-      tiebreak_team_b_points: 0,
-      serving_team_id: null,
-      last_event_number: lastEventNumber,
-      ...eventFacts,
-      completed_sets: [],
-      snapshot_json: state as unknown as Record<string, unknown>,
-      updated_at: new Date().toISOString(),
-    };
-    const { error } = await db().from("match_score_snapshots").upsert(chessRow, { onConflict: "match_id" });
-    if (error) throw new Error(error.message);
-    return chessRow as unknown as MatchSnapshot;
-  }
-
-  const servingTeamId = servingTeamIdOf(state, match);
-  const row = {
-    match_id: match.id,
-    tournament_id: match.tournament_id,
-    current_set_number: state.currentSet,
-    team_a_point_label: state.teamA.points,
-    team_b_point_label: state.teamB.points,
-    team_a_games: state.teamA.games,
-    team_b_games: state.teamB.games,
-    team_a_sets: state.teamA.sets,
-    team_b_sets: state.teamB.sets,
-    is_tiebreak: state.isTiebreak,
-    tiebreak_team_a_points: state.teamA.tiebreakPoints,
-    tiebreak_team_b_points: state.teamB.tiebreakPoints,
-    serving_team_id: servingTeamId,
-    last_event_number: lastEventNumber,
-    ...eventFacts,
-    completed_sets: state.completedSets,
-    snapshot_json: state as unknown as Record<string, unknown>,
-    updated_at: new Date().toISOString(),
-  };
+  // Optional facts so scripts and older callers keep compiling; a snapshot written
+  // without them simply reads as "no undo seen", which is the safe default. The row
+  // itself (games or chess) is the pure mapper's, shared with the audience delay
+  // (src/lib/live/delay.ts), which rebuilds older rows the same way.
+  const row = snapshotRowFromState(match, state, lastEventNumber, facts);
   const { error } = await db().from("match_score_snapshots").upsert(row, { onConflict: "match_id" });
   if (error) throw new Error(error.message);
   return row as unknown as MatchSnapshot;

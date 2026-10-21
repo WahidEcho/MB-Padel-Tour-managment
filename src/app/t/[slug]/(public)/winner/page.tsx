@@ -3,6 +3,7 @@ import { getBrackets, getMatches, getTeams, getTournamentBySlug, teamMap } from 
 import { podiumDepthFor } from "@/lib/bracket";
 import AutoRefresh from "@/components/AutoRefresh";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
+import { tournamentAudience } from "@/lib/live/delayServer";
 
 // Rendered at most every 10s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -12,11 +13,13 @@ export default async function PublicWinner({ params }: { params: Promise<{ slug:
   const { slug } = await params;
   const tournament = await getTournamentBySlug(slug);
   if (!tournament) notFound();
-  const [matches, teams, brackets] = await Promise.all([
+  const [allMatches, teams, brackets] = await Promise.all([
     getMatches(tournament.id),
     getTeams(tournament.id),
     getBrackets(tournament.id),
   ]);
+  // The audience delay: a final decided inside its window crowns nobody yet.
+  const { matches } = await tournamentAudience(tournament, { matches: allMatches });
   const tm = teamMap(teams);
 
   // A Cup and a Plate each crown their own champion, so each gets its own

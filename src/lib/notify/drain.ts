@@ -23,6 +23,7 @@ import { db } from "../supabase";
 import { DEFAULT_ALERT_PREFS, type MAlertPrefs } from "../mobile/contract";
 import type { AlertPayload, Target } from "./compose";
 import { wordsFor } from "./i18n";
+import { DEFERRED_LIVE_ACTIVITY } from "../live/delay";
 
 const EXPO_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
@@ -303,6 +304,13 @@ export async function drainNotifications(limit = 25): Promise<{ events: number; 
     if (!claimed) continue;
     events++;
     const giveUp = ev.attempts + 1 >= MAX_ATTEMPTS;
+    if (ev.kind === DEFERRED_LIVE_ACTIVITY) {
+      // A lock-screen push held back by the audience delay (hooks.ts deferLiveActivity): no alert, the push itself.
+      const { runDeferredLiveActivity } = await import("./hooks");
+      await runDeferredLiveActivity((ev.payload as AlertPayload & { deferred?: { op?: string; matchId?: string; important?: boolean } }).deferred);
+      await db().from("notification_events").update({ status: "sent", sent_at: new Date().toISOString(), error: null }).eq("id", ev.id);
+      continue;
+    }
     try {
       const r = await sendEvent(ev);
       sent += r.sent;

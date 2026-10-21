@@ -24,6 +24,8 @@ import { memo } from "./http";
 import { isPublicLeagueSession, leagueSessionTournamentIds } from "../leagues/server";
 import { CARD_COLUMNS, MATCH_COLUMNS, SNAPSHOT_COLUMNS, getDiscover, getFlags, plateBrackets } from "./server";
 import { activeLiveVideos, withLiveVideo } from "../stream/liveVideo";
+import { scoreDelaySeconds } from "../live/delay";
+import { audienceView } from "../live/delayServer";
 import { toCard, toCourtCall, toCourtTeam, toMatch, toSides, toStageRules, toTie, type CallRow, type TournamentRow } from "./projection";
 
 /** At most this many tournaments on the hero (a busy weekend has a handful). */
@@ -34,7 +36,7 @@ export const COURT_TEAM_COLUMNS =
   "id, tournament_id, team_name, nation_code, iso2, team_status, players(id, team_id, player_order, full_name, photo_url, portrait_url, focal_x, focal_y, player_profile_id, player_profiles(photo_url, portrait_url, focal_x, focal_y))";
 const COURT_COLUMNS = "id, tournament_id, court_name, court_order, is_active";
 const TIE_COLUMNS =
-  "id, tournament_id, stage, group_id, round_no, round_name, tie_order, court_id, scheduled_time, team_a_id, team_b_id, status, rubbers_a, rubbers_b, winner_team_id, places_from, places_to, lineup_locked_at";
+  "id, tournament_id, stage, group_id, round_no, round_name, tie_order, court_id, scheduled_time, team_a_id, team_b_id, status, rubbers_a, rubbers_b, winner_team_id, places_from, places_to, lineup_locked_at, ended_at, winner_to_tie_id, winner_to_side, loser_to_tie_id, loser_to_side";
 const CALL_COLUMNS = "match_id, tournament_id, court_id, called_at, deadline_at, extensions, a_present_at, b_present_at";
 const HERO_TOURNAMENT_COLUMNS = `${CARD_COLUMNS}, scoring_config`;
 
@@ -140,6 +142,24 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
     for (const res of [onCourt, justDone, rubbers]) for (const m of (res.data ?? []) as unknown as (Match & { tournament_id: string })[]) byId.set(m.id, m);
     const matchesOf = groupBy([...byId.values()].sort((a, b) => a.match_order - b.match_order));
     const tiesOf = groupBy((tiesRes.data ?? []) as unknown as (Tie & { tournament_id: string })[]);
+    // The audience delay (src/lib/live/delay.ts): each event as its fans see it, `seconds` ago.
+    // Statuses, ties and advancement here (no query); the scores once the snapshots are read.
+    const realMatchesOf = new Map(matchesOf);
+    const delayOf = new Map(ids.map((id) => [id, scoreDelaySeconds(rows.get(id)?.branding_config)]));
+    for (const tid of ids) {
+      const delay = delayOf.get(tid) ?? 0;
+      if (!delay) continue;
+      const v = await audienceView({
+        delaySeconds: delay,
+        matches: realMatchesOf.get(tid) ?? [],
+        snapshots: [],
+        ties: tiesOf.get(tid) ?? [],
+        playDead: (x) => x.stage === "group" || rows.get(tid)?.format_config?.ties?.playDeadRubbersInPlacement !== false,
+        now,
+      });
+      matchesOf.set(tid, v.matches);
+      tiesOf.set(tid, v.ties);
+    }
     const teamsOf = groupBy((teamsRes.data ?? []) as unknown as TeamRow[]);
     // Per event: the linked profiles its organisation may not show a photo of (src/lib/orgs/personFields.ts).
     const noPhoto = new Map<string, Set<string>>();
@@ -170,6 +190,15 @@ export function getCourtsLive(includeDemo: boolean): Promise<MCourtsLive> {
     const wanted = plans.flatMap((p) => [...p.subset.matchIds]);
     const snaps = wanted.length ? await db().from("match_score_snapshots").select(SNAPSHOT_COLUMNS).in("match_id", wanted) : { data: [] };
     const snapOf = new Map(((snaps.data ?? []) as unknown as MatchSnapshot[]).map((s) => [s.match_id, s]));
+    for (const tid of ids) {
+      const delay = delayOf.get(tid) ?? 0;
+      if (!delay) continue;
+      const real = realMatchesOf.get(tid) ?? [];
+      const own = real.flatMap((m) => (snapOf.has(m.id) ? [snapOf.get(m.id)!] : []));
+      const v = await audienceView({ delaySeconds: delay, matches: real, snapshots: own, now });
+      for (const m of real) snapOf.delete(m.id);
+      for (const s of v.snapshots) snapOf.set(s.match_id, s);
+    }
 
     const events: MCourtsEvent[] = [];
     for (const p of plans) {

@@ -6,6 +6,7 @@ import { toScore } from "@/lib/mobile/projection";
 import { widgetItems, type WidgetSource } from "@/lib/mobile/widget";
 import type { MWidget } from "@/lib/mobile/contract";
 import type { Match, MatchSnapshot } from "@/lib/types";
+import { audienceMatches } from "@/lib/live/delayServer";
 
 /** Matches looked at, at most (a player in a long event, plus starred ones). */
 const MAX_MATCHES = 200;
@@ -82,10 +83,10 @@ export async function GET(request: Request) {
     for (const m of (ms ?? []) as Match[]) if (shown.has(m.tournament_id)) matches.set(m.id, m);
   }
 
-  const all = [...matches.values()];
-  const teamIds = [...new Set(all.flatMap((m) => [m.team_a_id, m.team_b_id]).filter((x): x is string => Boolean(x)))];
-  const courtIds = [...new Set(all.map((m) => m.court_id).filter((x): x is string => Boolean(x)))];
-  const liveIds = all.filter((m) => ["live", "paused", "completed", "walkover", "retired"].includes(m.status)).map((m) => m.id);
+  const stored = [...matches.values()];
+  const teamIds = [...new Set(stored.flatMap((m) => [m.team_a_id, m.team_b_id]).filter((x): x is string => Boolean(x)))];
+  const courtIds = [...new Set(stored.map((m) => m.court_id).filter((x): x is string => Boolean(x)))];
+  const liveIds = stored.filter((m) => ["live", "paused", "completed", "walkover", "retired"].includes(m.status)).map((m) => m.id);
   const [{ data: teams }, { data: courts }, { data: snaps }] = await Promise.all([
     teamIds.length ? db().from("teams").select("id, team_name, nation_code").in("id", teamIds) : Promise.resolve({ data: [] }),
     courtIds.length ? db().from("courts").select("id, court_name").in("id", courtIds) : Promise.resolve({ data: [] }),
@@ -93,7 +94,10 @@ export async function GET(request: Request) {
   ]);
   const teamLabel = new Map(((teams ?? []) as { id: string; team_name: string; nation_code: string | null }[]).map((t) => [t.id, t.nation_code ?? t.team_name]));
   const courtName = new Map(((courts ?? []) as { id: string; court_name: string }[]).map((c) => [c.id, c.court_name]));
-  const snapOf = new Map(((snaps ?? []) as MatchSnapshot[]).map((s) => [s.match_id, s]));
+  // The audience delay of each event: the widget shows what the fans see.
+  const seen = await audienceMatches(stored, (snaps ?? []) as MatchSnapshot[]);
+  const all = seen.matches;
+  const snapOf = new Map(seen.snapshots.map((s) => [s.match_id, s]));
 
   const sources: WidgetSource[] = all.map((m) => ({
     id: m.id,

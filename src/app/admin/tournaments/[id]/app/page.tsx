@@ -7,7 +7,9 @@ import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { isoToZonedInput } from "@/lib/tennis/ties";
 import StateForm from "@/components/StateForm";
 import { MAX_PLAY_STATUS_MESSAGE, PLAY_STATUS_KINDS, PLAY_STATUS_LABELS, PLAY_STATUS_TITLES, publicPlayStatus, type PlayStatusKind } from "@/lib/notices/playStatus";
-import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup, savePlayStatus } from "./actions";
+import { deleteAnnouncement, postAnnouncement, saveAppSettings, saveEventGroup, savePlayStatus, saveScoreDelay } from "./actions";
+import ScoreDelayMeter from "@/components/ScoreDelayMeter";
+import { scoreDelaySeconds } from "@/lib/live/delay";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,7 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
   // What viewers see right now (a "resumed" banner fades by itself).
   const shownStatus = publicPlayStatus(playStatus);
   const resumeClock = playStatus?.resumeAt ? isoToZonedInput(playStatus.resumeAt, tournament.timezone || "Africa/Cairo").slice(11, 16) : "";
+  const scoreDelay = scoreDelaySeconds(tournament.branding_config);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -202,6 +205,25 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
           To move the times themselves, use &ldquo;Delay the order of play&rdquo; on the{" "}
           <Link className="text-accent underline" href={`/admin/tournaments/${id}/ties`}>Ties</Link> tab.
         </p>
+      </section>
+
+      <section className="card space-y-3" data-testid="score-delay">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h2 className="font-bold">Score delay</h2>
+          <span className={`badge ${scoreDelay > 0 ? "bg-warning/15 text-warning" : "bg-border text-muted"}`} data-testid="score-delay-badge">
+            {scoreDelay > 0 ? `${scoreDelay} s behind live` : "Off · live"}
+          </span>
+        </div>
+        <p className="text-sm text-muted">
+          How long after the referee records a point, a fault or anything else fans see it: in the app, on the public site, in alerts and
+          on lock screens (coaches and players&apos; own views too). Referee consoles, the master referee desk, these admin pages, the
+          venue screens and the stream overlay always stay live.
+        </p>
+        <StateForm action={saveScoreDelay} className="space-y-2" testId="score-delay-form">
+          <input type="hidden" name="tournament_id" value={id} />
+          <ScoreDelayMeter initial={scoreDelay} />
+          <button className="btn-primary">Save score delay</button>
+        </StateForm>
       </section>
 
       <section className="card space-y-2">

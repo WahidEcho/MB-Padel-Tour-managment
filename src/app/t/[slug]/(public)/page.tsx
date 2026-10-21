@@ -15,6 +15,7 @@ import LiveMatchCard from "@/components/LiveMatchCard";
 import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessLiveCard from "@/components/ChessLiveCard";
 import StandingsTable from "@/components/StandingsTable";
+import { audienceTables, tournamentAudience } from "@/lib/live/delayServer";
 
 // Rendered at most every 6s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -25,13 +26,18 @@ export default async function PublicOverview({ params }: { params: Promise<{ slu
   const tournament = await getTournamentBySlug(slug);
   if (!tournament) notFound();
   const id = tournament.id;
-  const [groups, standings, teams, matches, snapshots, courts] = await Promise.all([
+  const [groups, storedStandings, teams, allMatches, allSnapshots, courts] = await Promise.all([
     getGroups(id),
     getStandings(id),
     getTeams(id),
     getMatches(id),
     getSnapshots(id),
     getCourts(id),
+  ]);
+  // The audience delay (Admin → In the app → Score delay): the event as it stood `seconds` ago.
+  const [{ matches, snapshots }, { standings }] = await Promise.all([
+    tournamentAudience(tournament, { matches: allMatches, snapshots: allSnapshots }),
+    audienceTables(tournament, storedStandings),
   ]);
   const tm = teamMap(teams);
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));

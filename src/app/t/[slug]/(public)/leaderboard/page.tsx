@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getGroups, getStandings, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import StandingsTable from "@/components/StandingsTable";
+import { audienceTables } from "@/lib/live/delayServer";
 
 // Rendered at most every 8s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
@@ -11,11 +12,13 @@ export default async function PublicLeaderboard({ params }: { params: Promise<{ 
   const { slug } = await params;
   const tournament = await getTournamentBySlug(slug);
   if (!tournament) notFound();
-  const [groups, standings, teams] = await Promise.all([
+  const [groups, stored, teams] = await Promise.all([
     getGroups(tournament.id),
     getStandings(tournament.id),
     getTeams(tournament.id),
   ]);
+  // The audience delay: a result inside its window is not in the table yet.
+  const { standings } = await audienceTables(tournament, stored);
   const tm = teamMap(teams);
 
   return (

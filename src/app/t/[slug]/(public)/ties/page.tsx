@@ -6,6 +6,7 @@ import { RUBBER_SHORT } from "@/lib/tennis/ties";
 import AutoRefresh from "@/components/AutoRefresh";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import DayTabs from "@/components/DayTabs";
+import { tournamentAudience } from "@/lib/live/delayServer";
 import { clockIn, dayKeyIn, defaultScheduleDay, scheduleDayLabel, scheduleDays, scheduleForDay, type ScheduleItem } from "@/lib/schedule/orderOfPlay";
 import type { Match, MatchSnapshot, RubberType, Team, Tie } from "@/lib/types";
 
@@ -24,7 +25,9 @@ export default async function PublicTies({ params }: { params: Promise<{ slug: s
   const tournament = await getTournamentBySlug(slug);
   if (!tournament || !tournament.format_config?.ties) notFound();
   const id = tournament.id;
-  const [ties, matches, teams, snapshots, courts] = await Promise.all([getTies(id), getMatches(id), getTeams(id), getSnapshots(id), getCourts(id)]);
+  const [allTies, allMatches, teams, allSnapshots, courts] = await Promise.all([getTies(id), getMatches(id), getTeams(id), getSnapshots(id), getCourts(id)]);
+  // The audience delay (Admin → In the app → Score delay): ties, rubbers and scores as they stood `seconds` ago.
+  const { ties, matches, snapshots } = await tournamentAudience(tournament, { matches: allMatches, snapshots: allSnapshots, ties: allTies });
   const tm = teamMap(teams);
   const snap = new Map(snapshots.map((s) => [s.match_id, s]));
   const court = new Map(courts.map((c) => [c.id, c.court_name]));

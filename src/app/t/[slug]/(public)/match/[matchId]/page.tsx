@@ -9,6 +9,7 @@ import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessTheater from "@/components/ChessTheater";
 import MatchStatsCard from "@/components/MatchStatsCard";
 import { getMatchStats } from "@/lib/mobile/stats";
+import { tournamentAudience } from "@/lib/live/delayServer";
 // ChessLiveCard is used elsewhere (live/overview/TV); the match page uses the theater view.
 import {
   currentGame,
@@ -37,16 +38,20 @@ export default async function PublicMatch({
   const { slug, matchId } = await params;
   const tournament = await getTournamentBySlug(slug);
   if (!tournament) notFound();
-  const match = await getMatch(matchId);
-  if (!match || match.tournament_id !== tournament.id) notFound();
-  const [teams, snapshot, courts, venue, stats] = await Promise.all([
+  const stored = await getMatch(matchId);
+  if (!stored || stored.tournament_id !== tournament.id) notFound();
+  const [teams, storedSnapshot, courts, venue, stats] = await Promise.all([
     getTeams(tournament.id),
     getSnapshot(matchId),
     getCourts(tournament.id),
-    match.court_id ? hasPublicVenue(slug) : Promise.resolve(false),
+    stored.court_id ? hasPublicVenue(slug) : Promise.resolve(false),
     // Fans' stats (public tournaments only; aces only when the organiser shows them).
     getMatchStats(matchId).catch(() => null),
   ]);
+  // The audience delay (Admin → In the app → Score delay): the match as it stood `seconds` ago.
+  const view = await tournamentAudience(tournament, { matches: [stored], snapshots: storedSnapshot ? [storedSnapshot] : [] });
+  const match = view.matches[0];
+  const snapshot = view.snapshots[0] ?? null;
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));
   // The court's live video, while this match is on it (Admin → Live stream).

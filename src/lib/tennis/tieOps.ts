@@ -15,7 +15,7 @@ import { roundRobin } from "../roundrobin";
 import { applyQualification } from "../standings";
 import { scoringConfigForMatch } from "../scoring/rules";
 import type { Court, Group, GroupTeam, Match, MatchSnapshot, RubberType, Team, Tie, Tournament } from "../types";
-import { MAX_DELAY_MINUTES, RUBBER_GAP_MINUTES, RUBBER_LABELS, lineupFor, retiredInTie, rubberPlan, shiftTime, tieOutcome } from "./ties";
+import { MAX_DELAY_MINUTES, RUBBER_GAP_MINUTES, RUBBER_LABELS, lineupFor, placingsFromTies, retiredInTie, rubberPlan, shiftTime, tieOutcome } from "./ties";
 import { changedRubbers, checkLineup, issueText, needsReason, rubberEditable, unaccepted, warningsForChange, type LineupIssue } from "./lineupRules";
 import { calculateTieStandings } from "./tieStandings";
 import { placementPlan, type DrawLots, type PlannedTie } from "./placement";
@@ -154,17 +154,36 @@ export async function generateGroupTies(tournamentId: string, actorRole: string,
 
 /** Group standings, ranked the ITF way, written where the padel standings are. */
 export async function recalcTieStandings(tournamentId: string) {
+  const rows = await tieStandingsRows(tournamentId);
+  await db().from("standings_snapshots").delete().eq("tournament_id", tournamentId);
+  if (rows.length) {
+    const { error } = await db().from("standings_snapshots").insert(rows);
+    if (error) throw new Error(error.message);
+  }
+  return rows;
+}
+
+/**
+ * The tie-format group tables, computed and not written. `asOf` swaps in other
+ * ties, rubbers and snapshots: the audience delay's view of the table before a
+ * result inside its window (src/lib/live/delayServer.ts).
+ */
+export async function tieStandingsRows(tournamentId: string, asOf?: { ties: Tie[]; rubbers: Match[]; snapshots: MatchSnapshot[] }) {
   const tournament = await tournamentOf(tournamentId);
-  const [{ data: groups }, { data: groupTeams }, { data: teams }, { data: ties }, { data: rubbers }, { data: snaps }, { data: existing }] =
+  const none = Promise.resolve({ data: null });
+  const [{ data: groups }, { data: groupTeams }, { data: teams }, tieRes, rubberRes, snapRes, { data: existing }] =
     await Promise.all([
       db().from("groups").select("*").eq("tournament_id", tournamentId).order("group_order"),
       db().from("group_teams").select("*").eq("tournament_id", tournamentId),
       db().from("teams").select("id, team_name, seed_number, team_status").eq("tournament_id", tournamentId),
-      db().from("ties").select("*").eq("tournament_id", tournamentId).eq("stage", "group"),
-      db().from("matches").select("id, tie_id, team_a_id, team_b_id, status, winner_team_id, rubber_type, stage").eq("tournament_id", tournamentId).not("tie_id", "is", null),
-      db().from("match_score_snapshots").select("*").eq("tournament_id", tournamentId),
+      asOf ? none : db().from("ties").select("*").eq("tournament_id", tournamentId).eq("stage", "group"),
+      asOf ? none : db().from("matches").select("id, tie_id, team_a_id, team_b_id, status, winner_team_id, rubber_type, stage").eq("tournament_id", tournamentId).not("tie_id", "is", null),
+      asOf ? none : db().from("match_score_snapshots").select("*").eq("tournament_id", tournamentId),
       db().from("standings_snapshots").select("group_id, team_id, status, manual_status_override").eq("tournament_id", tournamentId),
     ]);
+  const ties = asOf ? asOf.ties.filter((t) => t.stage === "group") : tieRes.data;
+  const rubbers = asOf ? asOf.rubbers.filter((m) => m.tie_id) : rubberRes.data;
+  const snaps = asOf ? asOf.snapshots : snapRes.data;
   const snapBy = new Map(((snaps ?? []) as MatchSnapshot[]).map((s) => [s.match_id, s]));
   const teamRows = (teams ?? []) as (Pick<Team, "id" | "team_name" | "seed_number" | "team_status">)[];
   const disqualified = new Set(teamRows.filter((t) => t.team_status === "disqualified").map((t) => t.id));
@@ -195,11 +214,6 @@ export async function recalcTieStandings(tournamentId: string) {
       }
     }
     rows.push(...standings);
-  }
-  await db().from("standings_snapshots").delete().eq("tournament_id", tournamentId);
-  if (rows.length) {
-    const { error } = await db().from("standings_snapshots").insert(rows);
-    if (error) throw new Error(error.message);
   }
   return rows;
 }
@@ -593,14 +607,7 @@ async function dropMatchRules(tournamentId: string, ids: Set<string>) {
 
 /** The final places decided so far, 1st first. */
 export async function finalPlacings(tournamentId: string): Promise<{ place: number; team_id: string }[]> {
-  const ties = (await getTies(tournamentId)).filter((t) => t.stage === "placement" && t.places_from !== null && t.winner_team_id);
-  const out: { place: number; team_id: string }[] = [];
-  for (const t of ties) {
-    const loser = t.winner_team_id === t.team_a_id ? t.team_b_id : t.team_a_id;
-    out.push({ place: t.places_from!, team_id: t.winner_team_id! });
-    if (loser) out.push({ place: t.places_to!, team_id: loser });
-  }
-  return out.sort((a, b) => a.place - b.place);
+  return placingsFromTies(await getTies(tournamentId));
 }
 
 /**
