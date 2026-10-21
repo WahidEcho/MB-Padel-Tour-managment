@@ -155,4 +155,15 @@ export const account = {
   placesLeft: { one: "{count} place left.", other: "{count} places left." },
   notOpen: "Registration is not open.",
   signInToRegister: "Sign in to register: your entry and your player code arrive in your account.",
+  // The notifications card (push/AlertsPrompt.tsx): first open, then every few days while off.
+  alertsFirstTitle: "Never miss a point",
+  alertsFirstBody: "Turn on notifications to know when matches you follow are about to start, go live and finish, plus the event's announcements. You choose which alerts in Account.",
+  alertsFirstYes: "Turn on notifications",
+  alertsSettingsTitle: "Notifications are off",
+  alertsSettingsBody: "Move Score can't alert you about matches and announcements: notifications are blocked for the app in your phone's Settings. Open Settings → Notifications → Move Score and allow them.",
+  alertsSettingsYes: "Open Settings",
+  alertsEnableTitle: "Alerts are off on this phone",
+  alertsEnableBody: "You won't hear when matches you follow start or finish, or about the event's announcements. Turn alerts back on? You can choose which ones in Account.",
+  alertsEnableYes: "Turn on alerts",
+  alertsUrgent: "Referees: calls for assistance come through even in Focus or Do Not Disturb. Keep Time Sensitive on.",
 };

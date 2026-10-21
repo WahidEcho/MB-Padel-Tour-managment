@@ -16,31 +16,23 @@ import { Button } from "../ui/Bits";
 import { getJson, setJson } from "../state/kv";
 import { alerts, refreshAlerts, turnAlertsOn } from "./register";
 import { ASKED } from "./ask";
+import { useT } from "../i18n";
+import type { Key } from "../i18n/en";
 
 const NUDGED = "ms.alertsNudgedAt";
 /** Screens a card must never cover: a referee scoring a point, a coach mid-line-up. */
 const QUIET = [/^\/referee\/score\//, /^\/coach\//];
 
-const COPY: Record<Kind, { title: string; body: string; yes: string }> = {
-  first: {
-    title: "Never miss a point",
-    body: "Turn on notifications to know when matches you follow are about to start, go live and finish, plus the event's announcements. You choose which alerts in Account.",
-    yes: "Turn on notifications",
-  },
-  settings: {
-    title: "Notifications are off",
-    body: "Move Score can't alert you about matches and announcements: notifications are blocked for the app in your phone's Settings. Open Settings → Notifications → Move Score and allow them.",
-    yes: "Open Settings",
-  },
-  enable: {
-    title: "Alerts are off on this phone",
-    body: "You won't hear when matches you follow start or finish, or about the event's announcements. Turn alerts back on? You can choose which ones in Account.",
-    yes: "Turn on alerts",
-  },
+/** The card's words for each case, in the app's language. */
+const COPY: Record<Kind, { title: Key; body: Key; yes: Key }> = {
+  first: { title: "account.alertsFirstTitle", body: "account.alertsFirstBody", yes: "account.alertsFirstYes" },
+  settings: { title: "account.alertsSettingsTitle", body: "account.alertsSettingsBody", yes: "account.alertsSettingsYes" },
+  enable: { title: "account.alertsEnableTitle", body: "account.alertsEnableBody", yes: "account.alertsEnableYes" },
 };
 
 export function AlertsPrompt() {
   const { t } = useTheme();
+  const tr = useT();
   const path = usePathname();
   const [kind, setKind] = useState<Kind | null>(null);
 
@@ -94,10 +86,11 @@ export function AlertsPrompt() {
           accessibilityViewIsModal
           style={{ backgroundColor: t.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, gap: 14 }}
         >
-          <Display size={26}>{c.title}</Display>
-          <Body tone="ink2">{c.body}</Body>
-          <Button label={c.yes} onPress={yes} />
-          <Button kind="ghost" label="Not now" onPress={done} />
+          <Display size={26}>{tr(c.title)}</Display>
+          <Body tone="ink2">{tr(c.body)}</Body>
+          {Platform.OS === "ios" ? <Body tone="ink3" size={13}>{tr("account.alertsUrgent")}</Body> : null}
+          <Button label={tr(c.yes)} onPress={yes} />
+          <Button kind="ghost" label={tr("account.notNow")} onPress={done} />
         </View>
       </View>
     </Modal>
