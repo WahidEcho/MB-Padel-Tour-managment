@@ -206,13 +206,27 @@ type Words = (lang: CallLang) => { title: string; body: string };
 async function pushTo(installationIds: string[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
   const ids = [...new Set(installationIds)].slice(0, 200);
   if (!ids.length) return 0;
-  const { data } = await db().from("push_devices").select("id, expo_push_token, locale").in("installation_id", ids).is("disabled_at", null).not("expo_push_token", "is", null);
-  return sendTo((data ?? []) as { expo_push_token: string; locale: string | null }[], words, extra);
+  const { data } = await db().from("push_devices").select("id, expo_push_token, locale, app_version").in("installation_id", ids).is("disabled_at", null).not("expo_push_token", "is", null);
+  return sendTo((data ?? []) as Device[], words, extra);
 }
 
-async function sendTo(devices: { expo_push_token: string; locale: string | null }[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
+type Device = { expo_push_token: string; locale: string | null; app_version?: string | null };
+
+/** Move Score 1.0.3 and later ring calls with their own ringtone (`master_alarm.wav`, channel `assistance_alarm`). */
+export function ringsWithAlarm(appVersion: string | null | undefined): boolean {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(appVersion ?? "");
+  if (!m) return false;
+  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return a > 1 || (a === 1 && (b > 0 || c >= 3));
+}
+
+async function sendTo(devices: Device[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
   if (!devices.length) return 0;
-  const messages: ExpoMessage[] = devices.map((d) => ({ to: d.expo_push_token, ...words(callLang(d.locale)), ...extra }));
+  const messages: ExpoMessage[] = devices.map((d) => {
+    // A call's alarm on phones that have the ringtone; older phones keep their channel and sound.
+    const alarm = extra.channelId === "assistance" && ringsWithAlarm(d.app_version) ? { channelId: "assistance_alarm", sound: "master_alarm.wav" as const } : {};
+    return { to: d.expo_push_token, ...words(callLang(d.locale)), ...extra, ...alarm };
+  });
   try {
     const tickets = await sendExpo(messages);
     return tickets.filter((t) => t.status === "ok").length;
@@ -276,8 +290,8 @@ async function escalate(call: AssistanceCall, reason: "unanswered" | "all_declin
     const userIds = [...new Set(members.map((m) => m.auth_user_id).filter((x): x is string => Boolean(x)))];
     let phones = 0;
     if (userIds.length) {
-      const { data: devices } = await db().from("push_devices").select("expo_push_token, locale").in("user_id", userIds).is("disabled_at", null).not("expo_push_token", "is", null).limit(100);
-      phones = await sendTo((devices ?? []) as { expo_push_token: string; locale: string | null }[], titled("escalationTitle", "escalationBody", vars), {
+      const { data: devices } = await db().from("push_devices").select("expo_push_token, locale, app_version").in("user_id", userIds).is("disabled_at", null).not("expo_push_token", "is", null).limit(100);
+      phones = await sendTo((devices ?? []) as Device[], titled("escalationTitle", "escalationBody", vars), {
         data: { kind: "assistance_escalated", callId: call.id },
         sound: "default",
         channelId: "assistance",

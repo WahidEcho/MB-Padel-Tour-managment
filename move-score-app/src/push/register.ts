@@ -93,6 +93,19 @@ async function channels() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       lightColor: "#FF3B30",
     });
+    // 1.0.3: master referees' emergency calls ring with the alarm (a channel's sound cannot change
+    // after it exists, so this is a new channel; the server picks it for 1.0.3+ phones).
+    await Notifications.setNotificationChannelAsync("assistance_alarm", {
+      name: tr("account.channelAssistanceAlarm"),
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "master_alarm.wav",
+      vibrationPattern: [0, 1000, 400, 1000, 400, 1000, 400, 1000],
+      enableVibrate: true,
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      lightColor: "#FF3B30",
+      audioAttributes: { usage: Notifications.AndroidAudioUsage.ALARM, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
+    });
   } catch (e) {
     logAlerts("creating the Android notification channels failed", e);
   }

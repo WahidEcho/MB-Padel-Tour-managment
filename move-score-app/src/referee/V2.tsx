@@ -7,7 +7,7 @@
  * Follows the app theme (light / dark) and Sunlight.
  */
 import { useEffect, useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import {
   BALL,
   BALL_INK,
@@ -25,7 +25,6 @@ import {
   type TeamKey,
   type TimeDecision,
 } from "@core";
-import { config } from "../config";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body, Display, Eyebrow, Num } from "../ui/Text";
 import type { RunningTimer } from "./useConsole";
@@ -162,13 +161,26 @@ export function PadV2({
                 transform: [{ scale: pressed ? 0.975 : 1 }],
               })}
             >
-              {serving ? (
-                <View style={{ position: "absolute", top: 12, left: 12, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: BALL_INK }} />
-                  <Eyebrow size={10.5} style={{ color: BALL_INK, letterSpacing: 1 }}>{tr("score.serving")}</Eyebrow>
-                </View>
-              ) : null}
-              <Display size={38} style={{ color: "#fff", textAlign: "center", lineHeight: 38 }}>{tr("score.pointCode", { code: s.code })}</Display>
+              {/* In the flow (not floating), so it can never cover the words; kept on both sides
+                  (hidden on the receiver's) so the two buttons stay aligned. */}
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, opacity: serving ? 1 : 0 }}
+                importantForAccessibility={serving ? "auto" : "no-hide-descendants"}
+                accessibilityElementsHidden={!serving}
+              >
+                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: BALL_INK }} />
+                <Eyebrow size={10.5} style={{ color: BALL_INK, letterSpacing: 1 }} numberOfLines={1}>{tr("score.serving")}</Eyebrow>
+              </View>
+              {/* "POINT" and the side's code, each on one line, shrinking to the button's width on any phone. */}
+              <View style={{ alignSelf: "stretch" }}>
+                {tr("score.pointCode", { code: s.code })
+                  .split("\n")
+                  .map((line, i) => (
+                    <Display key={i} size={38} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45} style={{ color: "#fff", textAlign: "center", lineHeight: 40 }}>
+                      {line}
+                    </Display>
+                  ))}
+              </View>
               <Eyebrow size={11} style={{ color: "rgba(255,255,255,0.85)", textAlign: "center" }} numberOfLines={2}>
                 {serving ? tr("score.nameServing", { name: s.name }) : s.name}
               </Eyebrow>
@@ -200,24 +212,6 @@ export function PadV2({
         ))}
       </View>
     </View>
-  );
-}
-
-function RuleRef({ kind, light }: { kind: RunningTimer["kind"]; light?: boolean }) {
-  const { t } = useTheme();
-  const tr = useT();
-  const rule = TIMERS[kind].rule;
-  if (!rule) return null;
-  return (
-    <Body
-      size={11}
-      weight="semi"
-      accessibilityRole="link"
-      onPress={() => void Linking.openURL(`${config.apiBaseUrl}${rule.href}`)}
-      style={{ color: light ? "rgba(255,255,255,0.85)" : t.ink2, textDecorationLine: "underline", textAlign: "center" }}
-    >
-      {/29a/.test(rule.href) ? tr("score.rule29a") : rule.label}
-    </Body>
   );
 }
 
@@ -260,7 +254,6 @@ export function BetweenPoints({ timer, now, onDismiss, onDecision }: { timer: Ru
               <Body weight="bold" size={12}>{tr("score.dismiss")}</Body>
             </Pressable>
           ) : null}
-          <RuleRef kind={timer.kind} light={v.over} />
         </View>
       </View>
       <Bar progress={v.progress ?? 0} color={v.over ? "#fff" : t.blue} track={v.over ? "rgba(255,255,255,0.3)" : t.chip} />
@@ -307,7 +300,6 @@ export function TimerCard({ timer, now, sides, onStop, onDecision }: { timer: Ru
           <Body weight="bold" size={16} style={{ color: BALL_INK }}>{def.mode === "limit" ? tr("score.resumePlay") : tr("score.stop")}</Body>
         </Pressable>
       )}
-      <RuleRef kind={timer.kind} light={red} />
     </View>
   );
 }

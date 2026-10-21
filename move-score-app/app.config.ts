@@ -81,7 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_ENV === "production" ? "Move Score" : `Move Score ${APP_ENV === "staging" ? "Staging" : "Dev"}`,
   slug: "move-score",
   scheme: "movescore",
-  version: "1.0.2",
+  version: "1.0.3",
   orientation: "default",
   icon: "./assets/brand/icon.png",
   userInterfaceStyle: "automatic",
@@ -171,7 +171,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     // remote-notification background mode: iOS may wake the app for a push (and for a
     // card started by push) so it can register the card's update token and refresh the widget.
-    ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00", enableBackgroundRemoteNotifications: true }],
+    ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00", enableBackgroundRemoteNotifications: true, sounds: ["./assets/sounds/master_alarm.wav"] }],
     // The venue map's blue dot and directions: while the map is open only (no background location).
     [
       "expo-location",

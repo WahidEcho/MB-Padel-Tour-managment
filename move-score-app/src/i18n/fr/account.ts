@@ -35,6 +35,7 @@ export const account: Shape<typeof en> = {
   channelMatches: "Matchs suivis",
   channelAnnouncements: "Annonces du tournoi",
   channelAssistance: "Demandes d'assistance (juges-arbitres)",
+  channelAssistanceAlarm: "Appels d'urgence du juge-arbitre",
   leagues: "Ligues",
   leaguesA11y: "Mes ligues et le classement de toutes les ligues",
   myLeagues: "Mes ligues",

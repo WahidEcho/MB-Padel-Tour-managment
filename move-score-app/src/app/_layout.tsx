@@ -16,6 +16,7 @@ import { ThemeProvider, useTheme } from "../theme/ThemeProvider";
 import { loadSession } from "../state/session";
 import { openLink, registerDevice } from "../push/register";
 import { AlertsPrompt } from "../push/AlertsPrompt";
+import { MasterCallAlarm } from "../referee/MasterCallAlarm";
 import { getJson, setJson } from "../state/kv";
 import { startMonitoring } from "../monitoring";
 import { startSessionKeeper } from "../auth/keepAlive";
@@ -60,6 +61,8 @@ function Navigator() {
       </Stack>
       {Platform.OS !== "web" && <AlertTaps />}
       {Platform.OS !== "web" && <AlertsPrompt />}
+      {/* A master referee's emergency call rings here, above every screen. */}
+      {Platform.OS !== "web" && <MasterCallAlarm />}
     </View>
   );
 }

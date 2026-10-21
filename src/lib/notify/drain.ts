@@ -159,7 +159,8 @@ export type ExpoMessage = {
   title: string;
   body: string;
   data: Record<string, unknown>;
-  sound: "default";
+  /** "default", or a sound file bundled in the app ("master_alarm.wav", Move Score 1.0.3+). */
+  sound: "default" | "master_alarm.wav";
   channelId: string;
   /** Calls for assistance (migration 0035): delivered at once, through Focus where the app may. */
   priority?: "default" | "normal" | "high";

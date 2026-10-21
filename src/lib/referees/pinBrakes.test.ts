@@ -197,3 +197,22 @@ describe("the organisation-wide counts only alert", () => {
     expect(await checkRefereePin(court, PIN[LINA], { ip: ip(250), deviceKey: "web:lina-browser-0000000000" })).toMatchObject({ ok: true });
   });
 });
+
+describe("calls for assistance reach the masters of the call's event group", () => {
+  it("a call from a tournament's court code (no group of its own) reaches the masters signed in for that tournament's group", async () => {
+    const { mastersOnDuty } = await import("./server");
+    const T = "d1111111-1111-4111-8111-111111111111";
+    const now = Date.now();
+    tables.tournaments = [{ id: T, event_group_id: GROUP }];
+    tables.organization_codes = [{ id: "mc1", organization_id: ORG, revoked_at: null, expires_at: null }];
+    tables.referee_sessions = [
+      { referee_id: OMAR, organization_id: ORG, role: "master_referee", installation_id: "ios-omar-0000000000000", event_group_id: GROUP, tournament_id: null, ended_at: null, expires_at: new Date(now + 3600_000).toISOString(), last_seen_at: new Date(now).toISOString(), code_id: "mc1" },
+    ];
+    const duty = await mastersOnDuty(ORG, { eventGroupId: null, tournamentId: T }, now);
+    expect(duty.refereeIds).toEqual([OMAR]);
+    expect(duty.installationIds).toEqual(["ios-omar-0000000000000"]);
+    // Another group's tournament: not this master.
+    tables.tournaments = [{ id: T, event_group_id: "99999999-9999-4999-8999-999999999999" }];
+    expect((await mastersOnDuty(ORG, { eventGroupId: null, tournamentId: T }, now)).refereeIds).toEqual([]);
+  });
+});

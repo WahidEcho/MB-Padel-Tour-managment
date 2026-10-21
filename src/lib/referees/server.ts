@@ -543,6 +543,13 @@ export async function mastersOnDuty(
   const rows = ((data ?? []) as { referee_id: string; installation_id: string | null; event_group_id: string | null; tournament_id: string | null; expires_at: string; code_id: string | null }[]).filter(
     (s) => Date.parse(s.expires_at) > nowMs,
   );
+  // A call from a court code made for one tournament carries no event group: its tournament's
+  // group still decides (22 Oct 2026: such a call alerted no master signed in for the group).
+  if (!scope.eventGroupId && scope.tournamentId) {
+    const { data: t } = await db().from("tournaments").select("event_group_id").eq("id", scope.tournamentId).maybeSingle();
+    const group = (t as { event_group_id: string | null } | null)?.event_group_id ?? null;
+    if (group) scope = { ...scope, eventGroupId: group };
+  }
   // A master code limited to another event group (or event) does not cover this court.
   const covers = (s: { event_group_id: string | null; tournament_id: string | null }) =>
     (!s.event_group_id && !s.tournament_id) ||

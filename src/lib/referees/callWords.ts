@@ -44,6 +44,9 @@ const en = {
   goingDesk: "{name} is going · {court}",
   alreadyTaken: "{name} already took this call.",
   noConnection: "No connection: call the desk.",
+  alarmTitle: "Emergency call",
+  alarmFor: "Ringing for {clock}",
+  alarmDesk: "Open the master desk",
 };
 export type CallWordKey = keyof typeof en;
 
@@ -84,6 +87,9 @@ const es: Record<CallWordKey, string> = {
   goingDesk: "{name} va · {court}",
   alreadyTaken: "{name} ya atendió esta llamada.",
   noConnection: "Sin conexión: llama a la mesa.",
+  alarmTitle: "Llamada de emergencia",
+  alarmFor: "Sonando desde hace {clock}",
+  alarmDesk: "Abrir el panel del juez árbitro",
 };
 
 const fr: Record<CallWordKey, string> = {
@@ -123,6 +129,9 @@ const fr: Record<CallWordKey, string> = {
   goingDesk: "{name} y va · {court}",
   alreadyTaken: "{name} a déjà pris cet appel.",
   noConnection: "Pas de connexion : appelez la table.",
+  alarmTitle: "Appel d'urgence",
+  alarmFor: "Sonne depuis {clock}",
+  alarmDesk: "Ouvrir le bureau du juge-arbitre",
 };
 
 const WORDS: Record<CallLang, Record<CallWordKey, string>> = { en, es, fr };
