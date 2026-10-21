@@ -403,6 +403,28 @@ async function main() {
     await db().from("organization_codes").delete().eq("label", `e2e tournament court ${tag}`);
   }
 
+  section("Call again after a master answered Coming: the call rings again for the masters (owner, 22 Oct 2026)");
+  {
+    await db().from("request_counters").delete().like("bucket_key", "staff-assist:%");
+    await http("GET", ASSIST, MASTER);
+    const first = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id });
+    const rid = (first.json?.call as { id: string } | undefined)?.id ?? "";
+    const coming = await http("POST", ASSIST, MASTER, { action: "respond", callId: rid, answer: "coming" });
+    check(coming.status === 200, "the master answers Coming", coming.status);
+    await new Promise((r) => setTimeout(r, 6_000)); // past the double-tap window
+    const again = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id });
+    check(again.status === 201 || again.status === 200, "Call again: accepted", again.status);
+    const { data: row } = await db().from("assistance_calls").select("status, alerted, acknowledged_by_name").eq("id", rid).single();
+    const r = row as { status: string; alerted: number; acknowledged_by_name: string | null };
+    check(r.status === "open" && r.acknowledged_by_name === null && r.alerted >= 2, "the call is ringing again (open) and the master's phone was alerted again", r);
+    const mv = await http("GET", ASSIST, MASTER);
+    const mine = ((mv.json?.open ?? []) as { id: string; mine?: string | null }[]).find((c) => c.id === rid);
+    check(Boolean(mine) && !mine!.mine, "…and the master has to answer again (their Coming cleared)", mine);
+    const { data: recalled } = await db().from("audit_logs").select("action").eq("entity_id", rid).eq("action", "ASSISTANCE_RECALLED");
+    check((recalled ?? []).length === 1, "the re-call is audited", recalled);
+    await http("POST", ASSIST, REF, { action: "cancel", callId: rid });
+  }
+
   /* ---------------- Coming / Decline, reminders, "X is going", escalation (0042) ---------------- */
   section("Two masters on duty: Coming / Decline, 30-second reminders, \"X is going\", the organiser after 2 minutes");
   {

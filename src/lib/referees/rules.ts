@@ -129,10 +129,10 @@ export function nextCallStatus(current: CallStatus, action: CallAction, who: "ma
 
 /** Calls per court: at most this many new calls in the window (taps on an open call never count). */
 export const CALLS_PER_COURT = { limit: 6, windowSeconds: 10 * 60 };
-/** Taps within this many seconds of the last one are the same tap (no new alert). */
-export const TAP_DEDUPE_SECONDS = 30;
+/** Taps within this many seconds of the last one are the same tap (a double tap; no new alert). */
+export const TAP_DEDUPE_SECONDS = 5;
 /** An open call is alerted again (to masters who have not answered) at most this often. */
-export const REALERT_SECONDS = 60;
+export const REALERT_SECONDS = 10;
 
 /** Whether another tap on an open call re-alerts the masters (not within REALERT_SECONDS of the last alert). */
 export function shouldRealert(call: { status: CallStatus; last_tap_at: string }, nowMs = Date.now()): boolean {

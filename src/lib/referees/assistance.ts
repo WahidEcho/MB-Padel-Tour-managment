@@ -409,8 +409,9 @@ export async function callMasterEnabled(staff: Pick<StaffPrincipal, "scopeCourt"
 /**
  * "Call for assistance" from a court referee (court code + PIN). One open call per
  * physical court: a tap while one is open joins it (a tap within TAP_DEDUPE_SECONDS
- * is the same tap; later taps re-alert the masters who have not declined, at most once a
- * minute). New calls per court: at most CALLS_PER_COURT per window.
+ * is the same tap; later taps re-alert the masters who have not answered, at most every
+ * REALERT_SECONDS; a tap after a master answered Coming re-rings the call for every master
+ * who has not declined). New calls per court: at most CALLS_PER_COURT per window.
  */
 export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?: string | null; tournamentId?: string | null } = {}, nowMs = Date.now()): Promise<CallOutcome> {
   if (!isCourtReferee(staff)) return refusal(403, "court_referee_only", "Only a court referee signed in with their PIN can call for assistance.");
@@ -427,6 +428,27 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
 
   const tap = async (open: AssistanceCall): Promise<CallOutcome> => {
     if (nowMs - Date.parse(open.last_tap_at) < TAP_DEDUPE_SECONDS * 1000) return { ok: true, call: open, deduped: true };
+    // "Call again" after a master answered Coming (owner, 22 Oct 2026): the court still needs
+    // someone NOW, so the call rings again for every master on duty who has not declined,
+    // the one coming included (their Coming is cleared; they answer again). Audited.
+    const coming = ((await responsesFor([open.id])).get(open.id) ?? []).filter((r) => r.answer === "coming");
+    if (open.status === "acknowledged" || coming.length) {
+      const { data: reopened } = await db()
+        .from("assistance_calls")
+        .update({ status: "open", acknowledged_at: null, acknowledged_by: null, acknowledged_by_name: null, taps: open.taps + 1, last_tap_at: nowIso })
+        .eq("id", open.id)
+        .eq("taps", open.taps)
+        .select(CALL_COLS)
+        .maybeSingle();
+      if (!reopened) return { ok: true, call: open, deduped: true };
+      await db().from("assistance_responses").delete().eq("call_id", open.id).eq("answer", "coming");
+      const call = reopened as AssistanceCall;
+      await auditStep(call, "ASSISTANCE_RECALLED", { was_coming: coming.map((r) => r.name), by: referee.name });
+      const [duty, responses] = await Promise.all([dutyFor(call, nowMs), responsesFor([call.id])]);
+      const n = await alertMasters(call, reminderRecipients(duty.refereeIds, responses.get(call.id) ?? []), duty);
+      if (n) await db().from("assistance_calls").update({ alerted: call.alerted + n, last_alert_at: nowIso }).eq("id", call.id);
+      return { ok: true, call: { ...call, alerted: call.alerted + n }, deduped: true };
+    }
     const realert = shouldRealert(open, nowMs);
     const { data } = await db()
       .from("assistance_calls")

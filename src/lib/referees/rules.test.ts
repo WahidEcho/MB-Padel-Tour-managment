@@ -81,10 +81,10 @@ describe("calls for assistance: the state machine", () => {
   it("a closed call never changes", () => {
     for (const s of ["resolved", "cancelled"] as const) for (const a of ["acknowledge", "resolve", "cancel"] as const) for (const w of ["master", "court", "staff"] as const) expect(nextCallStatus(s, a, w)).toBeNull();
   });
-  it("re-alerts an open call at most once a minute", () => {
+  it("re-alerts an open call at most every 10 seconds", () => {
     const now = Date.parse("2026-11-02T10:00:00Z");
-    expect(shouldRealert({ status: "open", last_tap_at: "2026-11-02T09:59:30Z" }, now)).toBe(false);
-    expect(shouldRealert({ status: "open", last_tap_at: "2026-11-02T09:58:59Z" }, now)).toBe(true);
+    expect(shouldRealert({ status: "open", last_tap_at: "2026-11-02T09:59:55Z" }, now)).toBe(false);
+    expect(shouldRealert({ status: "open", last_tap_at: "2026-11-02T09:59:49Z" }, now)).toBe(true);
     expect(shouldRealert({ status: "acknowledged", last_tap_at: "2026-11-02T09:00:00Z" }, now)).toBe(false);
   });
   it("words", () => {
