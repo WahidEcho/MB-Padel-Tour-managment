@@ -7,8 +7,8 @@
  */
 export const ANDROID_APK = {
   url: process.env.MOVESCORE_APK_URL || "https://github.com/WahidEcho/movescore-android/releases/latest/download/MoveScore.apk",
-  version: "1.0.2",
-  build: 14,
+  version: "1.0.3",
+  build: 20,
   sizeMb: 199,
   builtOn: "22 October 2026",
 };
