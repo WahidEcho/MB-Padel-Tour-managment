@@ -24,6 +24,13 @@ import VoicePanel from "./VoicePanel";
 import ControlPanel from "./ControlPanel";
 import { useScoringControl } from "./useScoringControl";
 import { useUmpireVoice } from "./useUmpireVoice";
+
+/**
+ * The umpire voice is switched off for now (owner, 21 Oct 2026): no calls play and the
+ * Voice / Mute controls are hidden. The voice code is left as it is; set true to bring it back.
+ */
+const VOICE_CALLS_ON = false;
+const noVoice = () => {};
 import { SIDES, sideTint } from "@/lib/sides";
 import FinalScoreEntry from "@/components/scoring/FinalScoreEntry";
 import CallCard from "@/components/scoring/CallCard";
@@ -199,11 +206,11 @@ export default function ScoreClient({
   });
   const voice = useUmpireVoice(
     scoringConfig,
-    control.isController,
+    control.isController && VOICE_CALLS_ON,
     redBlue,
     tennis ? { nations: { A: teamA.nation ?? null, B: teamB.nation ?? null } } : null,
   );
-  const onVoiceEvent = voice.onEvent;
+  const onVoiceEvent = VOICE_CALLS_ON ? voice.onEvent : noVoice;
 
   const readOnly = !control.isController;
   // What this device currently shows. A controller's own state is already
@@ -513,7 +520,7 @@ export default function ScoreClient({
   }, [rest]);
 
   // The umpire calls "Time" when the rest runs out, unless play has already moved on.
-  const sayVoice = voice.say;
+  const sayVoice = VOICE_CALLS_ON ? voice.say : noVoice;
   useEffect(() => {
     if (!tennis || !rest) return;
     const wait = rest.endsAt - Date.now();
@@ -998,7 +1005,7 @@ export default function ScoreClient({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 [&>*]:whitespace-nowrap">
-          {!readOnly && (
+          {!readOnly && VOICE_CALLS_ON && (
             <button
               type="button"
               onClick={() => setModal({ kind: "voice" })}
@@ -1009,7 +1016,7 @@ export default function ScoreClient({
               {voice.status === "off" ? "🔈 Voice off" : "🔊 Voice"}
             </button>
           )}
-          {!readOnly && voice.status !== "off" && (
+          {!readOnly && VOICE_CALLS_ON && voice.status !== "off" && (
             <button
               type="button"
               onClick={() => voice.setSettings({ muted: !voice.settings.muted })}
@@ -1140,7 +1147,7 @@ export default function ScoreClient({
           {renderState.isTiebreak && !renderState.matchOver && (
             <p className="mt-1 text-center text-xs font-bold uppercase tracking-widest text-accent" data-testid="tiebreak-banner">
               {renderState.isMatchTiebreak
-                ? `Match tie-break · first to ${scoringConfig.matchTiebreakPoints || 10}, win by 2`
+                ? `SUPER tie-break · first to ${scoringConfig.matchTiebreakPoints || 10}, win by 2`
                 : `Tie-break · first to ${scoringConfig.tiebreakTargetPoints}${scoringConfig.tiebreakWinByTwo ? ", win by 2" : ""}`}
             </p>
           )}
@@ -1463,7 +1470,7 @@ export default function ScoreClient({
                     <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "walkover", absent: null })}>Walkover</button>
                     <button className="btn-secondary py-2.5 text-danger" onClick={() => setModal({ kind: "disqualify", team: null })}>Disqualification</button>
                     <button className="btn-secondary py-2.5" onClick={() => setModal({ kind: "force-end", winner: null })}>End the match now</button>
-                    {voice.status !== "off" && (
+                    {VOICE_CALLS_ON && voice.status !== "off" && (
                       <button className="btn-secondary py-2.5" onClick={() => { voice.setSettings({ muted: !voice.settings.muted }); setModal(null); }} data-testid="voice-mute-control">
                         {voice.settings.muted ? "🔊 Unmute voice" : "🔇 Mute voice"}
                       </button>

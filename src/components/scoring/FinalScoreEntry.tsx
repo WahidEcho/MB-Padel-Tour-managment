@@ -266,7 +266,7 @@ export default function FinalScoreEntry(props: FinalScoreEntryProps) {
             return (
               <div key={i} className="space-y-1">
                 <div className="grid grid-cols-[4rem_1fr_1fr] items-center gap-2">
-                  <span className="text-xs font-semibold text-muted">{kind === "match_tiebreak" ? "Match TB" : `Set ${i + 1}`}</span>
+                  <span className="text-xs font-semibold text-muted">{kind === "match_tiebreak" ? "Super TB" : `Set ${i + 1}`}</span>
                   <div className="flex justify-center">
                     <ScoreInput value={row.a} onChange={(v) => setRow(i, { a: v })} label={`${sideA} ${kind === "match_tiebreak" ? "match tie-break points" : `set ${i + 1} games`}`} testId={`fs-${i}-a`} />
                   </div>

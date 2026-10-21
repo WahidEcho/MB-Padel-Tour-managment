@@ -216,6 +216,8 @@ export interface MScore {
   games: { a: number; b: number } | null;
   points: { a: string; b: string } | null;
   tiebreak: boolean;
+  /** The tie-break in play is the super (match) tie-break, in place of a final set. Absent otherwise and from older servers. */
+  superTiebreak?: boolean;
   serving: SideKey | null;
   setsWon: { a: number; b: number };
   lastEventNumber: number;

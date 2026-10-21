@@ -127,6 +127,7 @@ export const screens: Shape<typeof en> = {
   setPoint: "Balle de set {code}",
   breakPoint: "Balle de break {code}",
   tiebreak: "Tie-break",
+  superTiebreak: "Super tie-break",
   toServe: "Au service : {code}",
   notStarted: "Pas commencé",
   ace: "Ace · {code}",

@@ -510,7 +510,7 @@ function LiveScene({ matchId, ctx }: { matchId: string; ctx: Ctx }) {
         {setHeads.map((h, i) => (
           <span key={i}>{h}</span>
         ))}
-        <span>{snap?.match_tiebreak ? "Match TB" : tiebreak ? "Tie-break" : "Points"}</span>
+        <span>{snap?.match_tiebreak ? "Super tie-break" : tiebreak ? "Tie-break" : "Points"}</span>
       </div>
       <div className={s.board}>
         {row("A")}
@@ -521,7 +521,7 @@ function LiveScene({ matchId, ctx }: { matchId: string; ctx: Ctx }) {
           {call}
         </div>
       )}
-      <div className={s.meta}>{extra.aces ? `Aces ${extra.aces.A}–${extra.aces.B} · ` : ""}{r.rules.decidingPoint ? "No-ad · " : ""}{r.rules.matchTiebreak ? `Match tie-break to ${r.rules.matchTiebreakPoints ?? 10} in place of a final set` : `Best of ${totalSets} sets`}</div>
+      <div className={s.meta}>{extra.aces ? `Aces ${extra.aces.A}–${extra.aces.B} · ` : ""}{r.rules.decidingPoint ? "No-ad · " : ""}{r.rules.matchTiebreak ? `Super tie-break to ${r.rules.matchTiebreakPoints ?? 10} in place of a final set` : `Best of ${totalSets} sets`}</div>
       {m.status === "paused" && <div className={s.pausedTag}>PLAY SUSPENDED</div>}
       <CheckInQr matchId={matchId} />
     </>

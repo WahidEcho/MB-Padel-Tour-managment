@@ -81,7 +81,7 @@ export function scoreTitle(s: ScoreState | null, names: Record<TeamKey, string>)
   if (!s) return "Before the match";
   if (s.matchOver) return `Final · ${s.completedSets.map((x) => formatSet(x)).join(" ")}`;
   const game = s.teamA.games + s.teamB.games + 1;
-  if (s.isMatchTiebreak) return `Set ${s.currentSet} · Match tie-break · ${points(s, names)}`;
+  if (s.isMatchTiebreak) return `Set ${s.currentSet} · Super tie-break · ${points(s, names)}`;
   if (s.isTiebreak) return `Set ${s.currentSet} · Tie-break · ${points(s, names)}`;
   return `Set ${s.currentSet} · Game ${game} · ${s.teamA.games}–${s.teamB.games} · ${points(s, names)}`;
 }

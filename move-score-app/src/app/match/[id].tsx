@@ -264,7 +264,7 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
         : sit.kind === "break"
           ? tr("screens.breakPoint", { code: sit.side === "A" ? aCode : bCode })
           : m.score?.tiebreak
-            ? tr("screens.tiebreak")
+            ? tr(m.score.superTiebreak ? "screens.superTiebreak" : "screens.tiebreak")
             : live && m.score?.serving
               ? tr("screens.toServe", { code: m.score.serving === "A" ? aCode : bCode })
               : m.scheduledTime

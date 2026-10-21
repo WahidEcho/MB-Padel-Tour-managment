@@ -64,6 +64,13 @@ describe("toScore", () => {
     const who = (a: number, b: number) => toScore({ team_a_id: "a", team_b_id: "b" }, tb(a, b))!.serving;
     expect([who(0, 0), who(1, 0), who(1, 1), who(2, 1), who(2, 2)]).toEqual(["A", "B", "B", "A", "A"]);
   });
+  it("tells the super tie-break from a normal one", () => {
+    const tb = (mtb: boolean) =>
+      ({ ...snap, is_tiebreak: true, snapshot_json: { matchOver: false, isTiebreak: true, isMatchTiebreak: mtb, servingTeam: null, tiebreakFirstServer: "A", teamA: { tiebreakPoints: 0 }, teamB: { tiebreakPoints: 0 } } }) as unknown as MatchSnapshot;
+    expect(toScore({ team_a_id: "a", team_b_id: "b" }, tb(true))!.superTiebreak).toBe(true);
+    expect(toScore({ team_a_id: "a", team_b_id: "b" }, tb(false))!.superTiebreak).toBeUndefined();
+    expect(toScore({ team_a_id: "a", team_b_id: "b" }, snap)!.superTiebreak).toBeUndefined();
+  });
   it("has no games or points once the match is over", () => {
     const s = toScore({ team_a_id: "a", team_b_id: "b" }, { ...snap, snapshot_json: { matchOver: true } } as unknown as MatchSnapshot)!;
     expect(s.games).toBeNull();

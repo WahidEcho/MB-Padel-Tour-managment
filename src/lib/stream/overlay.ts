@@ -111,7 +111,7 @@ export type OverlayModel =
       kind: "live" | "final";
       matchId: string;
       header: string[];
-      label: "Points" | "Tie-break" | "Match TB" | "Final";
+      label: "Points" | "Tie-break" | "Super TB" | "Final";
       rows: [OverlayRow, OverlayRow];
       /** Match point, set point, break point… (not with a running timer). */
       callout: string | null;
@@ -318,7 +318,7 @@ export function overlayModel(input: OverlayInput): OverlayModel {
     kind: pick.kind,
     matchId: m.id,
     header: headerFor(input, m, pick.kind === "final" ? "Final" : null),
-    label: over ? "Final" : matchTb ? "Match TB" : tiebreak ? "Tie-break" : "Points",
+    label: over ? "Final" : matchTb ? "Super TB" : tiebreak ? "Tie-break" : "Points",
     rows: [row("A"), row("B")],
     callout: call,
     ace,

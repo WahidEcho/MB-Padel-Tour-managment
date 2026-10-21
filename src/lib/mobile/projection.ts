@@ -333,6 +333,7 @@ interface StateLike {
   teamA?: { points?: string; games?: number; tiebreakPoints?: number };
   teamB?: { points?: string; games?: number; tiebreakPoints?: number };
   servingTeam?: SideKey | null;
+  isMatchTiebreak?: boolean;
   /** Who served the tie-break's first point: the serve rotates from it every two points. */
   tiebreakFirstServer?: SideKey | null;
 }
@@ -381,6 +382,7 @@ export function toScore(m: Pick<Match, "team_a_id" | "team_b_id">, snap: MatchSn
         ? { a: String(snap.tiebreak_team_a_points ?? 0), b: String(snap.tiebreak_team_b_points ?? 0) }
         : { a: snap.team_a_point_label ?? "0", b: snap.team_b_point_label ?? "0" },
     tiebreak,
+    ...(tiebreak && st.isMatchTiebreak === true ? { superTiebreak: true } : {}),
     serving: over ? null : serving,
     setsWon: setsWon(sets),
     lastEventNumber: snap.last_event_number ?? 0,

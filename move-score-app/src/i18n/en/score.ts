@@ -297,7 +297,7 @@ export const score = {
   rulesTiebreak: "tie-break to {points} at {games}-{games}",
   rulesAdvTiebreak: "advantage set, tie-break to {points} at {games}-{games}",
   rulesNoTiebreak: "no tie-break",
-  rulesMatchTiebreak: { one: "match tie-break to {points} at {count} set all", other: "match tie-break to {points} at {count} sets all" },
+  rulesMatchTiebreak: { one: "super tie-break to {points} at {count} set all", other: "super tie-break to {points} at {count} sets all" },
   rulesNoAd: "no-ad (deciding point)",
 
   // Final result entry
@@ -321,12 +321,12 @@ export const score = {
   recordResult: "Record result",
   enterTitle: "Enter the final result",
   correctingNote: "This match already has a score. The result you enter replaces it, and the change is logged.",
-  fieldMatchTb: "{name} match tie-break points",
+  fieldMatchTb: "{name} super tie-break points",
   fieldSetGames: "{name} set {n} games",
   tiebreak: "Tie-break",
   tbLoserPoints: "{name}'s points in the tie-break",
   tbFieldA11y: "Set {n} tie-break: {name}'s points",
-  tbHint: "A 7-6 set needs the tie-break points of the side that lost it (7-6(5): type 5). A match tie-break is entered as its points (10-8).",
+  tbHint: "A 7-6 set needs the tie-break points of the side that lost it (7-6(5): type 5). A super tie-break is entered as its points (10-8).",
   gameWhite: "Game {n} · {name} has White",
   draw: "Draw",
   nameWon: "{name} won",
@@ -336,7 +336,7 @@ export const score = {
   nameAdvances: "{name} advances",
   levelRecorded: "The pairing is level: it is recorded as level and the organiser decides who advances.",
   checkResultButton: "Check result",
-  matchTiebreak: "Match tie-break",
+  matchTiebreak: "Super tie-break",
 
   // Why a result is refused (by the problem's code)
   problemSet: "{set}: {text}",

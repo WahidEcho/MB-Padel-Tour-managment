@@ -534,6 +534,12 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         </View>
         {scoreRow("A")}
         {scoreRow("B")}
+        {/* Which tie-break is on: a normal one (to 7) or the super tie-break (to 10) in place of a final set. */}
+        {shown?.isTiebreak && !shown.matchOver ? (
+          <View testID={shown.isMatchTiebreak ? "super-tiebreak" : "tiebreak"} style={{ alignSelf: "flex-start", backgroundColor: shown.isMatchTiebreak ? t.live : t.chip, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, marginVertical: 2 }}>
+            <Eyebrow size={11} style={{ color: shown.isMatchTiebreak ? "#FFFFFF" : t.ink }}>{shown.isMatchTiebreak ? tr("score.matchTiebreak") : tr("score.tiebreak")}</Eyebrow>
+          </View>
+        ) : null}
         <Body tone="ink3" size={11}>{rulesText(boot.config)}</Body>
         {f.ace && aceMoment(shown) ? (
           <View testID="ace-moment" style={{ position: "absolute", left: 16, top: -11, backgroundColor: BALL, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>

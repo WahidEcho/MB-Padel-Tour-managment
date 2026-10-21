@@ -543,7 +543,7 @@ function LiveCard(props: CourtCardProps) {
         right={
           snapshot?.tiebreak ? (
             <span className="shrink-0 rounded-lg bg-warning/25 px-3 py-0.5 text-[22px] font-bold text-warning">
-              {snapshot.match_tiebreak ? "MATCH TIE-BREAK" : "TIE-BREAK"}
+              {snapshot.match_tiebreak ? "SUPER TIE-BREAK" : "TIE-BREAK"}
             </span>
           ) : match?.status === "paused" ? (
             <span className="shrink-0 text-[22px] font-bold text-warning">PAUSED</span>

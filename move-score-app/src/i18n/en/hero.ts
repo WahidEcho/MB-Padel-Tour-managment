@@ -118,7 +118,7 @@ export const hero = {
   matchTime: "Match time",
   timeOnCourt: "Time on court",
   setN: "Set {n}",
-  matchTiebreak: "Match tie-break",
+  matchTiebreak: "Super tie-break",
   noteFinalScore: "Recorded point by point only. This result was entered as a final score.",
   noteNoPoints: "Stats appear once the first point is played.",
   noteUnsupported: "Stats are not kept for this sport.",

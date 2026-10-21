@@ -34,7 +34,7 @@ describe("final score form rows", () => {
     const sets = setsFrom(rules, rows);
     expect(sets[2]).toEqual({ a: 1, b: 0, tb: { a: 10, b: 8 } });
     expect(validateFinalScore(rules, sets)).toEqual([]);
-    expect(visibleRows(rules, rows).map((r) => r.label)).toEqual(["Set 1", "Set 2", "Match tie-break"]);
+    expect(visibleRows(rules, rows).map((r) => r.label)).toEqual(["Set 1", "Set 2", "Super tie-break"]);
   });
 
   it("shows a row only once the ones before it are filled, and names who lost the tie-break", () => {

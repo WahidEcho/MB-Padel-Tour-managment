@@ -101,7 +101,7 @@ export default function LiveMatchCard({
       )}
       {snapshot?.is_tiebreak && live && (
         <p className={`text-center font-bold uppercase tracking-widest text-accent ${big ? "text-lg" : "text-[10px]"}`}>
-          Tie-break
+          {(snapshot.snapshot_json as { isMatchTiebreak?: boolean } | null)?.isMatchTiebreak ? "Super tie-break" : "Tie-break"}
         </p>
       )}
     </div>

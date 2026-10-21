@@ -420,7 +420,7 @@ function LiveScore({ ev, m }: { ev: MCourtsEvent; m: MMatch }) {
       </View>
     );
   };
-  const line = awaiting ? tr("hero.awaitingConfirmation") : m.status === "paused" ? tr("hero.playSuspended") : sc?.tiebreak ? tr("hero.tiebreak") : m.rubberType ? RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] ?? m.rubberType : (m.round ?? "");
+  const line = awaiting ? tr("hero.awaitingConfirmation") : m.status === "paused" ? tr("hero.playSuspended") : sc?.tiebreak ? tr(sc.superTiebreak ? "hero.matchTiebreak" : "hero.tiebreak") : m.rubberType ? RUBBER_SHORT[m.rubberType as keyof typeof RUBBER_SHORT] ?? m.rubberType : (m.round ?? "");
   return (
     <View style={{ gap: 14 }}>
       {row("A")}

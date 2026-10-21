@@ -120,7 +120,7 @@ export const hero: Shape<typeof en> = {
   matchTime: "Duración",
   timeOnCourt: "Tiempo en pista",
   setN: "Set {n}",
-  matchTiebreak: "Super tie-break",
+  matchTiebreak: "Súper tie-break",
   noteFinalScore: "Solo se registran punto a punto. Este resultado se introdujo como marcador final.",
   noteNoPoints: "Las estadísticas aparecen cuando se juega el primer punto.",
   noteUnsupported: "No se llevan estadísticas en este deporte.",

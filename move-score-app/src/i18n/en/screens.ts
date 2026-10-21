@@ -133,6 +133,7 @@ export const screens = {
   setPoint: "Set point {code}",
   breakPoint: "Break point {code}",
   tiebreak: "Tie-break",
+  superTiebreak: "Super tie-break",
   toServe: "{code} to serve",
   notStarted: "Not started",
   ace: "Ace · {code}",

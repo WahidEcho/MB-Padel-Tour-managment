@@ -38,6 +38,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   tournament's live screen runs line-up → walk-on → live score → rubber won → tie score per court on its own.
   Flags are local SVGs in `public/flags/` (from `flag-icons`, MIT). Gate on the stand-in only:
   `npm run e2e:tennis-tv` (plays the demo's first tie; screenshots + video to `OUT`).
+- **Voice calls are OFF for the coming tour (owner, 21 Oct 2026):** `VOICE_CALLS_ON = false` in the web referee console
+  (`ScoreClient.tsx`) hides Voice/Mute and plays nothing; do not build on the voice code or run `e2e:tennis-voice` until the owner says.
 - Tennis voice (pack `en-v3`: nation names, deciding point, match tie-break, change of ends, time). Until
   `public/voice/en-v3` is rendered (`npm run voice -- --provider kokoro` on a Mac; Hugging Face is blocked in
   cloud sessions) phones fall back to `en-v2` and `supportedCall` drops the calls it lacks. Gate:
