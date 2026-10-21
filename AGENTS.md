@@ -117,6 +117,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `api/mobile/v1/orgs/[slug]` + app `org/[slug]`. A profile an organisation does not vouch for lends its rows no
   contact or photo (`hiddenPersonFields`). Staff-login brakes are atomic (`takeRateLimit`, compare-and-set, no RPC).
   Details, the 0.5B review fixes and deploy notes: `docs/organizations.md`. Gate: `npm run e2e:organizations` (stand-in).
+- Matches added by hand (admin Matches page and the master referee's desk) go through `src/components/matches/ManualMatchForm.tsx`:
+  nothing is created until the desk confirms; warnings (pair already meets, nation playing / busy today, court busy today, outside
+  the draw) come from pure `src/lib/matches/manualMatchWarnings.ts` and never refuse.
+- The Cairo events (`davis-cup-junior-finals-2026`, `bjk-cup-junior-finals-2026`) are loaded on the live project (21 Oct 2026, drafts,
+  public pages off); the replay demo has `playDeadRubbersInPlacement: false` there.
 - Permanent QR codes: a printed code encodes `https://tour.mbeg.org/q/<code>` (route `src/app/q/[code]`, 307,
   no-store) and never changes; its target is a platform setting (`platform_settings` key `qr_links`, logic in
   `src/lib/platform/qrLinks.ts`, admin page Admin → QR codes, platform admins only). Codes are never removed. The
