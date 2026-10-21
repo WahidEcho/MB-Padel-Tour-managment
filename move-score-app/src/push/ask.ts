@@ -11,7 +11,7 @@ import { getJson, setJson } from "../state/kv";
 import { registerDevice } from "./register";
 import { tr } from "../i18n/t";
 
-const ASKED = "ms.alertsAsked";
+export const ASKED = "ms.alertsAsked";
 
 export async function askForAlertsAfterFollow(): Promise<void> {
   if (Platform.OS === "web") return;

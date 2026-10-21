@@ -15,6 +15,7 @@ import { queryClient } from "../api/queries";
 import { ThemeProvider, useTheme } from "../theme/ThemeProvider";
 import { loadSession } from "../state/session";
 import { openLink, registerDevice } from "../push/register";
+import { AlertsPrompt } from "../push/AlertsPrompt";
 import { getJson, setJson } from "../state/kv";
 import { startMonitoring } from "../monitoring";
 import { startSessionKeeper } from "../auth/keepAlive";
@@ -58,6 +59,7 @@ function Navigator() {
         <Stack.Screen name="referee/score/[matchId]" options={{ gestureEnabled: false }} />
       </Stack>
       {Platform.OS !== "web" && <AlertTaps />}
+      {Platform.OS !== "web" && <AlertsPrompt />}
     </View>
   );
 }

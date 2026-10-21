@@ -20,6 +20,18 @@ const WEB_HOST = new URL(API).host;
 const LEGACY_WEB_HOST = "mb-tournament.vercel.app";
 const LINK_HOSTS = APP_ENV === "production" && WEB_HOST !== LEGACY_WEB_HOST ? [WEB_HOST, LEGACY_WEB_HOST] : [WEB_HOST];
 
+// Android push: the Firebase file (google-services.json) must be in every real Android
+// build, or the phone can never get a push token and no alert reaches it (Oct 2026: the
+// APK builds shipped without it). On EAS it is the file variable GOOGLE_SERVICES_JSON
+// (docs/android-push.md). A production Android build without it stops here instead of
+// shipping silently; MS_ALLOW_NO_PUSH=1 builds one anyway (a throwaway test build).
+const GOOGLE_SERVICES_JSON = process.env.GOOGLE_SERVICES_JSON || undefined;
+if (process.env.EAS_BUILD_PLATFORM === "android" && APP_ENV === "production" && !GOOGLE_SERVICES_JSON && !/^(1|true|on|yes)$/i.test(process.env.MS_ALLOW_NO_PUSH ?? "")) {
+  throw new Error(
+    "GOOGLE_SERVICES_JSON is not set: this Android build would get no notifications. Add google-services.json as the EAS file variable GOOGLE_SERVICES_JSON (see docs/android-push.md), or set MS_ALLOW_NO_PUSH=1 for a test build.",
+  );
+}
+
 // OWNER TO FILL: the EAS project id from `eas init` (expo.dev → project → ID).
 // The EAS_PROJECT_ID environment variable wins when set; until either exists,
 // OTA updates and the EAS project link stay off.
@@ -102,7 +114,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     adaptiveIcon: { foregroundImage: "./assets/brand/adaptive-icon.png", backgroundColor: "#01041A" },
     permissions: ["android.permission.CAMERA", "android.permission.VIBRATE", "android.permission.POST_NOTIFICATIONS"],
     blockedPermissions: ["android.permission.RECORD_AUDIO", "com.google.android.gms.permission.AD_ID"],
-    googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? undefined,
+    googleServicesFile: GOOGLE_SERVICES_JSON,
     intentFilters: [
       {
         action: "VIEW",
