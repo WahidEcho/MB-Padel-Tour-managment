@@ -31,7 +31,7 @@ import { MOVE_BEYOND_SLUG, isUuid, permissionRole, type OrgRole, type OrgStatus 
 import type { Role } from "../types";
 import type { CourtScope } from "../orgs/courtScope";
 import { resolveCourtScope } from "../orgs/courtCodes";
-import { checkRefereePin, codeNeedsPin, endRefereeSession, masterTournamentIds, refereeChoices, refereeForToken, startRefereeSession, type PinCheck, type RefereeIdentity } from "../referees/server";
+import { checkRefereePin, codeNeedsPin, endRefereeSession, masterTournamentIds, refereeForToken, startRefereeSession, type PinCheck, type RefereeIdentity } from "../referees/server";
 import { PIN_LOCK_MINUTES, splitCodeAndPin, type RefereeChoice } from "../referees/rules";
 import {
   STAFF_APP_HOURS,
@@ -432,21 +432,17 @@ export const PIN_MESSAGES = {
   pick_name: "Pick your name, then type your 4-digit referee PIN.",
   unknown_referee: "That name is not on this code's list. Pick your name from the list.",
   wrong_pin: "Wrong PIN. Check the 4 digits the organiser gave you.",
-  pin_locked: "Too many wrong PINs. Wait 5 minutes and try again.",
+  pin_locked: "Too many wrong PINs on this phone. Wait 5 minutes and try again.",
 } as const;
 
-/** The words for a PIN that did not sign in (audit H1): who is locked, for how long, and what still works. */
+/** The words for a PIN that did not sign in: this phone is blocked, for how long, and that other phones still work. */
 export function pinMessage(c: Extract<PinCheck, { ok: false }>): string {
-  const who = c.refereeName ?? null;
   switch (c.reason) {
     case "wrong_pin":
-      if (!who) return PIN_MESSAGES.wrong_pin;
-      if (c.triesLeft === 0) return `Wrong PIN for ${who}. ${who} is now locked for ${PIN_LOCK_MINUTES} minutes; other referees can still sign in.`;
-      return `Wrong PIN for ${who}.${c.triesLeft !== undefined ? ` ${c.triesLeft} ${c.triesLeft === 1 ? "try" : "tries"} left before ${who} is locked for ${PIN_LOCK_MINUTES} minutes.` : ""}`;
+      if (c.triesLeft === 0) return `Wrong PIN. This phone is blocked for ${PIN_LOCK_MINUTES} minutes; other phones can still sign in.`;
+      return `Wrong PIN. Check the 4 digits the organiser gave you.${c.triesLeft !== undefined ? ` ${c.triesLeft} ${c.triesLeft === 1 ? "try" : "tries"} left on this phone before it is blocked for ${PIN_LOCK_MINUTES} minutes.` : ""}`;
     case "pin_locked":
-      return who
-        ? `Too many wrong PINs for ${who}: locked for ${minutes(c.retryAfterSeconds)} more minute${minutes(c.retryAfterSeconds) === 1 ? "" : "s"}. Other referees can still sign in, and a phone or browser ${who} signed in on today still works.`
-        : PIN_MESSAGES.pin_locked;
+      return `Too many wrong PINs on this phone: try again in ${minutes(c.retryAfterSeconds)} minute${minutes(c.retryAfterSeconds) === 1 ? "" : "s"}. Other phones can still sign in.`;
     case "pin_paused":
       return `Too many wrong referee PINs at this organisation: signing in with a PIN on a new device is paused for ${minutes(c.retryAfterSeconds)} minutes and the organiser has been told. A phone or browser you signed in on today still works.`;
     case "pin_busy":
@@ -521,7 +517,8 @@ export async function signInWithAccessCode(raw: string, hours: number, opts: Acc
   const exp = Math.min(now + hours * 3600_000, codeExpiry);
   if (codeNeedsPin(row)) {
     const typedPin = typeof pin === "string" || typeof pin === "number" ? String(pin).trim() : "";
-    // The PIN step names the referee (audit H1). Move Score 1.0.1 (one field) never does.
+    // The PIN says who it is: no names are shown after a code (owner, 22 Oct 2026: anyone
+    // scanning a court QR would see them). A name an older app still sends is honoured.
     const refereeId = combined ? null : typeof opts.refereeId === "string" && opts.refereeId ? opts.refereeId : null;
     if (!typedPin) {
       return {
@@ -530,14 +527,14 @@ export async function signInWithAccessCode(raw: string, hours: number, opts: Acc
         reason: "pin_required",
         court: row.court_name,
         master,
-        referees: await refereeChoices(row),
+        referees: [],
       };
     }
     const checked = await checkRefereePin(row, typedPin, { refereeId, ip: opts.ip ?? "unknown", deviceKey: opts.deviceKey ?? null }, now);
     if (!checked.ok) {
       if (checked.reason === "unavailable") return { ok: false, error: REFUSAL_MESSAGE.unavailable, reason: "unavailable" };
       if (checked.reason === "unknown_referee") {
-        return { ok: false, error: pinMessage(checked), reason: "pin_required", court: row.court_name, master, referees: await refereeChoices(row) };
+        return { ok: false, error: pinMessage(checked), reason: "pin_required", court: row.court_name, master, referees: [] };
       }
       return { ok: false, error: pinMessage(checked), reason: checked.reason, retryAfterSeconds: checked.retryAfterSeconds, triesLeft: checked.triesLeft, court: row.court_name, master };
     }

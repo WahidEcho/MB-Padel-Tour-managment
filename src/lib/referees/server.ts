@@ -9,7 +9,7 @@ import { isUuid } from "../orgs/roles";
 import { courtKey } from "../orgs/courtScope";
 import { generateRefereePin, hashRefereeDevice, hashRefereePin } from "./pin";
 import { safeEqual } from "../auth/safeEqual";
-import { KNOWN_DEVICE_HOURS, ON_COURT_MINUTES, PIN_LOCK, PIN_LEGACY_ORG_TIERS, PIN_ORG_TIERS, PIN_PER_DEVICE, PIN_PER_IP, normalizePin, type RefereeChoice, type RefereeRole } from "./rules";
+import { ON_COURT_MINUTES, PIN_LEGACY_ORG_TIERS, PIN_ORG_TIERS, PIN_PER_IP, PIN_PER_PHONE, normalizePin, type RefereeChoice, type RefereeRole } from "./rules";
 
 export interface RefereeRow {
   id: string;
@@ -102,35 +102,25 @@ export async function refereeChoices(code: PinCode): Promise<RefereeChoice[]> {
   return (await eligibleFor(code)).map((r) => ({ id: r.id, name: r.name, photoUrl: r.photo_url && /^https:\/\//.test(r.photo_url) ? r.photo_url : null }));
 }
 
-const refereeBucket = (refereeId: string): RateLimitOptions => ({ key: `staff-pin-ref:${refereeId}`, ...PIN_LOCK });
 const orgBuckets = (orgId: string): RateLimitOptions[] => PIN_ORG_TIERS.map((t, i) => ({ key: `staff-pin-org${i + 1}:${orgId}`, ...t }));
 const legacyBuckets = (orgId: string): RateLimitOptions[] => PIN_LEGACY_ORG_TIERS.map((t, i) => ({ key: `staff-pin-legacy${i + 1}:${orgId}`, ...t }));
-const deviceBucket = (refereeId: string, deviceHash: string): RateLimitOptions => ({ key: `staff-pin-dev:${refereeId}:${deviceHash.slice(0, 32)}`, ...PIN_PER_DEVICE });
+/** One phone's wrong PINs: its install token / browser id, or its address when it has neither. */
+const phoneBucket = (deviceHash: string | null, ip: string): RateLimitOptions => ({
+  key: deviceHash ? `staff-pin-phone:${deviceHash.slice(0, 32)}` : `staff-pin-phone-ip:${ip}`,
+  ...PIN_PER_PHONE,
+});
 const ipBucket = (ip: string): RateLimitOptions => ({ key: `staff-pin-ip:${ip}`, ...PIN_PER_IP });
 
 /**
- * The wrong PIN that fills a referee's bucket starts their lock: the window restarts
- * now, so they stay locked PIN_LOCK_MINUTES from that PIN (not just for what was left
- * of the window). Only ever moves the window later.
+ * The wrong PIN that fills a phone's bucket starts its block: the window restarts now, so
+ * it stays blocked PIN_LOCK_MINUTES from that PIN (not just for what was left of the
+ * window). Only ever moves the window later.
  */
 async function lockFromNow(key: string, limit: number): Promise<void> {
   const { data } = await db().from("request_counters").select("count, window_started_at").eq("bucket_key", key).maybeSingle();
   const row = data as { count: number; window_started_at: string } | null;
   if (!row || row.count < limit) return;
   await db().from("request_counters").update({ window_started_at: new Date().toISOString() }).eq("bucket_key", key).eq("window_started_at", row.window_started_at);
-}
-
-/** Whether this device signed in as this referee in the last KNOWN_DEVICE_HOURS. */
-async function knownDevice(refereeId: string, deviceHash: string, nowMs: number): Promise<boolean> {
-  const since = new Date(nowMs - KNOWN_DEVICE_HOURS * 3600_000).toISOString();
-  const { data } = await db()
-    .from("referee_sessions")
-    .select("id")
-    .eq("referee_id", refereeId)
-    .eq("device_hash", deviceHash)
-    .gte("signed_in_at", since)
-    .limit(1);
-  return ((data ?? []) as unknown[]).length > 0;
 }
 
 /**
@@ -167,7 +157,7 @@ async function alertOrgPinBrake(orgId: string, bucket: RateLimitOptions, nowMs: 
         template: "staff_alert",
         vars: {
           title: "Referee PINs: too many wrong attempts",
-          message: `${t.limit} wrong referee PINs were typed for your organisation within ${minutes >= 60 ? `${Math.round(minutes / 60)} h` : `${minutes} minutes`}. Signing in with a PIN on a new phone or browser is paused until ${until.slice(11, 16)} UTC; referees' own devices from today still work. If this was not your referees, give the affected referees new PINs (Admin → Referees).`,
+          message: `${t.limit} wrong referee PINs were typed for your organisation within ${minutes >= 60 ? `${Math.round(minutes / 60)} h` : `${minutes} minutes`}. Nobody is locked out: each phone that types 5 wrong PINs is blocked for 5 minutes on its own. If this was not your referees, give the referees new PINs (Admin → Referees).`,
           cta_label: "Open Referees",
           link: `${siteUrl()}/admin/org/referees`,
         },
@@ -204,15 +194,13 @@ export interface PinAttempt {
 }
 
 /**
- * Checks a PIN typed with a referee code (audit H1). With a picked referee the PIN is
- * compared (constant time) with that referee's own only; every attempt is counted before
- * it is checked (atomically, takeRateLimit) per referee, per organisation (three tiers)
- * and per address, and a right PIN is refunded, so only wrong ones count. A device that
- * signed in as that referee in the last day skips the referee, organisation and address
- * locks (its own per-device budget instead; its wrong PINs still count for the
- * organisation). Without a picked referee (Move Score 1.0.1) the PIN is matched across
- * the code's referees (PINs are unique per organisation) under the organisation's tiers,
- * the tighter legacy tiers and the address ceiling only. Never a per-code lock. PINs are never logged.
+ * Checks a PIN typed with a referee code. The PIN says who it is: it is matched (constant
+ * time) across the code's referees (PINs are unique per organisation); a referee picked by
+ * an older app is still honoured (then only their PIN is compared). Every attempt is
+ * counted before it is checked (atomically, takeRateLimit) for this phone and for the
+ * address ceiling, and a right PIN is refunded, so only wrong ones count: 5 wrong PINs
+ * block this phone for 5 minutes, never a referee. The organisation tiers only count and
+ * alert. PINs are never logged.
  */
 export async function checkRefereePin(code: PinCode, rawPin: unknown, attempt: PinAttempt, nowMs = Date.now()): Promise<PinCheck> {
   const eligible = await eligibleFor(code);
@@ -230,17 +218,15 @@ export async function checkRefereePin(code: PinCode, rawPin: unknown, attempt: P
     console.error("referee PINs unavailable:", (err as Error).message);
     return { ok: false, reason: "unavailable" };
   }
-  const known = Boolean(picked && deviceHash && (await knownDevice(picked.id, deviceHash, nowMs)));
 
-  // Strict buckets refuse the attempt when full; soft ones only count (a known device's org tiers).
-  const strict: { b: RateLimitOptions; reason: "pin_locked" | "pin_paused" | "pin_busy" }[] = known
-    ? [{ b: deviceBucket(picked!.id, deviceHash!), reason: "pin_locked" }]
-    : [
-        { b: ipBucket(attempt.ip), reason: "pin_busy" },
-        ...orgBuckets(code.organization_id).map((b) => ({ b, reason: "pin_paused" as const })),
-        ...(picked ? [{ b: refereeBucket(picked.id), reason: "pin_locked" as const }] : legacyBuckets(code.organization_id).map((b) => ({ b, reason: "pin_paused" as const }))),
-      ];
-  const soft = known ? orgBuckets(code.organization_id) : [];
+  // Strict buckets refuse the attempt when full: this phone, then the address ceiling.
+  const phone = phoneBucket(deviceHash, attempt.ip);
+  const strict: { b: RateLimitOptions; reason: "pin_locked" | "pin_busy" }[] = [
+    { b: phone, reason: "pin_locked" },
+    { b: ipBucket(attempt.ip), reason: "pin_busy" },
+  ];
+  // Soft buckets only count (and alert when full): the organisation never locks anyone out.
+  const soft = [...orgBuckets(code.organization_id), ...(picked ? [] : legacyBuckets(code.organization_id))];
   const taken: RateLimitOptions[] = [];
   const filled: string[] = [];
   const refund = async () => {
@@ -251,9 +237,8 @@ export async function checkRefereePin(code: PinCode, rawPin: unknown, attempt: P
     if (r.taken) taken.push(b);
     if (!r.allowed) {
       await refund();
-      return { ok: false, reason, retryAfterSeconds: r.retryAfterSeconds, refereeName: picked?.name };
+      return { ok: false, reason, retryAfterSeconds: r.retryAfterSeconds };
     }
-    if (r.taken && r.remaining === 0) filled.push(b.key);
   }
   for (const b of soft) {
     const r = await takeRateLimit(b);
@@ -264,24 +249,18 @@ export async function checkRefereePin(code: PinCode, rawPin: unknown, attempt: P
   let match: EligibleReferee | null = null;
   if (hash) {
     if (picked) match = safeEqual(picked.pin_hash, hash) ? picked : null;
-    else {
-      // 1.0.1: whichever of the code's referees has this PIN (unique per organisation).
-      for (const r of eligible) if (safeEqual(r.pin_hash, hash)) match = r;
-    }
+    else for (const r of eligible) if (safeEqual(r.pin_hash, hash)) match = r;
   }
   if (!match) {
-    if (picked && !known) await lockFromNow(refereeBucket(picked.id).key, PIN_LOCK.limit);
+    await lockFromNow(phone.key, PIN_PER_PHONE.limit);
     const orgWide = [...orgBuckets(code.organization_id), ...legacyBuckets(code.organization_id)];
     for (const key of filled) {
       const b = orgWide.find((x) => x.key === key);
       if (b) await alertOrgPinBrake(code.organization_id, b, nowMs);
     }
-    let triesLeft: number | undefined;
-    if (picked && !known) {
-      const { data } = await db().from("request_counters").select("count").eq("bucket_key", refereeBucket(picked.id).key).maybeSingle();
-      triesLeft = Math.max(0, PIN_LOCK.limit - ((data as { count: number } | null)?.count ?? 0));
-    }
-    return { ok: false, reason: "wrong_pin", refereeName: picked?.name, triesLeft };
+    const { data } = await db().from("request_counters").select("count").eq("bucket_key", phone.key).maybeSingle();
+    const triesLeft = Math.max(0, PIN_PER_PHONE.limit - ((data as { count: number } | null)?.count ?? 0));
+    return { ok: false, reason: "wrong_pin", triesLeft };
   }
   await refund();
   const { data: full } = await db().from("referees").select(REFEREE_COLS).eq("id", match.id).eq("status", "active").maybeSingle();

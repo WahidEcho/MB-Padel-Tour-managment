@@ -74,9 +74,9 @@ export default async function CourtQrSheet({ searchParams }: { searchParams: Pro
           <div dangerouslySetInnerHTML={{ __html: p.svg }} />
           <p className="font-mono text-2xl font-bold tracking-widest" data-testid="court-sheet-code">{p.shown}</p>
           <ol className="max-w-[160mm] list-decimal space-y-0.5 pl-6 text-left text-[13px] leading-snug">
-            <li>Scan this code with the phone camera: Move Score opens the referee console on {p.court}, then asks you to <strong>pick your name</strong> and type <strong>your own 4-digit referee PIN</strong>. (No app yet? The page that opens has the download links.)</li>
-            <li>Already in Move Score: Referee → Scan court QR, pick your name, then your PIN.</li>
-            <li>No camera? In Move Score → Referee, type the code above, pick your name, then your PIN.</li>
+            <li>Scan this code with the phone camera: Move Score opens the referee console on {p.court}, then asks you to type <strong>your own 4-digit referee PIN</strong>. (No app yet? The page that opens has the download links.)</li>
+            <li>Already in Move Score: Referee → Scan court QR, then your PIN.</li>
+            <li>No camera? In Move Score → Referee, type the code above, then your PIN.</li>
             <li data-testid="legacy-pin-note"><strong>Move Score 1.0.1:</strong> type the court code, then your 4-digit PIN, in the one field: <span className="font-mono">{p.shown} ••••</span> (a space, then your PIN).</li>
             <li>Changing referees: the referee leaving taps Sign out; the new referee scans this code on their own phone, picks their own name and types their own PIN. The PIN is personal: never share it. Five wrong PINs lock only that referee for 5 minutes; the phone they signed in on today still gets back in.</li>
             <li>Need help on court? Tap <strong>Call for assistance</strong> on the scoring screen: the master referees are alerted.</li>

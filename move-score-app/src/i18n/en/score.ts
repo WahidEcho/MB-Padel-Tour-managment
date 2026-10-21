@@ -10,7 +10,7 @@ export const score = {
   syncAllSaved: "Online · all saved",
 
   // Referee code form
-  codePickName: "{court}: pick your name and enter your 4-digit referee PIN.",
+  codePickName: "{court}: enter your 4-digit referee PIN.",
   thisCode: "This code",
   codePlaceholder: "Code from the tournament desk",
   codeA11y: "Referee access code",

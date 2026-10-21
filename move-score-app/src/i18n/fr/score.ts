@@ -10,7 +10,7 @@ export const score: Shape<typeof en> = {
   syncWaiting: "{count} en attente d'envoi",
   syncAllSaved: "En ligne · tout est enregistré",
 
-  codePickName: "{court} : choisissez votre nom et saisissez votre code PIN d'arbitre à 4 chiffres.",
+  codePickName: "{court} : saisissez votre code PIN d'arbitre à 4 chiffres.",
   thisCode: "Ce code",
   codePlaceholder: "Code de la table du tournoi",
   codeA11y: "Code d'accès arbitre",

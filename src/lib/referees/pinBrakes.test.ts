@@ -103,7 +103,7 @@ vi.mock("../messaging/links", () => ({ siteUrl: () => "https://tour.example" }))
 process.env.EVENT_CODE_PEPPER ??= "test-event-code-pepper-0123456789abcdef";
 
 const { checkRefereePin, refereeChoices } = await import("./server");
-const { hashRefereeDevice, hashRefereePin } = await import("./pin");
+const { hashRefereePin } = await import("./pin");
 const { PIN_ORG_TIERS } = await import("./rules");
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -144,86 +144,56 @@ describe("the PIN step's names (audit H1)", () => {
   });
 });
 
-describe("a PIN is checked against the picked referee only", () => {
-  it("the right PIN for the name signs in; another referee's PIN is wrong", async () => {
-    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(1) })).toMatchObject({ ok: true, referee: { id: SARA } });
-    expect(await checkRefereePin(court, PIN[LINA], { refereeId: SARA, ip: ip(1) })).toMatchObject({ ok: false, reason: "wrong_pin", refereeName: "Sara" });
-  });
-  it("a master referee may pick themselves on a court code", async () => {
-    expect(await checkRefereePin(court, PIN[OMAR], { refereeId: OMAR, ip: ip(1) })).toMatchObject({ ok: true, referee: { id: OMAR } });
-  });
-});
-
-describe("brakes: per referee, never per court code", () => {
-  it("5 wrong PINs lock that referee only; the court and the others are unaffected", async () => {
-    const left: (number | undefined)[] = [];
-    for (let i = 0; i < 5; i++) {
-      const r = await checkRefereePin(court, wrong(SARA), { refereeId: SARA, ip: ip(10 + i) });
-      left.push(r.ok ? -1 : r.triesLeft);
-    }
-    expect(left).toEqual([4, 3, 2, 1, 0]);
-    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(20) })).toMatchObject({ ok: false, reason: "pin_locked", refereeName: "Sara" });
-    // Same court code, another referee: still signs in (the old per-code lock is gone).
-    expect(await checkRefereePin(court, PIN[LINA], { refereeId: LINA, ip: ip(20) })).toMatchObject({ ok: true });
-    expect((tables.request_counters ?? []).some((r) => String(r.bucket_key).includes(court.id))).toBe(false);
-  });
-  it("a right PIN is refunded: it never counts", async () => {
-    for (let i = 0; i < 8; i++) expect((await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(1) })).ok).toBe(true);
-    const counts = (tables.request_counters ?? []).map((r) => r.count);
-    expect(counts.every((c) => c === 0)).toBe(true);
-  });
-  it("a device that signed in as that referee today gets back in while they are locked; a stranger's does not", async () => {
-    const mine = "app:install-sara-0000000000";
-    tables.referee_sessions = [{ id: "s1", referee_id: SARA, organization_id: ORG, device_hash: hashRefereeDevice(mine), signed_in_at: new Date(Date.now() - 3600_000).toISOString() }];
-    for (let i = 0; i < 5; i++) await checkRefereePin(court, wrong(SARA), { refereeId: SARA, ip: ip(30 + i), deviceKey: "web:attacker-browser-00000000" });
-    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(40), deviceKey: "web:another-browser-0000000" })).toMatchObject({ ok: false, reason: "pin_locked" });
-    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(40), deviceKey: mine })).toMatchObject({ ok: true });
-  });
-  it("a device from more than 24 h ago is not known any more", async () => {
-    const old = "app:install-sara-0000000000";
-    tables.referee_sessions = [{ id: "s1", referee_id: SARA, organization_id: ORG, device_hash: hashRefereeDevice(old), signed_in_at: new Date(Date.now() - 25 * 3600_000).toISOString() }];
-    for (let i = 0; i < 5; i++) await checkRefereePin(court, wrong(SARA), { refereeId: SARA, ip: ip(50 + i) });
-    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(60), deviceKey: old })).toMatchObject({ ok: false, reason: "pin_locked" });
-  });
-});
-
-describe("the organisation-wide budget", () => {
-  it("wrong PINs across referees fill it, pause new devices, alert the owners once; known devices still get in", async () => {
-    const tier = PIN_ORG_TIERS[0].limit;
-    const ids = [SARA, LINA, OMAR];
-    for (let i = 0; i < tier; i++) {
-      const who = ids[i % 3];
-      await checkRefereePin(court, wrong(who), { refereeId: who, ip: ip(i % 200) });
-      // Keep each referee under their own lock: this is many referees' worth of guesses.
-      for (const r of tables.request_counters ?? []) if (String(r.bucket_key).startsWith("staff-pin-ref:")) r.count = 0;
-    }
-    const alerts = (tables.audit_logs ?? []).filter((a) => a.action === "REFEREE_PIN_BRAKE");
-    expect(alerts).toHaveLength(1);
-    expect(sent).toEqual([expect.objectContaining({ to: "owner@club.example", template: "staff_alert" })]);
-    expect(await checkRefereePin(court, PIN[LINA], { refereeId: LINA, ip: ip(250) })).toMatchObject({ ok: false, reason: "pin_paused" });
-    const mine = "web:lina-browser-0000000000";
-    tables.referee_sessions = [{ id: "s2", referee_id: LINA, organization_id: ORG, device_hash: hashRefereeDevice(mine), signed_in_at: new Date().toISOString() }];
-    expect(await checkRefereePin(court, PIN[LINA], { refereeId: LINA, ip: ip(250), deviceKey: mine })).toMatchObject({ ok: true });
-  });
-});
-
-describe("Move Score 1.0.1 (no name): matched across the code's referees, org budget only", () => {
-  it("signs in whoever has the PIN; a wrong one counts for the organisation, never a referee", async () => {
+describe("the PIN says who it is (no names after the code; owner, 22 Oct 2026)", () => {
+  it("a PIN alone signs in whichever of the code's referees has it", async () => {
+    expect(await checkRefereePin(court, PIN[SARA], { ip: ip(1) })).toMatchObject({ ok: true, referee: { id: SARA } });
     expect(await checkRefereePin(court, PIN[LINA], { ip: ip(1) })).toMatchObject({ ok: true, referee: { id: LINA } });
     expect(await checkRefereePin(court, PIN[ELSEWHERE], { ip: ip(1) })).toMatchObject({ ok: false, reason: "wrong_pin" });
     expect(await checkRefereePin(masterCode, PIN[SARA], { ip: ip(1) })).toMatchObject({ ok: false, reason: "wrong_pin" });
     expect(await checkRefereePin(masterCode, PIN[OMAR], { ip: ip(1) })).toMatchObject({ ok: true });
-    const keys = (tables.request_counters ?? []).filter((r) => Number(r.count) > 0).map((r) => String(r.bucket_key));
-    expect(keys.some((k) => k.startsWith("staff-pin-org1:"))).toBe(true);
-    expect(keys.some((k) => k.startsWith("staff-pin-ref:"))).toBe(false);
+  });
+  it("a name an older app still sends is honoured: only that referee's PIN matches", async () => {
+    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(1) })).toMatchObject({ ok: true, referee: { id: SARA } });
+    expect(await checkRefereePin(court, PIN[LINA], { refereeId: SARA, ip: ip(1) })).toMatchObject({ ok: false, reason: "wrong_pin" });
   });
 });
 
-describe("Move Score 1.0.1's own tighter budget", () => {
-  it("10 nameless wrong PINs pause the nameless path (and alert); a named sign-in still works", async () => {
-    for (let i = 0; i < 10; i++) await checkRefereePin(court, "1111", { ip: ip(i) });
-    expect(await checkRefereePin(court, PIN[SARA], { ip: ip(70) })).toMatchObject({ ok: false, reason: "pin_paused" });
-    expect((tables.audit_logs ?? []).some((a) => a.action === "REFEREE_PIN_BRAKE")).toBe(true);
-    expect(await checkRefereePin(court, PIN[SARA], { refereeId: SARA, ip: ip(70) })).toMatchObject({ ok: true });
+describe("brakes: per phone, never per referee or court code", () => {
+  const phone = "app:install-spammer-000000000";
+  it("5 wrong PINs from one phone block that phone for 5 minutes; the referees and other phones are unaffected", async () => {
+    const left: (number | undefined)[] = [];
+    for (let i = 0; i < 5; i++) {
+      const r = await checkRefereePin(court, wrong(SARA), { ip: ip(10), deviceKey: phone });
+      left.push(r.ok ? -1 : r.triesLeft);
+    }
+    expect(left).toEqual([4, 3, 2, 1, 0]);
+    // The spamming phone is blocked, even with a right PIN…
+    expect(await checkRefereePin(court, PIN[SARA], { ip: ip(10), deviceKey: phone })).toMatchObject({ ok: false, reason: "pin_locked" });
+    // …but the real referee on their own phone, on the same network, signs straight in.
+    expect(await checkRefereePin(court, PIN[SARA], { ip: ip(10), deviceKey: "app:install-sara-0000000000" })).toMatchObject({ ok: true, referee: { id: SARA } });
+    expect(await checkRefereePin(court, PIN[LINA], { ip: ip(10), deviceKey: "app:install-lina-0000000000" })).toMatchObject({ ok: true });
+    const keys = (tables.request_counters ?? []).map((r) => String(r.bucket_key));
+    expect(keys.some((k) => k.includes(court.id) || k.startsWith("staff-pin-ref:"))).toBe(false);
+  });
+  it("a right PIN is refunded: it never counts", async () => {
+    for (let i = 0; i < 8; i++) expect((await checkRefereePin(court, PIN[SARA], { ip: ip(1), deviceKey: phone })).ok).toBe(true);
+    const counts = (tables.request_counters ?? []).map((r) => r.count);
+    expect(counts.every((c) => c === 0)).toBe(true);
+  });
+  it("a client with no phone id is braked by its address instead", async () => {
+    for (let i = 0; i < 5; i++) await checkRefereePin(court, "1111", { ip: ip(20) });
+    expect(await checkRefereePin(court, PIN[SARA], { ip: ip(20) })).toMatchObject({ ok: false, reason: "pin_locked" });
+    expect(await checkRefereePin(court, PIN[SARA], { ip: ip(21) })).toMatchObject({ ok: true });
+  });
+});
+
+describe("the organisation-wide counts only alert", () => {
+  it("wrong PINs from many phones alert the owners once and never lock anybody out", async () => {
+    const tier = PIN_ORG_TIERS[0].limit;
+    for (let i = 0; i < tier; i++) await checkRefereePin(court, "1111", { ip: ip(i % 200), deviceKey: `app:install-guess-${String(i).padStart(12, "0")}` });
+    const alerts = (tables.audit_logs ?? []).filter((a) => a.action === "REFEREE_PIN_BRAKE");
+    expect(alerts.length).toBeGreaterThanOrEqual(1);
+    expect(sent).toContainEqual(expect.objectContaining({ to: "owner@club.example", template: "staff_alert" }));
+    expect(await checkRefereePin(court, PIN[LINA], { ip: ip(250), deviceKey: "web:lina-browser-0000000000" })).toMatchObject({ ok: true });
   });
 });

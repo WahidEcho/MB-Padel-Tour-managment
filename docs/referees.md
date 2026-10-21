@@ -44,28 +44,34 @@ compare). Audit H1, owner-approved 20 Oct 2026.
 | Whole-event referee code | The code, then name + PIN (web step without a court; app screen "Referee"). |
 | Master referee | Master code + their own PIN (the list holds only them). |
 
-Answers of `staff/session`: 401 `{ code: "pin_required", court, master, referees: [{ id, name, photoUrl }] }` (names
-and photos only, never phones; a name not on the list gets the same answer), 401 `wrong_pin` (the message says how many
-tries are left for that name), 429 `pin_locked` (that referee), `pin_paused` (the organisation's budget, new devices
-only), `pin_busy` (this address). Success adds `referee: { name, role }` (1.0.1 ignores it).
+**PIN only (owner, 22 Oct 2026).** After a court or master code the referee types their PIN; no names are shown (anyone
+scanning a court QR would otherwise see every referee's name). The PIN says who it is: PINs are unique per organisation,
+so it is matched across the code's referees. A `refereeId` an older app still sends is honoured (then only that referee's
+PIN matches).
+
+Answers of `staff/session`: 401 `{ code: "pin_required", court, master, referees: [] }` (always empty now; installed apps
+then skip their name step), 401 `wrong_pin` (the message says how many tries this phone has left), 429 `pin_locked`
+(this phone), `pin_busy` (this address). Success adds `referee: { name, role }` (1.0.1 ignores it).
 
 **Brakes** (`src/lib/referees/rules.ts`, `checkRefereePin` in `server.ts`; failed attempts only, a right PIN is refunded;
 `takeRateLimit`, atomic; PINs never logged):
 
-- **Per referee**: 5 wrong PINs within 5 minutes lock **that referee** for 5 minutes from the fifth (`PIN_LOCK_MINUTES`).
-  Other referees, the court and its code are unaffected. There is **no per-court-code lock** any more.
-- **Per organisation**, growing backoff (`PIN_ORG_TIERS`): 25 wrong PINs in 10 minutes, 60 in an hour, 150 in a day. While a
-  tier is full, PIN sign-in on a new device pauses until it empties. The wrong PIN that fills a tier writes an audit row
-  `REFEREE_PIN_BRAKE` (banner on Admin → Referees for 24 h) and emails the organisation's active owners and admins
-  (`staff_alert` template; `MESSAGING_DRY_RUN=1` sends nothing).
-- **Known device**: a phone (verified install token, `app:<installation>`) or browser (HttpOnly random `__Host-mb_device`
-  cookie, `web:<id>`) that signed in as that referee in the last 24 h gets back in with the right PIN even while the referee
-  or the organisation is locked. Its own budget is 5 wrong PINs per 5 minutes; its wrong PINs still count for the
-  organisation. Only a peppered hash is stored (`referee_sessions.device_hash`, migration `0041_referee_pin_brakes.sql`).
-- **Per address**: a ceiling against scripts only (300 per 15 minutes): a venue's Wi-Fi or a mobile carrier puts every
-  referee behind one address.
+- **Per phone** (`PIN_PER_PHONE`): 5 wrong PINs from one phone (verified install token `app:<installation>`, or the
+  browser's HttpOnly `__Host-mb_device` cookie `web:<id>`; the address for a client with neither) block **that phone** for
+  5 minutes from the fifth (`PIN_LOCK_MINUTES`). There is **no per-referee and no per-court-code lock**: somebody spamming
+  PINs can never lock the real referees out.
+- **Per organisation** (`PIN_ORG_TIERS`, and `PIN_LEGACY_ORG_TIERS` for nameless attempts): counted for **alerts only**. The
+  wrong PIN that fills a tier writes an audit row `REFEREE_PIN_BRAKE` (banner on Admin → Referees for 24 h) and emails the
+  organisation's active owners and admins (`staff_alert`; `MESSAGING_DRY_RUN=1` sends nothing). Nobody is refused.
+- **Per address**: a ceiling against scripts (60 wrong PINs per 15 minutes, `PIN_PER_IP`): a venue's Wi-Fi or a mobile
+  carrier puts every referee behind one address, so it stays well above what referees ever type.
 
-**Move Score 1.0.1 trade-off**: its one field cannot carry a name, so `<code> <PIN>` (and an older new-app build's
+**Guessing trade-off (PIN only)**: every PIN is matched against all of the code's referees, so with N referees one guess
+is worth N. With 10 referees the address ceiling still leaves someone holding a court code about a 6 % chance per 15
+minutes from one address; the owners are emailed when the organisation tier fills (25 wrong in 10 minutes): give the
+referees new PINs then. Court codes are 4 characters and printed at the courts, so the PIN is the only secret.
+
+**Move Score 1.0.1 (former note)**: its one field cannot carry a name, so `<code> <PIN>` (and an older new-app build's
 `{ code, pin }` without `refereeId`) is matched against every referee the code lists (PINs are unique per organisation),
 under the organisation's tiers plus a tighter legacy budget of its own (`PIN_LEGACY_ORG_TIERS`: 10 wrong per 10 minutes,
 30 per day), and the address ceiling; never a per-referee lock and no known-device bypass. Each such guess is worth one

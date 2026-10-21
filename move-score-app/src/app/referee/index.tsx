@@ -119,15 +119,14 @@ export default function RefereeHome() {
               <Button kind="ghost" label={tr("referee.staySignedIn")} onPress={() => setConfirmSignOut(false)} />
             </Card>
           )}
-          {staff.referee?.role === "master_referee" && (
-            <Button label={tr("referee.masterButton")} onPress={() => router.push("/referee/master")} />
-          )}
-          {court && staff.referee && (
-            <View style={{ marginTop: 10 }}>
-              <AssistanceCard />
-            </View>
-          )}
-          <Button kind="ghost" label={tr("referee.scanSwitch")} onPress={() => router.push("/referee/scan")} />
+          {/* The console's actions, one group with even spacing (they used to touch each other). */}
+          <View style={{ marginTop: 16, gap: 12 }}>
+            {staff.referee?.role === "master_referee" && (
+              <Button label={tr("referee.masterButton")} onPress={() => router.push("/referee/master")} />
+            )}
+            {court && staff.referee && <AssistanceCard />}
+            <Button kind="ghost" label={tr("referee.scanSwitch")} onPress={() => router.push("/referee/scan")} />
+          </View>
           {carries.flatMap((c) => c.matchIds.map((id) => ({ id, court: c.court }))).length > 0 && (
             <Card style={{ marginTop: 10, gap: 8 }}>
               <Body weight="semi">{tr("referee.carryTitle")}</Body>

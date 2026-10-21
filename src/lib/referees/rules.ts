@@ -19,43 +19,36 @@ export const REFEREE_ROLE_LABELS: Record<RefereeRole, string> = { referee: "Refe
 export const PIN_LENGTH = 4;
 
 /**
- * PIN brakes (audit H1, owner-approved 20 Oct 2026; failed attempts only, a right PIN is
- * refunded; src/lib/referees/server.ts checkRefereePin). After the court code the referee
- * picks their own name, so a PIN is only ever checked against that one referee.
- * - per referee: PIN_LOCK.limit wrong PINs within the window lock that referee (not the
- *   code, not the court, not the others) for PIN_LOCK_MINUTES from the last one;
- * - per organisation: every wrong PIN of its referees counts in PIN_ORG_TIERS; when a tier
- *   fills, PIN sign-in of new devices pauses until it empties (10 min, then 1 h, then a
- *   day: a growing backoff) and the organisation's owners and admins are alerted;
- * - known device: a phone or browser that signed in as that referee in the last
- *   KNOWN_DEVICE_HOURS gets back in with the right PIN even while the referee or the
- *   organisation is locked (its wrong PINs still count for the organisation and against
- *   PIN_PER_DEVICE);
- * - per address: only a ceiling against scripts (a venue's Wi-Fi or a mobile carrier puts
- *   every referee behind one address);
+ * PIN brakes (owner's decision, 22 Oct 2026; failed attempts only, a right PIN is refunded;
+ * src/lib/referees/server.ts checkRefereePin). After the court or master code the referee
+ * types their PIN only (no names are shown: anyone scanning a court QR would see them),
+ * and the PIN itself says who it is (PINs are unique per organisation).
+ * - per phone: PIN_PER_PHONE.limit wrong PINs from one phone (its install token, or the
+ *   browser's id; the address for a client with neither) block THAT PHONE for
+ *   PIN_LOCK_MINUTES from the last one. Never a referee lock: somebody spamming PINs can
+ *   never lock the real referees out;
+ * - per organisation: every wrong PIN counts in PIN_ORG_TIERS (and the nameless path in
+ *   PIN_LEGACY_ORG_TIERS) only to alert the owners and admins when a tier fills; it never
+ *   refuses anyone;
+ * - per address: only a high ceiling against scripts (a venue's Wi-Fi or a mobile carrier
+ *   puts every referee behind one address);
  * - never per court code: a typo on Court 3 never locks Court 3.
- * Move Score 1.0.1 cannot pick a name: its "<code> <PIN>" is matched across the
- * organisation's referees under organisation-wide budgets only (PIN_ORG_TIERS and the
- * tighter PIN_LEGACY_ORG_TIERS; docs/referees.md).
  */
 export const PIN_LOCK_MINUTES = 5;
-export const PIN_LOCK = { limit: 5, windowSeconds: PIN_LOCK_MINUTES * 60 };
-export const PIN_PER_DEVICE = { limit: 5, windowSeconds: PIN_LOCK_MINUTES * 60 };
+export const PIN_PER_PHONE = { limit: 5, windowSeconds: PIN_LOCK_MINUTES * 60 };
+/** The same budget, under its former name (kept for callers and tests). */
+export const PIN_LOCK = PIN_PER_PHONE;
 export const PIN_ORG_TIERS = [
   { limit: 25, windowSeconds: 10 * 60 },
   { limit: 60, windowSeconds: 60 * 60 },
   { limit: 150, windowSeconds: 24 * 3600 },
 ] as const;
-/**
- * Move Score 1.0.1's nameless "<code> <PIN>" tests the PIN against every referee the code
- * lists, so its wrong PINs also fill a tighter organisation-wide budget of their own.
- */
+/** The nameless path's own (tighter) alert tiers. */
 export const PIN_LEGACY_ORG_TIERS = [
   { limit: 10, windowSeconds: 10 * 60 },
   { limit: 30, windowSeconds: 24 * 3600 },
 ] as const;
-export const PIN_PER_IP = { limit: 300, windowSeconds: 15 * 60 };
-export const KNOWN_DEVICE_HOURS = 24;
+export const PIN_PER_IP = { limit: 60, windowSeconds: 15 * 60 };
 
 /** A referee to pick on the PIN step: the name (and photo) only, never a phone. */
 export interface RefereeChoice {

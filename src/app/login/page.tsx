@@ -14,7 +14,6 @@ import { randomBytes } from "node:crypto";
 import { isLocalHost } from "@/lib/auth";
 import { LOGIN_ERRORS, safeNextPath, staffHome } from "@/lib/auth/staffRedirect";
 import PendingField from "./PendingField";
-import RefereePicker from "./RefereePicker";
 
 export const dynamic = "force-dynamic";
 
@@ -135,15 +134,15 @@ export default async function LoginPage({
     if (!code) redirect(withNext("/login?error=pin_expired", nextUrl));
     const court = String(formData.get("court") ?? "").slice(0, 60);
     const back = (q: string) => withNext(`/login?pin=1${q}${court ? `&court=${encodeURIComponent(court)}` : ""}`, nextUrl);
-    const refereeId = String(formData.get("referee_id") ?? "").slice(0, 40);
-    if (!refereeId) redirect(back("&error=pick_name"));
+    // PIN only: the PIN says who it is (owner, 22 Oct 2026). A name is no longer asked for.
+    const refereeId = String(formData.get("referee_id") ?? "").slice(0, 40) || null;
     const ip = clientIpFrom(await headers());
     const previous = await currentStaff();
     const deviceKey = await browserDeviceKey();
-    // The PIN has its own brakes (per referee, per organisation, per address; src/lib/referees/server.ts).
+    // The PIN has its own brakes (per phone or browser, plus an address ceiling; src/lib/referees/server.ts).
     const r = await signInWithAccessCode(code, STAFF_WEB_HOURS, { ip, via: "web", refereeId, deviceKey, pin: String(formData.get("pin") ?? "").slice(0, 12) });
     if (!r.ok) {
-      const ref = `&ref=${encodeURIComponent(refereeId)}`;
+      const ref = refereeId ? `&ref=${encodeURIComponent(refereeId)}` : "";
       const mins = r.retryAfterSeconds ? `&mins=${Math.max(1, Math.ceil(r.retryAfterSeconds / 60))}` : "";
       if (r.reason === "wrong_pin") {
         redirect(back(`&error=wrong_pin${ref}${r.triesLeft !== undefined ? `&left=${r.triesLeft}` : ""}`));
@@ -232,7 +231,7 @@ export default async function LoginPage({
             <div className="text-center">
               <p className="text-xs font-semibold uppercase tracking-widest text-accent">Move Score</p>
               <h1 className="text-xl font-bold">{master ? "Master referee" : court ? court : "Referee"}</h1>
-              <p className="mt-1 text-sm text-muted">Pick your name, then enter your own 4-digit referee PIN. It tells the desk who is scoring.</p>
+              <p className="mt-1 text-sm text-muted">Enter your own 4-digit referee PIN. It tells the desk who is scoring.</p>
             </div>
             {pinText && (
               <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm font-semibold text-danger" data-testid="login-error">{pinText}</p>
@@ -240,11 +239,6 @@ export default async function LoginPage({
             <input type="hidden" name="next" value={next ?? ""} />
             <input type="hidden" name="court" value={pinCourt ?? ""} />
             <PendingField />
-            {referees.length === 0 ? (
-              <p className="text-sm text-muted" data-testid="no-referees">No referee can sign in with this code yet. Ask the desk to add you under Admin → Referees.</p>
-            ) : (
-              <RefereePicker referees={referees} selected={pinRef ?? null} />
-            )}
             <div>
               <label className="label" htmlFor="pin">Referee PIN</label>
               <input
@@ -260,7 +254,7 @@ export default async function LoginPage({
                 placeholder="••••"
               />
             </div>
-            <button type="submit" className="btn-primary w-full py-3 text-base" disabled={referees.length === 0}>Sign in</button>
+            <button type="submit" className="btn-primary w-full py-3 text-base">Sign in</button>
             <a href={withNext("/login", next)} className="block text-center text-xs text-muted hover:text-foreground">Use another code</a>
           </form>
         )}

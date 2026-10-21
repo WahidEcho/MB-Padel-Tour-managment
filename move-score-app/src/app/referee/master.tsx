@@ -134,7 +134,9 @@ export default function MasterReferee() {
       <Screen tabs={false}>
         <BackHeader label={tr("referee.referee")} />
         <Empty title={tr("referee.masterOnly")} body={tr("referee.masterOnlyBody")} />
-        <Button label={tr("referee.refereeHome")} onPress={() => router.replace("/referee")} />
+        <View style={{ marginTop: 16 }}>
+          <Button label={tr("referee.refereeHome")} onPress={() => router.replace("/referee")} />
+        </View>
       </Screen>
     );
   }
