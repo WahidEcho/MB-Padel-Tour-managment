@@ -7,6 +7,7 @@ import { classifyPointChange, type Beat, type ScoreFrame } from "@/lib/tv/pointB
 import { BEAT_MS, ENTRANCE, RESULT, seekStyle } from "@/lib/tv/timeline";
 import { TYPE, fitFontSize, isTall, numeralWidth, showsAt, type Density } from "@/lib/tv/layout";
 import { frameFrom, type LiveMatch, type LiveSnapshot } from "@/lib/tv/liveFeed";
+import { currentServer } from "@/lib/scoring/engine";
 import type { CourtSlotKind } from "@/lib/tv/courtSlots";
 import type { PublicPlayer, PublicTeam } from "@/lib/public";
 import { SIDES, sideTint, type SideKey } from "@/lib/sides";
@@ -505,8 +506,11 @@ function LiveCard(props: CourtCardProps) {
     entrance.elapsedMs !== null &&
     entrance.elapsedMs < ENTRANCE.durationMs;
 
-  const serving: SideKey | null =
-    snapshot?.serving_team_id && match
+  // In a tie-break the serve rotates every two points: the engine says who serves now.
+  const tbServer = snapshot?.tiebreak && snapshot.state ? currentServer(snapshot.state) : null;
+  const serving: SideKey | null = tbServer
+    ? tbServer
+    : snapshot?.serving_team_id && match
       ? snapshot.serving_team_id === match.team_a_id
         ? "A"
         : snapshot.serving_team_id === match.team_b_id
@@ -620,7 +624,7 @@ function LiveCard(props: CourtCardProps) {
                     sides={Boolean(sides)}
                     basePx={t.team}
                     widthPx={rest}
-                    serving={serving === key && !snapshot?.tiebreak}
+                    serving={serving === key}
                   />
                   <p className="truncate text-muted" style={{ fontSize: t.player }}>
                     {playerNames(team, shows.fullNames)}
@@ -636,7 +640,7 @@ function LiveCard(props: CourtCardProps) {
                       sides={Boolean(sides)}
                       basePx={t.team}
                       widthPx={rest - scoreRoom}
-                      serving={serving === key && !snapshot?.tiebreak}
+                      serving={serving === key}
                       lines={tall ? 2 : 1}
                     />
                     <p className="truncate text-muted" style={{ fontSize: t.player }}>

@@ -15,7 +15,7 @@ import { sportOf } from "../sports/registry";
 import { LOG_ONLY_EVENTS } from "../scoring/eventGuard";
 import { aceMoment } from "../scoring/serve";
 import { TIMERS, liveClock } from "../scoring/timing";
-import type { ScoreState } from "../scoring/engine";
+import { currentServer, type ScoreState } from "../scoring/engine";
 import { SIDES, redBlueTeams } from "../sides";
 import { toPublicPlayer } from "../public";
 import { itfRanksOf } from "../players/publicInfo";
@@ -330,6 +330,8 @@ interface StateLike {
   teamA?: { points?: string; games?: number; tiebreakPoints?: number };
   teamB?: { points?: string; games?: number; tiebreakPoints?: number };
   servingTeam?: SideKey | null;
+  /** Who served the tie-break's first point: the serve rotates from it every two points. */
+  tiebreakFirstServer?: SideKey | null;
 }
 
 /** Scoring v2 extras a tournament shows (Admin → Scoring features: "Show aces / timers on TV & app"). */
@@ -356,8 +358,11 @@ export function toScore(m: Pick<Match, "team_a_id" | "team_b_id">, snap: MatchSn
   }));
   const over = st.matchOver === true;
   const tiebreak = !over && (snap.is_tiebreak || st.isTiebreak === true);
-  const serving: SideKey | null =
-    st.servingTeam === "A" || st.servingTeam === "B"
+  // In a tie-break `servingTeam` is null (the serve rotates by point): ask the engine who serves now.
+  const tbServer = tiebreak && st.teamA && st.teamB ? currentServer(st as unknown as ScoreState) : null;
+  const serving: SideKey | null = tbServer
+    ? tbServer
+    : st.servingTeam === "A" || st.servingTeam === "B"
       ? st.servingTeam
       : snap.serving_team_id
         ? snap.serving_team_id === m.team_a_id

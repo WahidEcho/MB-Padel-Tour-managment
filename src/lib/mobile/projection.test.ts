@@ -51,6 +51,19 @@ describe("toScore", () => {
     expect(s.serving).toBe("A");
     expect(scoreLine(s)).toBe("6–4 5–4");
   });
+  it("shows who serves in a tie-break (the serve rotates: A, B, B, A, A…)", () => {
+    const tb = (a: number, b: number) =>
+      ({
+        ...snap,
+        is_tiebreak: true,
+        serving_team_id: null,
+        tiebreak_team_a_points: a,
+        tiebreak_team_b_points: b,
+        snapshot_json: { matchOver: false, isTiebreak: true, servingTeam: null, tiebreakFirstServer: "A", teamA: { tiebreakPoints: a }, teamB: { tiebreakPoints: b } },
+      }) as unknown as MatchSnapshot;
+    const who = (a: number, b: number) => toScore({ team_a_id: "a", team_b_id: "b" }, tb(a, b))!.serving;
+    expect([who(0, 0), who(1, 0), who(1, 1), who(2, 1), who(2, 2)]).toEqual(["A", "B", "B", "A", "A"]);
+  });
   it("has no games or points once the match is over", () => {
     const s = toScore({ team_a_id: "a", team_b_id: "b" }, { ...snap, snapshot_json: { matchOver: true } } as unknown as MatchSnapshot)!;
     expect(s.games).toBeNull();

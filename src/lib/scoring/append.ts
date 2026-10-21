@@ -22,7 +22,7 @@ import { randomUUID } from "crypto";
 import { db } from "../supabase";
 import { audit } from "../audit";
 import { getMatch, getSnapshot, getTeams, tierForMatch } from "../data";
-import { finalizeMatch, upsertSnapshotFromState, type EngineStateLike } from "../ops";
+import { finalizeMatch, servingTeamIdOf, upsertSnapshotFromState, type EngineStateLike } from "../ops";
 import { claimLease, defaultDeviceLabel, getLease, isLeaseLive, releaseLease } from "../scoringControl";
 import { notifyMatchLive } from "../notify/hooks";
 import { isDoublesMatch, scoringConfigForMatch } from "./rules";
@@ -485,9 +485,8 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
       case "SERVER_CHANGED":
         statusUpdate = {
           ...statusUpdate,
-          // Null in a tie-break, where the serve rotates by point: never team B by default.
-          serving_team_id:
-            e.new_state.servingTeam === "A" ? match.team_a_id : e.new_state.servingTeam === "B" ? match.team_b_id : null,
+          // In a tie-break: whoever serves the next point (the serve rotates by point).
+          serving_team_id: servingTeamIdOf(e.new_state, match),
         };
         break;
       case "FORCE_END":

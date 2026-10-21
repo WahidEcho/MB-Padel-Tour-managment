@@ -3,6 +3,7 @@ import { audit, slugify } from "./audit";
 import { roundRobin } from "./roundrobin";
 import { calculateStandings, applyQualification, isFinished, type MatchResultInput } from "./standings";
 import { scoringConfigForMatch } from "./scoring/rules";
+import { currentServer, type ScoreState } from "./scoring/engine";
 import { DEFAULT_FOCAL } from "./portrait";
 import {
   advanceTarget,
@@ -1372,6 +1373,16 @@ export async function cloneTournament(sourceId: string, opts: CloneOptions, acto
 /* Snapshot helpers                                                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The team serving the next point, as a team id. In a tie-break `servingTeam` is null
+ * (the serve rotates every two points from the tie-break's first server), so this asks
+ * the engine: every screen reading `serving_team_id` then shows the ball in a tie-break too.
+ */
+export function servingTeamIdOf(state: EngineStateLike, match: { team_a_id: string | null; team_b_id: string | null }): string | null {
+  const server = state.isTiebreak ? currentServer(state as unknown as ScoreState) : state.servingTeam;
+  return server === "A" ? match.team_a_id : server === "B" ? match.team_b_id : null;
+}
+
 export interface EngineStateLike {
   currentSet: number;
   teamA: { points: string; games: number; sets: number; tiebreakPoints: number };
@@ -1379,6 +1390,7 @@ export interface EngineStateLike {
   isTiebreak: boolean;
   completedSets: CompletedSet[];
   servingTeam: "A" | "B" | null;
+  tiebreakFirstServer?: "A" | "B" | null;
   winner: "A" | "B" | null;
   matchOver: boolean;
 }
@@ -1432,8 +1444,7 @@ export async function upsertSnapshotFromState(
     return chessRow as unknown as MatchSnapshot;
   }
 
-  const servingTeamId =
-    state.servingTeam === "A" ? match.team_a_id : state.servingTeam === "B" ? match.team_b_id : null;
+  const servingTeamId = servingTeamIdOf(state, match);
   const row = {
     match_id: match.id,
     tournament_id: match.tournament_id,
