@@ -69,7 +69,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_ENV === "production" ? "Move Score" : `Move Score ${APP_ENV === "staging" ? "Staging" : "Dev"}`,
   slug: "move-score",
   scheme: "movescore",
-  version: "1.0.1",
+  version: "1.0.2",
   orientation: "default",
   icon: "./assets/brand/icon.png",
   userInterfaceStyle: "automatic",
@@ -101,7 +101,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: `${BUNDLE}${suffix}`,
     adaptiveIcon: { foregroundImage: "./assets/brand/adaptive-icon.png", backgroundColor: "#01041A" },
     permissions: ["android.permission.CAMERA", "android.permission.VIBRATE", "android.permission.POST_NOTIFICATIONS"],
-    blockedPermissions: ["android.permission.RECORD_AUDIO"],
+    blockedPermissions: ["android.permission.RECORD_AUDIO", "com.google.android.gms.permission.AD_ID"],
     googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? undefined,
     intentFilters: [
       {
