@@ -476,6 +476,7 @@ async function main() {
       `/venue/${GB.slug}/qr`,
       `/admin/platform/discover`,
       `/admin/platform/organizations`,
+      `/admin/platform/qr`,
     ];
     for (const who of everyone) {
       for (const p of pages) {
@@ -623,6 +624,7 @@ async function main() {
       // Move Beyond's platform settings: platform admins only, never the shared admin password.
       { label: "change the app's feature flags", file: "src/app/admin/platform/discover/actions.ts", name: "saveFlags", args: () => [null, form({ new_flag: `pwned_${tag}`, new_flag_on: "on" })] },
       { label: "reorder Discover", file: "src/app/admin/platform/discover/actions.ts", name: "saveDiscoverOrder", args: () => [form({ item: TB.id, [`pos.${TB.id}`]: "0" })] },
+      { label: "repoint a printed QR code", file: "src/app/admin/platform/qr/actions.ts", name: "saveQrLink", args: () => [null, form({ code: "app", target: "https://example.com/pwned" })] },
     ];
     async function bSnapshot() {
       const [tie, gt, slot, aMatch, crossMatches, stand, consentsB, platform, checkIn] = await Promise.all([

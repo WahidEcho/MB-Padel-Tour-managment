@@ -117,6 +117,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `api/mobile/v1/orgs/[slug]` + app `org/[slug]`. A profile an organisation does not vouch for lends its rows no
   contact or photo (`hiddenPersonFields`). Staff-login brakes are atomic (`takeRateLimit`, compare-and-set, no RPC).
   Details, the 0.5B review fixes and deploy notes: `docs/organizations.md`. Gate: `npm run e2e:organizations` (stand-in).
+- Permanent QR codes: a printed code encodes `https://tour.mbeg.org/q/<code>` (route `src/app/q/[code]`, 307,
+  no-store) and never changes; its target is a platform setting (`platform_settings` key `qr_links`, logic in
+  `src/lib/platform/qrLinks.ts`, admin page Admin → QR codes, platform admins only). Codes are never removed. The
+  app download code is `app` (default target `/app`); print files in `docs/qr/`.
 - Public site: `https://tour.mbeg.org` (one constant, `src/lib/site.ts`, shared with the app through `@core`; server links read
   `PUBLIC_SITE_URL` first via `siteUrl()` in `src/lib/messaging/links.ts`). Never write the old `mb-tournament.vercel.app` host
   into links, emails or docs; it survives only as the legacy universal-link host in `move-score-app/app.config.ts`.
