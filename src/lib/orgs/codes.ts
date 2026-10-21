@@ -11,6 +11,7 @@
  * offline without the pepper too.
  */
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomInt } from "node:crypto";
+import { SHORT_CODE_DIGITS, SHORT_CODE_LENGTH, SHORT_CODE_LETTERS, shortCodeOf } from "./shortCode";
 
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const CODE_LENGTH = 12;
@@ -23,12 +24,29 @@ export function generateEventCode(): string {
 }
 
 /**
+ * A fresh short code for a court or master referee (src/lib/orgs/shortCode.ts): 2 letters and
+ * 2 digits in random positions. Only ever used together with the referee's PIN.
+ */
+export function generateShortRefereeCode(): string {
+  const slots = [SHORT_CODE_LETTERS, SHORT_CODE_LETTERS, SHORT_CODE_DIGITS, SHORT_CODE_DIGITS];
+  for (let i = slots.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [slots[i], slots[j]] = [slots[j], slots[i]];
+  }
+  const out = slots.map((set) => set[randomInt(set.length)]).join("");
+  return out.length === SHORT_CODE_LENGTH ? out : generateShortRefereeCode();
+}
+
+/**
  * The code as typed, made comparable: upper case, separators and spaces dropped.
+ * A short referee code ("k7p3", or its QR form "K7P3-COURT-CODE") reads as "K7P3".
  * Null when it cannot be an event code (wrong length or a symbol outside the alphabet).
  */
 export function normalizeEventCode(input: unknown): string | null {
   if (typeof input !== "string" || input.length > 40) return null;
   const s = input.toUpperCase().replace(/[\s\-–—_.]/g, "");
+  const short = shortCodeOf(s);
+  if (short) return short;
   if (s.length !== CODE_LENGTH) return null;
   for (const ch of s) if (!CODE_ALPHABET.includes(ch)) return null;
   return s;
@@ -111,7 +129,7 @@ export function sealPinStep(normalized: string, nowMs = Date.now(), pepper = eve
 /** The code of a PIN-step cookie made in the last PIN_STEP_SECONDS; null otherwise (expired, forged, a bare sealed code). */
 export function openPinStep(sealed: string | null | undefined, nowMs = Date.now(), pepper?: string): string | null {
   const raw = openSealed(sealed, pepper);
-  const m = raw ? /^pin1:([A-Z0-9]{12}):(\d{10,16})$/.exec(raw) : null;
+  const m = raw ? /^pin1:([A-Z0-9]{12}|[A-Z0-9]{4}):(\d{10,16})$/.exec(raw) : null;
   if (!m) return null;
   const at = Number(m[2]);
   if (!(at <= nowMs + 60_000) || nowMs - at > PIN_STEP_SECONDS * 1000) return null;

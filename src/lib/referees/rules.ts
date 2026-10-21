@@ -4,6 +4,8 @@
  * (the app through `@core`). Hashing lives in pin.ts (server only); the server side
  * in server.ts and assistance.ts. Docs: docs/referees.md.
  */
+import { SHORT_CODE_LENGTH, isShortCode } from "../orgs/shortCode";
+
 /** The event-code alphabet (src/lib/orgs/codes.ts, which is server-only), repeated so this file stays pure. */
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const isCodeShaped = (s: string) => s.length === 12 && [...s].every((ch) => CODE_ALPHABET.includes(ch));
@@ -98,6 +100,11 @@ export function isWeakPin(pin: string): boolean {
 export function splitCodeAndPin(input: unknown): { code: string; pin: string } | null {
   if (typeof input !== "string" || input.length > 60) return null;
   const s = input.toUpperCase().replace(/[\s\-–—_.]/g, "");
+  // A short referee code and its PIN: "K7P3 4821" (src/lib/orgs/shortCode.ts).
+  if (s.length === SHORT_CODE_LENGTH + PIN_LENGTH && isShortCode(s.slice(0, SHORT_CODE_LENGTH))) {
+    const pin = normalizePin(s.slice(SHORT_CODE_LENGTH));
+    return pin ? { code: s.slice(0, SHORT_CODE_LENGTH), pin } : null;
+  }
   if (s.length !== 12 + PIN_LENGTH) return null;
   const code = s.slice(0, 12);
   const pin = normalizePin(s.slice(12));

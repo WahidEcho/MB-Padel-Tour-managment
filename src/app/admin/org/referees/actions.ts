@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requireScopedPermission, requireStaffPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { formatEventCode, generateEventCode, hashEventCode } from "@/lib/orgs/codes";
+import { formatEventCode } from "@/lib/orgs/codes";
+import { freshShortRefereeCode } from "@/lib/orgs/freshShortCode";
 import { createReferee, removeReferee, resetRefereePin } from "@/lib/referees/server";
 import { actOnCall } from "@/lib/referees/assistance";
 import { isRefereeRole } from "@/lib/referees/rules";
@@ -89,10 +90,11 @@ export async function createMasterCodeAction(_prev: RefereeFormState, formData: 
   }
   const days = parseInt(String(formData.get("expires_days") ?? "7"), 10);
   const expiresAt = Number.isFinite(days) && days > 0 ? new Date(Date.now() + Math.min(days, 90) * 86_400_000).toISOString() : null;
-  const code = generateEventCode();
+  // Short master codes (src/lib/orgs/shortCode.ts): "K7P3", always with the master's PIN.
+  let code: string;
   let codeHash: string;
   try {
-    codeHash = hashEventCode(code);
+    ({ code, hash: codeHash } = await freshShortRefereeCode());
   } catch (err) {
     console.error("event codes unavailable:", (err as Error).message);
     return { ok: false, message: "Event codes are not set up on this server yet (EVENT_CODE_PEPPER). Contact Move Beyond." };

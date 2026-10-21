@@ -18,6 +18,7 @@
  * match that runs past midnight is still the court's.
  */
 import { eventDay } from "../matchday/eventDay";
+import { isShortCode, shortCodeQrForm } from "./shortCode";
 
 export const COURT_LIST_DAY_ONLY = true;
 /** A carry-over token (after switching courts) lasts at most this long. */
@@ -204,7 +205,9 @@ export function courtEarlierDays<M extends CourtListMatch>(matches: M[], timeZon
  * it is in no server, CDN or proxy log; the /r page posts it in a request body.
  */
 export function courtLink(site: string, formattedCode: string): string {
-  return `${site.replace(/\/+$/, "")}/r#${encodeURIComponent(formattedCode)}`;
+  // A short code rides as "K7P3-COURT-CODE" so installed apps (12–20 characters) accept the QR.
+  const code = isShortCode(formattedCode.toUpperCase()) ? shortCodeQrForm(formattedCode.toUpperCase()) : formattedCode;
+  return `${site.replace(/\/+$/, "")}/r#${encodeURIComponent(code)}`;
 }
 
 /** The code inside a court link (or a bare code), as typed; null for anything else. */

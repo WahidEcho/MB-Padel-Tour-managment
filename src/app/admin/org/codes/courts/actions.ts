@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { requireScopedPermission, requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { generateEventCode, hashEventCode, sealEventCode } from "@/lib/orgs/codes";
+import { sealEventCode } from "@/lib/orgs/codes";
+import { freshShortRefereeCode } from "@/lib/orgs/freshShortCode";
 import { codeWorks, courtCodeEvent, courtCodesOf, eventCourts, eventEndExpiry } from "@/lib/orgs/courtCodes";
 import { zonedToIso } from "@/lib/tennis/ties";
 import { courtCodeLabel, courtKey } from "@/lib/orgs/courtScope";
@@ -30,16 +31,18 @@ export async function createCourtCodesAction(formData: FormData) {
   const [courts, existing] = await Promise.all([eventCourts(ev), courtCodesOf(staff.orgId, ev)]);
   const covered = new Set(existing.filter((c) => codeWorks(c)).map((c) => courtKey(c.court_name)));
   const rows = [];
+  const taken = new Set<string>();
   for (const court of courts) {
     if (covered.has(court.key)) continue;
-    const code = generateEventCode();
+    // Short court codes (src/lib/orgs/shortCode.ts): "K7P3", always with the referee's PIN.
+    const { code, hash } = await freshShortRefereeCode(taken);
     rows.push({
       organization_id: staff.orgId,
       role: "referee",
       tournament_id: ev.eventGroupId ? null : ev.tournamentId,
       event_group_id: ev.eventGroupId,
       court_name: court.name,
-      code_hash: hashEventCode(code),
+      code_hash: hash,
       code_sealed: sealEventCode(code),
       label: courtCodeLabel(court.name),
       expires_at: expiresAt,
@@ -83,7 +86,7 @@ export async function regenerateCourtCodeAction(formData: FormData) {
   const old = data as { id: string; court_name: string | null; tournament_id: string | null; event_group_id: string | null; expires_at: string | null; revoked_at: string | null } | null;
   if (!old?.court_name) throw new Error("Not found");
   await db().from("organization_codes").update({ revoked_at: new Date().toISOString() }).eq("id", id).eq("organization_id", staff.orgId).is("revoked_at", null);
-  const code = generateEventCode();
+  const { code, hash } = await freshShortRefereeCode();
   const { data: made, error } = await db()
     .from("organization_codes")
     .insert({
@@ -92,7 +95,7 @@ export async function regenerateCourtCodeAction(formData: FormData) {
       tournament_id: old.tournament_id,
       event_group_id: old.event_group_id,
       court_name: old.court_name,
-      code_hash: hashEventCode(code),
+      code_hash: hash,
       code_sealed: sealEventCode(code),
       label: courtCodeLabel(old.court_name),
       expires_at: old.expires_at && Date.parse(old.expires_at) > Date.now() ? old.expires_at : null,
