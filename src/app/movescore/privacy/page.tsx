@@ -31,9 +31,9 @@ export default function PrivacyPolicy() {
         <Bullets
           items={[
             "No ads, no advertising identifier, no tracking across other apps or websites, and no third-party analytics.",
-            "No location. The app reads your phone's time zone setting so match times show in your local time; it never asks for GPS or location permission.",
+            "Location stays on your phone. The venue map can use it, only when you ask it to (Centre on me, Directions) and only while the map is open; it is never sent to us. Match times use your phone's time zone setting.",
             "You do not need an account. Without one, your follows and pass are linked to a random number the app makes for your phone, not to you.",
-            "The camera is only used, when you choose, to read the venue QR code. Images stay on your phone.",
+            "The camera is only used when you choose: to read the venue QR code (the image stays on your phone) or to take a photo you decide to add, such as your player photo.",
             "Registering for an event shares the names and contact details you enter with the organisation running it. Online payments are made on the payment page of our payment provider, XPay; Move Score never sees your card.",
             "We never sell your data.",
           ]}
@@ -163,7 +163,7 @@ export default function PrivacyPolicy() {
       <Section title="What we do not collect">
         <Bullets
           items={[
-            "Location (precise or approximate), contacts, photos or files from your phone.",
+            "Location (precise or approximate): the venue map uses it on your phone only. Contacts, or photos and files from your phone other than a photo you choose to add.",
             "Microphone or audio. The app has no microphone permission.",
             "Advertising identifiers (IDFA / Android advertising ID) or any data for advertising.",
             "Health information, or card and bank details: Move Score has no in-app purchases, and online entry fees are paid on XPay's payment page, never in Move Score.",
@@ -218,7 +218,7 @@ export default function PrivacyPolicy() {
         <Bullets
           items={[
             "Alerts: turn any kind off in Account, or turn them all off in your phone's settings.",
-            "Camera: allowed only when you scan, and can be withdrawn in your phone's settings at any time.",
+            "Camera, photos and location: each is asked for only when you use the feature that needs it, and can be withdrawn in your phone's settings at any time.",
             <>
               Delete your account in the app (Account → Delete account). See <InlineLink href="/movescore/delete-account">how to delete your account and data</InlineLink>, including without an account.
             </>,
