@@ -378,6 +378,31 @@ async function main() {
   }
   check(statuses.slice(0, 5).every((s) => s === 201) && statuses[5] === 429, "a sixth new call from one court in ten minutes: 429 (the first call counted too)", statuses);
 
+  section("A call from a court code made for one tournament (no event group) still reaches the group's masters");
+  {
+    // Regression (22 Oct 2026): such a call carries no event group and alerted no master.
+    await db().from("request_counters").delete().like("bucket_key", "staff-assist:%");
+    const { generateShortRefereeCode, hashEventCode, sealEventCode } = await import("../../src/lib/orgs/codes");
+    const tcode = generateShortRefereeCode();
+    const { error: te } = await db()
+      .from("organization_codes")
+      .insert({ organization_id: MB, role: "referee", tournament_id: BOYS, event_group_id: null, court_name: "Court 1", code_hash: hashEventCode(tcode), code_sealed: sealEventCode(tcode), label: `e2e tournament court ${tag}` });
+    check(!te, "a Court 1 code for the boys' tournament only (no event group)", te?.message);
+    const ts = await http("POST", SESSION, ip(80), { code: tcode, pin: SARA.pin });
+    check(ts.status === 200 && (ts.json?.court as { name: string } | null)?.name === "Court 1", "Sara signs in with it (PIN only)", ts.status);
+    const TREF: Who = bearer(String(ts.json?.token));
+    await http("GET", ASSIST, MASTER); // the master's phone is on duty for the group
+    const tcall = await http("POST", ASSIST, TREF, { action: "request", matchId: MB1.id });
+    const tCallId = (tcall.json?.call as { id: string } | undefined)?.id;
+    check(tcall.status === 201 && Number(tcall.json?.alerted) >= 1, "the call: 201 and at least one master phone alerted", tcall.json);
+    const { data: tRow } = await db().from("assistance_calls").select("event_group_id, tournament_id").eq("id", tCallId ?? "").maybeSingle();
+    check((tRow as { event_group_id: string | null } | null)?.event_group_id === null, "…although the call itself has no event group", tRow);
+    const tView = await http("GET", ASSIST, MASTER);
+    check(((tView.json?.open ?? []) as { id: string }[]).some((c) => c.id === tCallId), "the master on duty sees it", (tView.json?.open as unknown[] | undefined)?.length);
+    if (tCallId) await http("POST", ASSIST, TREF, { action: "cancel", callId: tCallId });
+    await db().from("organization_codes").delete().eq("label", `e2e tournament court ${tag}`);
+  }
+
   /* ---------------- Coming / Decline, reminders, "X is going", escalation (0042) ---------------- */
   section("Two masters on duty: Coming / Decline, 30-second reminders, \"X is going\", the organiser after 2 minutes");
   {
