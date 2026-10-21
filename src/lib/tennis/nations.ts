@@ -66,6 +66,7 @@ const LIST: [string, string, string][] = [
   ["KUW", "Kuwait", "kw"],
   ["LAT", "Latvia", "lv"],
   ["LBN", "Lebanon", "lb"],
+  ["LIE", "Liechtenstein", "li"],
   ["LTU", "Lithuania", "lt"],
   ["LUX", "Luxembourg", "lu"],
   ["MAR", "Morocco", "ma"],
