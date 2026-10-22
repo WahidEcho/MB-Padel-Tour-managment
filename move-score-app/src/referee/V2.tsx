@@ -129,6 +129,10 @@ export function PadV2({
   const second = serveNumber(state) === 2;
   const off = readOnly || paused || blocked;
   const order: TeamKey[] = swapped ? ["B", "A"] : ["A", "B"];
+  const hasMarks = (state.violations?.length ?? 0) > 0;
+  // A short pad (a call card open above it) with marks: smaller words so they still fit above the marks.
+  const [padH, setPadH] = useState(0);
+  const tight = hasMarks && padH > 0 && padH < 260;
   return (
     <View style={{ flex: 1, gap: 10 }}>
       {features.fault || features.ace || features.let ? (
@@ -138,9 +142,10 @@ export function PadV2({
           {features.let ? <Square testID="v2-let" label={tr("score.let")} disabled={off} onPress={onLet} /> : null}
         </View>
       ) : null}
-      <View style={{ flex: 1, flexDirection: "row", gap: 10 }}>
+      <View style={{ flex: 1, flexDirection: "row", gap: 10 }} onLayout={(e) => setPadH(e.nativeEvent.layout.height)}>
         {order.map((k) => {
           const s = sides[k];
+          const marks = violationMarks(state, k);
           const serving = server === k && !state.matchOver;
           return (
             <Pressable
@@ -156,8 +161,11 @@ export function PadV2({
                 backgroundColor: SIDE_HEX[k],
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 8,
+                gap: tight ? 4 : 8,
                 paddingHorizontal: 8,
+                // Room for the violation marks, on both buttons so the words stay level: a short
+                // button (a call card open above) must not push the words under the marks.
+                paddingBottom: hasMarks ? (tight ? 34 : 42) : 0,
                 opacity: off ? 0.4 : 1,
                 transform: [{ scale: pressed ? 0.975 : 1 }],
               })}
@@ -177,7 +185,7 @@ export function PadV2({
                 {tr("score.pointCode", { code: s.code })
                   .split("\n")
                   .map((line, i) => (
-                    <Display key={i} size={38} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45} style={{ color: "#fff", textAlign: "center", lineHeight: 40 }}>
+                    <Display key={i} size={tight ? 30 : 38} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45} style={{ color: "#fff", textAlign: "center", lineHeight: tight ? 32 : 40 }}>
                       {line}
                     </Display>
                   ))}
@@ -185,7 +193,7 @@ export function PadV2({
               <Eyebrow size={11} style={{ color: "rgba(255,255,255,0.85)", textAlign: "center" }} numberOfLines={2}>
                 {serving ? tr("score.nameServing", { name: s.name }) : s.name}
               </Eyebrow>
-              <ViolationMarks marks={violationMarks(state, k)} />
+              <ViolationMarks marks={marks} />
             </Pressable>
           );
         })}
