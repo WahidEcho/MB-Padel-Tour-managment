@@ -8,7 +8,7 @@ import { flagSrc } from "@/components/tennis/Face";
 import { logoBox } from "@/lib/sponsors";
 import { sizedImageSrc } from "@/lib/portrait";
 import type { LiveFeed } from "@/lib/tv/liveFeed";
-import { overlayModel, type OverlayModel, type OverlayOptions, type OverlayRow } from "@/lib/stream/overlay";
+import { OVERLAY_ALIVE_KEY, overlayModel, type OverlayModel, type OverlayOptions, type OverlayRow } from "@/lib/stream/overlay";
 import type { OverlayLogo, OverlayProps } from "@/lib/stream/overlayServer";
 import s from "./overlay.module.css";
 
@@ -64,6 +64,10 @@ function useFrameSize(ref: React.RefObject<HTMLDivElement | null>) {
 export default function BroadcastOverlay({ props, options, initial }: { props: OverlayProps; options: OverlayOptions; initial: LiveFeed }) {
   const { feed, anchor } = useLiveFeed(props.slug, "main", { intervalMs: 1_000, initial });
   const now = useAnchoredNow(anchor, 250);
+  // Tells the page's watchdog this client is alive and drawing (see OVERLAY_WATCHDOG).
+  useEffect(() => {
+    (window as unknown as Record<string, number>)[OVERLAY_ALIVE_KEY] = Date.now();
+  }, [now]);
   const frame = useRef<HTMLDivElement>(null);
   const size = useFrameSize(frame);
   // Exactly 1 on a 1920×1080 source, so the bug is drawn pixel for pixel.

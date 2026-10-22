@@ -231,9 +231,24 @@ export function overlayMatch(input: OverlayInput): { match: LiveMatch; kind: "li
     return Boolean(tieId && courtTies.has(tieId));
   };
   const here = input.matches.filter(onCourt);
-  const ms = (iso: string | null) => (iso ? Date.parse(iso) : 0);
+  const ms = (iso: string | null | undefined) => {
+    const n = iso ? Date.parse(iso) : NaN;
+    return Number.isFinite(n) ? n : 0;
+  };
+  const snapAt = new Map(input.snapshots.map((s) => [s.match_id, ms(s.updated_at)]));
+  /** When the match last moved: its latest score, else its start. */
+  const activity = (m: LiveMatch) => Math.max(snapAt.get(m.id) ?? 0, ms(m.started_at));
+  /** The latest end of another match on this court. */
+  const lastEnd = Math.max(0, ...here.filter((m) => DONE.includes(m.status)).map((m) => ms(m.ended_at)));
 
-  const live = here.filter((m) => IN_PLAY.includes(m.status)).sort((a, b) => ms(b.started_at) - ms(a.started_at))[0];
+  // The court's match in play is the one being scored now. A match left "live"
+  // (started, then abandoned for another) never beats one whose score moved more
+  // recently, and once another match has finished on this court since it last
+  // moved it is not what the camera shows.
+  const inPlay = here.filter((m) => IN_PLAY.includes(m.status));
+  const live = inPlay
+    .filter((m) => activity(m) >= lastEnd)
+    .sort((a, b) => activity(b) - activity(a) || ms(b.started_at) - ms(a.started_at))[0];
   if (live) return { match: live, kind: "live" };
 
   const done = here
@@ -370,3 +385,17 @@ export function resolveCourtParam<C extends { id: string; court_name: string; co
     .sort((a, b) => a.court_order - b.court_order)
     .find((c) => c.court_name.trim().toLowerCase() === lower || slugOf(c.court_name) === slug);
 }
+
+/** The global the overlay stamps (Date.now()) every time it draws a frame on the client. */
+export const OVERLAY_ALIVE_KEY = "__mbOverlayAlive";
+/** How long without a client frame before the watchdog reloads the page. */
+export const OVERLAY_WATCHDOG_MS = 30_000;
+
+/**
+ * An inline, ES5-only script for the overlay page. If the client never comes
+ * alive (a browser source too old for the bundle, a script blocked or crashed)
+ * or stops drawing, the page would show its server frame forever: a score that
+ * never moves. The watchdog reloads it instead, so even then the bug catches up
+ * every half minute.
+ */
+export const OVERLAY_WATCHDOG = `(function(){var w=window,k="${OVERLAY_ALIVE_KEY}",s=Date.now();setInterval(function(){if(document.hidden){w[k]=Date.now();return;}if(Date.now()-(w[k]||s)>${OVERLAY_WATCHDOG_MS})location.reload();},5000);})();`;

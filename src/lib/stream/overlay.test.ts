@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FINAL_HOLD_MS, overlayModel, overlayOptions, resolveCourtParam, shortName, type OverlayInput, type OverlayMatchInfo } from "./overlay";
+import { FINAL_HOLD_MS, OVERLAY_ALIVE_KEY, OVERLAY_WATCHDOG, overlayMatch, overlayModel, overlayOptions, resolveCourtParam, shortName, type OverlayInput, type OverlayMatchInfo } from "./overlay";
 import { awardPoint, initialScoreState, type ScoreState, type TeamKey } from "../scoring/engine";
 import { ace as playAce } from "../scoring/serve";
 import { startClock } from "../scoring/timing";
@@ -173,5 +173,107 @@ describe("broadcast overlay view model", () => {
     expect(resolveCourtParam(courts, "court%2013%20(boys)")?.id).toBe("c-13");
     expect(resolveCourtParam(courts, "court-14-girls")?.id).toBe("c-14");
     expect(resolveCourtParam(courts, "court-15")).toBeUndefined();
+  });
+
+  /*
+   * J200 Cairo, 22 Oct 2026. Court 1 (id c1) played the boys' singles SF Martin v
+   * Genidy; Court 5 (id c5) had the "Round 2 Double" Kaliadina / Nuneva v
+   * Bernstein / Shen started at 10:06 and its score last moved at 10:56. Each
+   * court's overlay must show its own match, by court id, whatever else is live.
+   */
+  describe("J200 Cairo: each court shows its own match", () => {
+    const D = Date.parse("2026-10-22T10:00:00Z");
+    const iso = (min: number) => new Date(D + min * 60_000).toISOString();
+    const singles = (id: string): OverlayMatchInfo => ({ id, tie_id: null, rubber_no: null, rubber_type: null, a: [], b: [], round_name: null, rules });
+    const j200 = (over: Partial<OverlayInput> = {}): OverlayInput =>
+      base({
+        title: "J200 Cairo · Singles & Doubles",
+        ties: [],
+        teams: {
+          MAR: { id: "MAR", code: "FRA", iso2: "fr", name: "Matisse Martin", players: [{ id: "p1", name: "Matisse Martin" }] },
+          GEN: { id: "GEN", code: "EGY", iso2: "eg", name: "Mohamed Genidy", players: [{ id: "p2", name: "Mohamed Genidy" }] },
+          KN: { id: "KN", code: "KN", iso2: null, name: "Kaliadina / Nuneva", players: [{ id: "p3", name: "Eva Kaliadina" }, { id: "p4", name: "Nikol Nuneva" }] },
+          BS: { id: "BS", code: "BS", iso2: null, name: "Bernstein / Shen", players: [{ id: "p5", name: "Amy Shen" }, { id: "p6", name: "Grace Bernstein" }] },
+        },
+        info: { sf: singles("sf"), r2: { ...singles("r2"), round_name: "Round 2 Double" } },
+        matches: [
+          match("sf", { status: "live", court_id: "c1", round_name: "Boys' Singles SF", team_a_id: "MAR", team_b_id: "GEN", started_at: iso(-172) }),
+          match("r2", { status: "live", court_id: "c5", round_name: "Round 2 Double", team_a_id: "KN", team_b_id: "BS", started_at: iso(6) }),
+        ],
+        snapshots: [
+          { ...snapOf("sf", play(games("B", 3)), 200), updated_at: iso(13) },
+          { ...snapOf("r2", play(["B", "A", "B"]), 5), updated_at: iso(56) },
+        ],
+        now: D + 60 * 60_000,
+        ...over,
+      });
+
+    it("Court 5's overlay is Court 5's doubles, never Court 1's singles (and the other way round)", () => {
+      const c5 = overlayModel(j200({ courtId: "c5", courtName: "Court 5" }));
+      if (c5.kind !== "live") throw new Error(c5.kind);
+      expect(c5.matchId).toBe("r2");
+      expect(c5.header).toEqual(["J200 Cairo · Singles & Doubles", "Round 2 Double"]);
+      expect(c5.rows.map((r) => r.names.join(" / "))).toEqual(["Kaliadina / Nuneva", "Bernstein / Shen"]);
+      const c1 = overlayModel(j200({ courtId: "c1", courtName: "Court 1" }));
+      expect(c1.kind === "live" && c1.matchId).toBe("sf");
+      expect(c1.kind === "live" && c1.rows.map((r) => r.code)).toEqual(["FRA", "EGY"]);
+    });
+
+    it("a court with nothing in play shows its idle strip, not another court's match", () => {
+      const v = overlayModel(j200({ courtId: "c2", courtName: "Court 2" }));
+      expect(v.kind).toBe("idle");
+      expect(v.header).toEqual(["J200 Cairo · Singles & Doubles", "Court 2"]);
+    });
+
+    it("two matches left live on one court: the one whose score moved last, not the one started last", () => {
+      const input = j200({
+        courtId: "c5",
+        matches: [
+          match("r2", { status: "live", court_id: "c5", team_a_id: "KN", team_b_id: "BS", started_at: iso(6) }),
+          match("sf", { status: "live", court_id: "c5", team_a_id: "MAR", team_b_id: "GEN", started_at: iso(-30) }),
+        ],
+        snapshots: [
+          { ...snapOf("r2", play(["B"]), 2), updated_at: iso(7) },
+          { ...snapOf("sf", play(games("B", 3)), 90), updated_at: iso(58) },
+        ],
+      });
+      expect(overlayMatch(input)?.match.id).toBe("sf");
+    });
+
+    it("a match left live after another one finished on the court is not what the camera shows", () => {
+      const input = j200({
+        courtId: "c5",
+        matches: [
+          match("r2", { status: "live", court_id: "c5", team_a_id: "KN", team_b_id: "BS", started_at: iso(6) }),
+          match("sf", { status: "completed", court_id: "c5", team_a_id: "MAR", team_b_id: "GEN", winner_team_id: "GEN", started_at: iso(68), ended_at: iso(135) }),
+        ],
+        snapshots: [{ ...snapOf("r2", play(["B"]), 2), updated_at: iso(7) }],
+        now: D + 136 * 60_000,
+      });
+      expect(overlayMatch(input)).toMatchObject({ kind: "final", match: { id: "sf" } });
+      expect(overlayModel({ ...input, now: D + 200 * 60_000 }).kind).toBe("idle");
+    });
+  });
+
+  it("the page watchdog is plain ES5 and reloads only when the client stops drawing", () => {
+    expect(OVERLAY_WATCHDOG).not.toMatch(/=>|\blet\b|\bconst\b|`/);
+    expect(OVERLAY_WATCHDOG).toContain(OVERLAY_ALIVE_KEY);
+    let tick: (() => void) | null = null;
+    let reloaded = 0;
+    const win: Record<string, number> = {};
+    const doc = { hidden: false };
+    const clock = { t: 1_000 };
+    new Function("window", "document", "location", "setInterval", "Date", OVERLAY_WATCHDOG)(
+      win, doc, { reload: () => reloaded++ }, (f: () => void) => { tick = f; }, { now: () => clock.t },
+    );
+    clock.t += 20_000; tick!();
+    expect(reloaded).toBe(0);
+    win[OVERLAY_ALIVE_KEY] = clock.t;
+    clock.t += 25_000; tick!();
+    expect(reloaded).toBe(0);
+    clock.t += 10_000; tick!();
+    expect(reloaded).toBe(1);
+    doc.hidden = true; clock.t += 120_000; tick!();
+    expect(reloaded).toBe(1);
   });
 });

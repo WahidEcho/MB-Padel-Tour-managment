@@ -39,6 +39,8 @@ export interface LiveSnapshot {
   serving_team_id: string | null;
   completed_sets: MatchSnapshot["completed_sets"];
   match_over: boolean;
+  /** When the score last moved (the snapshot row's updated_at); optional for older payloads. */
+  updated_at?: string | null;
   /**
    * The full score state while the match is unfinished: tennis walls read the
    * serving player, the callouts and the rules-aware bits from it. Left out once
@@ -110,6 +112,7 @@ export function toLiveSnapshot(s: MatchSnapshot): LiveSnapshot {
     serving_team_id: s.serving_team_id,
     completed_sets: s.completed_sets ?? [],
     match_over: Boolean(json.matchOver),
+    updated_at: s.updated_at ?? null,
     ...(json.teamA && !json.matchOver ? { state: s.snapshot_json as unknown as ScoreState } : {}),
   };
 }

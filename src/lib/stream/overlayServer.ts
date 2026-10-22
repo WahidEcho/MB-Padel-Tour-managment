@@ -6,6 +6,7 @@
  * players' names, nominees, rules and the ties on the court. Never a phone,
  * email, access code, note or photo — the score bug has no use for them.
  */
+import { db } from "../supabase";
 import { getCourts, getMatches, getTeams, getTournamentBySlug } from "../data";
 import { getTies, isTieFormat } from "../tennis/tieOps";
 import { EVENT_TIME_ZONE } from "../tennis/ties";
@@ -38,12 +39,40 @@ export interface OverlayProps {
   uniform: boolean;
 }
 
-export async function overlayData(slug: string, courtParam: string): Promise<{ tournament: Tournament; props: OverlayProps } | null> {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A court id copied from a sibling tournament of the same event (an event group
+ * shares its venue and its court codes): the slug that court belongs to, so the
+ * link is sent there instead of a blank 404 in the OBS scene. Only to another
+ * public tournament of the same group.
+ */
+async function siblingCourtSlug(tournament: Tournament, courtParam: string): Promise<string | null> {
+  const id = decodeURIComponent(courtParam).trim();
+  if (!UUID.test(id) || !tournament.event_group_id) return null;
+  const { data: court } = await db().from("courts").select("id, tournament_id").eq("id", id).maybeSingle();
+  const owner = court as { id: string; tournament_id: string } | null;
+  if (!owner || owner.tournament_id === tournament.id) return null;
+  const { data: other } = await db()
+    .from("tournaments")
+    .select("slug, event_group_id, public_access_enabled, kind")
+    .eq("id", owner.tournament_id)
+    .maybeSingle();
+  const t = other as { slug: string; event_group_id: string | null; public_access_enabled: boolean; kind: string } | null;
+  return t && t.public_access_enabled && t.kind === "tournament" && t.event_group_id === tournament.event_group_id ? t.slug : null;
+}
+
+export type OverlayData = { tournament: Tournament; props: OverlayProps } | { redirect: string } | null;
+
+export async function overlayData(slug: string, courtParam: string): Promise<OverlayData> {
   const tournament = await getTournamentBySlug(slug);
   if (!tournament || !tournament.public_access_enabled || tournament.kind !== "tournament") return null;
   const courts: Court[] = await getCourts(tournament.id);
   const court = resolveCourtParam(courts, courtParam);
-  if (!court) return null;
+  if (!court) {
+    const home = await siblingCourtSlug(tournament, courtParam);
+    return home ? { redirect: `/t/${encodeURIComponent(home)}/overlay/${encodeURIComponent(decodeURIComponent(courtParam).trim())}` } : null;
+  }
 
   const [teams, matches, ties] = await Promise.all([
     getTeams(tournament.id),
