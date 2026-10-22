@@ -8,7 +8,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { PixelRatio, Platform, View } from "react-native";
 import { Image } from "expo-image";
 import { captureRef } from "react-native-view-shot";
-import { LoadGate, LoadGateProvider, useGatedImage } from "./LoadGate";
+import { LoadGate, LoadGateProvider, useGatedImage, useGatedLayout } from "./LoadGate";
+import { captureSize, stickerBox } from "./exportBox";
 import { Chrome, Scrims, Sticker } from "./Stickers";
 import { DESIGN_W, EXPORT_H, EXPORT_W, photoBox, type LayoutId, type Photo, type PhotoPose, type StickerPose, type StoryInfo, type Tone } from "./model";
 
@@ -40,17 +41,19 @@ export function ExportStage({ spec, onDone }: { spec: ExportSpec; onDone: (uri: 
   const u = W / DESIGN_W;
   const gate = useMemo(() => new LoadGate(), []);
   const ref = useRef<View>(null);
+  const onStickerLayout = useGatedLayout(gate);
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
+        // Every image drawn and the sticker laid out at its real size; bounded, so sharing never hangs.
         await gate.settled(4000);
         // Two frames for the decoded images to reach the screen; the pass has its own images and a QR.
         await frame();
         await frame();
         if (spec.layout === "pass") await wait(250);
         if (!alive) return;
-        const uri = await captureRef(ref, { format: "jpg", quality: 0.94, width: EXPORT_W, height: EXPORT_H, result: Platform.OS === "web" ? "data-uri" : "tmpfile" });
+        const uri = await captureRef(ref, { format: "jpg", quality: 0.94, ...captureSize(EXPORT_W, EXPORT_H, Platform.OS, pr), result: Platform.OS === "web" ? "data-uri" : "tmpfile" });
         if (alive) onDone(uri);
       } catch {
         if (alive) onDone(null);
@@ -60,7 +63,7 @@ export function ExportStage({ spec, onDone }: { spec: ExportSpec; onDone: (uri: 
       alive = false;
     };
     // One capture per mount; `onDone` is stable (the composer's useCallback).
-  }, [gate, spec.layout, onDone]);
+  }, [gate, spec.layout, onDone, pr]);
   const { info, layout, tone, photo, photoPose, stickerPose } = spec;
   return (
     <LoadGateProvider value={gate}>
@@ -69,20 +72,9 @@ export function ExportStage({ spec, onDone }: { spec: ExportSpec; onDone: (uri: 
           <GatedPhoto photo={photo} box={photoBox(photo, photoPose, W, H)} />
           <Scrims W={W} H={H} layout={layout} />
           <Chrome W={W} H={H} u={u} info={info} layout={layout} />
-          {/* A zero-size anchor at the sticker's centre: flex centring puts the sticker on it. */}
-          <View
-            style={{
-              position: "absolute",
-              left: stickerPose.x * W,
-              top: stickerPose.y * H,
-              width: 0,
-              height: 0,
-              alignItems: "center",
-              justifyContent: "center",
-              transform: [{ rotate: `${stickerPose.r}rad` }, { scale: stickerPose.s }],
-            }}
-          >
-            <View>
+          {/* A box with room (never zero-size: see stickerBox), centred on the sticker's point; flex centring puts the sticker there. */}
+          <View style={{ position: "absolute", alignItems: "center", justifyContent: "center", ...stickerBox(stickerPose, W, H) }}>
+            <View onLayout={onStickerLayout}>
               <Sticker layout={layout} info={info} u={u} tone={tone} />
             </View>
           </View>
