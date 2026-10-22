@@ -11,7 +11,8 @@
 --   match_calls, live_activity_start_tokens, live_activity_starts,
 --   registration_settings, registrations, registration_payments, move_tick_events,
 --   referees, referee_sessions, assistance_calls, assistance_responses,
---   coach_codes, coach_sessions
+--   coach_codes, coach_sessions, venue_maps,
+--   stories, story_views, story_likes, story_reports, story_blocks, story_bans
 -- They hold event-code hashes, member emails, platform admins, organisations'
 -- private player notes, invite and one-time-code hashes and their status, league
 -- invite-code hashes, the organisers' membership decisions and who holds a code, referee devices and
@@ -55,7 +56,13 @@ declare
     'assistance_responses',
     'coach_codes',
     'coach_sessions',
-    'venue_maps'
+    'venue_maps',
+    'stories',
+    'story_views',
+    'story_likes',
+    'story_reports',
+    'story_blocks',
+    'story_bans'
   ];
 begin
   for t in select tablename from pg_tables where schemaname = 'public' and not (tablename = any (private_tables)) loop

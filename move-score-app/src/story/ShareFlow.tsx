@@ -24,10 +24,13 @@ import { pickFromLibrary } from "./photo";
 import { DESIGN_W, type Photo } from "./model";
 import type { StoryState } from "./useStoryInfo";
 import { useT } from "../i18n";
+import type { StoryContextInput } from "@core";
+import { PostToStoriesButton } from "../stories/PostButton";
 
 type Step = "start" | "camera" | "compose";
 
-export function ShareFlow({ state }: { state: StoryState }) {
+/** `storyContext`: where the share comes from, for "Post to Move Score Stories" (none: no such button). */
+export function ShareFlow({ state, storyContext = null }: { state: StoryState; storyContext?: StoryContextInput | null }) {
   const { t, calm } = useTheme();
   const tr = useT();
   const insets = useSafeAreaInsets();
@@ -109,7 +112,7 @@ export function ShareFlow({ state }: { state: StoryState }) {
     return (
       <>
         <StatusBar style="light" />
-        <Composer info={info} photo={photo} calm={calm} storiesOn={storiesOn} onRetake={() => (from === "camera" ? setStep("camera") : void library())} onClose={() => router.back()} />
+        <Composer info={info} photo={photo} calm={calm} storiesOn={storiesOn} storyContext={storyContext} onRetake={() => (from === "camera" ? setStep("camera") : void library())} onClose={() => router.back()} />
       </>
     );
   }
@@ -134,6 +137,7 @@ export function ShareFlow({ state }: { state: StoryState }) {
         <Button label={tr("story.imHereAddPhoto")} icon={<CameraIcon color={t.btnInk} />} onPress={() => setStep("camera")} disabled={!info || busy} />
         <Button kind="ghost" label={tr("story.chooseLibrary")} icon={<LibraryIcon color={t.ink} size={20} />} onPress={() => void library()} disabled={!info || busy} />
         <Button kind="ghost" label={tr("story.shareNoPhoto")} onPress={() => void shareCard("sheet")} disabled={!info || busy} />
+        <PostToStoriesButton context={storyContext} disabled={!info || busy} onNote={setNote} capture={() => captureRef(card, { format: "jpg", quality: 0.92, width: 1080, height: 1920, result: "tmpfile" })} />
         {storiesOn ? (
           <Body tone="blue" weight="semi" size={13} accessibilityRole="button" onPress={() => (busy || !info ? undefined : void shareCard("stories"))} style={{ textAlign: "center", marginTop: 4 }}>
             {tr("story.cardToStories")}

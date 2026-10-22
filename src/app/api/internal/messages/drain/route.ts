@@ -4,6 +4,7 @@ import { drainMessages } from "@/lib/messaging/queue";
 import { securePlayerCodes } from "@/lib/players/codeVault";
 import { pruneVerifications } from "@/lib/players/phoneLink";
 import { archiveFinishedEvents, expireStalePayments, expireUnconfirmed } from "@/lib/registration/server";
+import { sweepExpiredStories } from "@/lib/stories/server";
 
 /** Long announcements are sent in time-boxed chunks; one call sends for up to ~40 s. */
 export const maxDuration = 60;
@@ -19,7 +20,8 @@ export const maxDuration = 60;
  * the player links of events that ended more than 24 hours ago are archived
  * (player_claims.archived_at), Move Tick checkouts that expired unanswered
  * are marked expired, XPay checkouts whose 15-minute hold ended are closed at XPay, and web guests who never opened their emailed link within
- * 24 hours are cancelled.
+ * 24 hours are cancelled. Move Score Stories older than 24 hours are deleted with their
+ * pictures (src/lib/stories/server.ts).
  */
 async function run(request: Request) {
   const want = process.env.CRON_SECRET;
@@ -43,7 +45,13 @@ async function run(request: Request) {
   } catch (err) {
     console.error("[housekeeping] registrations", err);
   }
-  return NextResponse.json({ ok: true, ...result, codesHashed, claimsArchived }, { headers: { "Cache-Control": "no-store" } });
+  let storiesSwept = 0;
+  try {
+    storiesSwept = await sweepExpiredStories();
+  } catch (err) {
+    console.error("[housekeeping] stories", err);
+  }
+  return NextResponse.json({ ok: true, ...result, codesHashed, claimsArchived, storiesSwept }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export const GET = run;

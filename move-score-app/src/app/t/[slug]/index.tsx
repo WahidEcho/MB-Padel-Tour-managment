@@ -23,6 +23,7 @@ import { NightTable } from "../../../ui/NightTable";
 import { FollowedPlayers } from "../../../ui/FollowedPlayers";
 import { nightTableOf } from "../../../night/table";
 import { EventInfoLink } from "../../../ui/EventInfoLink";
+import { StoriesRow } from "../../../stories/StoriesRow";
 
 type Tab = "ties" | "matches" | "groups" | "brackets" | "nations";
 const TABS: Tab[] = ["ties", "matches", "groups", "brackets", "nations"];
@@ -79,6 +80,8 @@ function Hub({ slug, initialTab }: { slug: string; initialTab?: Tab }) {
       <BackHeader label={tr("event.discoverBack")} />
       <StaleBanner queries={[l]} live />
       <NoticeBanners live={l.data} timeZone={tour.timezone} />
+      {/* This event's Move Score Stories (hidden while it has none). */}
+      <StoriesRow slug={slug} />
       <Eyebrow>{[sportName(tour.sport), tr(isTies ? "screens.nations" : "screens.teams", { count: b.data.teams.length })].join(" · ")}</Eyebrow>
       <Display size={27} style={{ marginTop: 8, lineHeight: 30 }}>{tour.name}</Display>
       <View style={{ flexDirection: "row", columnGap: 16, rowGap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>

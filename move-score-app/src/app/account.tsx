@@ -230,6 +230,7 @@ export default function Account() {
               {menuOpen && (
                 <View style={{ gap: 8 }}>
                   <Button kind="ghost" label={tr("auth.editNamePhoto")} onPress={() => setEditOpen(true)} />
+                  <Button kind="ghost" label={tr("stories.manageBlocked")} onPress={() => router.push("/blocked-stories")} />
                   {confirmSignOut ? (
                     <View style={{ gap: 8 }}>
                       <Body size={13}>

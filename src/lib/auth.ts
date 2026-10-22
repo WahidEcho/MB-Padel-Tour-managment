@@ -152,6 +152,8 @@ const PERMISSIONS = {
   manage_registrations: ["admin", "manager"],
   // Refunding an online payment: admins with their own account only (PERSONAL_ACCOUNT_ONLY).
   refund_registrations: ["admin"],
+  // Move Score Stories tied to the organisation's events (Admin → Stories): restore or remove. Banning a poster is platform admins'.
+  moderate_stories: ["admin"],
   // Members and invites (Admin → Members): owners and admins; who may give which
   // role is decided by the organisation role (src/lib/orgs/roles.ts mayAssignRole).
   manage_members: ["admin"],

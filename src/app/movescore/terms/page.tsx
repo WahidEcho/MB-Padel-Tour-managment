@@ -65,6 +65,14 @@ export default function Terms() {
           ]}
         />
         <p>We may limit or suspend access for anyone who breaks these rules.</p>
+        <p>
+          <strong>Move Score Stories.</strong> Signed-in users can post pictures made in the app&apos;s story composer to Move
+          Score Stories, where anyone can see them for 24 hours. There is no tolerance for objectionable content or abusive
+          users: nothing offensive, sexual, hateful, harassing, violent or misleading, and nothing about another person without
+          their permission. Anyone can report a story or block its poster from the story itself; a story several people report
+          is hidden at once, and we review reports within 24 hours, remove what breaks these rules and ban those who post it.
+          Write to <Mail subject="Move Score Stories" /> about any story.
+        </p>
       </Section>
 
       <Section title="5. Content and names">
