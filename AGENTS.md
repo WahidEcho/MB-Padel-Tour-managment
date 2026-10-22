@@ -351,7 +351,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   coach result alerts (`fire_at` later) and Live Activity pushes (outbox kind `live_activity_deferred`, sent by the drain from the view then).
   Never delayed: referee consoles and `/api/matches/[id]/state`, master desk, admin, TV feed `/api/t/[slug]/live` and screens, OBS overlay,
   calls to court / match soon / line-ups. Additive `scoreDelaySeconds` on MLive and tournament cards. Gate `npm run e2e:score-delay` (stand-in).
-- Move Score Stories (migration `0043_stories.sql`, not yet on the live project; apply before deploying): Instagram-like 24-hour
+- Move Score Stories (migration `0043_stories.sql`, applied on the live project 22 Oct 2026; apply before deploying): Instagram-like 24-hour
   stories, ONLY the story composer's 1080×1920 JPEG export (always a match/tie/pass card; no gallery upload), tied to the public event
   it came from. Pure rules `src/lib/stories/rules.ts` (via `@core`: limits, 3 reports hide, 20 posts/day, grouping, captions), server
   `src/lib/stories/server.ts` (explicit columns; posters are HMAC keys, never account ids). Routes `api/mobile/v1/stories` (GET public CDN
