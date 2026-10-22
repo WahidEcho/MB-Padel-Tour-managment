@@ -93,6 +93,7 @@ const TIMER_CHIP: Record<string, string> = {
   break: "BREAK",
   bathroom: "BATHROOM",
   hydration: "HYDRATION",
+  medical: "MEDICAL",
 };
 
 /** Builds the log, oldest first. `teams`: the two sides' ids and names. */

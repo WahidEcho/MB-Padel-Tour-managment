@@ -1399,7 +1399,7 @@ export default function ScoreClient({
                   </button>
                 )}
                 {callNote && <p className="text-xs font-semibold text-muted">{callNote}</p>}
-                {(features.breakStopwatch || features.timerChangeover || features.timerSetBreak || features.bathroom || features.hydration) && (
+                {(features.breakStopwatch || features.timerChangeover || features.timerSetBreak || features.bathroom || features.hydration || features.medical) && (
                   <div className="space-y-1.5">
                     <p className="label">Breaks</p>
                     {(
@@ -1409,6 +1409,7 @@ export default function ScoreClient({
                         ["set_break", features.timerSetBreak, "☕ Set break", "2:00"],
                         ["bathroom", features.bathroom, "🚻 Bathroom break", "warns 10:00"],
                         ["hydration", features.hydration, "💧 Hydration break", "10:00"],
+                        ["medical", features.medical, "✚ Medical timeout", "3:00"],
                       ] as [TimerKind, boolean, string, string][]
                     )
                       .filter(([, on]) => on)
@@ -1416,7 +1417,7 @@ export default function ScoreClient({
                         <button
                           key={k}
                           className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-bold"
-                          onClick={() => (k === "bathroom" ? setModal({ kind: "break-team", timer: k }) : startBreak(k, null))}
+                          onClick={() => (k === "bathroom" || k === "medical" ? setModal({ kind: "break-team", timer: k }) : startBreak(k, null))}
                           data-testid={`break-${k}`}
                         >
                           {label}

@@ -119,6 +119,10 @@ export const score: Shape<typeof en> = {
   courtHeading: "Pista",
   swapSides: "Cambiar izquierda / derecha",
   matchLog: "Registro del partido",
+  openMatchLog: "Abrir el registro del partido",
+  medicalContinue: "Continuar el partido",
+  medicalRetire: "El jugador abandona",
+  medicalNote: "Tras el tratamiento: seguir jugando o registrar el abandono.",
   matchHeading: "Partido",
   swapServer: "Cambiar el sacador de {name}",
   codeViolation: "Violación de código",
@@ -223,6 +227,7 @@ export const score: Shape<typeof en> = {
   timer_break: "Pausa",
   timer_bathroom: "Pausa para el baño",
   timer_hydration: "Pausa de hidratación",
+  timer_medical: "Tiempo médico",
 
   player1: "Jugador 1",
   player2: "Jugador 2",
@@ -262,6 +267,7 @@ export const score: Shape<typeof en> = {
   chip_break: "PAUSA",
   chip_bathroom: "BAÑO",
   chip_hydration: "HIDRATACIÓN",
+  chip_medical: "MÉDICO",
 
   offence_time: "Violación de tiempo",
   offence_ball_abuse: "Abuso de pelota",

@@ -263,7 +263,8 @@ export function BetweenPoints({ timer, now, onDismiss, onDecision }: { timer: Ru
 }
 
 /** A changeover, set break or break: a card over the point columns. */
-export function TimerCard({ timer, now, sides, onStop, onDecision }: { timer: RunningTimer; now: number; sides: Record<TeamKey, V2Side>; onStop: () => void; onDecision: (d: TimeDecision) => void }) {
+/** `onRetire`: a medical timeout's second choice, "Player retires" (the end-of-match sheet). */
+export function TimerCard({ timer, now, sides, onStop, onDecision, onRetire }: { timer: RunningTimer; now: number; sides: Record<TeamKey, V2Side>; onStop: () => void; onDecision: (d: TimeDecision) => void; onRetire?: () => void }) {
   const { t } = useTheme();
   const tr = useT();
   const v = timerView(timer.kind, now - timer.startedAt);
@@ -293,7 +294,19 @@ export function TimerCard({ timer, now, sides, onStop, onDecision }: { timer: Ru
       </View>
       <Body size={12.5} weight="semi" style={{ color: red ? "#fff" : amber ? ORANGE : t.ink2, textAlign: "center" }}>{note}</Body>
       {v.progress !== null ? <Bar progress={v.progress} color={red ? "#fff" : amber ? ORANGE : t.blue} track={red ? "rgba(255,255,255,0.3)" : t.chip} /> : null}
-      {v.ruling ? (
+      {timer.kind === "medical" ? (
+        <View style={{ gap: 10 }}>
+          <Body size={12.5} style={{ color: red ? "#fff" : t.ink2, textAlign: "center" }}>{tr("score.medicalNote")}</Body>
+          <Pressable testID="medical-continue" accessibilityRole="button" onPress={onStop} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 15, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
+            <Body weight="bold" size={16} style={{ color: BALL_INK }}>{tr("score.medicalContinue")}</Body>
+          </Pressable>
+          {onRetire ? (
+            <Pressable testID="medical-retire" accessibilityRole="button" onPress={onRetire} style={({ pressed }) => ({ borderRadius: 18, paddingVertical: 14, alignItems: "center", borderWidth: 2, borderColor: red ? "#fff" : t.line, opacity: pressed ? 0.85 : 1 })}>
+              <Body weight="bold" size={15} style={{ color: ink }}>{tr("score.medicalRetire")}</Body>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : v.ruling ? (
         <Rulings onDecision={onDecision} />
       ) : (
         <Pressable testID="timer-stop" accessibilityRole="button" onPress={onStop} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 15, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>

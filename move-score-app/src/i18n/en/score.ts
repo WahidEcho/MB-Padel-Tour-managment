@@ -127,6 +127,10 @@ export const score = {
   courtHeading: "Court",
   swapSides: "Swap left / right",
   matchLog: "Match log",
+  openMatchLog: "Open match log",
+  medicalContinue: "Continue the match",
+  medicalRetire: "Player retires",
+  medicalNote: "After treatment: play on, or record the retirement.",
   matchHeading: "Match",
   swapServer: "Swap {name}'s server",
   codeViolation: "Code violation",
@@ -233,6 +237,7 @@ export const score = {
   timer_break: "Break",
   timer_bathroom: "Bathroom break",
   timer_hydration: "Hydration break",
+  timer_medical: "Medical timeout",
 
   // Doubles serve order
   player1: "Player 1",
@@ -274,6 +279,7 @@ export const score = {
   chip_break: "BREAK",
   chip_bathroom: "BATHROOM",
   chip_hydration: "HYDRATION",
+  chip_medical: "MEDICAL",
 
   // Code violations
   offence_time: "Time violation",

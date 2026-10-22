@@ -690,6 +690,8 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
                 onPress={() => guard(() => showResultSheet(true, !boot.chess && shown?.completedSets.length ? { sets: enteredSetsFromState(shown) } : null))}
               />
             ) : null}
+            {/* The log of a finished match: More is gone once the match is over (staff only, as during play). */}
+            {f.matchLog ? <Button kind="ghost" label={tr("score.openMatchLog")} onPress={() => void openLog()} /> : null}
             <Button label={tr("score.backToMatches")} onPress={() => router.back()} />
           </Card>
         ) : shown ? (
@@ -714,7 +716,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
         ) : null}
         {c.timer && c.timer.kind !== "between_points" && !readOnly && shown && !shown.matchOver ? (
           <View style={{ position: "absolute", left: 0, right: 0, top: "18%" }}>
-            <TimerCard timer={c.timer} now={tick} sides={v2Sides} onStop={() => void c.endTimer()} onDecision={onDecision} />
+            <TimerCard timer={c.timer} now={tick} sides={v2Sides} onStop={() => void c.endTimer()} onDecision={onDecision} onRetire={() => guard(() => setSheet({ kind: "end", event: "RETIREMENT" }))} />
           </View>
         ) : null}
       </View>
@@ -741,7 +743,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           <Button kind="danger" label={tr("score.callMaster")} icon={<Glyph name="megaphone" color="#FFFFFF" size={20} />} onPress={() => setSheet({ kind: "call" })} />
         ) : null}
         {callNote ? <Body tone="ink2" size={12.5}>{callNote}</Body> : null}
-        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration ? <Eyebrow size={10} tone="ink3">{tr("score.breaks")}</Eyebrow> : null}
+        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration || f.medical ? <Eyebrow size={10} tone="ink3">{tr("score.breaks")}</Eyebrow> : null}
         {(
           [
             ["break", f.breakStopwatch, timerLabel("break"), tr("score.stopwatch")],
@@ -749,6 +751,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
             ["set_break", f.timerSetBreak, timerLabel("set_break"), "2:00"],
             ["bathroom", f.bathroom, timerLabel("bathroom"), tr("score.warnsAt", { time: "10:00" })],
             ["hydration", f.hydration, timerLabel("hydration"), "10:00"],
+            ["medical", f.medical, timerLabel("medical"), "3:00"],
           ] as [TimerKind, boolean, string, string][]
         )
           .filter(([, on]) => on)
@@ -758,7 +761,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
               testID={`break-${k}`}
               accessibilityRole="button"
               disabled={readOnly || finished}
-              onPress={() => guard(() => (k === "bathroom" ? setSheet({ kind: "break-team", timer: k }) : (void c.startBreak(k, null), setSheet(null))))}
+              onPress={() => guard(() => (k === "bathroom" || k === "medical" ? setSheet({ kind: "break-team", timer: k }) : (void c.startBreak(k, null), setSheet(null))))}
               style={({ pressed }) => ({ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 13, borderRadius: 14, backgroundColor: t.chip, borderWidth: 1, borderColor: t.line, opacity: readOnly || finished ? 0.4 : pressed ? 0.7 : 1 })}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -939,7 +942,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
 const waitingForLineups = (b: RefereeBootstrap | undefined) => Boolean(b && (b.waitingForLineups || !b.sideA || !b.sideB));
 
 /** The icon beside each break in More (drawn, not emoji: emoji can show as "?" boxes). */
-const BREAK_GLYPH: Record<string, GlyphName> = { break: "stopwatch", changeover: "clock", set_break: "cup", bathroom: "restroom", hydration: "drop" };
+const BREAK_GLYPH: Record<string, GlyphName> = { break: "stopwatch", changeover: "clock", set_break: "cup", bathroom: "restroom", hydration: "drop", medical: "medical" };
 
 export default function ScoreRoute() {
   const { matchId } = useLocalSearchParams<{ matchId: string }>();

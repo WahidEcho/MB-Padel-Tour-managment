@@ -147,6 +147,14 @@ describe("ends so far, and the referee's left and right", () => {
   });
 });
 
+describe("medical timeout", () => {
+  it("is 3:00 for one side, red after it, with no time ruling (the referee decides: play on or retire)", () => {
+    expect(TIMERS.medical.limit).toBe(180);
+    expect(timerView("medical", 179_000)).toMatchObject({ over: false, text: "2:59" });
+    expect(timerView("medical", 181_000)).toMatchObject({ over: true, overBy: 1, ruling: false });
+  });
+});
+
 describe("timer views", () => {
   it("25 s counts up and turns red with a ruling after 0:25", () => {
     expect(timerView("between_points", 18_400)).toMatchObject({ text: "0:18", over: false, ruling: false });

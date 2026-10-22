@@ -172,6 +172,13 @@ describe("match log", () => {
     expect(log[5].undone).toBe(false);
     expect(log[7].by).toBe("Sara (referee)");
   });
+  it("a medical timeout for one side: 3:00, logged as MEDICAL with who and how long", () => {
+    const evs = play([(s) => C.timerStart(s, "medical", "2026-10-22T10:00:00.000Z", "A"), (s) => C.timerStop(s, "medical", 170, "A")]);
+    const rows: LogEventRow[] = evs.map((e) => ({ ...e, at: "2026-10-22T10:00:00.000Z", by: "Sara (referee)" }));
+    const log = buildMatchLog(rows, { A: { id: TEAM.A, name: "Egypt" }, B: { id: TEAM.B, name: "USA" } });
+    expect(log.map((l) => l.chip)).toEqual(["MEDICAL", "MEDICAL"]);
+    expect(log[1].detail).toContain("ran 2:50");
+  });
 });
 
 describe("which timer follows a point", () => {
