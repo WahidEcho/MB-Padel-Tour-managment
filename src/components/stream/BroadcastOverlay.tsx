@@ -2,19 +2,29 @@
 
 /* eslint-disable @next/next/no-img-element -- local SVG flags and CDN-sized logos, drawn as they are */
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Big_Shoulders } from "next/font/google";
+import { Barlow_Condensed } from "next/font/google";
 import { useAnchoredNow, useLiveFeed } from "@/components/broadcast/hooks";
 import { flagSrc } from "@/components/tennis/Face";
 import { logoBox } from "@/lib/sponsors";
 import { sizedImageSrc } from "@/lib/portrait";
 import type { LiveFeed } from "@/lib/tv/liveFeed";
 import { OVERLAY_ALIVE_KEY, overlayModel, type OverlayModel, type OverlayOptions, type OverlayRow } from "@/lib/stream/overlay";
+import { MOMENTUM_POINTS, boardStep, momentumGeometry, statBoxes, type BoardMemory, type BoardMode } from "@/lib/stream/board";
+import type { OverlayMatchStats } from "@/lib/mobile/stats";
 import type { OverlayLogo, OverlayProps } from "@/lib/stream/overlayServer";
 import s from "./overlay.module.css";
 
-const display = Big_Shoulders({ subsets: ["latin", "latin-ext"], variable: "--ov-display", display: "block", weight: ["600", "700", "800"] });
+const display = Barlow_Condensed({ subsets: ["latin", "latin-ext"], variable: "--ov-display", display: "block", weight: ["600", "700", "800"] });
 
-/** The ACE tab stays out this long after the ace lands (or until the next point). */
+/** The board's widths at 1920×1080: compact while play is on, full between games. */
+const COMPACT_W = 600;
+const FULL_W = 760;
+/** The momentum line's drawing box (scaled to the card's width). */
+const MOMENTUM_W = 520;
+const MOMENTUM_H = 90;
+/** The stats fetch waits this long after the score moves (and coalesces a burst). */
+const STATS_MIN_GAP_MS = 600;
+/** "Ace" stays in the strip this long after the ace lands (or until the next point). */
 const ACE_MS = 6_000;
 /** The footer loop's speed: one stage pixel per frame at 60 fps. */
 const TICKER_PX_PER_S = 60;
@@ -23,6 +33,9 @@ const LOGO_PAD = 10;
 const LOGO_GAP = 64;
 
 const STAGE = { w: 1920, h: 1080 };
+/** The safe margin from the frame's edges, and the sponsor loop's height (overlay.module.css). */
+const SAFE = 48;
+const FOOTER_H = 104;
 const NATIVE = { w: STAGE.w, h: STAGE.h };
 
 /** The browser source's size, outside React state, so a resize moves one transform. */
@@ -87,34 +100,28 @@ export default function BroadcastOverlay({ props, options, initial }: { props: O
     timeZone: props.timeZone,
   });
 
+  const footer = options.footer && props.sponsors.length > 0;
   return (
     <div ref={frame} className={s.frame} data-testid="broadcast-overlay" data-court={props.court.name} data-state={model.kind}>
       <div className={`${s.stage} ${display.variable}`} style={{ transform: `scale(${fit})` }}>
         {options.bug && (model.kind !== "idle" || options.idle) && (
-          <div className={s.bugWrap} style={{ transform: `scale(${options.scale})` }}>
-            <Bug model={model} now={now} />
+          <div
+            className={s.bugWrap}
+            style={{
+              transform: `scale(${options.scale})`,
+              // Bottom left, inside the safe margins; above the sponsor loop when it runs.
+              bottom: footer ? Math.round(FOOTER_H * options.scale) + 24 : SAFE,
+            }}
+          >
+            <Bug model={model} now={now} slug={props.slug} />
           </div>
         )}
-        {options.footer && props.sponsors.length > 0 && (
+        {footer && (
           <div className={s.footer} style={{ transform: `scale(${options.scale})` }} data-testid="overlay-sponsors">
             <Ticker logos={props.sponsors} chips={props.chips} uniform={props.uniform} />
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function Strip({ parts, live, only = false }: { parts: string[]; live: boolean; only?: boolean }) {
-  return (
-    <div className={`${s.strip} ${only ? s.stripOnly : ""}`} data-testid="overlay-header">
-      {live && <span className={s.liveDot} />}
-      {parts.map((p, i) => (
-        <span key={i}>
-          {i > 0 && <i>· </i>}
-          {p}
-        </span>
-      ))}
     </div>
   );
 }
@@ -127,99 +134,215 @@ function useAceFlash(model: OverlayModel, now: number): boolean {
   return Boolean(key && seen?.key === key && now - seen.at < ACE_MS);
 }
 
-function Bug({ model, now }: { model: OverlayModel; now: number }) {
+const sameMemory = (a: BoardMemory | null, b: BoardMemory | null) =>
+  a === b || Boolean(a && b && a.matchId === b.matchId && a.scoreKey === b.scoreKey && a.gamesPlayed === b.gamesPlayed && a.gameWonAt === b.gameWonAt);
+
+/** Compact or full, by the owner's rule (src/lib/stream/board.ts), remembered across frames. */
+function useBoardMode(model: OverlayModel, now: number): BoardMode {
+  const [memory, setMemory] = useState<BoardMemory | null>(null);
+  const step = boardStep(memory, model, now);
+  if (!sameMemory(step.memory, memory)) setMemory(step.memory);
+  return step.mode;
+}
+
+/**
+ * The momentum line and stat boxes of the match on the board, fetched when its
+ * score moves (at most every STATS_MIN_GAP_MS). A failed fetch keeps the last.
+ */
+function useOverlayStats(slug: string, matchId: string | null, eventNumber: number): OverlayMatchStats | null {
+  const [stats, setStats] = useState<OverlayMatchStats | null>(null);
+  const key = matchId ? `${matchId}:${eventNumber}` : null;
+  useEffect(() => {
+    if (!matchId) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/t/${encodeURIComponent(slug)}/overlay-stats?match=${encodeURIComponent(matchId)}`, { cache: "no-store" });
+        if (res.ok && !cancelled) setStats((await res.json()) as OverlayMatchStats);
+      } catch {
+        // The last good numbers stay.
+      }
+    }, STATS_MIN_GAP_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the key carries matchId and eventNumber
+  }, [slug, key]);
+  return stats && stats.matchId === matchId ? stats : null;
+}
+
+/** The momentum line of the last 40 points: cyan above the midline (side A ahead), pink below (side B). */
+function Momentum({ winners, codes }: { winners: ("A" | "B")[]; codes: [string, string] }) {
+  const g = momentumGeometry(winners, MOMENTUM_W, MOMENTUM_H);
+  return (
+    <div className={s.momentum} data-testid="overlay-momentum">
+      <svg viewBox={`0 0 ${MOMENTUM_W} ${MOMENTUM_H}`} role="img" aria-label="Momentum">
+        <defs>
+          <linearGradient id="ovMomFill" x1="0" y1="0" x2="0" y2={MOMENTUM_H} gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#7cf6ff" stopOpacity=".45" />
+            <stop offset=".5" stopColor="#7cf6ff" stopOpacity="0" />
+            <stop offset=".5" stopColor="#ff6fb1" stopOpacity="0" />
+            <stop offset="1" stopColor="#ff6fb1" stopOpacity=".45" />
+          </linearGradient>
+          <linearGradient id="ovMomLine" x1="0" y1="0" x2="0" y2={MOMENTUM_H} gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#7cf6ff" />
+            <stop offset=".5" stopColor="#7cf6ff" />
+            <stop offset=".5" stopColor="#ff6fb1" />
+            <stop offset="1" stopColor="#ff6fb1" />
+          </linearGradient>
+          <filter id="ovMomGlow" x="-10%" y="-40%" width="120%" height="180%">
+            <feGaussianBlur stdDeviation="1.6" result="b" />
+            <feMerge>
+              <feMergeNode in="b" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <line x1="0" y1={g.mid} x2={MOMENTUM_W} y2={g.mid} stroke="rgba(169,195,255,.4)" strokeWidth="1" strokeDasharray="4 4" />
+        {winners.length > 0 && (
+          <>
+            <path d={g.area} fill="url(#ovMomFill)" />
+            <path d={g.line} fill="none" stroke="url(#ovMomLine)" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" filter="url(#ovMomGlow)" />
+            <circle cx={g.last[0]} cy={g.last[1]} r="4.6" fill="#fff" filter="url(#ovMomGlow)" />
+          </>
+        )}
+      </svg>
+      <div className={s.legend}>
+        <span className={s.legendA}>{codes[0]} ahead ↑</span>
+        <span>Last {MOMENTUM_POINTS} points</span>
+        <span className={s.legendB}>↓ {codes[1]} ahead</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The "Momentum · neon" board, bottom left: a frosted deep-blue card with the
+ * strip (live dot · event · round · court, and the moment or a timer on the
+ * right), two rows (serve dot, flag, nation code, surnames, sets, games, points
+ * in a cyan pill) and, on the full board, the momentum line and three stat boxes.
+ * Compact while play is on, full between games and sets and at the end.
+ */
+function Bug({ model, now, slug }: { model: OverlayModel; now: number; slug: string }) {
   const ace = useAceFlash(model, now);
+  const mode = useBoardMode(model, now);
+  const scored = model.kind === "live" || model.kind === "final";
+  const stats = useOverlayStats(slug, scored ? model.matchId : null, scored ? model.eventNumber : 0);
   if (model.kind === "idle") {
     return (
-      <div className={s.bug} key="idle">
-        <Strip parts={model.header} live={false} only />
+      <div className={`${s.card} ${s.idle}`} key="idle" data-testid="overlay-idle">
+        <div className={s.hd} data-testid="overlay-header">
+          <span className={s.hl}>{model.left.join(" · ")}</span>
+        </div>
       </div>
     );
   }
-  const scored = model.kind === "live" || model.kind === "final";
+  const final = model.kind === "final";
   const setCount = scored ? Math.max(model.rows[0].sets.length, model.rows[1].sets.length) : 0;
-  const hasGames = scored && model.rows.some((r) => r.games !== null);
-  const cols = ["26px", "52px", "84px", "minmax(300px, max-content)", ...Array.from({ length: setCount }, () => "56px"), ...(hasGames ? ["60px"] : []), scored ? "84px" : "110px"];
+  const hasGames = model.kind === "live" && model.rows.some((r) => r.games !== null);
+  const hasPoints = model.kind === "live";
+  const codes = model.rows.every((r) => r.iso2);
+  const cols = ["minmax(0, 1fr)", ...Array.from({ length: setCount }, () => "60px"), ...(hasGames ? ["60px"] : []), ...(hasPoints ? ["96px"] : [])];
+  const compactW = COMPACT_W + Math.max(0, setCount + (hasGames ? 1 : 0) + (hasPoints ? 1 : 0) - 3) * 68;
+  const full = mode === "full" && scored;
+  const width = full ? Math.max(FULL_W, compactW) : compactW;
+  const label = (r: OverlayRow) => (codes ? r.code : r.surnames[0] ?? r.code);
+  const boxes = statBoxes(stats?.stats ?? null);
 
-  const cells = (row: OverlayRow, side: 0 | 1) => {
-    const rb = side === 1 ? ` ${s.rowB}` : "";
-    const out: React.ReactNode[] = [];
-    out.push(
-      <div key={`sv${side}`} className={`${s.cell} ${s.serve}${rb}`}>
-        {row.serving && <span className={s.ball} data-testid="overlay-serving" />}
-      </div>,
-    );
-    const flag = flagSrc(row.iso2);
-    out.push(<div key={`fl${side}`} className={`${s.cell} ${s.flag}${rb}`}>{flag && <img src={flag} alt="" />}</div>);
-    out.push(<div key={`cd${side}`} className={`${s.cell} ${s.code}${rb}`}>{row.code}</div>);
-    out.push(
-      <div key={`nm${side}`} className={`${s.cell} ${s.names}${rb}`} data-testid="overlay-names">
-        {row.names.map((n, i) => (
-          <span key={i} className={row.servingIndex !== null && row.servingIndex !== i ? s.other : undefined}>
-            {i > 0 ? "/ " : ""}
-            {n}
+  const right = model.kind === "live" && model.clock
+    ? (
+        <span className={`${s.hr} ${model.clock.over ? s.hrOver : ""}`} data-testid="overlay-clock">
+          {model.clock.label} <b className={s.num}>{model.clock.text}</b>
+        </span>
+      )
+    : ace
+      ? <span className={s.hr} data-testid="overlay-ace">Ace</span>
+      : model.kind === "live" && model.paused
+        ? <span className={`${s.hr} ${s.hrOver}`}>Play suspended</span>
+        : model.right
+          ? <span className={s.hr} data-testid={model.kind === "live" ? "overlay-callout" : undefined}>{model.right}</span>
+          : null;
+
+  const row = (r: OverlayRow, side: 0 | 1) => {
+    const other = model.rows[side === 0 ? 1 : 0];
+    const lost = final && !r.winner;
+    return (
+      <div className={`${s.row} ${lost ? s.lost : ""}`} style={{ gridTemplateColumns: cols.join(" ") }} key={side}>
+        <div className={s.nm}>
+          {r.serving ? <span className={s.srv} data-testid="overlay-serving" /> : <span className={s.gap} />}
+          {flagSrc(r.iso2) && <img className={s.flag} src={flagSrc(r.iso2)!} alt="" />}
+          {codes && <span className={s.code}>{r.code}</span>}
+          <div className={`${s.who} ${codes ? "" : s.whoBig}`} data-testid="overlay-names">
+            {r.surnames.map((n, i) => (
+              <span key={i} className={r.servingIndex !== null && r.servingIndex !== i ? s.other : undefined}>
+                {i > 0 ? " / " : ""}
+                {n}
+              </span>
+            ))}
+          </div>
+          {r.winner && <span className={s.check} data-testid="overlay-winner">✓</span>}
+        </div>
+        {Array.from({ length: setCount }, (_, i) => {
+          const x = r.sets[i];
+          return (
+            <span key={`s${i}`} className={`${s.n} ${s.num} ${x?.won ? s.win : ""}`} data-testid="overlay-set">
+              {x?.games ?? ""}
+              {x?.tb !== null && x?.tb !== undefined && <sup>{x.tb}</sup>}
+            </span>
+          );
+        })}
+        {hasGames && (
+          <span className={`${s.n} ${s.num} ${(r.games ?? 0) >= (other.games ?? 0) ? s.win : ""}`} data-testid="overlay-games">
+            <span key={r.games ?? "-"} className={s.pop}>{r.games ?? ""}</span>
           </span>
-        ))}
-        {row.winner && <span className={s.winnerMark}>✓</span>}
-      </div>,
+        )}
+        {hasPoints && (
+          <div className={`${s.p} ${s.num}`} data-testid="overlay-points">
+            <span key={`${r.points}:${model.eventNumber}`} className={s.flip}>{r.points}</span>
+          </div>
+        )}
+      </div>
     );
-    if (!scored) {
-      out.push(<div key={`lb${side}`} className={`${s.cell} ${s.labelCell}${rb}`}>{side === 0 ? "Next" : "on court"}</div>);
-      return out;
-    }
-    for (let i = 0; i < setCount; i++) {
-      const x = row.sets[i];
-      out.push(
-        <div key={`st${side}${i}`} className={`${s.cell} ${s.set} ${s.num} ${x?.won ? s.setWon : ""}${rb}`} data-testid="overlay-set">
-          <span key={x?.games ?? "-"} className={s.pop}>{x?.games ?? ""}</span>
-          {x?.tb !== null && x?.tb !== undefined && <sup>{x.tb}</sup>}
-        </div>,
-      );
-    }
-    if (hasGames) {
-      out.push(
-        <div key={`gm${side}`} className={`${s.cell} ${s.games} ${s.num}${rb}`} data-testid="overlay-games">
-          <span key={row.games ?? "-"} className={s.pop}>{row.games ?? ""}</span>
-        </div>,
-      );
-    }
-    const final = model.kind === "final";
-    out.push(
-      <div key={`pt${side}`} className={`${s.cell} ${s.points} ${s.num} ${final ? s.pointsFinal : ""} ${side === 1 ? s.pointsRowB : ""}`} data-testid="overlay-points">
-        {final ? (side === 0 ? "FINAL" : "") : <span key={`${row.points}:${model.eventNumber}`} className={s.flip}>{row.points}</span>}
-      </div>,
-    );
-    return out;
   };
 
-  const tab =
-    model.kind === "live"
-      ? model.clock
-        ? (
-            <div key="clock" className={`${s.tab} ${s.tabClock} ${model.clock.over ? s.tabOver : ""} ${s.num}`} data-testid="overlay-clock">
-              <small>{model.clock.label}</small>
-              {model.clock.text}
-            </div>
-          )
-        : ace
-          ? <div key={`ace${model.eventNumber}`} className={`${s.tab} ${s.tabAce}`} data-testid="overlay-ace">Ace</div>
-          : model.paused
-            ? <div key="paused" className={`${s.tab} ${s.tabPaused}`}>Play suspended</div>
-            : model.callout
-              ? <div key={`call${model.callout}${model.eventNumber}`} className={`${s.tab} ${s.tabCall}`} data-testid="overlay-callout">{model.callout}</div>
-              : null
-      : null;
-
   return (
-    <div className={s.bug} key={`${model.kind}:${model.matchId}`} data-testid="overlay-bug" data-match={model.matchId}>
-      <Strip parts={model.header} live={model.kind === "live"} />
-      <div style={{ position: "relative" }}>
-        <div className={s.grid} style={{ gridTemplateColumns: cols.join(" ") }}>
-          {cells(model.rows[0], 0)}
-          {cells(model.rows[1], 1)}
-        </div>
-        {tab}
+    <div
+      className={`${s.card} ${full ? s.full : ""}`}
+      style={{ width }}
+      key={`${model.kind}:${model.matchId}`}
+      data-testid="overlay-bug"
+      data-match={model.matchId}
+      data-mode={full ? "full" : "compact"}
+    >
+      <div className={s.hd} data-testid="overlay-header">
+        <span className={s.hl}>
+          {model.kind === "live" && <i className={s.dot} />}
+          {/* A long event name gives way first; the round and the court always show. */}
+          <span className={s.ev}>{model.left[0]}</span>
+          {model.left.length > 1 && <span className={s.rest}>&nbsp;· {model.left.slice(1).join(" · ")}</span>}
+        </span>
+        {right}
       </div>
+      {row(model.rows[0], 0)}
+      {row(model.rows[1], 1)}
+      {scored && (
+        <div className={s.more} aria-hidden={!full}>
+          <div className={s.moreIn}>
+            <Momentum winners={stats?.momentum ?? []} codes={[label(model.rows[0]), label(model.rows[1])]} />
+            {boxes.length > 0 && (
+              <div className={s.stats} data-testid="overlay-stats">
+                {boxes.map((b) => (
+                  <div key={b.label}>
+                    {b.label}
+                    <b className={s.num}>{b.a} – {b.b}</b>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

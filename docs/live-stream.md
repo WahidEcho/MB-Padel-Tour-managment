@@ -37,6 +37,17 @@ Admin → tournament → **Live stream** tab (tennis ties and padel tournaments;
      `?idle=0` (no strip when nothing is on or next on the court).
    - The **preview** shows the real overlay over a checkerboard (transparent areas).
 
+**The board ("Momentum · neon", bottom left, 48 px from the edges; above the sponsor loop when it runs).** A frosted
+deep-blue card: the strip (● event · round · court; on the right the moment — Deuce, Break point · AUT, Set point ·
+EGY, Match point · …, Tie-break, Super tie-break — or a running timer, or Final), two rows (serve dot, flag, nation
+code, surnames, sets, current-set games, points in the cyan pill). It is **compact while play is on** and opens to the
+**full board** (momentum line of the last 40 points + Aces or Double faults / Breaks / Points won) when a game is won:
+for the changeover or set-break timer while it runs, otherwise for 20 s, and it closes on the next point. A running
+timer (medical, warm-up…) also opens it. A finished match stays full with the final score until the court's next match
+starts (at most 3 hours). The board's numbers come from `GET /api/t/<slug>/overlay-stats?match=<id>` (never delayed,
+numbers only). Rules: `src/lib/stream/board.ts`; demo of every state on the stand-in:
+`npx tsx --env-file=.env.localdb scripts/demo/overlay-board-demo.ts`.
+
 Sponsors in the footer loop are the event's sponsors (Settings → Branding: the main partner and the footer sponsors),
 the same list as the TV screens. The ACE flash and the changeover/break timers follow **Scoring features → Show aces /
 timers on TV & app**.

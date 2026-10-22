@@ -264,6 +264,21 @@ export function computeMatchStats(rows: StatsEventRow[], o: MatchStatsOptions): 
   };
 }
 
+/**
+ * Who won each point, oldest first (the counted points only: POINT_AWARDED events
+ * neither undone nor superseded, by the match's own sides). The broadcast
+ * overlay's momentum line draws the last forty of these.
+ */
+export function pointWinners(rows: StatsEventRow[], teamA: string | null, teamB: string | null): TeamKey[] {
+  const out: TeamKey[] = [];
+  for (const r of effectiveEvents(rows)) {
+    if (r.event_type !== "POINT_AWARDED" || !r.team_id) continue;
+    if (r.team_id === teamA) out.push("A");
+    else if (r.team_id === teamB) out.push("B");
+  }
+  return out;
+}
+
 /* ---------------- ties ---------------- */
 
 export interface TieRubberStats {

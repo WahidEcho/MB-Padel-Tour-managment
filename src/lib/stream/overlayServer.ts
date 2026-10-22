@@ -10,7 +10,7 @@ import { db } from "../supabase";
 import { getCourts, getMatches, getTeams, getTournamentBySlug } from "../data";
 import { getTies, isTieFormat } from "../tennis/tieOps";
 import { EVENT_TIME_ZONE } from "../tennis/ties";
-import { scoringConfigForMatch } from "../scoring/rules";
+import { isDoublesMatch, scoringConfigForMatch } from "../scoring/rules";
 import { matchDayRules } from "../matchday/rules";
 import { resolveSponsors, sponsorStyle } from "../sponsors";
 import { shortCode } from "../mobile/projection";
@@ -94,7 +94,10 @@ export async function overlayData(slug: string, courtParam: string): Promise<Ove
   const info: Record<string, OverlayMatchInfo> = {};
   for (const m of matches) {
     if (m.status === "cancelled") continue;
-    const r = scoringConfigForMatch(tournament, m, null, m.rubber_type ? { doubles: m.rubber_type === "D" } : undefined);
+    // Doubles as the referee console decides it (append.ts): the rubber's type, else two players a side.
+    const pair = (id: string | null) => teams.find((t) => t.id === id);
+    const doubles = m.rubber_type ? m.rubber_type === "D" : isDoublesMatch(pair(m.team_a_id), pair(m.team_b_id));
+    const r = scoringConfigForMatch(tournament, m, null, { doubles });
     info[m.id] = {
       id: m.id,
       tie_id: m.tie_id ?? null,

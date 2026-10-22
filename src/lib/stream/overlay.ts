@@ -8,15 +8,18 @@
  * the next match on the court, nothing — and every line of text, so the
  * component only draws.
  */
-import { currentServer, servingPlayer, type ScoreState, type TeamKey } from "../scoring/engine";
+import { currentServer, pointOutcome, servingPlayer, type ScoreState, type TeamKey } from "../scoring/engine";
 import { aceMoment } from "../scoring/serve";
-import { TIMERS, liveClock } from "../scoring/timing";
+import { TIMERS, liveClock, type TimerKind } from "../scoring/timing";
 import { callout, tieScore, type SceneRubber } from "../tennis/tvScene";
 import type { LiveMatch, LiveSnapshot } from "../tv/liveFeed";
-import type { CompletedSet, MatchRules } from "../types";
+import type { CompletedSet, MatchRules, ScoringConfig } from "../types";
 
-/** A result stays in the corner this long before the bug moves on to what is next. */
-export const FINAL_HOLD_MS = 120_000;
+/**
+ * A result stays on the board until the court's next match starts (owner's rule),
+ * but never longer than this, so last night's result is not tomorrow's overlay.
+ */
+export const FINAL_HOLD_MS = 3 * 60 * 60_000;
 
 const IN_PLAY = ["live", "paused"];
 const DONE = ["completed", "walkover", "retired", "disqualified"];
@@ -89,6 +92,11 @@ export interface OverlayRow {
   iso2: string | null;
   /** One line per player of a pair, or the team's own name. */
   names: string[];
+  /**
+   * What the broadcast bar prints, in capitals there: each player's surname
+   * ("GENIDY", "GENIDY / MOURID"), or the team's own name when it has no players.
+   */
+  surnames: string[];
   serving: boolean;
   /** Doubles: which of the two names is serving. */
   servingIndex: number | null;
@@ -101,6 +109,7 @@ export interface OverlayRow {
 }
 
 export interface OverlayClock {
+  kind: TimerKind;
   label: string;
   text: string;
   over: boolean;
@@ -120,9 +129,17 @@ export type OverlayModel =
       clock: OverlayClock | null;
       paused: boolean;
       eventNumber: number;
+      /** The strip's left side: event · round · court. */
+      left: string[];
+      /** The strip's right side: the moment (Break point · AUT, Deuce, Tie-break…), or "Final". */
+      right: string | null;
+      /** The score as it stands (sets, games, points): it changes with every point and only with points. */
+      scoreKey: string;
+      /** Games played so far in the match, every set: it grows exactly when a game is won. */
+      gamesPlayed: number;
     }
-  | { kind: "next"; matchId: string; header: string[]; rows: [OverlayRow, OverlayRow] }
-  | { kind: "idle"; header: string[] };
+  | { kind: "next"; matchId: string; header: string[]; rows: [OverlayRow, OverlayRow]; left: string[]; right: string | null }
+  | { kind: "idle"; header: string[]; left: string[] };
 
 /** "Giulia Safina Popa" → "G. Popa"; a single word stays as it is. */
 export function shortName(full: string): string {
@@ -151,15 +168,31 @@ function sideTeam(input: OverlayInput, m: LiveMatch, side: TeamKey): string | nu
   return (side === "A" ? tie?.team_a_id : tie?.team_b_id) ?? null;
 }
 
-function namesOf(input: OverlayInput, m: LiveMatch, side: TeamKey): { team: OverlayTeam | undefined; names: string[] } {
+/** "Giulia Safina Popa" -> "Popa". */
+export function surname(full: string): string {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+function namesOf(input: OverlayInput, m: LiveMatch, side: TeamKey): { team: OverlayTeam | undefined; names: string[]; surnames: string[]; nominated: boolean } {
   const teamId = sideTeam(input, m, side);
   const team = teamId ? input.teams[teamId] : undefined;
   const info = input.info[m.id];
   const ids = info ? (side === "A" ? info.a : info.b) : [];
   const players = ids.map((id) => team?.players.find((p) => p.id === id)).filter((p): p is { id: string; name: string } => Boolean(p));
-  if (players.length) return { team, names: players.map((p) => shortName(p.name)) };
+  if (players.length) return { team, names: players.map((p) => shortName(p.name)), surnames: players.map((p) => surname(p.name)), nominated: true };
   // A tie's rubber with no nominees yet: the nation. A team plays as its own name.
-  return { team, names: [team?.name ?? "To be decided"] };
+  const name = team?.name ?? "To be decided";
+  const own = info?.tie_id ? [] : (team?.players ?? []);
+  // A singles entry (one player) by surname; a pair as the organiser named it
+  // ("Bernstein / Shen"), else by its players' surnames; anything else by name.
+  const surnames =
+    own.length === 1
+      ? [surname(own[0].name)]
+      : own.length === 2
+        ? name.includes("/") ? name.split("/").map((x) => x.trim()).filter(Boolean) : own.map((p) => surname(p.name))
+        : [name];
+  return { team, names: [name], surnames, nominated: false };
 }
 
 function setsOf(sets: CompletedSet[], k: 0 | 1): OverlaySet[] {
@@ -206,6 +239,32 @@ function tieLine(input: OverlayInput, tieId: string): string | null {
   const ca = tie.team_a_id ? input.teams[tie.team_a_id]?.code : null;
   const cb = tie.team_b_id ? input.teams[tie.team_b_id]?.code : null;
   return `${ca ?? "TBD"} ${a}–${b} ${cb ?? "TBD"}`;
+}
+
+/**
+ * The moment of the game in play, for the strip's right side: whose match,
+ * set or break point it is, deuce, or which tie-break is being played.
+ */
+export function overlayMoment(state: ScoreState | null | undefined, rules: OverlayMatchInfo["rules"] | null | undefined, codes: [string, string]): string | null {
+  if (!state || state.matchOver) return null;
+  const tb = state.isTiebreak ? (state.isMatchTiebreak ? "Super tie-break" : "Tie-break") : null;
+  if (!rules) return tb;
+  const config = rules as unknown as ScoringConfig;
+  const server = currentServer(state);
+  const receiver: TeamKey | null = server ? (server === "A" ? "B" : "A") : null;
+  const order: TeamKey[] = server && receiver ? [server, receiver] : ["A", "B"];
+  const code = (k: TeamKey) => codes[k === "A" ? 0 : 1];
+  const outcome = new Map(order.map((k) => [k, pointOutcome(state, k, config)]));
+  const match = order.find((k) => outcome.get(k)!.winsMatch);
+  if (match) return `Match point · ${code(match)}`;
+  const set = order.find((k) => outcome.get(k)!.winsSet);
+  if (set) return `Set point · ${code(set)}`;
+  if (tb) return tb;
+  const deuce = state.teamA.points === "40" && state.teamB.points === "40";
+  if (deuce && rules.decidingPoint) return "Deciding point";
+  if (receiver && outcome.get(receiver)!.winsGame) return `Break point · ${code(receiver)}`;
+  if (deuce) return "Deuce";
+  return null;
 }
 
 function headerFor(input: OverlayInput, m: LiveMatch, extra: string | null): string[] {
@@ -274,7 +333,10 @@ export function overlayMatch(input: OverlayInput): { match: LiveMatch; kind: "li
 
 export function overlayModel(input: OverlayInput): OverlayModel {
   const pick = overlayMatch(input);
-  if (!pick) return { kind: "idle", header: [input.title, input.courtName].filter(Boolean) };
+  if (!pick) {
+    const header = [input.title, input.courtName].filter(Boolean);
+    return { kind: "idle", header, left: header };
+  }
   const m = pick.match;
   const snap = input.snapshots.find((s) => s.match_id === m.id);
   const info = input.info[m.id];
@@ -282,10 +344,11 @@ export function overlayModel(input: OverlayInput): OverlayModel {
   if (pick.kind === "next") {
     const when = clockIn(m.scheduled_time, input.timeZone);
     const row = (side: TeamKey): OverlayRow => {
-      const { team, names } = namesOf(input, m, side);
-      return { teamId: team?.id ?? null, code: team?.code ?? "TBD", iso2: team?.iso2 ?? null, names, serving: false, servingIndex: null, sets: [], games: null, points: null, winner: false };
+      const { team, names, surnames } = namesOf(input, m, side);
+      return { teamId: team?.id ?? null, code: team?.code ?? "TBD", iso2: team?.iso2 ?? null, names, surnames, serving: false, servingIndex: null, sets: [], games: null, points: null, winner: false };
     };
-    return { kind: "next", matchId: m.id, header: headerFor(input, m, when ? `Next · ${when}` : "Next"), rows: [row("A"), row("B")] };
+    const next = when ? `Next · ${when}` : "Next";
+    return { kind: "next", matchId: m.id, header: headerFor(input, m, next), rows: [row("A"), row("B")], left: [...headerFor(input, m, null), input.courtName].filter(Boolean), right: next };
   }
 
   const state: ScoreState | undefined = pick.kind === "live" ? snap?.state : undefined;
@@ -304,15 +367,16 @@ export function overlayModel(input: OverlayInput): OverlayModel {
 
   const row = (side: TeamKey): OverlayRow => {
     const k = side === "A" ? 0 : 1;
-    const { team, names } = namesOf(input, m, side);
+    const { team, names, surnames, nominated } = namesOf(input, m, side);
     const teamId = team?.id ?? (side === "A" ? m.team_a_id : m.team_b_id);
     return {
       teamId,
       code: team?.code ?? "TBD",
       iso2: team?.iso2 ?? null,
       names,
+      surnames,
       serving: serverTeam === side,
-      servingIndex: serverTeam === side && names.length > 1 && doubles ? doubles.index : null,
+      servingIndex: serverTeam === side && nominated && names.length > 1 && doubles ? doubles.index : null,
       sets: setsOf(completed, k),
       games: over || !snap || matchTb ? null : snap.games[k],
       points: over || !snap ? (over ? null : "0") : tiebreak ? String(snap.tiebreak_points[k]) : snap.points[k],
@@ -324,22 +388,33 @@ export function overlayModel(input: OverlayInput): OverlayModel {
   const live = pick.kind === "live" && !over;
   const timer = live && on?.timers && state ? liveClock(state, input.now) : null;
   const clock: OverlayClock | null = timer
-    ? { label: timer.kind === "changeover" ? "Changeover" : TIMERS[timer.kind].label, text: timer.text, over: timer.over }
+    ? { kind: timer.kind, label: timer.kind === "changeover" ? "Changeover" : TIMERS[timer.kind].label, text: timer.text, over: timer.over }
     : null;
   const ace = Boolean(live && on?.aces && aceMoment(state));
   const call = live && !clock && info ? callout(state, info.rules as MatchRules) : null;
+  const rows: [OverlayRow, OverlayRow] = [row("A"), row("B")];
+  const moment = live ? overlayMoment(state, info?.rules, [rows[0].code, rows[1].code]) : null;
+  const games = snap ? snap.games[0] + snap.games[1] : 0;
+  const gamesPlayed = completed.reduce((n, x) => n + (x.matchTiebreak ? 1 : x.teamAGames + x.teamBGames), 0) + (over ? 0 : games);
+  const scoreKey = snap
+    ? [completed.map((x) => `${x.teamAGames}-${x.teamBGames}`).join(","), snap.games.join("-"), snap.points.join("-"), snap.tiebreak_points.join("-"), snap.match_over ? "over" : ""].join("|")
+    : "";
 
   return {
     kind: pick.kind,
     matchId: m.id,
     header: headerFor(input, m, pick.kind === "final" ? "Final" : null),
     label: over ? "Final" : matchTb ? "Super TB" : tiebreak ? "Tie-break" : "Points",
-    rows: [row("A"), row("B")],
+    rows,
     callout: call,
     ace,
     clock,
     paused: m.status === "paused",
     eventNumber: snap?.last_event_number ?? 0,
+    left: [...headerFor(input, m, null), input.courtName].filter(Boolean),
+    right: over ? "Final" : moment,
+    scoreKey,
+    gamesPlayed,
   };
 }
 

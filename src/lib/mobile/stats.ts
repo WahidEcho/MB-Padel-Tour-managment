@@ -13,7 +13,7 @@ import type { Match, MatchSnapshot, ScoringConfig, Tie } from "../types";
 import type { ScoreState } from "../scoring/engine";
 import { scoringConfigForMatch } from "../scoring/rules";
 import { sportOf } from "../sports/registry";
-import { computeMatchStats, statsUnavailable, swapSides, tieStats, type MatchStatsResult, type StatsEventRow, type TieRubberStats } from "../scoring/stats";
+import { computeMatchStats, pointWinners, statsUnavailable, swapSides, tieStats, type MatchStatsResult, type StatsEventRow, type TieRubberStats } from "../scoring/stats";
 import { memo } from "./http";
 import { scoreExtrasOf } from "./projection";
 import type { MMatchStats, MTieStats } from "./contract";
@@ -96,7 +96,13 @@ function toRow(r: Record<string, unknown>): StatsEventRow & { match_id: string }
 }
 
 /** Stats for each of these matches (one tournament), from their events and snapshots. */
-async function statsFor(matches: StatsMatch[], t: TournamentRow, cutoffMs: number | null = null): Promise<Map<string, MatchStatsResult>> {
+async function statsFor(
+  matches: StatsMatch[],
+  t: TournamentRow,
+  cutoffMs: number | null = null,
+  /** Filled with each match's event rows, for callers that need more than the stats. */
+  rowsOut?: Map<string, StatsEventRow[]>,
+): Promise<Map<string, MatchStatsResult>> {
   const out = new Map<string, MatchStatsResult>();
   if (!matches.length) return out;
   if (sportOf(t).engine !== "games") {
@@ -118,6 +124,7 @@ async function statsFor(matches: StatsMatch[], t: TournamentRow, cutoffMs: numbe
     const r = toRow(raw);
     rowsOf.set(r.match_id, [...(rowsOf.get(r.match_id) ?? []), r]);
   }
+  if (rowsOut) for (const [k, v] of rowsOf) rowsOut.set(k, v);
   const storedSnaps = (snaps.data ?? []) as unknown as MatchSnapshot[];
   const asOf = cutoffMs !== null ? await snapshotsAsOf(matches, storedSnaps, cutoffMs) : null;
   const stateOf = new Map(storedSnaps.map((s) => [s.match_id, ((asOf ? asOf.get(s.match_id)?.snapshot_json : s.snapshot_json) ?? null) as ScoreState | null]));
@@ -177,6 +184,47 @@ export function getTieStats(tieId: string): Promise<MTieStats | null> {
     // A tie decided inside the delay's window is still being played for its fans.
     const status = cutoff !== null && tie.status === "completed" && tie.ended_at && Date.parse(tie.ended_at) > cutoff ? "live" : tie.status;
     return { tieId: tie.id, a: tie.team_a_id, b: tie.team_b_id, status, stats: tieStats(list, scoreExtrasOf(t)?.aces ?? false) };
+  });
+}
+
+/** The broadcast overlay's numbers for one match: the momentum line's points and the stat boxes. */
+export interface OverlayMatchStats {
+  matchId: string;
+  /** Who won each of the last 40 points, oldest first. */
+  momentum: ("A" | "B")[];
+  stats: { aces: boolean; A: OverlaySide; B: OverlaySide } | null;
+}
+interface OverlaySide {
+  aces?: number;
+  doubleFaults: number;
+  breaks: number;
+  pointsWon: number;
+}
+
+/**
+ * For the OBS overlay, which is never delayed (like the venue TVs): live stats of
+ * a match of this public tournament. Explicit numbers only.
+ */
+export function getOverlayMatchStats(tournamentId: string, matchId: string): Promise<OverlayMatchStats | null> {
+  return memo(`stats:overlay:${matchId}`, 1_000, async () => {
+    const { data } = await db().from("matches").select(STATS_MATCH_COLUMNS).eq("id", matchId).eq("tournament_id", tournamentId).maybeSingle();
+    const m = data as unknown as StatsMatch | null;
+    if (!m) return null;
+    const t = await publicTournament(m.tournament_id);
+    if (!t) return null;
+    const rows = new Map<string, StatsEventRow[]>();
+    const st = (await statsFor([m], t, null, rows)).get(m.id)!;
+    const side = (x: { aces?: number; doubleFaults: number; breakPointsWon: number; pointsWon: number }): OverlaySide => ({
+      ...(x.aces !== undefined ? { aces: x.aces } : {}),
+      doubleFaults: x.doubleFaults,
+      breaks: x.breakPointsWon,
+      pointsWon: x.pointsWon,
+    });
+    return {
+      matchId: m.id,
+      momentum: pointWinners(rows.get(m.id) ?? [], m.team_a_id, m.team_b_id).slice(-40),
+      stats: st.available ? { aces: st.aces, A: side(st.sides.A), B: side(st.sides.B) } : null,
+    };
   });
 }
 

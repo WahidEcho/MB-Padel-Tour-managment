@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FINAL_HOLD_MS, OVERLAY_ALIVE_KEY, OVERLAY_WATCHDOG, overlayMatch, overlayModel, overlayOptions, resolveCourtParam, shortName, type OverlayInput, type OverlayMatchInfo } from "./overlay";
+import { FINAL_HOLD_MS, OVERLAY_ALIVE_KEY, OVERLAY_WATCHDOG, overlayMatch, overlayModel, overlayOptions, resolveCourtParam, shortName, surname, type OverlayInput, type OverlayMatchInfo } from "./overlay";
 import { awardPoint, initialScoreState, type ScoreState, type TeamKey } from "../scoring/engine";
 import { ace as playAce } from "../scoring/serve";
 import { startClock } from "../scoring/timing";
@@ -106,6 +106,7 @@ describe("broadcast overlay view model", () => {
     const v = overlayModel(base({ matches: [match("r3", { status: "live", started_at: at(0) })], snapshots: [snapOf("r3", s, 1)] }));
     if (v.kind !== "live") throw new Error(v.kind);
     expect(v.rows[0].names).toEqual(["O. Hassan", "K. Fathy"]);
+    expect(v.rows[0].surnames).toEqual(["Hassan", "Fathy"]);
     expect(v.rows[0].servingIndex).toBe(0);
     expect(v.rows[1].servingIndex).toBe(null);
   });
@@ -152,7 +153,17 @@ describe("broadcast overlay view model", () => {
     expect(v.rows.map((r) => r.names[0])).toEqual(["Ahmed / Omar", "Karim / Ali"]);
   });
 
+  it("a rubber with no nominees yet shows the nation on the bar", () => {
+    const v = overlayModel(base({
+      info: { r1: { ...info("r1", 1, "S2", [], []) } },
+      matches: [match("r1", { status: "live", started_at: at(0) })],
+      snapshots: [snapOf("r1", play(["A"]), 1)],
+    }));
+    expect(v.kind === "live" && v.rows.map((r) => r.surnames)).toEqual([["Egypt"], ["United States"]]);
+  });
+
   it("names: initial and surname", () => {
+    expect(surname("Giulia Safina Popa")).toBe("Popa");
     expect(shortName("Giulia Safina Popa")).toBe("G. Popa");
     expect(shortName("Pele")).toBe("Pele");
   });
@@ -219,6 +230,16 @@ describe("broadcast overlay view model", () => {
       expect(c1.kind === "live" && c1.rows.map((r) => r.code)).toEqual(["FRA", "EGY"]);
     });
 
+    it("the bar prints surnames: a singles entry's player, a pair as the organiser named it", () => {
+      const c5 = overlayModel(j200({ courtId: "c5", courtName: "Court 5" }));
+      if (c5.kind !== "live") throw new Error(c5.kind);
+      // The pair's players are stored Shen, Bernstein; the bar follows the entry's name.
+      expect(c5.rows.map((r) => r.surnames)).toEqual([["Kaliadina", "Nuneva"], ["Bernstein", "Shen"]]);
+      expect(c5.rows.map((r) => r.servingIndex)).toEqual([null, null]);
+      const c1 = overlayModel(j200({ courtId: "c1", courtName: "Court 1" }));
+      expect(c1.kind === "live" && c1.rows.map((r) => r.surnames)).toEqual([["Martin"], ["Genidy"]]);
+    });
+
     it("a court with nothing in play shows its idle strip, not another court's match", () => {
       const v = overlayModel(j200({ courtId: "c2", courtName: "Court 2" }));
       expect(v.kind).toBe("idle");
@@ -251,7 +272,9 @@ describe("broadcast overlay view model", () => {
         now: D + 136 * 60_000,
       });
       expect(overlayMatch(input)).toMatchObject({ kind: "final", match: { id: "sf" } });
-      expect(overlayModel({ ...input, now: D + 200 * 60_000 }).kind).toBe("idle");
+      // The result stays until the court's next match starts, or FINAL_HOLD_MS at most.
+      expect(overlayModel({ ...input, now: D + 200 * 60_000 }).kind).toBe("final");
+      expect(overlayModel({ ...input, now: D + 135 * 60_000 + FINAL_HOLD_MS + 1 }).kind).toBe("idle");
     });
   });
 

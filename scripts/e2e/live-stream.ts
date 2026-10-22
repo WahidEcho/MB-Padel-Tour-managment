@@ -217,7 +217,7 @@ async function main() {
     check(html.includes('data-state="live"') && html.includes("Davis Cup Juniors") && html.includes("EGY 1–0 USA") && /S1/.test(html), "The header strip: title · EGY 1–0 USA · S1", html.match(/data-testid="overlay-header"[^]*?<\/div>/)?.[0]?.replace(/<[^>]+>/g, "").slice(0, 120));
     const names = [...html.matchAll(/data-testid="overlay-names"[^>]*>([^]*?)<\/div>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/<!-- -->/g, ""));
     const points = [...html.matchAll(/data-testid="overlay-points"[^>]*>([^]*?)<\/div>/g)].map((m) => m[1].replace(/<[^>]+>/g, ""));
-    check(JSON.stringify(names) === JSON.stringify(["O. Hassan", "J. Smith"]) && JSON.stringify(points) === JSON.stringify(["30", "15"]), "The rows: O. Hassan 30, J. Smith 15", { names, points });
+    check(JSON.stringify(names) === JSON.stringify(["Hassan", "Smith"]) && JSON.stringify(points) === JSON.stringify(["30", "15"]), "The rows: HASSAN 30, SMITH 15 (surnames on the board)", { names, points });
     check(html.includes('data-testid="overlay-serving"') && html.includes("/flags/eg.svg") && html.includes("/flags/us.svg"), "The serving ball and both flags are drawn");
     check(html.includes('data-testid="overlay-sponsors"') && [`${tag}/main.png`, `${tag}/one.png`, `${tag}/two.png`].every((u) => html.includes(u)), "The sponsor loop carries every sponsor, main partner included");
     const secrets = ["+201000000000", "+201234567890", "team private note", `omar-${tag}@example.com`, `jack-${tag}@example.com`, VIDEO_OFF, ...accessCodes];
@@ -237,6 +237,17 @@ async function main() {
     check(aced.status === 200, "An ace is scored on Court 13", aced.text.slice(0, 200));
     const ovAce = await http("GET", `/t/${slug}/overlay/${c13}`);
     check(ovAce.text.includes('data-testid="overlay-ace"'), "The ACE tab flashes on the bug");
+    const ovStats = await http("GET", `/api/t/${slug}/overlay-stats?match=${r2.id}`);
+    const os = ovStats.json as { momentum?: string[]; stats?: { aces: boolean; A: { aces?: number; pointsWon: number } } | null } | null;
+    check(
+      ovStats.status === 200 && Array.isArray(os?.momentum) && os!.momentum!.length > 0 && os!.momentum!.length <= 40 && os?.stats?.aces === true && (os.stats.A.aces ?? 0) >= 1 && !/created_by|referee|phone|email/i.test(ovStats.text),
+      "The board's numbers: the momentum points and the stat boxes (aces on), numbers only",
+      ovStats.text.slice(0, 200),
+    );
+    check(
+      (await http("GET", `/api/t/${slug}/overlay-stats?match=${randomUUID()}`)).status === 404 && (await http("GET", `/api/t/no-such-${tag}/overlay-stats?match=${r2.id}`)).status === 404,
+      "An unknown match or event has no board numbers (404)",
+    );
     const feats = (tournament.match_day_rules as { features?: Record<string, boolean> } | null)?.features ?? {};
     await db().from("tournaments").update({ match_day_rules: { ...(tournament.match_day_rules as object), features: { ...feats, tvAces: false } } }).eq("id", T);
     const ovNoAce = await http("GET", `/t/${slug}/overlay/${c13}`);
