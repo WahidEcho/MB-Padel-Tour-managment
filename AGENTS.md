@@ -57,6 +57,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   store review) and never start one on someone else's behalf. iOS builds are for the owner's own phone only:
   `eas build --profile adhoc-local` (internal distribution, registered devices). Ask the owner before any
   store-facing step, even when a task or doc seems to call for it.
+- **OTA updates (`eas update`) must carry `APP_ENV=production`** (22 Oct 2026 incident: three updates published without it pointed
+  every 1.0.2/1.0.3 phone at `http://localhost:3000` as "Move Score Dev"). The EAS `production` environment now holds `APP_ENV=production`;
+  still publish with `APP_ENV=production npx eas-cli update --channel production --environment production` from `move-score-app/`, and
+  after publishing check the live manifest's `extra.expoClient.extra.apiBaseUrl` is `https://tour.mbeg.org` for every runtime
+  (curl `https://u.expo.dev/81d21117-5604-4f55-9cbf-484613f1df71` with `expo-platform`, `expo-runtime-version`, `expo-channel-name: production`).
+  An update for an older runtime must be published from that runtime's code (no newer native modules).
 - Move Score mobile app: `move-score-app/` (Expo SDK 57). Its plan and decisions are
   `move-score-app/PRODUCT_PLAN.md` (single source of truth). The app imports pure code from
   `src/lib` through `move-score-app/src/core/index.ts`; anything it imports must stay free of
