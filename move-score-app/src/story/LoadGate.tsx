@@ -3,7 +3,8 @@
  * story is captured only once every one of them has drawn: never a story with
  * a blank flag or a half-decoded photo.
  */
-import { createContext, useContext, useLayoutEffect, useMemo, useRef } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef } from "react";
+import type { LayoutChangeEvent } from "react-native";
 
 export class LoadGate {
   private pending = new Set<number>();
@@ -38,6 +39,30 @@ export class LoadGate {
 
 const Ctx = createContext<LoadGate | null>(null);
 export const LoadGateProvider = Ctx.Provider;
+
+/**
+ * onLayout for a box the export must not capture before it has its real size
+ * (the sticker): the gate holds until the box has been laid out with a height.
+ */
+export function useGatedLayout(gate: LoadGate): (e: LayoutChangeEvent) => void {
+  const id = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const mine = gate.add();
+    id.current = mine;
+    return () => {
+      id.current = null;
+      gate.done(mine);
+    };
+  }, [gate]);
+  return useCallback(
+    (e: LayoutChangeEvent) => {
+      if (id.current === null || e.nativeEvent.layout.height <= 0) return;
+      gate.done(id.current);
+      id.current = null;
+    },
+    [gate],
+  );
+}
 
 /** onLoad / onError for one image; a no-op outside an export. */
 export function useGatedImage(): { onLoad?: () => void; onError?: () => void } {

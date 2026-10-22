@@ -5,7 +5,7 @@
  *   compose – the photo story (Composer), then the share sheet.
  */
 import { useEffect, useRef, useState } from "react";
-import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { BackHandler, PixelRatio, Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { captureRef } from "react-native-view-shot";
@@ -21,7 +21,8 @@ import { CameraIcon, CloseIcon, LibraryIcon } from "./Icons";
 import { ScoreSticker } from "./Stickers";
 import { canShareToStories, shareImage, shareToStories } from "./share";
 import { pickFromLibrary } from "./photo";
-import { DESIGN_W, type Photo } from "./model";
+import { DESIGN_W, EXPORT_H, EXPORT_W, type Photo } from "./model";
+import { captureSize } from "./exportBox";
 import type { StoryState } from "./useStoryInfo";
 import { useT } from "../i18n";
 
@@ -74,7 +75,7 @@ export function ShareFlow({ state }: { state: StoryState }) {
   const shareCard = async (to: "sheet" | "stories") => {
     setBusy(true);
     try {
-      const uri = await captureRef(card, { format: "png", quality: 1, width: 1080, height: 1920, result: "tmpfile" });
+      const uri = await captureRef(card, { format: "png", quality: 1, ...captureSize(EXPORT_W, EXPORT_H, Platform.OS, PixelRatio.get()), result: "tmpfile" });
       if (to === "stories") await shareToStories(uri);
       else await shareImage(uri, "image/png");
     } catch {
