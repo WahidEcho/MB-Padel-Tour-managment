@@ -37,7 +37,9 @@ export type EntityRef =
   | { referee: string }
   | { assistanceCall: string }
   // Team coaches (migration 0037): a team's coach code belongs to its tournament's organisation.
-  | { coachCode: string };
+  | { coachCode: string }
+  // Move Score Stories (migration 0043): a story belongs to its event's organisation (none: platform admins only).
+  | { story: string };
 
 export interface EntityScope {
   orgId: string;
@@ -129,11 +131,14 @@ export async function resolveEntity(ref: EntityRef): Promise<EntityScope | null>
                       ? ["assistance_calls", "organization_id, tournament_id", ref.assistanceCall]
                       : "coachCode" in ref
                         ? ["coach_codes", "organization_id, tournament_id", ref.coachCode]
-                        : ["organization_codes", "organization_id, tournament_id", ref.code];
+                        : "story" in ref
+                          ? ["stories", "organization_id, tournament_id", ref.story]
+                          : ["organization_codes", "organization_id, tournament_id", ref.code];
   const [table, columns, id] = direct;
   if (!isUuid(id)) return null;
   const row = await one<{ organization_id: string; tournament_id?: string | null }>(table, columns, id);
-  return row ? { orgId: row.organization_id, tournamentId: row.tournament_id ?? null, kind: null } : null;
+  // A story of no organisation's event (organization_id null) reaches no organisation's staff.
+  return row && row.organization_id ? { orgId: row.organization_id, tournamentId: row.tournament_id ?? null, kind: null } : null;
 }
 
 /**

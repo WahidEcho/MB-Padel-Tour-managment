@@ -2,7 +2,8 @@
  * Step 2, compose: the photo fills a 9:16 story (drag and pinch it; double-tap
  * to reset), the Move Score sticker sits over it (drag, pinch, turn; tap for
  * light or dark), and the layout styles are a swipe or a tap away on the rail.
- * Step 3, share: a 1080×1920 capture goes to the share sheet or to Stories.
+ * Step 3, share: a 1080×1920 capture goes to the share sheet or to Stories, or is
+ * posted to Move Score Stories (src/stories/PostButton.tsx) when `storyContext` is given.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
@@ -18,6 +19,8 @@ import { ExportStage, type ExportSpec } from "./Export";
 import { BackIcon, CloseIcon, ShareIcon } from "./Icons";
 import { shareImage, shareToStories } from "./share";
 import { useT } from "../i18n";
+import type { StoryContextInput } from "@core";
+import { PostToStoriesButton } from "../stories/PostButton";
 import { DESIGN_W, clampPhoto, coverSize, layoutsFor, type LayoutId, type Photo, type StoryInfo, type Tone } from "./model";
 
 const TOP_BAR = 56;
@@ -28,7 +31,7 @@ const GAP = 12;
 const buzz = () => void Haptics.selectionAsync().catch(() => {});
 const lift = () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { info: StoryInfo; photo: Photo; calm: boolean; storiesOn: boolean; onRetake: () => void; onClose: () => void }) {
+export function Composer({ info, photo, calm, storiesOn, onRetake, onClose, storyContext = null }: { info: StoryInfo; photo: Photo; calm: boolean; storiesOn: boolean; onRetake: () => void; onClose: () => void; storyContext?: StoryContextInput | null }) {
   const tr = useT();
   const insets = useSafeAreaInsets();
   const { width: sw, height: sh } = useWindowDimensions();
@@ -41,10 +44,13 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState(true);
   const [spec, setSpec] = useState<ExportSpec | null>(null);
+  const [postNote, setPostNote] = useState<string | null>(null);
+  // Move Score Stories: one more row of buttons under the styles.
+  const POST = storyContext ? 48 + GAP : 0;
   const pending = useRef<((uri: string | null) => void) | null>(null);
 
   // The biggest 9:16 canvas that fits between the bars.
-  const availH = sh - insets.top - insets.bottom - TOP_BAR - RAIL - ACTIONS - GAP * 3;
+  const availH = sh - insets.top - insets.bottom - TOP_BAR - RAIL - ACTIONS - GAP * 3 - POST;
   const W = Math.max(160, Math.floor(Math.min(sw - 24, (availH * 9) / 16)));
   const H = Math.round((W * 16) / 9);
   const u = W / DESIGN_W;
@@ -323,6 +329,11 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
         </View>
       </GestureDetector>
 
+      {storyContext ? (
+        <View style={{ marginTop: GAP, marginHorizontal: 12 }}>
+          <PostToStoriesButton context={storyContext} capture={exportStory} disabled={busy} onNote={setPostNote} />
+        </View>
+      ) : null}
       <View style={{ height: ACTIONS, marginTop: GAP, marginBottom: insets.bottom + GAP, marginHorizontal: 12, flexDirection: "row", gap: 8 }}>
         {storiesOn ? (
           <Pressable accessibilityRole="button" accessibilityLabel={tr("story.toStoriesA11y")} disabled={busy} onPress={() => void share("stories")} style={({ pressed }) => ({ flex: 1, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", opacity: busy ? 0.5 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] })}>
@@ -334,8 +345,13 @@ export function Composer({ info, photo, calm, storiesOn, onRetake, onClose }: { 
           <Text style={{ fontFamily: F.bodyBold, fontSize: 16, color: BALL_INK }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{tr("story.share")}</Text>
         </Pressable>
       </View>
+      {postNote && !error ? (
+        <Text accessibilityRole="alert" style={{ position: "absolute", bottom: insets.bottom + ACTIONS + RAIL + GAP * 3 + POST, alignSelf: "center", fontFamily: F.bodySemi, fontSize: 13, color: "#FFFFFF", backgroundColor: "rgba(0,0,0,0.8)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, overflow: "hidden" }}>
+          {postNote}
+        </Text>
+      ) : null}
       {error ? (
-        <Text accessibilityRole="alert" style={{ position: "absolute", bottom: insets.bottom + ACTIONS + RAIL + GAP * 3, alignSelf: "center", fontFamily: F.bodySemi, fontSize: 13, color: "#FFFFFF", backgroundColor: "rgba(229,19,58,0.9)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, overflow: "hidden" }}>
+        <Text accessibilityRole="alert" style={{ position: "absolute", bottom: insets.bottom + ACTIONS + RAIL + GAP * 3 + POST, alignSelf: "center", fontFamily: F.bodySemi, fontSize: 13, color: "#FFFFFF", backgroundColor: "rgba(229,19,58,0.9)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, overflow: "hidden" }}>
           {error}
         </Text>
       ) : null}

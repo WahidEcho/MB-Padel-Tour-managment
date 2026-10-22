@@ -120,3 +120,5 @@ export { EVENT_INFO_PLACES } from "../../../src/lib/eventInfo/types";
 export type { PublicEventInfo, EventInfoDay, EventInfoPlace, EventInfoContact, EventInfoFaq } from "../../../src/lib/eventInfo/types";
 export { playerRecord, playerSide, ITF_RANK_MAX } from "../../../src/lib/players/publicInfo";
 export type { PlayerRecord, WonLost } from "../../../src/lib/players/publicInfo";
+// Move Score Stories (migration 0043): rules, limits and the feed types.
+export * from "../../../src/lib/stories/rules";

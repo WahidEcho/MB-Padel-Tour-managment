@@ -351,3 +351,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
   coach result alerts (`fire_at` later) and Live Activity pushes (outbox kind `live_activity_deferred`, sent by the drain from the view then).
   Never delayed: referee consoles and `/api/matches/[id]/state`, master desk, admin, TV feed `/api/t/[slug]/live` and screens, OBS overlay,
   calls to court / match soon / line-ups. Additive `scoreDelaySeconds` on MLive and tournament cards. Gate `npm run e2e:score-delay` (stand-in).
+- Move Score Stories (migration `0043_stories.sql`, not yet on the live project; apply before deploying): Instagram-like 24-hour
+  stories, ONLY the story composer's 1080×1920 JPEG export (always a match/tie/pass card; no gallery upload), tied to the public event
+  it came from. Pure rules `src/lib/stories/rules.ts` (via `@core`: limits, 3 reports hide, 20 posts/day, grouping, captions), server
+  `src/lib/stories/server.ts` (explicit columns; posters are HMAC keys, never account ids). Routes `api/mobile/v1/stories` (GET public CDN
+  feed, POST), `stories/[id]` (DELETE own) + `/like|/view|/report|/block`, `t/[slug]/stories`, `me/stories` (own + counts + blocked),
+  `me/stories/feed` (signed-in feed, blocked posters removed server-side, private no-store), `me/stories/blocks` (unblock). Pictures in
+  media `stories/<poster key>/<id>.jpg` (never the account id); the drain (`api/internal/messages/drain`) sweeps expired rows and files; account deletion forgets them.
+  Staff: Admin → Stories (`admin/org/stories`, `moderate_stories`, EntityRef `{ story }`: restore/remove) and Admin → All stories
+  (`admin/platform/stories`, platform admins: + ban / lift ban). App: `move-score-app/src/stories/*` (row on Discover and the event hub,
+  viewer route `stories`, guide, "Post to Move Score Stories" in the share step), words in the `stories` i18n namespace. Terms/privacy
+  carry a Stories paragraph. The stand-in keeps storage object names (`GET /storage/v1/_localdb/objects?prefix=`). Gate
+  `npm run e2e:stories` (stand-in).

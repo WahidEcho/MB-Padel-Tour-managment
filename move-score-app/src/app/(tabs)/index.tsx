@@ -17,6 +17,7 @@ import { openLeagues, openTournament } from "../../nav/links";
 import { BoardTable } from "../../ui/Board";
 import { RegistrationBanner } from "../../auth/RegistrationBanner";
 import { LiveCourtsHero } from "../../ui/LiveCourtsHero";
+import { StoriesRow } from "../../stories/StoriesRow";
 import { Pressable } from "react-native";
 
 /**
@@ -142,6 +143,8 @@ export default function Discover() {
       </View>
       <StaleBanner queries={[d]} />
       <RegistrationBanner style={{ marginBottom: 14 }} />
+      {/* Move Score Stories from every public event (anyone watches; posting needs an account). */}
+      <StoriesRow />
       {/* Live days: every court of the featured event and the live tournaments (hidden otherwise). */}
       <LiveCourtsHero />
       <Display size={34} style={{ marginBottom: 6 }}>

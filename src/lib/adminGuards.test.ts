@@ -345,6 +345,8 @@ const SECONDARY_ID_ALLOWED: Record<string, string> = {
   "admin/platform/organizations/actions.ts › inviteToOrganization › org_id": "platform admins (requirePlatformPermission) act on every organisation",
   "admin/platform/organizations/actions.ts › saveBilling › org_id": "platform admins (requirePlatformPermission) act on every organisation",
   "admin/platform/organizations/actions.ts › decideRename › org_id": "platform admins (requirePlatformPermission) act on every organisation",
+  "admin/platform/stories/actions.ts › moderateStoryAction › story_id": "platform admins (requirePlatformPermission) moderate every organisation's stories",
+  "admin/platform/stories/actions.ts › liftStoryBanAction › user_id": "platform admins (requirePlatformPermission) lift any account's story ban",
 };
 
 // (The screen controls' court ids are read in operator/…/control/actions.ts's helper

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { forgetStories } from "@/lib/stories/server";
 import { db } from "@/lib/supabase";
 import { audit } from "@/lib/audit";
 import { ownerOf } from "@/lib/mobile/identity";
@@ -80,6 +81,8 @@ export async function DELETE(request: Request) {
   await db().from("league_code_holders").delete().eq("auth_user_id", owner.id);
   // Registrations stay with the organiser (an entry, its payments and refunds), no longer tied to this account.
   await db().from("registrations").update({ auth_user_id: null, updated_at: new Date().toISOString() }).eq("auth_user_id", owner.id);
+  // Move Score Stories: the account's stories and their pictures, likes, reports and blocks (a ban stays).
+  await forgetStories(owner.id);
   // Lets go of the linked player; a photo the player uploaded is deleted with it.
   await unlinkMe(owner.id);
   // The account's own photo is deleted and its chosen name and photo cleared from the auth metadata.

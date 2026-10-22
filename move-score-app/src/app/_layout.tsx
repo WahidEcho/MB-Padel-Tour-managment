@@ -57,6 +57,7 @@ function Navigator() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="scan" options={{ presentation: "fullScreenModal", animation: "fade" }} />
         <Stack.Screen name="share/[matchId]" options={{ presentation: "transparentModal", animation: "fade" }} />
+        <Stack.Screen name="stories" options={{ presentation: "fullScreenModal", animation: "fade", gestureEnabled: false }} />
         <Stack.Screen name="referee/score/[matchId]" options={{ gestureEnabled: false }} />
       </Stack>
       {Platform.OS !== "web" && <AlertTaps />}

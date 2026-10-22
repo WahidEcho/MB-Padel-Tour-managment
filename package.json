@@ -43,6 +43,7 @@
     "e2e:coaches": "tsx --env-file=.env.localdb scripts/e2e/coaches.ts",
     "e2e:venue-map": "tsx --env-file=.env.localdb scripts/e2e/venue-map.ts",
     "e2e:event-info": "tsx --env-file=.env.localdb scripts/e2e/event-info.ts",
+    "e2e:stories": "tsx --env-file=.env.localdb scripts/e2e/stories.ts",
     "demo:guide": "tsx --env-file=.env.localdb scripts/demo/guide-demo.ts"
   },
   "dependencies": {

@@ -152,6 +152,14 @@ export default function PrivacyPolicy() {
           are stripped of their parameters.
         </p>
 
+        <h3 className="font-semibold">Move Score Stories</h3>
+        <p>
+          A story you post is public for 24 hours, with your account&apos;s name and photo, the time and the match or event it
+          came from; then it and its picture are deleted. We keep who liked, viewed (as a one-way code, never your phone&apos;s
+          id), and reported a story for the story&apos;s life only; whom you blocked stays until you unblock them. Only you
+          see your story&apos;s view and like counts. Deleting your account deletes your stories.
+        </p>
+
         <h3 className="font-semibold">9. Abuse protection and server logs</h3>
         <p>
           To stop automated abuse, our server counts requests from each network address over short windows (minutes to an hour)

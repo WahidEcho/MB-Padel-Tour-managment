@@ -19,8 +19,9 @@ import { coach } from "./en/coach";
 import { story } from "./en/story";
 import { pass } from "./en/pass";
 import { lock } from "./en/lock";
+import { stories } from "./en/stories";
 
-export const en = { common, account, auth, player, ui, screens, event, hero, schedule, score, referee, coach, story, pass, lock };
+export const en = { common, account, auth, player, ui, screens, event, hero, schedule, score, referee, coach, story, pass, lock, stories };
 
 export type Words = typeof en;
 /** "account.title", "common.back", … */

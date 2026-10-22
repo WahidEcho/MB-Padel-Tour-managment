@@ -16,5 +16,6 @@ import { coach } from "./fr/coach";
 import { story } from "./fr/story";
 import { pass } from "./fr/pass";
 import { lock } from "./fr/lock";
+import { stories } from "./fr/stories";
 
-export const fr: Shape<Words> = { common, account, auth, player, ui, screens, event, hero, schedule, score, referee, coach, story, pass, lock };
+export const fr: Shape<Words> = { common, account, auth, player, ui, screens, event, hero, schedule, score, referee, coach, story, pass, lock, stories };

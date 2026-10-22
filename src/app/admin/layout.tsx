@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireStaff } from "@/lib/guard";
+import { staffCan } from "@/lib/auth";
 import AdminNav from "./AdminNav";
 import LineupNotices from "@/components/lineups/LineupNotices";
 
@@ -24,7 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <a href="/logout" className="text-muted hover:text-foreground">Log out</a>
         </div>
       </header>
-      <AdminNav canManageCodes={staff.role === "admin" || staff.role === "manager"} canManageCoaches={staff.role === "admin"} canManageOrg={staff.role === "admin" && staff.kind === "member"} platformAdmin={staff.platformAdmin} />
+      <AdminNav canManageCodes={staff.role === "admin" || staff.role === "manager"} canManageCoaches={staff.role === "admin"} canManageOrg={staff.role === "admin" && staff.kind === "member"} canModerateStories={staffCan(staff, "moderate_stories")} platformAdmin={staff.platformAdmin} />
       <main className="mx-auto w-full max-w-6xl flex-1 space-y-4 p-4">
         {/* A court referee accepted a line-up exception (ITF Reg. 43 / 50): the organiser hears it at once. */}
         <LineupNotices />

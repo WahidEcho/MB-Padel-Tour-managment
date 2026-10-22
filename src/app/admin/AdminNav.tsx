@@ -29,21 +29,25 @@ const ORG_SECTIONS = [
 ];
 /** National team coaches' codes (migration 0037): admins only, next to Referees. */
 const COACH_SECTIONS = [{ href: "/admin/org/coaches", label: "Team coaches" }];
+/** Move Score Stories from the organisation's events (migration 0043): admins restore or remove reported ones. */
+const STORY_SECTIONS = [{ href: "/admin/org/stories", label: "Stories" }];
 
 /** Move Beyond's own settings for the whole app: platform admins only. */
 const PLATFORM_SECTIONS = [
   { href: "/admin/platform/organizations", label: "Organisations" },
   { href: "/admin/platform/discover", label: "Discover" },
   { href: "/admin/platform/qr", label: "QR codes" },
+  { href: "/admin/platform/stories", label: "All stories" },
 ];
 
-export default function AdminNav({ canManageCodes, canManageCoaches, canManageOrg, platformAdmin }: { canManageCodes?: boolean; canManageCoaches?: boolean; canManageOrg?: boolean; platformAdmin?: boolean }) {
+export default function AdminNav({ canManageCodes, canManageCoaches, canManageOrg, canModerateStories, platformAdmin }: { canManageCodes?: boolean; canManageCoaches?: boolean; canManageOrg?: boolean; canModerateStories?: boolean; platformAdmin?: boolean }) {
   const pathname = usePathname();
   const sections = [
     ...SECTIONS,
     ...(canManageOrg ? ORG_ADMIN_SECTIONS : []),
     ...(canManageCodes ? ORG_SECTIONS : []),
     ...(canManageCoaches ? COACH_SECTIONS : []),
+    ...(canModerateStories ? STORY_SECTIONS : []),
     ...(platformAdmin ? PLATFORM_SECTIONS : []),
   ];
   return (

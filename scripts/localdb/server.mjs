@@ -381,6 +381,37 @@ function pgError(res, e) {
   send(res, status, { code, message: e.message, details: e.detail ?? null, hint: e.hint ?? null });
 }
 
+/*
+ * Storage: nothing is kept but the names, so an E2E can tell an upload and a delete
+ * apart (GET /storage/v1/_localdb/objects?prefix=stories/). Every other call answers
+ * as before.
+ */
+const OBJECTS = new Map(); // "bucket/path" → bytes received
+function storage(req, url, body, res) {
+  if (url.pathname === "/storage/v1/_localdb/objects") {
+    const prefix = url.searchParams.get("prefix") ?? "";
+    return send(res, 200, [...OBJECTS.keys()].filter((k) => k.startsWith(`media/${prefix}`)).map((k) => k.slice("media/".length)));
+  }
+  const m = url.pathname.match(/^\/storage\/v1\/object\/([a-z0-9_-]+)(?:\/(.+))?$/);
+  if (m && m[1] !== "public" && m[1] !== "sign") {
+    if ((req.method === "POST" || req.method === "PUT") && m[2]) {
+      OBJECTS.set(`${m[1]}/${decodeURIComponent(m[2])}`, body.length);
+      return send(res, 200, { Key: `${m[1]}/${m[2]}` });
+    }
+    if (req.method === "DELETE" && !m[2]) {
+      let prefixes = [];
+      try {
+        prefixes = JSON.parse(body || "{}").prefixes ?? [];
+      } catch {
+        prefixes = [];
+      }
+      const gone = prefixes.filter((p) => OBJECTS.delete(`${m[1]}/${p}`));
+      return send(res, 200, gone.map((name) => ({ name })));
+    }
+  }
+  return send(res, 200, { Key: "local" });
+}
+
 let queue = Promise.resolve();
 const serial = (fn) => (queue = queue.then(fn, fn));
 
@@ -396,7 +427,7 @@ const server = http.createServer((req, res) => {
           const results = await pg.exec(JSON.parse(body).query);
           return send(res, 200, results.at(-1)?.rows ?? []);
         }
-        if (url.pathname.startsWith("/storage/v1/")) return send(res, 200, { Key: "local" });
+        if (url.pathname.startsWith("/storage/v1/")) return storage(req, url, body, res);
         if (handleAuth({ req, url, body, res, send, port: PORT })) return;
         const m = url.pathname.match(/^\/rest\/v1\/([a-z_0-9]+)$/);
         if (!m) return send(res, 404, { message: `no route ${url.pathname}` });
