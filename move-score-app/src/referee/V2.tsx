@@ -18,6 +18,7 @@ import {
   currentServer,
   serveNumber,
   timerView,
+  violationMarks,
   type LogEntry,
   type ScoreState,
   type ServeOrder,
@@ -184,6 +185,7 @@ export function PadV2({
               <Eyebrow size={11} style={{ color: "rgba(255,255,255,0.85)", textAlign: "center" }} numberOfLines={2}>
                 {serving ? tr("score.nameServing", { name: s.name }) : s.name}
               </Eyebrow>
+              <ViolationMarks marks={violationMarks(state, k)} />
             </Pressable>
           );
         })}
@@ -262,6 +264,30 @@ export function BetweenPoints({ timer, now, onDismiss, onDecision }: { timer: Ru
   );
 }
 
+/**
+ * Ⓣ (time) and Ⓒ (code) at the bottom left of a POINT button, one per violation, oldest
+ * first, for the whole match.
+ */
+function ViolationMarks({ marks }: { marks: ("T" | "C")[] }) {
+  const tr = useT();
+  if (marks.length === 0) return null;
+  const time = marks.filter((m) => m === "T").length;
+  return (
+    <View
+      testID="violation-marks"
+      pointerEvents="none"
+      accessibilityLabel={tr("score.violationMarks", { time, code: marks.length - time })}
+      style={{ position: "absolute", left: 10, bottom: 10, right: 10, flexDirection: "row", flexWrap: "wrap-reverse", gap: 5 }}
+    >
+      {marks.map((m, i) => (
+        <View key={i} style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 2.5, borderColor: "#fff", backgroundColor: "rgba(0,0,0,0.22)", alignItems: "center", justifyContent: "center" }}>
+          <Body weight="bold" size={13} style={{ color: "#fff", lineHeight: 15 }}>{m}</Body>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** A changeover, set break or break: a card over the point columns. */
 /** `onRetire`: a medical timeout's second choice, "Player retires" (the end-of-match sheet). */
 export function TimerCard({ timer, now, sides, onStop, onDecision, onRetire }: { timer: RunningTimer; now: number; sides: Record<TeamKey, V2Side>; onStop: () => void; onDecision: (d: TimeDecision) => void; onRetire?: () => void }) {
@@ -294,6 +320,7 @@ export function TimerCard({ timer, now, sides, onStop, onDecision, onRetire }: {
       </View>
       <Body size={12.5} weight="semi" style={{ color: red ? "#fff" : amber ? ORANGE : t.ink2, textAlign: "center" }}>{note}</Body>
       {v.progress !== null ? <Bar progress={v.progress} color={red ? "#fff" : amber ? ORANGE : t.blue} track={red ? "rgba(255,255,255,0.3)" : t.chip} /> : null}
+      {timer.kind === "warmup" && v.over ? <Body size={12.5} style={{ color: "#fff", textAlign: "center" }}>{tr("score.warmupOver")}</Body> : null}
       {timer.kind === "medical" ? (
         <View style={{ gap: 10 }}>
           <Body size={12.5} style={{ color: red ? "#fff" : t.ink2, textAlign: "center" }}>{tr("score.medicalNote")}</Body>
@@ -310,7 +337,7 @@ export function TimerCard({ timer, now, sides, onStop, onDecision, onRetire }: {
         <Rulings onDecision={onDecision} />
       ) : (
         <Pressable testID="timer-stop" accessibilityRole="button" onPress={onStop} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 15, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
-          <Body weight="bold" size={16} style={{ color: BALL_INK }}>{def.mode === "limit" ? tr("score.resumePlay") : tr("score.stop")}</Body>
+          <Body weight="bold" size={16} style={{ color: BALL_INK }}>{timer.kind === "warmup" ? tr("score.warmupStart") : def.mode === "limit" ? tr("score.resumePlay") : tr("score.stop")}</Body>
         </Pressable>
       )}
     </View>

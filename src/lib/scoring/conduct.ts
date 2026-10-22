@@ -90,3 +90,12 @@ export function applyViolation(
   next.violations = [...(state.violations ?? []), violation];
   return next;
 }
+
+/**
+ * The marks on a side's POINT button: one per violation, oldest first, "T" for a time
+ * violation and "C" for a code violation, kept for the whole match (the state carries
+ * every violation until it ends; an Undo of one takes its mark away with it).
+ */
+export function violationMarks(state: ScoreState | null | undefined, team: TeamKey): ("T" | "C")[] {
+  return (state?.violations ?? []).filter((v) => v.team === team).map((v) => (v.offence === "time" ? "T" : "C"));
+}

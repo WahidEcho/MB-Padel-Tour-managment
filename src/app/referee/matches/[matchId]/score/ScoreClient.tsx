@@ -1399,11 +1399,12 @@ export default function ScoreClient({
                   </button>
                 )}
                 {callNote && <p className="text-xs font-semibold text-muted">{callNote}</p>}
-                {(features.breakStopwatch || features.timerChangeover || features.timerSetBreak || features.bathroom || features.hydration || features.medical) && (
+                {(features.breakStopwatch || features.timerChangeover || features.timerSetBreak || features.bathroom || features.hydration || features.medical || features.warmup) && (
                   <div className="space-y-1.5">
                     <p className="label">Breaks</p>
                     {(
                       [
+                        ["warmup", features.warmup, "⏳ Warm-up", "5:00"],
                         ["break", features.breakStopwatch, "⏱ Break", "Stopwatch"],
                         ["changeover", features.timerChangeover, "◷ Changeover", "1:30"],
                         ["set_break", features.timerSetBreak, "☕ Set break", "2:00"],

@@ -123,6 +123,9 @@ export const score: Shape<typeof en> = {
   medicalContinue: "Continuar el partido",
   medicalRetire: "El jugador abandona",
   medicalNote: "Tras el tratamiento: seguir jugando o registrar el abandono.",
+  warmupStart: "Empezar el partido",
+  warmupOver: "Se acabó el calentamiento. Empieza el partido cuando los jugadores estén listos.",
+  violationMarks: "{time} de tiempo, {code} de conducta",
   matchHeading: "Partido",
   swapServer: "Cambiar el sacador de {name}",
   codeViolation: "Violación de código",
@@ -228,6 +231,7 @@ export const score: Shape<typeof en> = {
   timer_bathroom: "Pausa para el baño",
   timer_hydration: "Pausa de hidratación",
   timer_medical: "Tiempo médico",
+  timer_warmup: "Calentamiento",
 
   player1: "Jugador 1",
   player2: "Jugador 2",
@@ -268,6 +272,7 @@ export const score: Shape<typeof en> = {
   chip_bathroom: "BAÑO",
   chip_hydration: "HIDRATACIÓN",
   chip_medical: "MÉDICO",
+  chip_warmup: "CALENTAMIENTO",
 
   offence_time: "Violación de tiempo",
   offence_ball_abuse: "Abuso de pelota",

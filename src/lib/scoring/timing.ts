@@ -19,8 +19,8 @@
 import { endsChange, type ScoreState, type TeamKey } from "./engine";
 import { scoreKey } from "./serve";
 
-export type TimerKind = "between_points" | "changeover" | "set_break" | "break" | "bathroom" | "hydration" | "medical";
-export const TIMER_KINDS: readonly TimerKind[] = ["between_points", "changeover", "set_break", "break", "bathroom", "hydration", "medical"];
+export type TimerKind = "between_points" | "changeover" | "set_break" | "break" | "bathroom" | "hydration" | "medical" | "warmup";
+export const TIMER_KINDS: readonly TimerKind[] = ["between_points", "changeover", "set_break", "break", "bathroom", "hydration", "medical", "warmup"];
 
 export interface TimerDef {
   label: string;
@@ -45,6 +45,8 @@ export const TIMERS: Record<TimerKind, TimerDef> = {
   hydration: { label: "Hydration break", limit: 600, mode: "limit", ruling: false, rule: null },
   // 3 minutes of treatment for one side; at the end the referee decides: play on, or the player retires.
   medical: { label: "Medical timeout", limit: 180, mode: "limit", ruling: false, rule: null },
+  // 5 minutes before the match; it keeps counting after 5:00 until the referee starts the match.
+  warmup: { label: "Warm-up", limit: 300, mode: "limit", ruling: false, rule: null },
 };
 
 export const isTimerKind = (v: unknown): v is TimerKind => typeof v === "string" && (TIMER_KINDS as readonly string[]).includes(v);

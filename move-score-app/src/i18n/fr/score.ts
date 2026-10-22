@@ -123,6 +123,9 @@ export const score: Shape<typeof en> = {
   medicalContinue: "Reprendre le match",
   medicalRetire: "Le joueur abandonne",
   medicalNote: "Après le soin : reprendre le jeu ou enregistrer l'abandon.",
+  warmupStart: "Commencer le match",
+  warmupOver: "L'échauffement est terminé. Commencez le match quand les joueurs sont prêts.",
+  violationMarks: "{time} de temps, {code} de conduite",
   matchHeading: "Match",
   swapServer: "Changer le serveur de {name}",
   codeViolation: "Infraction au code",
@@ -228,6 +231,7 @@ export const score: Shape<typeof en> = {
   timer_bathroom: "Pause toilettes",
   timer_hydration: "Pause hydratation",
   timer_medical: "Temps mort médical",
+  timer_warmup: "Échauffement",
 
   player1: "Joueur 1",
   player2: "Joueur 2",
@@ -268,6 +272,7 @@ export const score: Shape<typeof en> = {
   chip_bathroom: "TOILETTES",
   chip_hydration: "HYDRATATION",
   chip_medical: "MÉDICAL",
+  chip_warmup: "ÉCHAUFFEMENT",
 
   offence_time: "Infraction au temps",
   offence_ball_abuse: "Abus de balle",

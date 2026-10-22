@@ -743,9 +743,10 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           <Button kind="danger" label={tr("score.callMaster")} icon={<Glyph name="megaphone" color="#FFFFFF" size={20} />} onPress={() => setSheet({ kind: "call" })} />
         ) : null}
         {callNote ? <Body tone="ink2" size={12.5}>{callNote}</Body> : null}
-        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration || f.medical ? <Eyebrow size={10} tone="ink3">{tr("score.breaks")}</Eyebrow> : null}
+        {f.breakStopwatch || f.timerChangeover || f.timerSetBreak || f.bathroom || f.hydration || f.medical || f.warmup ? <Eyebrow size={10} tone="ink3">{tr("score.breaks")}</Eyebrow> : null}
         {(
           [
+            ["warmup", f.warmup, timerLabel("warmup"), "5:00"],
             ["break", f.breakStopwatch, timerLabel("break"), tr("score.stopwatch")],
             ["changeover", f.timerChangeover, timerLabel("changeover"), "1:30"],
             ["set_break", f.timerSetBreak, timerLabel("set_break"), "2:00"],
@@ -942,7 +943,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
 const waitingForLineups = (b: RefereeBootstrap | undefined) => Boolean(b && (b.waitingForLineups || !b.sideA || !b.sideB));
 
 /** The icon beside each break in More (drawn, not emoji: emoji can show as "?" boxes). */
-const BREAK_GLYPH: Record<string, GlyphName> = { break: "stopwatch", changeover: "clock", set_break: "cup", bathroom: "restroom", hydration: "drop", medical: "medical" };
+const BREAK_GLYPH: Record<string, GlyphName> = { break: "stopwatch", changeover: "clock", set_break: "cup", bathroom: "restroom", hydration: "drop", medical: "medical", warmup: "hourglass" };
 
 export default function ScoreRoute() {
   const { matchId } = useLocalSearchParams<{ matchId: string }>();

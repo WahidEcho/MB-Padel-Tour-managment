@@ -131,6 +131,9 @@ export const score = {
   medicalContinue: "Continue the match",
   medicalRetire: "Player retires",
   medicalNote: "After treatment: play on, or record the retirement.",
+  warmupStart: "Start the match",
+  warmupOver: "Warm-up time is up. Start the match when the players are ready.",
+  violationMarks: "{time} time, {code} code violations",
   matchHeading: "Match",
   swapServer: "Swap {name}'s server",
   codeViolation: "Code violation",
@@ -238,6 +241,7 @@ export const score = {
   timer_bathroom: "Bathroom break",
   timer_hydration: "Hydration break",
   timer_medical: "Medical timeout",
+  timer_warmup: "Warm-up",
 
   // Doubles serve order
   player1: "Player 1",
@@ -280,6 +284,7 @@ export const score = {
   chip_bathroom: "BATHROOM",
   chip_hydration: "HYDRATION",
   chip_medical: "MEDICAL",
+  chip_warmup: "WARM-UP",
 
   // Code violations
   offence_time: "Time violation",

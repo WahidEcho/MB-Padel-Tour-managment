@@ -53,6 +53,7 @@ const CHIPS: Record<string, string> = {
   BATHROOM: "bathroom",
   HYDRATION: "hydration",
   MEDICAL: "medical",
+  "WARM-UP": "warmup",
 };
 
 /** A match-log chip (buildMatchLog's English label) in the app's language. */

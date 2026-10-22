@@ -17,7 +17,7 @@ import {
   type ScoreState,
   type TeamKey,
 } from "./engine";
-import { applyViolation, nextPenalty } from "./conduct";
+import { applyViolation, nextPenalty, violationMarks } from "./conduct";
 import { describeMatchRules, isDoublesMatch, scoringConfigForMatch, validateMatchRules } from "./rules";
 import { DEFAULT_TENNIS_SCORING_CONFIG, type ScoringConfig } from "../types";
 
@@ -290,6 +290,19 @@ describe("change of ends", () => {
 });
 
 describe("code violations", () => {
+  it("the POINT button marks: T / C per side, oldest first, kept through games and sets", () => {
+    let s = initialScoreState("A");
+    s = applyViolation(s, { team: "A", offence: "time", penalty: "warning" }, singles);
+    s = applyViolation(s, { team: "B", offence: "coaching", penalty: "warning" }, singles);
+    s = applyViolation(s, { team: "A", offence: "racket_abuse", penalty: "warning" }, singles);
+    for (let i = 0; i < 6; i++) s = awardGame(s, "B", singles);
+    expect(s.completedSets).toHaveLength(1);
+    s = applyViolation(s, { team: "A", offence: "time", penalty: "point" }, singles);
+    expect(violationMarks(s, "A")).toEqual(["T", "C", "T"]);
+    expect(violationMarks(s, "B")).toEqual(["C"]);
+    expect(violationMarks(null, "A")).toEqual([]);
+  });
+
   it("warning, point penalty, then game penalties", () => {
     let s = initialScoreState("A");
     const ladder: string[] = [];

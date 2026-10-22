@@ -13,6 +13,7 @@ import { currentServer, formatSet, type ScoreState, type TeamKey } from "@/lib/s
 import { receivingPlayer, serveNumber, servingPlayer, type ServeOrder } from "@/lib/scoring/serve";
 import { TIMERS, TIME_DECISION_LABELS, TIME_DECISIONS, clockText, timerView, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import type { LogEntry } from "@/lib/scoring/matchLog";
+import { violationMarks } from "@/lib/scoring/conduct";
 import type { ScoringFeatures } from "@/lib/matchday/rules";
 import { SIDES } from "@/lib/sides";
 
@@ -223,6 +224,7 @@ export function PadV2({
                 {s.name}
                 {serving ? " · serving" : ""}
               </span>
+              <ViolationMarks marks={violationMarks(state, k)} />
             </button>
           );
         })}
@@ -248,6 +250,25 @@ export function PadV2({
         ))}
       </div>
     </div>
+  );
+}
+
+/** Ⓣ (time) and Ⓒ (code) at the bottom left of a POINT button, one per violation, oldest first, for the whole match. */
+function ViolationMarks({ marks }: { marks: ("T" | "C")[] }) {
+  if (marks.length === 0) return null;
+  const time = marks.filter((m) => m === "T").length;
+  return (
+    <span
+      className="pointer-events-none absolute bottom-2.5 left-2.5 right-2.5 flex flex-wrap-reverse gap-1.5"
+      data-testid="violation-marks"
+      aria-label={`${time} time, ${marks.length - time} code violations`}
+    >
+      {marks.map((m, i) => (
+        <span key={i} className="flex h-7 w-7 items-center justify-center rounded-full border-[2.5px] border-white bg-black/20 text-sm font-black leading-none">
+          {m}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -374,11 +395,12 @@ export function TimerCard({
             <div className="h-full rounded-full" style={{ width: `${Math.round(v.progress * 100)}%`, background: red ? "white" : amber ? "#f97316" : "var(--accent)" }} />
           </div>
         )}
+        {timer.kind === "warmup" && v.over && <p className="text-sm">Warm-up time is up. Start the match when the players are ready.</p>}
         {v.ruling ? (
           <Rulings onDecision={onDecision} />
         ) : (
           <button type="button" onClick={onStop} className="w-full rounded-2xl py-3 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="timer-stop">
-            {def.mode === "limit" ? "Resume play" : "Stop"}
+            {timer.kind === "warmup" ? "Start the match" : def.mode === "limit" ? "Resume play" : "Stop"}
           </button>
         )}
         <RuleRef kind={timer.kind} />

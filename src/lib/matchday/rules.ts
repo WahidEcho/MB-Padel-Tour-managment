@@ -65,6 +65,7 @@ export interface ScoringFeatures {
   bathroom: boolean;
   hydration: boolean;
   medical: boolean;
+  warmup: boolean;
   autoSwap: boolean;
   manualSwap: boolean;
   matchLog: boolean;
@@ -85,6 +86,7 @@ export const SCORING_FEATURES_ON: ScoringFeatures = {
   bathroom: true,
   hydration: true,
   medical: true,
+  warmup: true,
   autoSwap: true,
   manualSwap: true,
   matchLog: true,
@@ -118,6 +120,7 @@ export const SCORING_FEATURE_GROUPS: { title: string; rows: [keyof ScoringFeatur
       ["bathroom", "Bathroom break", "Stopwatch, warns at 10:00."],
       ["hydration", "Hydration break", "Counts to 10:00."],
       ["medical", "Medical timeout", "3:00 for one side; then the match continues or the player retires."],
+      ["warmup", "Warm-up timer", "5:00 before the match; keeps counting until the referee starts the match."],
     ],
   },
   {

@@ -147,6 +147,14 @@ describe("ends so far, and the referee's left and right", () => {
   });
 });
 
+describe("warm-up", () => {
+  it("is 5:00 and keeps counting after it, red, with no time ruling (the referee starts the match)", () => {
+    expect(TIMERS.warmup.limit).toBe(300);
+    expect(timerView("warmup", 299_000)).toMatchObject({ over: false, text: "4:59" });
+    expect(timerView("warmup", 372_000)).toMatchObject({ over: true, overBy: 72, text: "6:12", ruling: false });
+  });
+});
+
 describe("medical timeout", () => {
   it("is 3:00 for one side, red after it, with no time ruling (the referee decides: play on or retire)", () => {
     expect(TIMERS.medical.limit).toBe(180);
