@@ -57,14 +57,14 @@ export default async function OverlayPage({
 /**
  * `?video=1`: the court's live video with our scoreboard over it, for watching in a browser or
  * sharing. The board is the plain overlay page (same URL without `video`, so OBS keeps its link),
- * drawn at 1920×1080 and scaled to the video box: 0.92× (owner, 23 Oct 2026: 20% smaller than the
- * first 1.15×), moved left onto a stream's own score bar, with a frosted patch over the rest of
- * that bar (about x 18–690, y 912–1032 of the frame) so none of it shows. Live, no delay.
+ * drawn at 1920×1080 and scaled to the video box: 1.1× and moved 27 px left (owner, 23 Oct 2026:
+ * the same size and place as a stream's own score bar, about x 21–681 of the frame, so it covers
+ * it exactly). Live, no delay.
  */
 function WatchWithScore({ slug, courtId, courtName, query, youtubeId }: { slug: string; courtId: string; courtName: string; query: Record<string, string | string[] | undefined>; youtubeId: string | null }) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) if (k !== "video") for (const one of Array.isArray(v) ? v : v === undefined ? [] : [v]) q.append(k, one);
-  if (!q.has("scale")) q.set("scale", "0.92");
+  if (!q.has("scale")) q.set("scale", "1.1");
   if (!q.has("footer")) q.set("footer", "0");
   const board = `/t/${encodeURIComponent(slug)}/overlay/${encodeURIComponent(courtId)}?${q.toString()}`;
   return (
@@ -73,7 +73,6 @@ function WatchWithScore({ slug, courtId, courtName, query, youtubeId }: { slug: 
         .wbox{position:fixed;inset:0;margin:auto;width:min(100vw,calc(100vh*16/9));height:min(100vh,calc(100vw*9/16));overflow:hidden;background:#000}
         .wbox iframe{border:0;position:absolute;left:0;top:0}
         .wlayer{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;pointer-events:none}
-        .wpatch{position:absolute;left:14px;top:906px;width:682px;height:130px;border-radius:18px;background:rgba(12,22,70,.55);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
         .wmsg{position:absolute;inset:0;display:grid;place-items:center;color:#9aa5c6;font:600 18px system-ui,sans-serif;text-align:center;padding:24px}`}</style>
       <div className="wbox" id="wbox" data-testid="overlay-watch" data-court={courtName}>
         {youtubeId ? (
@@ -88,10 +87,9 @@ function WatchWithScore({ slug, courtId, courtName, query, youtubeId }: { slug: 
         ) : (
           <div className="wmsg">No live video is set for {courtName} (Admin → Live stream).</div>
         )}
-        {/* Board and patch share one 1920×1080 layer scaled to the video; the board sits 30 px left of its OBS place. */}
+        {/* The board's 1920×1080 layer is scaled to the video; it sits 27 px left of its OBS place (x 21, their bar's edge). */}
         <div className="wlayer" id="wlayer">
-          {youtubeId ? <div className="wpatch" /> : null}
-          <iframe id="wboard" src={board} title={`Score, ${courtName}`} aria-hidden tabIndex={-1} style={{ width: 1920, height: 1080, transform: "translateX(-30px)", pointerEvents: "none", background: "transparent" }} />
+          <iframe id="wboard" src={board} title={`Score, ${courtName}`} aria-hidden tabIndex={-1} style={{ width: 1920, height: 1080, transform: "translateX(-27px)", pointerEvents: "none", background: "transparent" }} />
         </div>
       </div>
       <script
