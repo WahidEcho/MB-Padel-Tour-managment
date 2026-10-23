@@ -10,9 +10,9 @@ import { tournamentAudience } from "@/lib/live/delayServer";
 import { clockIn, dayKeyIn, defaultScheduleDay, scheduleDayLabel, scheduleDays, scheduleForDay, type ScheduleItem } from "@/lib/schedule/orderOfPlay";
 import type { Match, MatchSnapshot, RubberType, Team, Tie } from "@/lib/types";
 
-// Rendered at most every 4s and shared by every visitor: at the venue a crowd
+// Rendered at most every 2s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
-export const revalidate = 4;
+export const revalidate = 2;
 
 /**
  * Every tie of a nations event with its rubbers, in order of play: what a fan
@@ -99,7 +99,7 @@ export default async function PublicTies({ params }: { params: Promise<{ slug: s
 
   return (
     <div className="space-y-6">
-      <AutoRefresh seconds={8} />
+      <AutoRefresh seconds={5} />
       <h1 className="text-2xl font-bold">Ties</h1>
       {section("Live", live)}
       {initial && (

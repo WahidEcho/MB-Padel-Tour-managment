@@ -10,9 +10,9 @@ import { tournamentAudience } from "@/lib/live/delayServer";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
 import type { Match } from "@/lib/types";
 
-// Rendered at most every 5s and shared by every visitor: at the venue a crowd
+// Rendered at most every 2s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
-export const revalidate = 5;
+export const revalidate = 2;
 
 /**
  * Every match, at every stage, in one place.
@@ -70,7 +70,7 @@ export default async function PublicMatches({ params }: { params: Promise<{ slug
 
   return (
     <div className="space-y-6">
-      <AutoRefresh seconds={8} />
+      <AutoRefresh seconds={5} />
       <h2 className="text-xl font-bold">Matches</h2>
 
       {live.length > 0 && (

@@ -22,9 +22,9 @@ import {
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-// Rendered at most every 3s and shared by every visitor: at the venue a crowd
+// Rendered at most every 1s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
-export const revalidate = 3;
+export const revalidate = 1;
 
 export function generateStaticParams() {
   return [];
@@ -80,7 +80,7 @@ export default async function PublicMatch({
 
     return (
       <div className="mx-auto max-w-3xl">
-        <AutoRefresh seconds={4} />
+        <AutoRefresh seconds={3} />
         <ChessTheater
           fen={game?.fen ?? START_FEN}
           movePairs={game ? formatMovePairs(game.sanHistory) : []}
@@ -99,7 +99,7 @@ export default async function PublicMatch({
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <AutoRefresh seconds={4} />
+      <AutoRefresh seconds={3} />
       {video && <YouTubeLivePlayer key={video.youtubeId} video={video} />}
       <LiveMatchCard
         match={match}
