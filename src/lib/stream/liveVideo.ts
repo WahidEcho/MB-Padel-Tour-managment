@@ -25,6 +25,7 @@ function cleanCourt(c: unknown): LiveVideoCourtConfig | null {
     youtubeId: r.youtubeId,
     on: r.on === true,
     ...(delay !== undefined && delay >= 0 && delay <= MAX_DELAY_SECONDS ? { delaySeconds: delay } : {}),
+    ...(r.boardInStream === true ? { boardInStream: true } : {}),
     ...(typeof r.updatedAt === "string" ? { updatedAt: r.updatedAt } : {}),
   };
 }

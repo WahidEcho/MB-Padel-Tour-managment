@@ -98,6 +98,10 @@ export default async function LiveStreamPage({ params }: { params: Promise<{ id:
                     <input type="checkbox" name="on" defaultChecked={v?.on ?? false} className="switch" data-testid="live-on" />
                     Show to viewers
                   </label>
+                  <label className="flex items-center gap-2 text-sm font-semibold" title="Our own OBS puts the Move Score board in the video, so the website adds no second board over it.">
+                    <input type="checkbox" name="board_in_stream" defaultChecked={v?.boardInStream ?? false} className="switch" data-testid="board-in-stream" />
+                    Scoreboard is in the stream (our OBS)
+                  </label>
                   <label className="block">
                     <span className="label">Video delay (s, optional)</span>
                     <input name="delay_seconds" type="number" min={0} max={120} step={1} defaultValue={v?.delaySeconds ?? ""} className="input w-28" />

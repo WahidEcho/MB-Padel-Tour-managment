@@ -39,7 +39,7 @@ export default async function OverlayPage({
     redirect(qs.size ? `${data.redirect}?${qs}` : data.redirect);
   }
   const videoMode = [query.video].flat()[0] === "1";
-  if (videoMode) return <WatchWithScore slug={slug} courtId={data.props.court.id} courtName={data.props.court.name} query={query} youtubeId={liveVideoConfig(data.tournament.branding_config).courts[data.props.court.id]?.youtubeId ?? null} />;
+  if (videoMode) return <WatchWithScore slug={slug} courtId={data.props.court.id} courtName={data.props.court.name} query={query} youtubeId={liveVideoConfig(data.tournament.branding_config).courts[data.props.court.id]?.youtubeId ?? null} boardInStream={liveVideoConfig(data.tournament.branding_config).courts[data.props.court.id]?.boardInStream === true} />;
   const options = overlayOptions(query);
   const screen = (await getScreenSettings(data.tournament.id, MAIN_SCREEN)) ?? defaultScreenSettings(data.tournament.id, MAIN_SCREEN);
   const initial = await buildLiveFeed(data.tournament.id, screen, data.tournament.updated_at);
@@ -61,7 +61,7 @@ export default async function OverlayPage({
  * the same size and place as a stream's own score bar, about x 21–681 of the frame, so it covers
  * it exactly). Live, no delay.
  */
-function WatchWithScore({ slug, courtId, courtName, query, youtubeId }: { slug: string; courtId: string; courtName: string; query: Record<string, string | string[] | undefined>; youtubeId: string | null }) {
+function WatchWithScore({ slug, courtId, courtName, query, youtubeId, boardInStream }: { slug: string; courtId: string; courtName: string; query: Record<string, string | string[] | undefined>; youtubeId: string | null; boardInStream: boolean }) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) if (k !== "video") for (const one of Array.isArray(v) ? v : v === undefined ? [] : [v]) q.append(k, one);
   if (!q.has("scale")) q.set("scale", "1.1");
@@ -89,7 +89,7 @@ function WatchWithScore({ slug, courtId, courtName, query, youtubeId }: { slug: 
         )}
         {/* The board's 1920×1080 layer is scaled to the video; it sits 27 px left of its OBS place (x 21, their bar's edge). */}
         <div className="wlayer" id="wlayer">
-          <iframe id="wboard" src={board} title={`Score, ${courtName}`} aria-hidden tabIndex={-1} style={{ width: 1920, height: 1080, transform: "translateX(-27px)", pointerEvents: "none", background: "transparent" }} />
+          {boardInStream ? null : <iframe id="wboard" src={board} title={`Score, ${courtName}`} aria-hidden tabIndex={-1} style={{ width: 1920, height: 1080, transform: "translateX(-27px)", pointerEvents: "none", background: "transparent" }} />}
         </div>
       </div>
       <script

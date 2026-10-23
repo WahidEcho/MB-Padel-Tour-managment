@@ -26,6 +26,7 @@ export async function saveLiveVideo(_prev: FormState, formData: FormData): Promi
     const intent = String(formData.get("intent") ?? "save");
     const url = String(formData.get("youtube_url") ?? "").slice(0, 500);
     const on = intent === "remove" ? false : formData.get("on") === "on";
+    const boardInStream = formData.get("board_in_stream") === "on";
     const delayRaw = String(formData.get("delay_seconds") ?? "").trim();
     const delay = delayRaw === "" ? undefined : Number(delayRaw);
     if (delay !== undefined && (!Number.isInteger(delay) || delay < 0 || delay > MAX_DELAY_SECONDS)) {
@@ -35,7 +36,7 @@ export async function saveLiveVideo(_prev: FormState, formData: FormData): Promi
     if (intent !== "remove") {
       const parsed = parseYouTubeUrl(url);
       if (!parsed.ok) refusal(YOUTUBE_PARSE_MESSAGES[parsed.reason]);
-      next = { youtubeId: parsed.id, on, ...(delay !== undefined ? { delaySeconds: delay } : {}), updatedAt: new Date().toISOString() };
+      next = { youtubeId: parsed.id, on, ...(delay !== undefined ? { delaySeconds: delay } : {}), ...(boardInStream ? { boardInStream: true } : {}), updatedAt: new Date().toISOString() };
     }
     let before: LiveVideoCourtConfig | null = null;
     const written = await updateBranding(id, (current) => {

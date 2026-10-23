@@ -351,6 +351,8 @@ export interface LiveVideoCourtConfig {
   on: boolean;
   /** About how far the video runs behind the live score, for the viewers' note. */
   delaySeconds?: number;
+  /** The stream already carries our scoreboard (our own OBS), so our pages draw no second board over it. */
+  boardInStream?: boolean;
   updatedAt?: string;
 }
 

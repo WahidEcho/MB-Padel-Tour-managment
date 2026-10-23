@@ -5,7 +5,7 @@ import AutoRefresh from "@/components/AutoRefresh";
 import { hasPublicVenue } from "@/lib/venue/server";
 import LiveMatchCard from "@/components/LiveMatchCard";
 import YouTubeLivePlayer from "@/components/stream/YouTubeLivePlayer";
-import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
+import { activeLiveVideos, liveVideoConfig, liveVideoForMatch } from "@/lib/stream/liveVideo";
 import ChessTheater from "@/components/ChessTheater";
 import MatchStatsCard from "@/components/MatchStatsCard";
 import { getMatchStats } from "@/lib/mobile/stats";
@@ -106,7 +106,8 @@ export default async function PublicMatch({
           video={video}
           // Our scoreboard over the video, live point by point (owner, 23 Oct 2026), a little larger
           // than on OBS so it covers a stream's own score bar in the bottom-left corner.
-          overlayUrl={`/t/${encodeURIComponent(slug)}/overlay/${encodeURIComponent(video.courtId)}?footer=0&idle=0&scale=1.15`}
+          // None when the stream already carries our board (our own OBS): no second board.
+          overlayUrl={liveVideoConfig(tournament.branding_config).courts[video.courtId]?.boardInStream ? undefined : `/t/${encodeURIComponent(slug)}/overlay/${encodeURIComponent(video.courtId)}?footer=0&idle=0&scale=1.15`}
         />
       )}
       <LiveMatchCard
