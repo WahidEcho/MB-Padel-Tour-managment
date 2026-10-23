@@ -118,10 +118,17 @@ export default async function LiveStreamPage({ params }: { params: Promise<{ id:
               </StateForm>
 
               <div className="space-y-2 border-t border-border pt-3">
+                {v && (
+                  <>
+                    <CopyField label="Watch link: live video with the Move Score board over it (share this one)" value={`${overlayUrl}?video=1`} testId={`watch-url-${court.court_name}`} />
+                    <a href={`${relBase}/${court.id}?video=1`} target="_blank" rel="noreferrer" className="btn-secondary text-xs">Open the watch link ↗</a>
+                  </>
+                )}
                 <CopyField label="OBS overlay URL (browser source, 1920 × 1080)" value={overlayUrl} testId={`overlay-url-${court.court_name}`} />
                 <p className="text-xs text-muted">
                   Score bug only: <code>?footer=0</code> · sponsors only: <code>?bug=0</code> · bigger or smaller: <code>?scale=1.2</code>. The link
-                  uses the court&rsquo;s id, so renaming the court keeps OBS working.
+                  uses the court&rsquo;s id, so renaming the court keeps OBS working. It is see-through on purpose (blank in a normal
+                  browser); to watch, use the watch link above.
                 </p>
                 <OverlayPreview src={`${relBase}/${court.id}`} title={`Overlay preview, ${court.court_name}`} />
               </div>
