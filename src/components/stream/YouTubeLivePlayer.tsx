@@ -57,11 +57,27 @@ const PROBLEM_TEXT: Record<Exclude<Problem, null>, string> = {
  * YouTube's own waiting screen; an ended one, embedding switched off or a
  * missing video falls back to "Open on YouTube", which is always offered below.
  */
-export default function YouTubeLivePlayer({ video, autoStart = false }: { video: MLiveVideo; autoStart?: boolean }) {
+/**
+ * `overlayUrl`: the court's Move Score scoreboard (the OBS overlay page, transparent, 1920×1080)
+ * drawn over the playing video, scaled to the player. It sits where a stream's own score bar
+ * usually is (bottom left), so ours covers theirs; it never takes taps (the video's controls work).
+ */
+export default function YouTubeLivePlayer({ video, autoStart = false, overlayUrl }: { video: MLiveVideo; autoStart?: boolean; overlayUrl?: string }) {
   const [playing, setPlaying] = useState(autoStart);
   const [problem, setProblem] = useState<Problem>(null);
   const frame = useRef<HTMLIFrameElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [boxW, setBoxW] = useState(0);
   const watch = youtubeWatchUrl(video.youtubeId);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el || !overlayUrl) return;
+    const ro = new ResizeObserver(() => setBoxW(el.clientWidth));
+    ro.observe(el);
+    setBoxW(el.clientWidth);
+    return () => ro.disconnect();
+  }, [overlayUrl]);
 
   useEffect(() => {
     if (!playing || !frame.current) return;
@@ -93,7 +109,7 @@ export default function YouTubeLivePlayer({ video, autoStart = false }: { video:
   const origin = typeof window === "undefined" ? undefined : window.location.origin;
   return (
     <section className="space-y-2" data-testid="live-video-player" data-video={video.youtubeId}>
-      <div className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ aspectRatio: "16 / 9" }}>
+      <div ref={box} className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ aspectRatio: "16 / 9" }}>
         {problem ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white" data-testid="live-video-fallback">
             <img src={youtubeThumbnailUrl(video.youtubeId)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-25" />
@@ -124,6 +140,17 @@ export default function YouTubeLivePlayer({ video, autoStart = false }: { video:
             </span>
           </button>
         )}
+        {overlayUrl && playing && !problem && boxW > 0 ? (
+          <iframe
+            src={overlayUrl}
+            title={`Score, ${video.court}`}
+            aria-hidden
+            tabIndex={-1}
+            data-testid="live-video-scoreboard"
+            className="pointer-events-none absolute left-0 top-0 border-0"
+            style={{ width: 1920, height: 1080, transform: `scale(${boxW / 1920})`, transformOrigin: "0 0", background: "transparent", colorScheme: "normal" }}
+          />
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
         <span>{delayNote(video)}</span>

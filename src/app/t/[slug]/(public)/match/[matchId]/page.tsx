@@ -100,7 +100,15 @@ export default async function PublicMatch({
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <AutoRefresh seconds={3} />
-      {video && <YouTubeLivePlayer key={video.youtubeId} video={video} />}
+      {video && (
+        <YouTubeLivePlayer
+          key={video.youtubeId}
+          video={video}
+          // Our scoreboard over the video, live point by point (owner, 23 Oct 2026), a little larger
+          // than on OBS so it covers a stream's own score bar in the bottom-left corner.
+          overlayUrl={`/t/${encodeURIComponent(slug)}/overlay/${encodeURIComponent(video.courtId)}?footer=0&idle=0&scale=1.15`}
+        />
+      )}
       <LiveMatchCard
         match={match}
         snapshot={snapshot}
