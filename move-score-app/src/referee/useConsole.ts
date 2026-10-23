@@ -396,14 +396,19 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
   /* ---------------- scoring v2 ---------------- */
   const opts2 = () => ({ ...opts, doubles: (boot.sideA?.players.length ?? 0) >= 2 && (boot.sideB?.players.length ?? 0) >= 2 });
 
-  /** Stops a recorded timer still running (changeover, set break, a break) before play goes on. */
-  const stopRunning = async () => {
+  /**
+   * Stops a recorded timer still running (changeover, set break, a break) before play goes on.
+   * `keepBetween`: a scoring step leaves the 25 s banner up until the next one replaces it,
+   * so the console never loses the banner for a frame (the whole screen jumped twice a point).
+   */
+  const stopRunning = async (keepBetween = false) => {
     const running = Console.runningClock(stateRef.current);
     if (running && !stateRef.current?.matchOver) {
       const started = Date.parse(running.startedAt);
       await record(() => (cur() ? Console.timerStop(cur()!, running.kind, (Date.now() - (Number.isFinite(started) ? started : Date.now())) / 1000, running.team) : null));
     }
-    if (timerRef.current) setTimer(null);
+    const t = timerRef.current;
+    if (t && !(keepBetween && !t.recorded && t.kind === "between_points")) setTimer(null);
   };
 
   /** After a step that moved the score: the changeover / set break (recorded) or the 25 s (here only). */
@@ -417,14 +422,13 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
 
   /** A scoring step: stop a running timer, record, then start what follows. */
   const step = async (build: () => Console.ConsoleEvent | null): Promise<boolean> => {
-    await stopRunning();
+    await stopRunning(true);
     let built: Console.ConsoleEvent | null = null;
     const ok = await record(() => (built = build()));
     const e = built as Console.ConsoleEvent | null;
-    if (ok && e) {
-      if (e.after?.timer) await follow(e);
-      else if (e.eventType === "FAULT" && timerRef.current && !timerRef.current.recorded) setTimer(null);
-    }
+    if (ok && e?.after?.timer) await follow(e);
+    // Nothing follows (or the step was refused): the 25 s banner kept above goes now.
+    else if (timerRef.current && !timerRef.current.recorded) setTimer(null);
     return ok;
   };
 
