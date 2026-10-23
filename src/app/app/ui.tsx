@@ -1,5 +1,5 @@
 import localFont from "next/font/local";
-import { ANDROID_APK } from "./stores";
+import { ANDROID_APK, TESTFLIGHT_URL } from "./stores";
 
 /**
  * The look shared by the download pages (/app and /app/android). Branded Move
@@ -41,17 +41,23 @@ export function AndroidIcon({ size = 26 }: { size?: number }) {
 
 export function IosButton({ live }: { live: boolean }) {
   if (!live) {
+    // Before the App Store approval: early access through Apple's TestFlight app.
     return (
-      <div
-        id="iphone"
-        className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-left"
-        aria-label="iPhone: coming soon to the App Store"
-      >
-        <AppleIcon />
-        <span className="leading-tight">
-          <span className="block text-[11px] uppercase tracking-[0.18em] text-white/60">iPhone · coming soon</span>
-          <span className="block text-lg font-bold">App Store</span>
-        </span>
+      <div id="iphone" className="grid gap-2">
+        <a
+          href={TESTFLIGHT_URL}
+          className="flex min-h-16 w-full items-center gap-3 rounded-2xl bg-white px-5 py-3 text-left text-black shadow-lg shadow-black/30 transition hover:scale-[1.01] active:scale-[0.99]"
+        >
+          <AppleIcon />
+          <span className="leading-tight">
+            <span className="block text-[11px] uppercase tracking-[0.18em] text-black/60">iPhone · early access</span>
+            <span className="block text-lg font-bold">Get it with Apple TestFlight</span>
+          </span>
+        </a>
+        <p className="px-1 text-xs leading-relaxed text-white/60">
+          Tap the button on your iPhone, install Apple&apos;s free TestFlight app if asked, then tap <b>Accept</b> and <b>Install</b>. Once Move
+          Score is on the App Store, this button takes you there.
+        </p>
       </div>
     );
   }
