@@ -7,6 +7,12 @@ import { ANDROID_APK } from "../movescore/android/apk";
 
 export const APP_STORE_ID = "6818620996";
 export const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
+/**
+ * Until the App Store approves the app, iPhones get it through Apple TestFlight's public link
+ * (external group "MB", owner's decision 23 Oct 2026). Once the App Store page is live the
+ * page and /app/ios switch to the App Store by themselves; IOS_TESTFLIGHT_URL overrides the link.
+ */
+export const TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "https://testflight.apple.com/join/UaV8WF3z";
 export { ANDROID_APK };
 
 /**
