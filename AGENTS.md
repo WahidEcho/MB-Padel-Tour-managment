@@ -130,7 +130,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   the draw) come from pure `src/lib/matches/manualMatchWarnings.ts` and never refuse.
 - The Cairo events (`davis-cup-junior-finals-2026`, `bjk-cup-junior-finals-2026`) are loaded on the live project (21 Oct 2026, drafts);
   public pages on since 24 Oct 2026 (still `draft`, so off the app's lists). Courts for the whole event (owner, 25 Oct 2026; live rows
-  renamed in place, ids kept): BJK Cup 1, 2, 3, 4, 5, 6, 14, 16 · Davis Cup 7, 8, 9, 10, 11, 12, 13, 15. `scripts/events/cairo-2026.ts`
+  renamed in place, ids kept): BJK Cup 1, 2, 3, 4, 5, 6, 14, 16 · Davis Cup 7, 8, 9, 10, 11, 12, 13, 15; big-screen TV courts: Davis Cup Court 13
+  (`screen/court-13-tv`), BJK Cup Court 14 (`screen/court-14-tv`). `scripts/events/cairo-2026.ts`
   still has the old split (ids derive from the old numbers): do not re-run it against live. The replay demo has
   `playDeadRubbersInPlacement: false` there.
 - Permanent QR codes: a printed code encodes `https://tour.mbeg.org/q/<code>` (route `src/app/q/[code]`, 307,
