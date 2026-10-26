@@ -232,3 +232,17 @@ export function getOverlayMatchStats(tournamentId: string, matchId: string): Pro
 export function statsCacheSeconds(status: string): [number, number] {
   return ["live", "paused", "pending_sync", "ready", "scheduled"].includes(status) ? [3, 10] : [60, 300];
 }
+
+/**
+ * For the court TV of a team competition, which is never delayed (like the
+ * overlay): the stats of these finished rubbers of one public tournament, by
+ * match id. Explicit numbers only; aces only when the organiser shows them.
+ */
+export async function getCourtTvStats(tournamentId: string, matchIds: string[]): Promise<Record<string, MatchStatsResult>> {
+  if (!matchIds.length) return {};
+  const t = await publicTournament(tournamentId);
+  if (!t) return {};
+  const { data } = await db().from("matches").select(STATS_MATCH_COLUMNS).in("id", matchIds).eq("tournament_id", tournamentId);
+  const ms = (data ?? []) as unknown as StatsMatch[];
+  return Object.fromEntries(await statsFor(ms, t, null));
+}

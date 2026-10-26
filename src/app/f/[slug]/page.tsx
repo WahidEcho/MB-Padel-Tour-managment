@@ -5,7 +5,7 @@ import SponsorMarquee from "@/components/SponsorMarquee";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
-import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle, watermarkSponsor } from "@/lib/sponsors";
 import PresenceBeat from "@/components/PresenceBeat";
 import { getCourts, getMatches, getTeams, getTournament, teamMap } from "@/lib/data";
 import { getRankingSnapshot, getSessionBySlug, listPublicPlayers } from "@/lib/friendly/data";
@@ -57,7 +57,7 @@ export default async function SessionPublicPage({ params }: { params: Promise<{ 
       <AutoRefresh seconds={8} />
       {backdrop && <EventBackdrop background={backdrop} variant="page" />}
       {mainSponsor?.showOnDashboard !== false && (
-        <SponsorWatermark sponsor={mainSponsor} surface="dashboard" backgroundHex="#ffffff" variant="page" />
+        <SponsorWatermark sponsor={watermarkSponsor(mainSponsor)} surface="dashboard" backgroundHex="#ffffff" variant="page" />
       )}
 
       <header className="space-y-1 text-center">

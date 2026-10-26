@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { sizedImageSrc } from "@/lib/portrait";
-import { logoBox, tickerPlan } from "@/lib/sponsors";
+import { logoBox, sponsorLogoSrc, tickerPlan } from "@/lib/sponsors";
 import type { MainSponsor, SponsorEntry } from "@/lib/types";
 
 /**
@@ -28,6 +28,7 @@ export default function SponsorTicker({
   gap = 72,
   chips = true,
   uniform = false,
+  dark = false,
 }: {
   main: MainSponsor | null;
   sponsors: SponsorEntry[];
@@ -37,6 +38,8 @@ export default function SponsorTicker({
   chips?: boolean;
   /** One identical box for every logo (branding_config.sponsorUniformSize). */
   uniform?: boolean;
+  /** A dark screen: a sponsor's logoDarkUrl is used when there is no chip behind it. */
+  dark?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   // A sensible first guess for the server render: the stage is 1920 wide and the
@@ -74,7 +77,7 @@ export default function SponsorTicker({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={sizedImageSrc(s.logoUrl, Math.max(160, box.width * 2)) ?? s.logoUrl}
+              src={sizedImageSrc(sponsorLogoSrc(s, { dark, chips }), Math.max(160, box.width * 2)) ?? sponsorLogoSrc(s, { dark, chips })}
               alt={copy === 0 ? s.name || "Sponsor" : ""}
               width={box.width}
               height={box.height}

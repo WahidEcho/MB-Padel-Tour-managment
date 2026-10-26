@@ -8,7 +8,7 @@ export default async function MainScreenPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ court?: string; mode?: string; preview?: string }>;
+  searchParams: Promise<{ court?: string; mode?: string; preview?: string; aspect?: string }>;
 }) {
   const { slug } = await params;
   return <TvScreen slug={slug} overrides={await searchParams} />;

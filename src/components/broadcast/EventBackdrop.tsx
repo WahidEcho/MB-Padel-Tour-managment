@@ -5,6 +5,7 @@ import { dimPercent } from "@/lib/background";
 import { ROWS } from "@/lib/tv/layout";
 import type { EventBackground } from "@/lib/types";
 import { useLive } from "./LiveFeedProvider";
+import { useStageSize } from "./BroadcastStage";
 
 function subscribeReducedMotion(onChange: () => void) {
   const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -52,12 +53,19 @@ const RETRY_MS = [5_000, 15_000, 60_000];
 export default function EventBackdrop({
   background,
   variant = "stage",
+  bands = true,
 }: {
   background: EventBackground;
   /** A 1920x1080 venue stage, or a scrolling page where it is fixed to the viewport. */
   variant?: "stage" | "page";
+  /**
+   * On a stage: a strong ground behind the classic header and sponsor rows. Off for
+   * a layout that draws its own band (the court TV), where one even veil is right.
+   */
+  bands?: boolean;
 }) {
   const live = useLive();
+  const stageH = useStageSize().height;
   const reducedMotion = useSyncExternalStore(
     subscribeReducedMotion,
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -157,9 +165,9 @@ export default function EventBackdrop({
   const layer = (percent: number) => `color-mix(in oklab, var(--background) ${percent}%, transparent)`;
   // On the wall, the header and the sponsor band keep a strong ground at any setting.
   const band = Math.max(scrim, 82);
-  const headerEnd = (ROWS.header / 1080) * 100;
-  const tickerStart = 100 - (ROWS.ticker / 1080) * 100;
-  const scrimStyle = stage
+  const headerEnd = (ROWS.header / stageH) * 100;
+  const tickerStart = 100 - (ROWS.ticker / stageH) * 100;
+  const scrimStyle = stage && bands
     ? `linear-gradient(to bottom, ${layer(band)} 0%, ${layer(band)} ${headerEnd}%, ${layer(scrim)} ${headerEnd + 4}%, ${layer(scrim)} ${tickerStart - 4}%, ${layer(band)} ${tickerStart}%, ${layer(band)} 100%)`
     : layer(scrim);
   const showStill = !motion && animatable;

@@ -11,6 +11,29 @@
  */
 
 export const STAGE = { width: 1920, height: 1080 } as const;
+
+/**
+ * The canvas a venue screen is drawn on. A 16:10 wall (a 4 m x 2.5 m LED wall,
+ * 1920x1200 panels) gets a 1920x1200 canvas so it fills the wall; anything else
+ * keeps 1920x1080 exactly. Letterboxed, never stretched, either way.
+ */
+export type StageAspect = "auto" | "16:9" | "16:10";
+export const TALL_STAGE = { width: 1920, height: 1200 } as const;
+/** Width over height that counts as 16:10 (1.6), with room for odd panel resolutions. */
+export const SIXTEEN_TEN = { min: 1.55, max: 1.66 } as const;
+
+export function isStageAspect(v: unknown): v is StageAspect {
+  return v === "auto" || v === "16:9" || v === "16:10";
+}
+
+/** The canvas for a host of this size, or a forced aspect. */
+export function stageFor(hostW: number, hostH: number, aspect: StageAspect = "auto"): { width: number; height: number } {
+  if (aspect === "16:10") return TALL_STAGE;
+  if (aspect === "16:9") return STAGE;
+  if (!(hostW > 0) || !(hostH > 0)) return STAGE;
+  const r = hostW / hostH;
+  return r >= SIXTEEN_TEN.min && r <= SIXTEEN_TEN.max ? TALL_STAGE : STAGE;
+}
 export const ROWS = { header: 96, content: 900, ticker: 84 } as const;
 export const GUTTER = 20;
 export const MIN_TEXT = 22;

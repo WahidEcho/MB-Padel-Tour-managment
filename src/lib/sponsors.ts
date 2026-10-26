@@ -24,6 +24,17 @@ export function isSafeImageUrl(value: unknown): value is string {
   }
 }
 
+/** A site path (/sponsors/…) or an absolute https URL; nothing else is drawn. */
+export function isLogoSrc(v: unknown): v is string {
+  if (typeof v !== "string" || v.length > 1000) return false;
+  if (/^\/(?!\/)[A-Za-z0-9._~\-/%]+$/.test(v)) return !v.includes("..");
+  try {
+    return new URL(v).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function cleanAspect(aspect: unknown): number | undefined {
   return typeof aspect === "number" && Number.isFinite(aspect) && aspect > 0.05 && aspect < 40 ? aspect : undefined;
 }
@@ -55,7 +66,11 @@ export function sponsorStyle(branding: BrandingConfig | null | undefined): Spons
   };
 }
 
-export function resolveSponsors(branding: BrandingConfig | null | undefined): ResolvedSponsors {
+/**
+ * Hidden footer sponsors are left out everywhere, except for the admin form
+ * (`includeHidden`), which keeps them in their place in the list.
+ */
+export function resolveSponsors(branding: BrandingConfig | null | undefined, opts: { includeHidden?: boolean } = {}): ResolvedSponsors {
   const b = branding ?? {};
   const m = b.mainSponsor;
   const main: MainSponsor | null =
@@ -67,6 +82,7 @@ export function resolveSponsors(branding: BrandingConfig | null | undefined): Re
           intensity: m.intensity === "subtle" || m.intensity === "vivid" ? m.intensity : "standard",
           showOnDashboard: m.showOnDashboard !== false,
           aspect: cleanAspect(m.aspect),
+          watermark: m.watermark !== false,
         }
       : null;
 
@@ -82,11 +98,14 @@ export function resolveSponsors(branding: BrandingConfig | null | undefined): Re
   for (const s of source) {
     if (!s || !isSafeImageUrl(s.logoUrl) || seen.has(s.logoUrl)) continue;
     seen.add(s.logoUrl);
+    if (s.hidden === true && !opts.includeHidden) continue;
     footer.push({
       name: (s.name ?? "").trim(),
       logoUrl: s.logoUrl,
       ...(s.tier ? { tier: s.tier } : {}),
       ...(cleanAspect(s.aspect) ? { aspect: cleanAspect(s.aspect) } : {}),
+      ...(s.hidden === true ? { hidden: true } : {}),
+      ...(isLogoSrc(s.logoDarkUrl) ? { logoDarkUrl: s.logoDarkUrl } : {}),
     });
   }
   return { main, footer };
@@ -129,6 +148,16 @@ export function surfaceForMode(mode: DisplayMode, courtCount: number): Watermark
     case "winner":
       return "slate";
   }
+}
+
+/** The main sponsor whose watermark a screen draws: none when the organiser turned it off. */
+/** The logo a footer sponsor shows: its dark-surface version when drawn chip-less on a dark screen. */
+export function sponsorLogoSrc(s: SponsorEntry, surface: { dark: boolean; chips: boolean }): string {
+  return surface.dark && !surface.chips && s.logoDarkUrl ? s.logoDarkUrl : s.logoUrl;
+}
+
+export function watermarkSponsor(main: MainSponsor | null): MainSponsor | null {
+  return main && main.watermark !== false ? main : null;
 }
 
 export function markOpacity(surface: WatermarkSurface, intensity: SponsorIntensity = "standard"): number {

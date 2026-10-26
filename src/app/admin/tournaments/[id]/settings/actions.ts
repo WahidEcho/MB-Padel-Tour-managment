@@ -5,7 +5,7 @@ import { db } from "@/lib/supabase";
 import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { deleteUploads, uploadImage, uploadLogo } from "@/lib/upload";
-import { isHex, resolveSponsors } from "@/lib/sponsors";
+import { isHex, resolveSponsors, isLogoSrc } from "@/lib/sponsors";
 import { getTournament } from "@/lib/data";
 import type {
   BrandingConfig,
@@ -308,6 +308,8 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
             accentHex: accent.toLowerCase(),
             intensity,
             showOnDashboard: formData.getAll("main_dashboard").includes("on"),
+            // Rides with a hidden "off"; a form without the field keeps what is stored.
+            watermark: formData.has("main_watermark") ? formData.getAll("main_watermark").includes("on") : branding.mainSponsor?.watermark !== false,
             ...(uploaded ? (uploaded.aspect ? { aspect: uploaded.aspect } : {}) : branding.mainSponsor?.aspect ? { aspect: branding.mainSponsor.aspect } : {}),
           };
         }
@@ -317,7 +319,7 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     // ---------- footer sponsors ----------
     // The rows posted back are checked against what is stored, so a hand-edited
     // form cannot slip an arbitrary URL onto a public wall.
-    const current = resolveSponsors(t.branding_config).footer;
+    const current = resolveSponsors(t.branding_config, { includeHidden: true }).footer;
     const byUrl = new Map(current.map((sp) => [sp.logoUrl, sp]));
     const count = Math.min(200, Number(formData.get("sponsor_count") ?? 0) || 0);
     const kept: SponsorEntry[] = [];
@@ -325,7 +327,17 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
       const url = String(formData.get(`sponsor_url_${i}`) ?? "");
       const existing = byUrl.get(url);
       if (!existing || formData.get(`sponsor_remove_${i}`) === "on") continue;
-      kept.push({ ...existing, name: text(formData, `sponsor_name_${i}`, 60) });
+      const dark = text(formData, `sponsor_dark_${i}`, 1000);
+      if (dark && !isLogoSrc(dark)) problems.push(`Sponsor ${i + 1}: the dark-screen logo must be a site path (/sponsors/…) or an https link.`);
+      const base = { ...existing };
+      delete base.hidden;
+      delete base.logoDarkUrl;
+      kept.push({
+        ...base,
+        name: text(formData, `sponsor_name_${i}`, 60),
+        ...(formData.get(`sponsor_hidden_${i}`) === "on" ? { hidden: true } : {}),
+        ...(dark && isLogoSrc(dark) ? { logoDarkUrl: dark } : {}),
+      });
     }
     const added = formData.getAll("sponsor_logos").filter((f): f is File => f instanceof File && f.size > 0);
     for (const f of added) {
@@ -335,7 +347,7 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     if (formData.get("clear_sponsors") === "on") kept.length = 0;
     branding.sponsors = kept;
     // Kept in step for anything still reading the old list (clones, exports).
-    branding.sponsorLogoUrls = kept.map((sp) => sp.logoUrl);
+    branding.sponsorLogoUrls = kept.filter((sp) => !sp.hidden).map((sp) => sp.logoUrl);
 
     // ---------- how the band draws its logos ----------
     // Each rides with a hidden "off", so unticking is written too: an unchecked

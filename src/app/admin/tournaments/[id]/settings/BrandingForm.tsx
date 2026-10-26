@@ -24,7 +24,8 @@ export default function BrandingForm({
   returnPath?: string;
 }) {
   const [state, action, pending] = useActionState<BrandingFormState, FormData>(saveBranding, null);
-  const { main, footer } = resolveSponsors(branding);
+  // Hidden sponsors stay listed here, in their place, with their box ticked.
+  const { main, footer } = resolveSponsors(branding, { includeHidden: true });
   const [accent, setAccent] = useState(main?.accentHex ?? "#00a651");
   // The band's two display choices, held here so the strip below shows the
   // answer before it is saved: this is a purely visual decision and describing
@@ -32,7 +33,7 @@ export default function BrandingForm({
   const saved = sponsorStyle(branding);
   const [chips, setChips] = useState(saved.chips);
   const [uniform, setUniform] = useState(saved.uniform);
-  const preview = [main, ...footer].filter(Boolean).slice(0, 5) as { logoUrl: string; aspect?: number }[];
+  const preview = [main, ...footer.filter((sp) => !sp.hidden)].filter(Boolean).slice(0, 5) as { logoUrl: string; aspect?: number }[];
 
   return (
     <form action={action} className="card space-y-4">
@@ -111,6 +112,11 @@ export default function BrandingForm({
             </div>
           </div>
         </div>
+        <input type="hidden" name="main_watermark" value="off" />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="main_watermark" value="on" defaultChecked={main?.watermark !== false} className="h-4 w-4" data-testid="main-watermark" />
+          Show the main sponsor&apos;s watermark on screens
+        </label>
         <input type="hidden" name="main_dashboard" value="off" />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="main_dashboard" value="on" defaultChecked={main?.showOnDashboard !== false} className="h-4 w-4" />
@@ -132,6 +138,16 @@ export default function BrandingForm({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={sp.logoUrl} alt="" className="h-8 w-16 rounded border border-border object-contain" />
             <input name={`sponsor_name_${i}`} defaultValue={sp.name} placeholder="Sponsor name" className="input flex-1 text-sm" maxLength={60} />
+            <input
+              name={`sponsor_dark_${i}`}
+              defaultValue={sp.logoDarkUrl ?? ""}
+              placeholder="Logo on dark, no chip (optional)"
+              title="Drawn straight on a dark screen when the white panels are off. A site path (/sponsors/…) or an https link."
+              className="input w-56 text-xs"
+            />
+            <label className="flex items-center gap-1 text-xs" title="Kept in the list but shown nowhere">
+              <input type="checkbox" name={`sponsor_hidden_${i}`} defaultChecked={sp.hidden === true} data-testid={`sponsor-hidden-${i}`} /> hidden
+            </label>
             <label className="flex items-center gap-1 text-xs text-danger">
               <input type="checkbox" name={`sponsor_remove_${i}`} /> remove
             </label>

@@ -37,17 +37,20 @@ import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
 import { redBlueTeams } from "@/lib/sides";
-import { resolveSponsors, sponsorStyle, surfaceForMode } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle, surfaceForMode, watermarkSponsor } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
-import { GUTTER, ROWS, STAGE, bracketFontPx, leaderboardPlan } from "@/lib/tv/layout";
+import { GUTTER, ROWS, STAGE, bracketFontPx, isStageAspect, leaderboardPlan } from "@/lib/tv/layout";
 import { sizedImageSrc } from "@/lib/portrait";
 import { getTies, isTieFormat } from "@/lib/tennis/tieOps";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import { sportOf } from "@/lib/sports/registry";
 import { matchDayRules } from "@/lib/matchday/rules";
 import TennisCourts, { type TvNation, type TvRubber } from "@/components/tennis/TennisCourts";
+import CourtTv from "@/components/tennis/CourtTv";
+import { eventLogoFor, eventRecords, partnerSrc, sanitizeCourtTv, sanitizeHeaderPartners } from "@/lib/tennis/courtTv";
+import { getCourtTvStats } from "@/lib/mobile/stats";
 
 const VALID_MODES: DisplayMode[] = [
   "live",
@@ -90,7 +93,7 @@ export default async function TvScreen({
 }: {
   slug: string;
   screenKey?: string;
-  overrides: { court?: string; mode?: string; preview?: string };
+  overrides: { court?: string; mode?: string; preview?: string; aspect?: string };
 }) {
   if (!isValidScreenKey(screenKey)) notFound();
 
@@ -232,6 +235,51 @@ export default async function TvScreen({
   const tvSwitches = { aces: v2.tvAces && v2.ace, timers: v2.tvTimers };
   const tennis = isTies ? await tennisProps(tournament, teams, matches) : null;
 
+  // One court on this wall: the court TV in the Cairo design (header, score card,
+  // breaks, result with match analytics). A wall of several courts keeps the
+  // side-by-side scenes.
+  const tvCourt = tennis
+    ? pinnedCourtId
+      ? courts.find((c) => c.id === pinnedCourtId)
+      : covered.length === 1
+        ? covered[0]
+        : undefined
+    : undefined;
+  const theme = dark ? "dark" : "light";
+  let courtTv: Omit<React.ComponentProps<typeof CourtTv>, "footer"> | null = null;
+  if (tennis && tvCourt) {
+    const tieIds = new Set(tennis.ties.filter((t) => t.court_id === tvCourt.id).map((t) => t.id));
+    const matchById = new Map(matches.map((m) => [m.id, m]));
+    const finished = Object.values(tennis.rubbers).filter((r) => {
+      const m = matchById.get(r.id);
+      return tieIds.has(r.tie_id) && m && FINISHED.includes(m.status);
+    });
+    const settingsTv = sanitizeCourtTv(logos.courtTv);
+    const stats = settingsTv.postMatchStats ? await getCourtTvStats(id, finished.map((r) => r.id)) : {};
+    const rubberMatches = Object.values(tennis.rubbers).flatMap((r) => {
+      const m = matchById.get(r.id);
+      return m ? [{ status: m.status, winner_team_id: m.winner_team_id, team_a_id: m.team_a_id, a: r.a, b: r.b, sets: snapByMatch.get(m.id)?.completed_sets ?? [] }] : [];
+    });
+    courtTv = {
+      court: { id: tvCourt.id, name: tvCourt.court_name },
+      title: displayName,
+      eventLogo: eventLogoFor(logos, theme),
+      partners: sanitizeHeaderPartners(logos.headerPartners).map((p) => ({ name: p.name, src: partnerSrc(p, theme), aspect: p.aspect, height: p.height })),
+      theme,
+      backdrop: Boolean(backdrop),
+      settings: settingsTv,
+      timers: v2.tvTimers,
+      shotClock: v2.tvTimers && v2.timerBetweenPoints,
+      aces: tvSwitches.aces,
+      nations: tennis.nations,
+      ties: tennis.ties,
+      rubbers: tennis.rubbers,
+      records: tennis.records,
+      eventRecords: eventRecords(rubberMatches),
+      stats,
+    };
+  }
+
   const holding = {
     title: logos.holding?.title?.trim() || displayName,
     message: logos.holding?.message?.trim() || "Back shortly",
@@ -241,6 +289,7 @@ export default async function TvScreen({
 
   return (
     <BroadcastStage
+      aspect={isStageAspect(overrides.aspect) ? overrides.aspect : "auto"}
       className={`${dark ? "theme-dark " : ""}bg-background text-foreground${backdrop ? " bc-has-backdrop" : ""}`}
     >
       <LiveFeedProvider
@@ -251,7 +300,7 @@ export default async function TvScreen({
         refreshOnScore={isChess}
       >
         {/* The event's own background, at the very back. */}
-        {backdrop && <EventBackdrop background={backdrop} variant="stage" />}
+        {backdrop && <EventBackdrop background={backdrop} variant="stage" bands={!courtTv} />}
         {mode === "holding" && holding.imageUrl && (
           // A solid ground, so the slate's photo covers the event background rather
           // than blending with it.
@@ -269,11 +318,24 @@ export default async function TvScreen({
           </div>
         )}
         {/* Inside the feed provider, so MUTE ANIMATIONS stills the glow too. */}
-        <SponsorWatermark sponsor={mainSponsor} surface={watermarkSurface} backgroundHex={dark ? "#0b0b0b" : "#ffffff"} />
+        <SponsorWatermark sponsor={watermarkSponsor(mainSponsor)} surface={watermarkSurface} backgroundHex={dark ? "#0b0b0b" : "#ffffff"} />
+
+        {courtTv && (
+          <>
+            <CourtTv
+              {...courtTv}
+              footer={<SponsorTicker main={mainSponsor} sponsors={footerSponsors} chips={bandStyle.chips} uniform={bandStyle.uniform} dark={dark} />}
+            />
+            {/* The operator's break, over the content row only. */}
+            <div className="absolute inset-x-0" style={{ top: 132, height: "calc(var(--stage-h, 1080px) - 260px)", zIndex: 20 }}>
+              <BreakOverlay title={holding.title} />
+            </div>
+          </>
+        )}
 
         {/* Three pinned rows that fill the canvas exactly. Each clips its own
             content: a fixed row that overflows still paints into the next one. */}
-        <div className="relative grid h-full" style={{ zIndex: 10, gridTemplateRows: `${ROWS.header}px ${ROWS.content}px ${ROWS.ticker}px` }}>
+        {!courtTv && (<div className="relative grid h-full" style={{ zIndex: 10, gridTemplateRows: `${ROWS.header}px minmax(${ROWS.content}px, 1fr) ${ROWS.ticker}px` }}>
           <header className="flex min-h-0 items-center justify-between gap-8 overflow-hidden px-10">
             <div className="min-w-0">
               <h1 className="truncate text-[44px] font-black leading-tight">{displayName}</h1>
@@ -293,7 +355,10 @@ export default async function TvScreen({
             </div>
           </header>
 
-          <main className="relative min-h-0 overflow-hidden">
+          {/* The scenes are laid out for a 900-pixel row; on a 16:10 canvas (1200
+              tall) the row grows by 120 and the scene is centred in it. */}
+          <main className="relative flex min-h-0 items-center overflow-hidden">
+          <div className="relative w-full shrink-0 overflow-hidden" style={{ height: ROWS.content }}>
             {tennis && (
               <TennisCourts
                 courts={courtInfo}
@@ -458,6 +523,7 @@ export default async function TvScreen({
                 )}
               </div>
             )}
+          </div>
           </main>
 
           {/* The during-play sponsor surface. The full-screen rotator above is the
@@ -469,10 +535,11 @@ export default async function TvScreen({
                 sponsors={footerSponsors}
                 chips={bandStyle.chips}
                 uniform={bandStyle.uniform}
+                dark={dark}
               />
             )}
           </footer>
-        </div>
+        </div>)}
       </LiveFeedProvider>
     </BroadcastStage>
   );

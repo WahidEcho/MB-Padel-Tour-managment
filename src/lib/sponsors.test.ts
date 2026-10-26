@@ -13,6 +13,8 @@ import {
   sponsorStyle,
   surfaceForMode,
   tickerPlan,
+  watermarkSponsor,
+  sponsorLogoSrc,
   type WatermarkSurface,
 } from "./sponsors";
 import { imageDimensions } from "./upload";
@@ -244,5 +246,41 @@ describe("imageDimensions", () => {
 
   it("returns null for bytes it does not recognise", () => {
     expect(imageDimensions(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]))).toBeNull();
+  });
+});
+
+describe("main sponsor watermark switch", () => {
+  it("defaults to on for existing tournaments, and is off only when turned off", () => {
+    const on = resolveSponsors({ mainSponsor: { name: "Midar", logoUrl: FRESH, accentHex: "#00a651" } }).main;
+    expect(on?.watermark).toBe(true);
+    expect(watermarkSponsor(on)).toBe(on);
+    const off = resolveSponsors({ mainSponsor: { name: "Midar", logoUrl: FRESH, accentHex: "#00a651", watermark: false } }).main;
+    expect(off?.watermark).toBe(false);
+    // Still the main partner in the band; only the watermark goes.
+    expect(off?.logoUrl).toBe(FRESH);
+    expect(watermarkSponsor(off)).toBeNull();
+    expect(watermarkSponsor(null)).toBeNull();
+  });
+});
+
+describe("hidden sponsors and dark-surface logos", () => {
+  const list = [
+    { name: "World Tennis", logoUrl: A, hidden: true },
+    { name: "Bee", logoUrl: B, logoDarkUrl: "/sponsors/cairo-2026/color/world-tennis-on-dark.png" },
+    { name: "Bad dark", logoUrl: FRESH, logoDarkUrl: "javascript:x" },
+  ];
+  it("a hidden sponsor is shown nowhere, but the admin keeps it in its place", () => {
+    expect(resolveSponsors({ sponsors: list }).footer.map((s) => s.name)).toEqual(["Bee", "Bad dark"]);
+    const admin = resolveSponsors({ sponsors: list }, { includeHidden: true }).footer;
+    expect(admin.map((s) => s.name)).toEqual(["World Tennis", "Bee", "Bad dark"]);
+    expect(admin[0].hidden).toBe(true);
+  });
+  it("the dark logo only on a dark screen without chips, and only a safe one", () => {
+    const [bee, bad] = resolveSponsors({ sponsors: list }).footer;
+    expect(bad.logoDarkUrl).toBeUndefined();
+    expect(sponsorLogoSrc(bee, { dark: true, chips: false })).toContain("on-dark");
+    expect(sponsorLogoSrc(bee, { dark: true, chips: true })).toBe(B);
+    expect(sponsorLogoSrc(bee, { dark: false, chips: false })).toBe(B);
+    expect(sponsorLogoSrc(bad, { dark: true, chips: false })).toBe(FRESH);
   });
 });

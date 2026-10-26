@@ -7,7 +7,7 @@ import SponsorMarquee from "@/components/SponsorMarquee";
 import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
-import { resolveSponsors, sponsorStyle } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle, watermarkSponsor } from "@/lib/sponsors";
 import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
 import { watchTargets } from "@/lib/watch";
 import { hasPublicVenue } from "@/lib/venue/server";
@@ -83,7 +83,7 @@ export default async function PublicLayout({
       {/* The event background, only when the organiser chose it for these pages. */}
       {backdrop && <EventBackdrop background={backdrop} variant="page" />}
       {main?.showOnDashboard !== false && (
-        <SponsorWatermark sponsor={main} surface="dashboard" backgroundHex="#ffffff" variant="page" />
+        <SponsorWatermark sponsor={watermarkSponsor(main)} surface="dashboard" backgroundHex="#ffffff" variant="page" />
       )}
       {/* Above the content, not level with it: the Watch menu drops out of the
           header, and at the same z-index the page below painted straight over it. */}

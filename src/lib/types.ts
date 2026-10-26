@@ -250,6 +250,11 @@ export interface MainSponsor {
   showOnDashboard?: boolean;
   /** Width over height of the logo, measured on upload. */
   aspect?: number;
+  /**
+   * The faint mark of the logo behind the screens' content (SponsorWatermark).
+   * Defaults to on; off keeps the sponsor in the band without the watermark.
+   */
+  watermark?: boolean;
 }
 
 /** Every other sponsor, in the order they loop along the footer. */
@@ -259,6 +264,16 @@ export interface SponsorEntry {
   tier?: string;
   /** Width over height, measured on upload so the footer can be laid out before a logo loads. */
   aspect?: number;
+  /**
+   * Kept in the list (and its order) but shown nowhere: not in the TV footer, the
+   * public band or exports. resolveSponsors leaves it out.
+   */
+  hidden?: boolean;
+  /**
+   * The logo drawn straight on a dark surface (a dark screen with the white chips
+   * off). A site path or https only. With chips on, logoUrl is used.
+   */
+  logoDarkUrl?: string;
 }
 
 /** What the holding slate says between sessions of play. */
@@ -293,6 +308,22 @@ export interface BrandingConfig {
   moveBeyondLogoUrl?: string;
   clientLogoUrl?: string;
   eventLogoUrl?: string;
+  /**
+   * The event logo for a light screen (a dark logo), when `eventLogoUrl` is the
+   * white one. A site path or https only (src/lib/tennis/courtTv.ts eventLogoFor).
+   */
+  eventLogoLightUrl?: string;
+  /**
+   * Co-branding logos beside the event logo in the court TV header (federation,
+   * tour). Read only through sanitizeHeaderPartners (src/lib/tennis/courtTv.ts).
+   */
+  headerPartners?: unknown;
+  /**
+   * The court TV of a team competition: glass card, break animation and timer,
+   * official break times, post-match analytics, palette. Read only through
+   * sanitizeCourtTv (src/lib/tennis/courtTv.ts). Display settings, not private.
+   */
+  courtTv?: unknown;
   /** Legacy: bare URLs. Read through resolveSponsors, which also accepts `sponsors`. */
   sponsorLogoUrls?: string[];
   backgroundUrl?: string;

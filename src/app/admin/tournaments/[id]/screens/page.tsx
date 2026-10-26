@@ -6,6 +6,9 @@ import { can } from "@/lib/auth";
 import { ensureMainScreen } from "@/lib/screens";
 import ConfirmSubmit from "@/components/ConfirmSubmit";
 import { removeScreen } from "@/app/operator/tournaments/[id]/control/actions";
+import { isTieFormat } from "@/lib/tennis/tieOps";
+import { isLogoSrc, sanitizeCourtTv, sanitizeHeaderPartners } from "@/lib/tennis/courtTv";
+import CourtTvForm from "./CourtTvForm";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +92,15 @@ export default async function ScreensPage({ params }: { params: Promise<{ id: st
           })}
         </ul>
       </section>
+
+      {isTieFormat(tournament) && tournament.kind !== "friendly_session" && can(role, "manage_tournament") && (
+        <CourtTvForm
+          tournamentId={id}
+          settings={sanitizeCourtTv(tournament.branding_config.courtTv)}
+          eventLogoLightUrl={isLogoSrc(tournament.branding_config.eventLogoLightUrl) ? tournament.branding_config.eventLogoLightUrl : ""}
+          partners={sanitizeHeaderPartners(tournament.branding_config.headerPartners)}
+        />
+      )}
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold">Other public links</h2>
