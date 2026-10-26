@@ -609,6 +609,7 @@ async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { ph
   const installs = await liveActivityAudience(match, ctx, {
     mine: rules.lockScreen.autoStartMine,
     starred: rules.lockScreen.autoStartStarred,
+    followed: rules.lockScreen.autoStartFollowed,
     // "Soon" and "called" are match-day calls: a phone that turned those alerts off gets no card either.
     respectCourtPref: p.phase !== "live",
   });
@@ -619,7 +620,7 @@ async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { ph
  * The iPhones that should get a card for this match: the players' own (through
  * their claimed player codes) and the phones that starred the match.
  */
-async function liveActivityAudience(match: Match, ctx: Ctx, opts: { mine: boolean; starred: boolean; respectCourtPref: boolean }): Promise<string[]> {
+async function liveActivityAudience(match: Match, ctx: Ctx, opts: { mine: boolean; starred: boolean; followed?: boolean; respectCourtPref: boolean }): Promise<string[]> {
   const users = new Set<string>();
   const installs = new Set<string>();
   if (opts.mine) {
@@ -635,6 +636,21 @@ async function liveActivityAudience(match: Match, ctx: Ctx, opts: { mine: boolea
   if (opts.starred) {
     const { data } = await db().from("follows").select("owner_kind, owner_id").eq("target_kind", "match").eq("target_key", match.id);
     for (const f of (data ?? []) as { owner_kind: "install" | "user"; owner_id: string }[]) (f.owner_kind === "user" ? users : installs).add(f.owner_id);
+  }
+  if (opts.followed) {
+    // Phones following a player in the match, or one of its two nations (owner, 26 Oct 2026).
+    const playerIds = [
+      ...sidePlayers(ctx, match.team_a_id, match.team_a_player_ids),
+      ...sidePlayers(ctx, match.team_b_id, match.team_b_player_ids),
+    ].map((pl) => pl.id);
+    const nations = [match.team_a_id, match.team_b_id]
+      .map((id) => (id ? ctx.teams.get(id)?.nation_code : null))
+      .filter((c): c is string => Boolean(c));
+    for (const [kind, keys] of [["player", playerIds], ["nation", nations]] as const) {
+      if (!keys.length) continue;
+      const { data } = await db().from("follows").select("owner_kind, owner_id").eq("target_kind", kind).in("target_key", [...keys]);
+      for (const f of (data ?? []) as { owner_kind: "install" | "user"; owner_id: string }[]) (f.owner_kind === "user" ? users : installs).add(f.owner_id);
+    }
   }
   const rows: { installation_id: string; prefs: { court?: boolean } | null }[] = [];
   const cols = "installation_id, prefs";

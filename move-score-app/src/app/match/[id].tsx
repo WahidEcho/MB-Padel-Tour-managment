@@ -22,7 +22,8 @@ import { Rolling } from "../../ui/Rolling";
 import { Momentum } from "../../ui/Momentum";
 import { Takeover, type TakeoverMoment } from "../../ui/Takeover";
 import { toggleFollow, useFollowing } from "../../state/follows";
-import { startLockScreen, lockScreenSupported } from "../../live/lockScreen";
+import { startLockScreen, endLockScreen, isOnLockScreen, lockScreenSupported } from "../../live/lockScreen";
+import { LockScreenGuide, lockGuideSeen } from "../../live/LockScreenGuide";
 import { openPlayer, openTeam, openTie, openTournament, openVenueMap } from "../../nav/links";
 import { useMyPlayer } from "../../player/me";
 import { playsIn } from "../../player/mine";
@@ -163,6 +164,16 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
   const md = b.data?.tournament.matchDay;
   const me = useMyPlayer().data ?? null;
   const lockScreenOff = Boolean(md?.on && !md.liveActivities);
+  // Is this match's card on the lock screen? Checked on open and after every tap.
+  const [onLock, setOnLock] = useState(false);
+  const [lockGuide, setLockGuide] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void isOnLockScreen(id).then((v) => alive && setOnLock(v));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
   // Fetched again whenever the match moves, so the last point lands after the match leaves "live".
   const tl = useTimeline(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
   const st = useMatchStats(id, live, m ? `${m.status}:${m.score?.lastEventNumber ?? 0}` : undefined);
@@ -236,6 +247,21 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
     prevStatus.current = m.status;
   }, [q.data, m, v, aLabel, bLabel, b.data, flags.takeovers, tr]);
 
+  const lockLabels = () => ({ a: aCode, b: bCode, court: m && v ? v.court(m.courtId) ?? "" : "" });
+  const toggleLock = async () => {
+    if (!m) return;
+    if (onLock) await endLockScreen(m.id);
+    else await startLockScreen(m, lockLabels());
+    setOnLock(await isOnLockScreen(m.id));
+  };
+  // The first live match opened on a phone that can show the card: a short guide, once.
+  const canLock = Boolean(m && live && flags.live_activity && lockScreenSupported() && !lockScreenOff);
+  useEffect(() => {
+    if (canLock && !onLock && !lockGuideSeen()) {
+      const id = setTimeout(() => setLockGuide(true), 1200);
+      return () => clearTimeout(id);
+    }
+  }, [canLock, onLock]);
   const share = useCallback(() => {
     setMoment(null);
     router.push({ pathname: "/share/[matchId]", params: { matchId: id } });
@@ -346,8 +372,9 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
           <Button kind="ghost" label={tr("screens.shareCard")} onPress={share} style={{ flex: 1 }} />
           {live && flags.live_activity && lockScreenSupported() && !lockScreenOff ? (
             <Button
-              label={tr("screens.lockScreen")}
-              onPress={() => void startLockScreen(m, { a: aCode, b: bCode, court: v.court(m.courtId) ?? "" })}
+              kind={onLock ? "ghost" : undefined}
+              label={tr(onLock ? "screens.lockHide" : "screens.lockShow")}
+              onPress={() => void toggleLock()}
               style={{ flex: 1 }}
             />
           ) : (
@@ -357,6 +384,9 @@ function MatchScreen({ id, slug }: { id: string; slug: string }) {
         {Platform.OS === "web" ? null : <View style={{ height: 10 }} />}
       </Screen>
       <Takeover moment={moment} calm={calm} onDone={closeMoment} onShare={share} />
+      {lockGuide && m ? (
+        <LockScreenGuide m={m} {...lockLabels()} onShow={() => void toggleLock()} onClose={() => setLockGuide(false)} />
+      ) : null}
     </View>
   );
 }

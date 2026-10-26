@@ -78,6 +78,7 @@ const SECTIONS: Section[] = [
       { key: "countdown", label: "Count down to the court deadline", kind: "toggle" },
       { key: "autoStartMine", label: "Start it for the player's own matches", kind: "toggle" },
       { key: "autoStartStarred", label: "Start it for starred matches", kind: "toggle" },
+      { key: "autoStartFollowed", label: "Start it for followed players and nations", kind: "toggle" },
     ],
   },
   {

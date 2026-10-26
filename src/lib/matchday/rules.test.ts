@@ -107,6 +107,7 @@ describe("publicMatchDay", () => {
     expect(Object.keys(p).sort()).toEqual(
       [
         "alerts",
+        "autoStartFollowed",
         "autoStartMine",
         "autoStartStarred",
         "callMinutes",

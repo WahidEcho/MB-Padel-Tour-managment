@@ -140,6 +140,18 @@ export async function startLockScreen(m: MMatch, labels: { a: string; b: string;
   follow(instance, m.id);
 }
 
+/** Whether this match's card is on the lock screen right now. */
+export async function isOnLockScreen(matchId: string): Promise<boolean> {
+  if (!lockScreenSupported()) return false;
+  try {
+    const Activity = await activities();
+    const id = readMap()[matchId];
+    return Boolean(id && Activity.getInstances().some((i) => i.getId() === id));
+  } catch {
+    return false;
+  }
+}
+
 /** Ends this match's card now (other cards stay). */
 export async function endLockScreen(matchId: string) {
   if (!lockScreenSupported()) return;

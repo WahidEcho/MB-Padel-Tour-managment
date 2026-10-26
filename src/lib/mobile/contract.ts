@@ -142,6 +142,8 @@ export interface MMatchDay {
   countdown: boolean;
   autoStartMine: boolean;
   autoStartStarred: boolean;
+  /** Phones following a player or nation in the match get its card by push too (additive). */
+  autoStartFollowed?: boolean;
   widgets: boolean;
   imAtCourt: boolean;
   qrCheckIn: boolean;

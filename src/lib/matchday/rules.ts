@@ -31,7 +31,7 @@ export interface MatchDayRules {
   /** A side not at court by the deadline: the referee is asked; each extension adds `extensionMinutes`. */
   noShow: { on: boolean; extensionMinutes: number; maxExtensions: number; bothAbsentPromptOnly: boolean };
   /** Live Activities on iPhone. */
-  lockScreen: { liveActivities: boolean; startByPush: boolean; countdown: boolean; autoStartMine: boolean; autoStartStarred: boolean };
+  lockScreen: { liveActivities: boolean; startByPush: boolean; countdown: boolean; autoStartMine: boolean; autoStartStarred: boolean; autoStartFollowed: boolean };
   widgets: { on: boolean };
   scoring: { mode: ScoringModeChoice };
   /**
@@ -155,7 +155,7 @@ export const DEFAULT_MATCH_DAY_RULES: MatchDayRules = {
   matchSoon: { on: true, starredFans: false },
   courtCall: { on: true, autoOnRefereeOpen: true, minutes: 5, reminderMinutes: 2 },
   noShow: { on: true, extensionMinutes: 5, maxExtensions: 2, bothAbsentPromptOnly: true },
-  lockScreen: { liveActivities: true, startByPush: true, countdown: true, autoStartMine: true, autoStartStarred: false },
+  lockScreen: { liveActivities: true, startByPush: true, countdown: true, autoStartMine: true, autoStartStarred: false, autoStartFollowed: true },
   widgets: { on: true },
   scoring: { mode: "either" },
   features: SCORING_FEATURES_ON,
@@ -181,7 +181,7 @@ export const OFF_MATCH_DAY_RULES: MatchDayRules = {
   matchSoon: { on: false, starredFans: false },
   courtCall: { on: false, autoOnRefereeOpen: false, minutes: 5, reminderMinutes: 2 },
   noShow: { on: false, extensionMinutes: 5, maxExtensions: 2, bothAbsentPromptOnly: true },
-  lockScreen: { liveActivities: false, startByPush: false, countdown: false, autoStartMine: false, autoStartStarred: false },
+  lockScreen: { liveActivities: false, startByPush: false, countdown: false, autoStartMine: false, autoStartStarred: false, autoStartFollowed: false },
   widgets: { on: false },
   scoring: { mode: "point_by_point" },
   features: SCORING_FEATURES_OFF,
@@ -246,7 +246,7 @@ function forSport(r: MatchDayRules, sport: SportDef): MatchDayRules {
     matchSoon: s.nearEnd ? r.matchSoon : { on: false, starredFans: false },
     lockScreen: s.liveActivity
       ? r.lockScreen
-      : { liveActivities: false, startByPush: false, countdown: false, autoStartMine: false, autoStartStarred: false },
+      : { liveActivities: false, startByPush: false, countdown: false, autoStartMine: false, autoStartStarred: false, autoStartFollowed: false },
     widgets: s.liveActivity ? r.widgets : { on: false },
     scoring: s.finalScore ? r.scoring : { mode: "point_by_point" },
     features: sport.engine === "games" ? r.features : SCORING_FEATURES_OFF,
@@ -306,6 +306,7 @@ export function publicMatchDay(r: MatchDayRules): MMatchDay {
     countdown: r.lockScreen.countdown,
     autoStartMine: r.lockScreen.autoStartMine,
     autoStartStarred: r.lockScreen.autoStartStarred,
+    autoStartFollowed: r.lockScreen.autoStartFollowed,
     widgets: r.widgets.on,
     imAtCourt: r.extras.imAtCourt,
     qrCheckIn: r.extras.qrCheckInPresent,
