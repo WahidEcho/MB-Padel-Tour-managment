@@ -132,6 +132,16 @@ describe("where the background shows", () => {
     expect(backgroundFor({}, "screen")).toBeNull();
   });
 
+  it("a light screen gets the light design when there is one", () => {
+    const pair = { ...bg, url: "/backgrounds/x-dark.svg", kind: "svg" as const, mime: "image/svg+xml", lightUrl: "/backgrounds/x-light.svg" };
+    expect(backgroundFor({ background: pair }, "screen", "light")?.url).toBe("/backgrounds/x-light.svg");
+    expect(backgroundFor({ background: pair }, "screen", "dark")?.url).toBe("/backgrounds/x-dark.svg");
+    expect(backgroundFor({ background: pair }, "screen")?.url).toBe("/backgrounds/x-dark.svg");
+    expect(backgroundFor({ background: { ...pair, lightUrl: "javascript:alert(1)" } }, "screen", "light")?.url).toBe("/backgrounds/x-dark.svg");
+    expect(backgroundFor({ background: { ...pair, lightUrl: "//evil.example/x.svg" } }, "screen", "light")?.url).toBe("/backgrounds/x-dark.svg");
+    expect(backgroundFor({ background: bg }, "screen", "light")?.url).toBe(bg.url);
+  });
+
   it("falls back to medium darkening for an unknown setting", () => {
     expect(backgroundFor({ background: { ...bg, dim: "loud" as never } }, "screen")?.dim).toBe("medium");
     expect(dimPercent("none")).toBe(0);

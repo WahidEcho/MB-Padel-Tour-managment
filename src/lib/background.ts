@@ -136,10 +136,18 @@ export function sanitizeSvg(svg: string): { svg: string; removed: string[] } {
   return { svg: out, removed: [...removed] };
 }
 
-/** The background a surface shows, or null. The public pages only when the organiser opted in. */
-export function backgroundFor(branding: BrandingConfig | null | undefined, surface: "screen" | "public"): EventBackground | null {
+/**
+ * The background a surface shows, or null. The public pages only when the organiser opted in.
+ * A light screen gets `lightUrl` when the background has one (a site path or https only).
+ */
+export function backgroundFor(
+  branding: BrandingConfig | null | undefined,
+  surface: "screen" | "public",
+  theme: "light" | "dark" = "dark",
+): EventBackground | null {
   const bg = branding?.background;
   if (!bg?.url || !BACKGROUND_TYPES[bg.mime]) return null;
   if (surface === "public" && !bg.showOnPublic) return null;
-  return { ...bg, dim: isBackgroundDim(bg.dim) ? bg.dim : DEFAULT_DIM };
+  const light = typeof bg.lightUrl === "string" && /^(\/(?!\/)|https:\/\/)/.test(bg.lightUrl) ? bg.lightUrl : null;
+  return { ...bg, url: theme === "light" && light ? light : bg.url, dim: isBackgroundDim(bg.dim) ? bg.dim : DEFAULT_DIM };
 }

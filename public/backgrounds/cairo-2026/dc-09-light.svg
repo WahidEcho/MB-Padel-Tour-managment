@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" preserveAspectRatio="xMidYMid slice">
+<!-- DC 09 "Rally & Ball" (light). Move Score court-TV background. Colours: edit the :root block only. -->
+<style>
+:root{
+  /* Davis Cup Junior Finals brand colours (screen approximations of the PMS references). Replace here. */
+  --dc-green:#123C33;  /* PMS 3308 */
+  --dc-mint:#A3DBAA;   /* PMS 351 */
+  --dc-paper:#F2F1EA;  /* cream paper */
+  /* Roles for the light version, built from the colours above */
+  --ground:var(--dc-paper); --ground-deep:#E5EADF; --mark:var(--dc-mint); --line:var(--dc-green); --soft:var(--dc-mint);
+}
+.g{fill:var(--ground)}.gd{fill:var(--ground-deep)}.m{fill:var(--mark)}.l{fill:var(--line)}.so{fill:var(--soft)}.a{fill:var(--accent)}
+.sg{stroke:var(--ground);fill:none}.sm{stroke:var(--mark);fill:none}.sl{stroke:var(--line);fill:none}.sso{stroke:var(--soft);fill:none}.sa{stroke:var(--accent);fill:none}
+.tg{stop-color:var(--ground)}.tgd{stop-color:var(--ground-deep)}.tm{stop-color:var(--mark)}.tl{stop-color:var(--line)}.tso{stop-color:var(--soft)}
+</style>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="tg"/><stop offset="1" class="tgd"/></linearGradient>
+<radialGradient id="veil" cx=".5" cy=".5" r=".5"><stop offset="0" class="tg" stop-opacity="0.84"/><stop offset=".55" class="tg" stop-opacity="0.605"/><stop offset=".95" class="tg" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/>
+
+<path d="M-120 960C260 620 700 520 1060 1180" class="sm" stroke-width="120" stroke-linecap="round" opacity="0.55"/>
+<path d="M-200 1250C200 480 1000 60 1720 140" class="sm" stroke-width="150" stroke-linecap="round" opacity="0.9"/>
+<path d="M-100 1120C300 520 1000 170 1640 230" class="sl" stroke-width="3" stroke-dasharray="2 22" stroke-linecap="round" opacity="0.4"/>
+<clipPath id="ball0"><circle cx="1810" cy="160" r="80"/></clipPath>
+<g transform="rotate(15 1810 160)"><circle cx="1810" cy="160" r="80" class="l" opacity="1"/>
+<g clip-path="url(#ball0)" class="sg" stroke-width="8" opacity="1"><circle cx="1715.6" cy="160" r="78.4"/><circle cx="1904.4" cy="160" r="78.4"/></g></g>
+<rect width="1920" height="1080" fill="url(#veil)"/>
+</svg>

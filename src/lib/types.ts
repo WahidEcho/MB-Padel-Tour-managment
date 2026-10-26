@@ -283,6 +283,8 @@ export interface EventBackground {
   dim: BackgroundDim;
   /** Also behind the public dashboard pages. Off by default: a video costs phones data. */
   showOnPublic: boolean;
+  /** The same design drawn for a light screen (Admin → Screens theme "light"); `url` is then the dark one. Same type as `url`. */
+  lightUrl?: string;
 }
 
 import type { PlayStatusConfig } from "./notices/playStatus";

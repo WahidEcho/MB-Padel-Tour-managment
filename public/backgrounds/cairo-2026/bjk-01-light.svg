@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" preserveAspectRatio="xMidYMid slice">
+<!-- BJK 01 "Rising Arc" (light). Move Score court-TV background. Colours: edit the :root block only. -->
+<style>
+:root{
+  /* Billie Jean King Cup Junior Finals brand colours (screen approximations of the PMS references). Replace here. */
+  --bjk-black:#000000;
+  --bjk-grey:#BBBCBC;  /* PMS Cool Gray 4 C */
+  --bjk-mid:#8A8B8B;
+  --bjk-dark:#3A3B3B;
+  /* Roles for the light version, built from the colours above */
+  --ground:#EEEFEF; --ground-deep:#D6D7D7; --mark:var(--bjk-dark); --line:var(--bjk-black); --soft:var(--bjk-grey);
+}
+.g{fill:var(--ground)}.gd{fill:var(--ground-deep)}.m{fill:var(--mark)}.l{fill:var(--line)}.so{fill:var(--soft)}.a{fill:var(--accent)}
+.sg{stroke:var(--ground);fill:none}.sm{stroke:var(--mark);fill:none}.sl{stroke:var(--line);fill:none}.sso{stroke:var(--soft);fill:none}.sa{stroke:var(--accent);fill:none}
+.tg{stop-color:var(--ground)}.tgd{stop-color:var(--ground-deep)}.tm{stop-color:var(--mark)}.tl{stop-color:var(--line)}.tso{stop-color:var(--soft)}
+</style>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="tg"/><stop offset="1" class="tgd"/></linearGradient>
+<radialGradient id="veil" cx=".5" cy=".5" r=".5"><stop offset="0" class="tg" stop-opacity="0.8"/><stop offset=".55" class="tg" stop-opacity="0.5760000000000001"/><stop offset=".95" class="tg" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/>
+<g transform="translate(-50 400) scale(2.1)">
+<path d="M20 40C150 120 300 200 388 300M70 28C210 110 340 190 388 300" class="sl" stroke-width="2.2" opacity="0.6"/>
+<path d="M18 84L108 138" class="sm" stroke-width="12" stroke-linecap="round"/>
+<path d="M25 278C110 170 230 76 330 66" class="sm" stroke-width="24" stroke-linecap="round"/>
+<circle cx="368" cy="62" r="19" class="m"/></g>
+<rect width="1920" height="1080" fill="url(#veil)"/>
+</svg>

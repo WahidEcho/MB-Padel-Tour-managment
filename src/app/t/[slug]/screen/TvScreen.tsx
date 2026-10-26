@@ -186,8 +186,8 @@ export default async function TvScreen({
   const logos = tournament.branding_config;
   const { main: mainSponsor, footer: footerSponsors } = resolveSponsors(logos);
   const bandStyle = sponsorStyle(logos);
-  const backdrop = backgroundFor(logos, "screen");
   const dark = settings.theme === "dark";
+  const backdrop = backgroundFor(logos, "screen", dark ? "dark" : "light");
   // How loud the glow may be depends on what it sits behind: quiet under a full
   // grid of scores, strongest on the holding slate and the ceremony.
   const shownCount = isChess ? focusMatches.length : pinnedCourtId ? 1 : courtInfo.length;
