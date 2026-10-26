@@ -15,6 +15,8 @@ import {
   tickerPlan,
   watermarkSponsor,
   sponsorLogoSrc,
+  sponsorLabel,
+  labelLines,
   type WatermarkSurface,
 } from "./sponsors";
 import { imageDimensions } from "./upload";
@@ -282,5 +284,23 @@ describe("hidden sponsors and dark-surface logos", () => {
     expect(sponsorLogoSrc(bee, { dark: true, chips: true })).toBe(B);
     expect(sponsorLogoSrc(bee, { dark: false, chips: false })).toBe(B);
     expect(sponsorLogoSrc(bad, { dark: true, chips: false })).toBe(FRESH);
+  });
+});
+
+describe("main sponsor label", () => {
+  it("plain text, 24 characters, Main partner by default", () => {
+    expect(sponsorLabel(undefined)).toBe("Main partner");
+    expect(sponsorLabel("   ")).toBe("Main partner");
+    expect(sponsorLabel("Master sponsor")).toBe("Master sponsor");
+    expect(sponsorLabel("<b>Master</b>\n sponsor")).toBe("b Master /b sponsor");
+    expect(sponsorLabel("x".repeat(40))).toHaveLength(24);
+    expect(resolveSponsors({ mainSponsor: { name: "M", logoUrl: FRESH, accentHex: "#00a651", label: "Master sponsor" } }).main?.label).toBe("Master sponsor");
+    expect(resolveSponsors({ mainSponsor: { name: "M", logoUrl: FRESH, accentHex: "#00a651" } }).main?.label).toBe("Main partner");
+  });
+  it("two lines in the band", () => {
+    expect(labelLines("Master sponsor")).toEqual(["Master", "sponsor"]);
+    expect(labelLines("Main partner")).toEqual(["Main", "partner"]);
+    expect(labelLines("Official title partner")).toEqual(["Official title", "partner"]);
+    expect(labelLines("Presenting")).toEqual(["Presenting", ""]);
   });
 });

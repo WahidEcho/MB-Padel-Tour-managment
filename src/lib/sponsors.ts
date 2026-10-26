@@ -83,6 +83,8 @@ export function resolveSponsors(branding: BrandingConfig | null | undefined, opt
           showOnDashboard: m.showOnDashboard !== false,
           aspect: cleanAspect(m.aspect),
           watermark: m.watermark !== false,
+          label: sponsorLabel(m.label),
+          ...(isLogoSrc(m.logoDarkUrl) ? { logoDarkUrl: m.logoDarkUrl } : {}),
         }
       : null;
 
@@ -150,9 +152,27 @@ export function surfaceForMode(mode: DisplayMode, courtCount: number): Watermark
   }
 }
 
+export const DEFAULT_SPONSOR_LABEL = "Main partner";
+export const SPONSOR_LABEL_MAX = 24;
+
+/** The main sponsor's label: plain text (no markup or control characters), at most 24 characters, "Main partner" when empty. */
+export function sponsorLabel(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_SPONSOR_LABEL;
+  const clean = raw.replace(/[\u0000-\u001f\u007f<>{}]/g, " ").replace(/\s+/g, " ").trim().slice(0, SPONSOR_LABEL_MAX).trim();
+  return clean || DEFAULT_SPONSOR_LABEL;
+}
+
+/** The label on two lines, as the band draws it: "Master" / "sponsor". */
+export function labelLines(label: string): [string, string] {
+  const words = label.split(" ");
+  if (words.length < 2) return [label, ""];
+  const cut = Math.ceil(words.length / 2);
+  return [words.slice(0, cut).join(" "), words.slice(cut).join(" ")];
+}
+
 /** The main sponsor whose watermark a screen draws: none when the organiser turned it off. */
 /** The logo a footer sponsor shows: its dark-surface version when drawn chip-less on a dark screen. */
-export function sponsorLogoSrc(s: SponsorEntry, surface: { dark: boolean; chips: boolean }): string {
+export function sponsorLogoSrc(s: Pick<SponsorEntry, "logoUrl" | "logoDarkUrl">, surface: { dark: boolean; chips: boolean }): string {
   return surface.dark && !surface.chips && s.logoDarkUrl ? s.logoDarkUrl : s.logoUrl;
 }
 

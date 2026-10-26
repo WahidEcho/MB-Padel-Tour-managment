@@ -5,7 +5,7 @@ import { db } from "@/lib/supabase";
 import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
 import { deleteUploads, uploadImage, uploadLogo } from "@/lib/upload";
-import { isHex, resolveSponsors, isLogoSrc } from "@/lib/sponsors";
+import { isHex, resolveSponsors, isLogoSrc, sponsorLabel } from "@/lib/sponsors";
 import { getTournament } from "@/lib/data";
 import type {
   BrandingConfig,
@@ -308,6 +308,12 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
             accentHex: accent.toLowerCase(),
             intensity,
             showOnDashboard: formData.getAll("main_dashboard").includes("on"),
+            ...(() => {
+              const dark = formData.has("main_dark") ? text(formData, "main_dark", 1000) : (branding.mainSponsor?.logoDarkUrl ?? "");
+              if (dark && !isLogoSrc(dark)) problems.push("The main sponsor's dark-screen logo must be a site path (/sponsors/…) or an https link.");
+              return dark && isLogoSrc(dark) ? { logoDarkUrl: dark } : {};
+            })(),
+            label: formData.has("main_label") ? sponsorLabel(formData.get("main_label")) : sponsorLabel(branding.mainSponsor?.label),
             // Rides with a hidden "off"; a form without the field keeps what is stored.
             watermark: formData.has("main_watermark") ? formData.getAll("main_watermark").includes("on") : branding.mainSponsor?.watermark !== false,
             ...(uploaded ? (uploaded.aspect ? { aspect: uploaded.aspect } : {}) : branding.mainSponsor?.aspect ? { aspect: branding.mainSponsor.aspect } : {}),

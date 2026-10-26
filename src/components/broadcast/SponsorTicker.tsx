@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { sizedImageSrc } from "@/lib/portrait";
-import { logoBox, sponsorLogoSrc, tickerPlan } from "@/lib/sponsors";
+import { labelLines, logoBox, sponsorLabel, sponsorLogoSrc, tickerPlan } from "@/lib/sponsors";
 import type { MainSponsor, SponsorEntry } from "@/lib/types";
 
 /**
@@ -106,9 +106,9 @@ export default function SponsorTicker({
       {main && (
         <div className="flex shrink-0 items-center gap-5 border-r border-border pr-8">
           <p className="text-[22px] font-bold uppercase leading-tight tracking-widest text-muted">
-            Main
+            {labelLines(sponsorLabel(main.label))[0]}
             <br />
-            partner
+            {labelLines(sponsorLabel(main.label))[1]}
           </p>
           {(() => {
             const box = logoBox(main.aspect, logoHeight, uniform);
@@ -116,7 +116,7 @@ export default function SponsorTicker({
               <span className={`${chipClass}flex items-center justify-center`} style={{ padding: CHIP_PAD }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={sizedImageSrc(main.logoUrl, Math.max(200, box.width * 2)) ?? main.logoUrl}
+                  src={sizedImageSrc(sponsorLogoSrc(main, { dark, chips }), Math.max(200, box.width * 2)) ?? sponsorLogoSrc(main, { dark, chips })}
                   alt={main.name || "Main partner"}
                   width={box.width}
                   height={box.height}

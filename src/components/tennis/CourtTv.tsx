@@ -384,8 +384,8 @@ function ScoreCard({ ctx, matchId, final = false }: { ctx: Ctx; matchId: string;
   const hasPts = !final;
   const n = Math.max(1, cells.length);
   const cols = dbl
-    ? `326px minmax(0,1fr) repeat(${n},150px)${hasPts ? " 190px" : ""}`
-    : `190px minmax(0,1fr) 56px repeat(${n},150px)${hasPts ? " 190px" : ""}`;
+    ? `${final ? 254 : 326}px minmax(0,1fr) repeat(${n},150px)${hasPts ? " 190px" : ""}`
+    : `${final ? 150 : 190}px minmax(0,1fr) 56px repeat(${n},150px)${hasPts ? " 190px" : ""}`;
   const serverTeam: TeamKey | null = final ? null : state ? currentServer(state) : snap?.serving_team_id ? (snap.serving_team_id === m.team_a_id ? "A" : "B") : null;
   const dServer = state && dbl && !final ? servingPlayer(state) : null;
   const tb = Boolean(snap?.tiebreak);
@@ -456,7 +456,7 @@ function ScoreCard({ ctx, matchId, final = false }: { ctx: Ctx; matchId: string;
   };
 
   return (
-    <div className={`${s.card} ${s.glass} ${dbl ? s.dbl : ""}`} data-testid="tv-score-card">
+    <div className={`${s.card} ${s.glass} ${dbl ? s.dbl : ""} ${final ? s.finalCard : ""}`} data-testid="tv-score-card">
       <div className={s.cols} style={{ gridTemplateColumns: cols }}>
         <div className={s.meta} style={{ gridColumn: `1 / ${dbl ? 3 : 4}` }}>
           {clock && (

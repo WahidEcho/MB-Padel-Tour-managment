@@ -255,6 +255,14 @@ export interface MainSponsor {
    * Defaults to on; off keeps the sponsor in the band without the watermark.
    */
   watermark?: boolean;
+  /**
+   * The words beside the main sponsor in the sponsor band ("Master sponsor").
+   * Read through sponsorLabel (src/lib/sponsors.ts): plain text, 24 characters,
+   * "Main partner" when unset.
+   */
+  label?: string;
+  /** The logo drawn straight on a dark surface (no chip). A site path or https only. */
+  logoDarkUrl?: string;
 }
 
 /** Every other sponsor, in the order they loop along the footer. */

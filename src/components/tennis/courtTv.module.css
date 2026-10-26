@@ -15,6 +15,9 @@
   font-family: var(--ctv-font), "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
   color: var(--ink);
   --ga: 0.55;
+  /* The stage's halo for text on artwork (.bc-has-backdrop) is not wanted here:
+     everything sits on a card or is drawn for the background. */
+  text-shadow: none;
 }
 .stage > * {
   min-height: 0;
@@ -1118,13 +1121,12 @@
 }
 
 /* ---------- a 16:10 wall (1920x1200): the extra 120 px go to the content ---------- */
+/* Widths stay (the grid columns are fixed); the photos grow taller. */
 .tall .photo {
-  width: 214px;
-  height: 284px;
+  height: 290px;
 }
 .tall.stage .dbl .photo {
-  width: 168px;
-  height: 232px;
+  height: 240px;
 }
 .tall .pts {
   height: 200px;
@@ -1158,4 +1160,23 @@
 .tall .rec {
   padding-top: 6px;
   padding-bottom: 6px;
+}
+
+/* the result card when there are no analytics: shorter rows under the result strip */
+.finalCard .photo {
+  width: 150px;
+  height: 186px;
+}
+.finalCard.dbl .photo {
+  width: 120px;
+  height: 160px;
+}
+.finalCard .last {
+  font-size: 80px;
+}
+.finalCard .set {
+  font-size: 116px;
+}
+.tall .finalCard .photo {
+  height: 222px;
 }

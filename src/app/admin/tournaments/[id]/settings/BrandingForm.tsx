@@ -103,6 +103,14 @@ export default function BrandingForm({
               </div>
             </div>
             <div>
+              <label className="label">Logo on dark, no chip (optional)</label>
+              <input name="main_dark" defaultValue={main?.logoDarkUrl ?? ""} className="input" placeholder="/sponsors/…/white/logo.png" />
+            </div>
+            <div>
+              <label className="label">Label beside the logo in the band</label>
+              <input name="main_label" defaultValue={main?.label ?? "Main partner"} className="input" placeholder="Main partner" maxLength={24} data-testid="main-label" />
+            </div>
+            <div>
               <label className="label">Intensity</label>
               <select name="main_intensity" defaultValue={main?.intensity ?? "standard"} className="input">
                 <option value="subtle">Subtle</option>
