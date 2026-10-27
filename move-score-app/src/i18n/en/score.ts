@@ -256,7 +256,8 @@ export const score = {
   whichCountry: "Which country serves first?",
   tossHint: "Chosen when the match started: {name}.",
   rotationHint: "By the rotation, {name} serve first this set.",
-  servesTo: "{server} ({team}) serves to {receiver} ({other}).",
+  serverLabel: "Serves",
+  receiverLabel: "Receives",
 
   // Match log
   logEmpty: "Nothing recorded yet.",

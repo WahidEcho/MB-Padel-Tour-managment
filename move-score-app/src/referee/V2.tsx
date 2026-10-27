@@ -32,7 +32,7 @@ import { Body, Display, Eyebrow, Num } from "../ui/Text";
 import type { RunningTimer } from "./useConsole";
 import { useT } from "../i18n";
 import { fmt } from "../i18n/t";
-import { chipText, decisionLabel, richParts, timerLabel } from "./scoreWords";
+import { chipText, decisionLabel, timerLabel } from "./scoreWords";
 
 /** The point columns: the first-listed side red, the other blue (as on the venue screens). */
 export const SIDE_HEX: Record<TeamKey, string> = { A: "#E5133A", B: "#1E5BFF" };
@@ -409,22 +409,31 @@ export function ServeOrderForm({ sides, initial, onConfirm, firstSet = false }: 
       {step === "receiver" ? <BigChoice question={tr("score.whichPlayerReceives", { name: sides[other].name })} value={picks.receiver} options={players(other)} onPick={(v) => pick({ receiver: v })} /> : null}
       {step === "next" && order ? (
         <View style={{ gap: 16 }}>
-          <Body size={16}>
-            {richParts("score.servesTo", { server: sides[team].players[order.server] ?? tr("score.player"), team: sides[team].name, receiver: sides[other].players[order.receiver] ?? tr("score.player"), other: sides[other].name }, ["server", "receiver"]).map((part, n) =>
-              part.bold ? (
-                <Body key={n} weight="bold" size={16}>
-                  {part.text}
-                </Body>
-              ) : (
-                part.text
-              ),
-            )}
-          </Body>
+          <View testID="serve-order-summary" style={{ backgroundColor: t.chip, borderRadius: 18, padding: 16, gap: 6 }}>
+            <OrderLine label={tr("score.serverLabel")} name={sides[team].players[order.server] ?? tr("score.player")} country={sides[team].name} ball />
+            <Body size={30} weight="bold" style={{ color: t.blue, paddingLeft: 4, lineHeight: 34 }} accessibilityElementsHidden importantForAccessibility="no">↓</Body>
+            <OrderLine label={tr("score.receiverLabel")} name={sides[other].players[order.receiver] ?? tr("score.player")} country={sides[other].name} />
+          </View>
           <Pressable testID="serve-order-confirm" accessibilityRole="button" onPress={() => onConfirm(order)} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
             <Body weight="bold" size={16} style={{ color: BALL_INK }}>{tr("score.startSet")}</Body>
           </Pressable>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/** One line of the serve-order summary: who, their country, and what they do. */
+function OrderLine({ label, name, country, ball = false }: { label: string; name: string; country: string; ball?: boolean }) {
+  const { t } = useTheme();
+  return (
+    <View style={{ gap: 2 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: ball ? BALL : "transparent", borderWidth: ball ? 0 : 1.5, borderColor: t.ink3 }} />
+        <Eyebrow size={10} tone="ink3">{label}</Eyebrow>
+      </View>
+      <Body weight="bold" size={19}>{name}</Body>
+      <Body tone="ink2" size={14}>{country}</Body>
     </View>
   );
 }

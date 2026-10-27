@@ -473,14 +473,32 @@ export function ServeOrderDialog({
       {step === "receiver" && <Big question={`Which player of ${sides[other].name} receives the serve?`} value={picks.receiver} onPick={(v: 0 | 1) => pick({ receiver: v })} options={players(other)} />}
       {step === "next" && order && (
         <div className="space-y-4">
-          <p className="text-base" data-testid="serve-order-summary">
-            <b>{sides[serving].players[order.server] ?? "Player"}</b> ({sides[serving].name}) serves to <b>{sides[other].players[order.receiver] ?? "Player"}</b> ({sides[other].name}).
-          </p>
+          <div className="space-y-1 rounded-2xl bg-background p-4" data-testid="serve-order-summary">
+            <OrderLine label="Serves" name={sides[serving].players[order.server] ?? "Player"} country={sides[serving].name} ball />
+            <p className="pl-1 text-3xl font-black leading-none text-accent" aria-hidden>
+              ↓
+            </p>
+            <OrderLine label="Receives" name={sides[other].players[order.receiver] ?? "Player"} country={sides[other].name} />
+          </div>
           <button type="button" onClick={() => onConfirm(order)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
             Start the set
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** One line of the serve-order summary: who, their country, and what they do. */
+function OrderLine({ label, name, country, ball = false }: { label: string; name: string; country: string; ball?: boolean }) {
+  return (
+    <div>
+      <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-muted">
+        <span className="inline-block h-2.5 w-2.5 rounded-full" style={ball ? { background: SERVING_YELLOW } : { border: "1.5px solid currentColor" }} />
+        {label}
+      </p>
+      <p className="text-lg font-bold">{name}</p>
+      <p className="text-sm text-muted">{country}</p>
     </div>
   );
 }

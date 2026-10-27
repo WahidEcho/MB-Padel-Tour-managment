@@ -245,7 +245,8 @@ export const score: Shape<typeof en> = {
   whichCountry: "Quel pays sert en premier ?",
   tossHint: "Choisi au début du match : {name}.",
   rotationHint: "Selon la rotation, {name} sert en premier dans ce set.",
-  servesTo: "{server} ({team}) sert à {receiver} ({other}).",
+  serverLabel: "Sert",
+  receiverLabel: "Retourne",
 
   logEmpty: "Rien n'est encore enregistré.",
   setN: "Set {n}",
