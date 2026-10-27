@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { ANDROID_APK } from "../stores";
+import { ANDROID_APK, PLAY_STORE_URL } from "../stores";
 import { AndroidButton, BRAND, Shell, display } from "../ui";
 
-/** tour.mbeg.org/app/android: the Android download and how to install it until Move Score is on Google Play. */
+/** tour.mbeg.org/app/android: Google Play first; the APK and how to install it stay for phones without Play. */
 export const metadata: Metadata = {
   title: { absolute: "Move Score for Android · Move Beyond" },
   description: "Download Move Score for Android and install it in five steps.",
@@ -105,10 +105,14 @@ export default function AndroidPage() {
           and install
         </h1>
         <p className="text-base text-white/75 sm:text-lg">
-          Until Move Score is on Google Play, it installs straight from here. Same app, signed by {BRAND.name}.
+          Get Move Score on Google Play. No Google Play on your phone? Download the app file below and install it in five steps.
+          Same app, signed by {BRAND.name}.
         </p>
-        <div className="max-w-md">
-          <AndroidButton href="/app/android/download" kicker="Download" label="Move Score" size />
+        <div className="grid max-w-md gap-3">
+          <AndroidButton href={PLAY_STORE_URL} kicker="Get it on" label="Google Play" />
+          <a href="/app/android/download" className="text-sm font-semibold text-white/70 underline underline-offset-4 hover:text-white">
+            Or download the app file (APK · {ANDROID_APK.sizeMb} MB)
+          </a>
         </div>
         <p className="text-xs text-white/50">
           Version {ANDROID_APK.version} (build {ANDROID_APK.build}) · {ANDROID_APK.builtOn} · Android 8 or newer.

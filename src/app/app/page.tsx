@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
 import { siteUrl } from "@/lib/messaging/links";
-import { appStoreLive, platformOf } from "./stores";
+import { PLAY_STORE_URL, appStoreLive, platformOf } from "./stores";
 import { AndroidButton, BRAND, IosButton, Shell, display } from "./ui";
 
 /**
  * tour.mbeg.org/app: pick your phone. iPhone → the App Store (once Apple has
- * published it; "coming soon" until then), Android → /app/android (download and
- * install steps). The visitor's own phone is shown first; a desktop gets a QR code.
+ * published it; "coming soon" until then), Android → Google Play (the APK and its
+ * install steps stay on /app/android). The visitor's own phone is shown first; a desktop gets a QR code.
  */
 export const metadata: Metadata = {
   title: { absolute: "Download Move Score · Move Beyond" },
@@ -23,7 +23,7 @@ export default async function DownloadPage() {
     QRCode.toString(`${siteUrl()}/app`, { type: "svg", margin: 1, errorCorrectionLevel: "M", color: { dark: "#05060f", light: "#ffffff" } }),
   ]);
   const ios = <IosButton key="i" live={iosLive} />;
-  const android = <AndroidButton key="a" href="/app/android" kicker="Get it for" label="Android" />;
+  const android = <AndroidButton key="a" href={PLAY_STORE_URL} kicker="Get it on" label="Google Play" />;
 
   return (
     <Shell>

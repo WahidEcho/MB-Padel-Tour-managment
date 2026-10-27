@@ -15,6 +15,9 @@ export const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 export const TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "https://testflight.apple.com/join/UaV8WF3z";
 export { ANDROID_APK };
 
+/** Move Score on Google Play (live since 28 Oct 2026); the APK on /app/android stays as the fallback. */
+export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=org.mbeg.movescore";
+
 /**
  * Whether the app can be downloaded from the App Store yet, from Apple's public
  * lookup (cached 10 minutes). Until the first approval the store page is a 404, so
