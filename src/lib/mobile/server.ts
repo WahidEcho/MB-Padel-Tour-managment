@@ -493,6 +493,8 @@ export const DEFAULT_FLAGS: Record<string, boolean> = {
   accounts: true,
   // The live courts hero on Discover (each tournament's Match day tab can still switch it off).
   live_courts: true,
+  // iPhone app icon: on = the Move Score mark (bundled from build 1.0.4 on), off = the default icon.
+  icon_mark: false,
 };
 
 /** The stored flags over the defaults. */

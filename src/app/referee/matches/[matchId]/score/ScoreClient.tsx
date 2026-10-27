@@ -752,7 +752,7 @@ export default function ScoreClient({
     recordV2(C.timeDecision(cur, t.kind, decision, seconds, who));
     endTimer();
     setModal(null);
-    if (decision === "code_violation" && who) recordViolation(who, "time");
+    if (decision !== "no_action" && who) recordViolation(who, "time");
   }
 
   function askTimeTeam(decision: TimeDecision) {
@@ -1518,16 +1518,18 @@ export default function ScoreClient({
             {modal.kind === "time-team" && (
               <>
                 <h3 className="font-bold">
-                  {modal.decision === "code_violation" ? "Code violation (time)" : "Warning"}: which side?
+                  Time violation: which side?
                 </h3>
                 <p className="text-sm text-muted">{TIMERS[modal.timer].label} · over by {Math.max(0, modal.seconds - (TIMERS[modal.timer].limit ?? 0))} s</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(["A", "B"] as TeamKey[]).map((k) => (
                     <button key={k} className="btn-secondary py-3" onClick={() => decideTime(modal.decision, k)} data-testid={`time-team-${k}`}>
                       {v2Sides[k].name}
+                      {state && <span className="block text-xs text-muted">{PENALTY_LABELS[C.violationPenalty(state, k, "time")]}</span>}
                     </button>
                   ))}
                 </div>
+                <p className="text-xs text-muted">The first time violation is a warning; after it, a point penalty, or a fault when that side is serving.</p>
                 <button className="btn-secondary w-full" onClick={() => setModal(null)}>Cancel</button>
               </>
             )}

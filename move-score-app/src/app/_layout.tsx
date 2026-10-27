@@ -22,6 +22,7 @@ import { startMonitoring } from "../monitoring";
 import { startSessionKeeper } from "../auth/keepAlive";
 import { watchLiveActivities } from "../live/lockScreen";
 import { watchWidget } from "../live/widgetSync";
+import { AppIconSync } from "../state/appIcon";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 startMonitoring();
@@ -64,6 +65,7 @@ function Navigator() {
       {Platform.OS !== "web" && <AlertsPrompt />}
       {/* A master referee's emergency call rings here, above every screen. */}
       {Platform.OS !== "web" && <MasterCallAlarm />}
+      <AppIconSync />
     </View>
   );
 }

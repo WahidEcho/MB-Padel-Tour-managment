@@ -833,9 +833,9 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={v2Sides[k].name} onPress={() => { void c.startBreak(sheet.timer, k); setSheet(null); }} />)}
       </Sheetish>
 
-      <Sheetish open={sheet?.kind === "time-team"} onClose={() => setSheet(null)} title={sheet?.kind === "time-team" ? tr("score.whichSide", { what: sheet.decision === "code_violation" ? tr("score.codeViolationTime") : tr("score.warning") }) : ""}>
+      <Sheetish open={sheet?.kind === "time-team"} onClose={() => setSheet(null)} title={sheet?.kind === "time-team" ? tr("score.whichSide", { what: tr("score.codeViolationTime") }) : ""}>
         {sheet?.kind === "time-team" &&
-          (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={v2Sides[k].name} onPress={() => { void c.decide(sheet.decision, k); setSheet(null); }} />)}
+          (["A", "B"] as TeamKey[]).map((k) => <Button key={k} kind="ghost" label={`${v2Sides[k].name} · ${penaltyLabel(c.penaltyFor(k, "time"))}`} onPress={() => { void c.decide(sheet.decision, k); setSheet(null); }} />)}
       </Sheetish>
 
       <Sheetish tall open={sheet?.kind === "log"} onClose={() => setSheet(null)} title={tr("score.matchLog")}>

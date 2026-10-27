@@ -19,6 +19,7 @@ import {
   serveNumber,
   timerView,
   violationMarks,
+  RULINGS,
   type LogEntry,
   type ScoreState,
   type ServeOrder,
@@ -229,7 +230,7 @@ function Rulings({ onDecision }: { onDecision: (d: TimeDecision) => void }) {
   useT();
   return (
     <View style={{ flexDirection: "row", gap: 8 }}>
-      {(["warning", "code_violation", "no_action"] as TimeDecision[]).map((d) => (
+      {RULINGS.map((d) => (
         <Pressable key={d} testID={`ruling-${d}`} accessibilityRole="button" onPress={() => onDecision(d)} style={({ pressed }) => ({ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: pressed ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.18)", alignItems: "center" })}>
           <Body weight="bold" size={12} style={{ color: "#fff" }}>{decisionLabel(d)}</Body>
         </Pressable>
@@ -352,107 +353,88 @@ export function TimerCard({ timer, now, sides, onStop, onDecision, onRetire }: {
   );
 }
 
-function ChoiceRow<V extends string | number>({ label, value, options, onPick }: { label: string; value: V; options: [V, string][]; onPick: (v: V) => void }) {
-  const { t } = useTheme();
-  return (
-    <View style={{ gap: 6 }}>
-      <Body tone="ink2" weight="semi" size={13.5}>{label}</Body>
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        {options.map(([v, text]) => {
-          const on = v === value;
-          return (
-            <Pressable
-              key={String(v)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              onPress={() => onPick(v)}
-              style={{ flex: 1, paddingVertical: 14, paddingHorizontal: 8, borderRadius: 16, borderWidth: 2, borderColor: on ? t.blue : t.line, backgroundColor: on ? "rgba(77,155,255,0.14)" : t.chip, alignItems: "center" }}
-            >
-              <Body weight="bold" size={15} numberOfLines={1}>{text}</Body>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
+type OrderStep = "server" | "receiver" | "server2" | "receiver2" | "next";
+const ORDER_STEPS: OrderStep[] = ["server", "receiver", "server2", "receiver2", "next"];
 
 /**
- * Doubles, at the start of every set: the serve and receive order (ITF Rule 14),
- * asked one question at a time:
- *   1. which country serves (first set only: the toss; later sets follow the rotation),
- *   2. which of its players serves,
- *   3. which player of the other side receives first,
- * then the second game's order on one screen, already filled in, to confirm.
- * Tapping an answer moves to the next question; Back goes one step back.
+ * Doubles, at the start of every set (ITF Rule 14): who serves and who receives first, for
+ * game 1 and for game 2, one question each with nothing picked in advance, then a summary to
+ * confirm. Which team serves is never asked here: at the first set "Who serves first?" already
+ * answered it (`teamFree` lets the referee flip it from the summary line), after that it is the
+ * rotation's.
  */
-type OrderStep = "team" | "server" | "receiver" | "next";
-
 export function ServeOrderForm({ sides, initial, onConfirm, teamFree = true }: { sides: Record<TeamKey, V2Side>; initial: ServeOrder; onConfirm: (o: ServeOrder) => void; teamFree?: boolean }) {
   const { t } = useTheme();
   const tr = useT();
-  const steps: OrderStep[] = teamFree ? ["team", "server", "receiver", "next"] : ["server", "receiver", "next"];
-  const [o, setO] = useState<ServeOrder>(initial);
+  const [team, setTeam] = useState<TeamKey>(initial.servingTeam);
+  const [picks, setPicks] = useState<Partial<Omit<ServeOrder, "servingTeam">>>({});
   const [i, setI] = useState(0);
-  const step = steps[i];
-  const team = o.servingTeam;
+  const step = ORDER_STEPS[i];
   const other: TeamKey = team === "A" ? "B" : "A";
   const players = (k: TeamKey): [0 | 1, string][] => [
     [0, sides[k].players[0] ?? tr("score.player1")],
     [1, sides[k].players[1] ?? tr("score.player2")],
   ];
-  const pick = (patch: Partial<ServeOrder>) => {
-    setO({ ...o, ...patch });
-    setI(Math.min(i + 1, steps.length - 1));
+  const name = (k: TeamKey, n: 0 | 1 | undefined) => (n === undefined ? "" : (sides[k].players[n] ?? tr("score.player")));
+  const pick = (patch: Partial<Omit<ServeOrder, "servingTeam">>) => {
+    setPicks({ ...picks, ...patch });
+    setI(Math.min(i + 1, ORDER_STEPS.length - 1));
   };
-  const questions = steps.length - 1;
+  // The other team serving first: every answer named a player of the wrong team, so ask again.
+  const flip = () => {
+    setTeam(other);
+    setPicks({});
+    setI(0);
+  };
+  const line = (n: 1 | 2, sv: TeamKey, server: 0 | 1 | undefined, rc: TeamKey, receiver: 0 | 1 | undefined) => (
+    <Body size={14}>
+      {richParts("score.gameLine", { n, server: name(sv, server), team: sides[sv].name, receiver: name(rc, receiver), other: sides[rc].name }, ["server", "receiver"]).map((part, k) =>
+        part.bold ? (
+          <Body key={k} weight="bold" size={14}>
+            {part.text}
+          </Body>
+        ) : (
+          part.text
+        ),
+      )}
+    </Body>
+  );
+  const order: ServeOrder | null =
+    picks.server !== undefined && picks.receiver !== undefined && picks.otherServer !== undefined && picks.otherReceiver !== undefined
+      ? { servingTeam: team, server: picks.server, receiver: picks.receiver, otherServer: picks.otherServer, otherReceiver: picks.otherReceiver }
+      : null;
   return (
     <View style={{ gap: 16 }} testID="serve-order">
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Eyebrow size={11} tone="ink3">{step === "next" ? tr("score.checkAndConfirm") : tr("score.questionOf", { n: i + 1, total: questions })}</Eyebrow>
+        <Eyebrow size={11} tone="ink3">{step === "next" ? tr("score.checkAndConfirm") : tr("score.questionOf", { n: i + 1, total: ORDER_STEPS.length - 1 })}</Eyebrow>
         {i > 0 ? (
           <Pressable accessibilityRole="button" onPress={() => setI(i - 1)} hitSlop={10}>
             <Body tone="blue" weight="semi" size={14}>{tr("score.backLink")}</Body>
           </Pressable>
         ) : null}
       </View>
-      {!teamFree && step === "server" ? (
-        <View style={{ backgroundColor: t.chip, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 }}>
-          <Body weight="semi" size={14}>{tr("score.rotationServes", { name: sides[team].name })}</Body>
+      {i === 0 ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.chip, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <Body weight="semi" size={14} style={{ flex: 1 }}>{tr(teamFree ? "score.tossServes" : "score.rotationServes", { name: sides[team].name })}</Body>
+          {teamFree ? (
+            <Pressable testID="serve-order-flip" accessibilityRole="button" onPress={flip} hitSlop={10}>
+              <Body tone="blue" weight="semi" size={14}>{tr("score.changeLink")}</Body>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
-      {step === "team" ? (
-        <BigChoice question={tr("score.whichCountry")} value={team} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} onPick={(v) => pick({ servingTeam: v })} />
-      ) : null}
-      {step === "server" ? (
-        <BigChoice question={tr("score.whichPlayerServes", { name: sides[team].name })} value={o.server} options={players(team)} onPick={(v) => pick({ server: v })} />
-      ) : null}
-      {step === "receiver" ? (
-        <BigChoice question={tr("score.whichPlayerReceives", { name: sides[other].name })} value={o.receiver} options={players(other)} onPick={(v) => pick({ receiver: v })} />
-      ) : null}
-      {step === "next" ? (
+      {step === "server" ? <BigChoice question={tr("score.whichPlayerServes", { name: sides[team].name })} value={picks.server} options={players(team)} onPick={(v) => pick({ server: v })} /> : null}
+      {step === "receiver" ? <BigChoice question={tr("score.whichPlayerReceives", { name: sides[other].name })} value={picks.receiver} options={players(other)} onPick={(v) => pick({ receiver: v })} /> : null}
+      {step === "server2" ? <BigChoice question={tr("score.whoServesGame2", { name: sides[other].name })} value={picks.otherServer} options={players(other)} onPick={(v) => pick({ otherServer: v })} /> : null}
+      {step === "receiver2" ? <BigChoice question={tr("score.whoReceivesGame2", { name: sides[team].name })} value={picks.otherReceiver} options={players(team)} onPick={(v) => pick({ otherReceiver: v })} /> : null}
+      {step === "next" && order ? (
         <View style={{ gap: 16 }}>
-          <View style={{ gap: 6 }}>
-            <Body size={14}>
-              {richParts(
-                "score.servesTo",
-                { server: sides[team].players[o.server] ?? tr("score.player"), team: sides[team].name, receiver: sides[other].players[o.receiver] ?? tr("score.player"), other: sides[other].name },
-                ["server", "receiver"],
-              ).map((part, n) =>
-                part.bold ? (
-                  <Body key={n} weight="bold" size={14}>
-                    {part.text}
-                  </Body>
-                ) : (
-                  part.text
-                ),
-              )}
-            </Body>
-            <Body tone="ink2" size={13}>{tr("score.game2Note")}</Body>
+          <View style={{ gap: 8, backgroundColor: t.chip, borderRadius: 14, padding: 14 }}>
+            {line(1, team, order.server, other, order.receiver)}
+            {line(2, other, order.otherServer, team, order.otherReceiver)}
+            <Body tone="ink2" size={12.5}>{tr("score.receiveNote", { a: name(other, order.receiver), b: name(team, order.otherReceiver) })}</Body>
           </View>
-          <ChoiceRow label={tr("score.servesGame2", { name: sides[other].name })} value={o.otherServer} options={players(other)} onPick={(v) => setO({ ...o, otherServer: v })} />
-          <ChoiceRow label={tr("score.receivesGame2", { name: sides[team].name })} value={o.otherReceiver} options={players(team)} onPick={(v) => setO({ ...o, otherReceiver: v })} />
-          <Pressable testID="serve-order-confirm" accessibilityRole="button" onPress={() => onConfirm(o)} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
+          <Pressable testID="serve-order-confirm" accessibilityRole="button" onPress={() => onConfirm(order)} style={({ pressed }) => ({ backgroundColor: BALL, borderRadius: 18, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.85 : 1 })}>
             <Body weight="bold" size={16} style={{ color: BALL_INK }}>{tr("score.startSet")}</Body>
           </Pressable>
         </View>
@@ -461,8 +443,7 @@ export function ServeOrderForm({ sides, initial, onConfirm, teamFree = true }: {
   );
 }
 
-/** One question with big answers stacked full width; tapping one answers it. */
-function BigChoice<V extends string | number>({ question, value, options, onPick }: { question: string; value: V; options: [V, string][]; onPick: (v: V) => void }) {
+function BigChoice<V extends string | number>({ question, value, options, onPick }: { question: string; value: V | undefined; options: [V, string][]; onPick: (v: V) => void }) {
   const { t } = useTheme();
   return (
     <View style={{ gap: 12 }}>

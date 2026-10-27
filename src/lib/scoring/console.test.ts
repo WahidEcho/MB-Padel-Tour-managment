@@ -109,3 +109,24 @@ describe("restoreChoice", () => {
     expect(C.isFinished("live", s, true)).toBe(false);
   });
 });
+
+describe("a time violation ruled on the timer (ITF Rule 29)", () => {
+  it("is a warning first, then a point penalty for the receiver, each one marked Ⓣ", async () => {
+    const { RULINGS } = await import("./timing");
+    const { violationMarks } = await import("./conduct");
+    // The timer offers one ruling that counts; "warning" is left for older consoles' events.
+    expect(RULINGS).toEqual(["code_violation", "no_action"]);
+    let s = initialScoreState("A");
+    expect(C.violationPenalty(s, "B", "time")).toBe("warning");
+    s = C.violation(s, "B", "time", o)!.next;
+    expect(violationMarks(s, "B")).toEqual(["T"]);
+    expect(s.teamA.points).toBe("0");
+    expect(C.violationPenalty(s, "B", "time")).toBe("point");
+    s = C.violation(s, "B", "time", o)!.next;
+    expect(violationMarks(s, "B")).toEqual(["T", "T"]);
+    expect(s.teamA.points).toBe("15");
+    // The server's second time violation costs a serve, not a point.
+    s = C.violation(s, "A", "time", o)!.next;
+    expect(C.violationPenalty(s, "A", "time")).toBe("fault");
+  });
+});

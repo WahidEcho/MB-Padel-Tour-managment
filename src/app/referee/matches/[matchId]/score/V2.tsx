@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 import { currentServer, formatSet, type ScoreState, type TeamKey } from "@/lib/scoring/engine";
 import { receivingPlayer, serveNumber, servingPlayer, type ServeOrder } from "@/lib/scoring/serve";
-import { TIMERS, TIME_DECISION_LABELS, TIME_DECISIONS, clockText, timerView, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
+import { TIMERS, RULINGS, TIME_DECISION_LABELS, clockText, timerView, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import type { LogEntry } from "@/lib/scoring/matchLog";
 import { violationMarks } from "@/lib/scoring/conduct";
 import type { ScoringFeatures } from "@/lib/matchday/rules";
@@ -305,8 +305,8 @@ function RuleRef({ kind }: { kind: TimerKind }) {
 
 function Rulings({ onDecision }: { onDecision: (d: TimeDecision) => void }) {
   return (
-    <div className="grid grid-cols-3 gap-2" data-testid="time-rulings">
-      {(["warning", "code_violation", "no_action"] as TimeDecision[]).filter((d) => TIME_DECISIONS.includes(d)).map((d) => (
+    <div className="grid grid-cols-2 gap-2" data-testid="time-rulings">
+      {RULINGS.map((d) => (
         <button key={d} type="button" onClick={() => onDecision(d)} className="rounded-xl bg-white/15 px-2 py-2 text-xs font-bold text-white hover:bg-white/25" data-testid={`ruling-${d}`}>
           {TIME_DECISION_LABELS[d]}
         </button>
@@ -411,31 +411,11 @@ export function TimerCard({
 
 /* ---------------- doubles: the set-start question ---------------- */
 
-function Choice<V extends string | number>({ label, value, onPick, options }: { label: string; value: V; onPick: (v: V) => void; options: [V, string][] }) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-sm font-semibold text-muted">{label}</p>
-      <div className="grid grid-cols-2 gap-2">
-        {options.map(([v, text]) => (
-          <button
-            key={String(v)}
-            type="button"
-            onClick={() => onPick(v)}
-            className={`rounded-2xl border-2 px-3 py-3 text-sm font-bold ${value === v ? "border-accent bg-accent/15" : "border-border bg-background"}`}
-            aria-pressed={value === v}
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /**
- * Doubles, at the start of every set: which partner serves and receives first (ITF
- * Rule 14). Which team serves is the toss's at the first set only (`teamFree`); after
- * that the rotation decides it, and the dialog shows it without offering a choice.
+ * Doubles, at the start of every set (ITF Rule 14): who serves and who receives first, for game 1
+ * and for game 2, one question each with nothing picked in advance, then a summary to confirm.
+ * Which team serves is never asked again: at the first set "Who serves first?" answered it
+ * (`teamFree` lets the referee change it from the summary line), after that it is the rotation's.
  */
 export function ServeOrderDialog({
   set,
@@ -450,22 +430,31 @@ export function ServeOrderDialog({
   onConfirm: (o: ServeOrder) => void;
   teamFree?: boolean;
 }) {
-  // One question at a time: the country (first set only), its server, the other side's receiver;
-  // then the second game's order (ITF Rule 14), filled in, to confirm.
-  const steps = teamFree ? (["team", "server", "receiver", "next"] as const) : (["server", "receiver", "next"] as const);
-  const [o, setO] = useState<ServeOrder>(initial);
+  const steps = ["server", "receiver", "server2", "receiver2", "next"] as const;
+  const [serving, setServing] = useState<TeamKey>(initial.servingTeam);
+  const [picks, setPicks] = useState<Partial<Omit<ServeOrder, "servingTeam">>>({});
   const [i, setI] = useState(0);
   const step = steps[i];
-  const serving = o.servingTeam;
   const other: TeamKey = serving === "A" ? "B" : "A";
   const players = (k: TeamKey): [0 | 1, string][] => [
     [0, sides[k].players[0] ?? "Player 1"],
     [1, sides[k].players[1] ?? "Player 2"],
   ];
-  const pick = (patch: Partial<ServeOrder>) => {
-    setO({ ...o, ...patch });
+  const name = (k: TeamKey, n: 0 | 1 | undefined) => (n === undefined ? "" : (sides[k].players[n] ?? "Player"));
+  const pick = (patch: Partial<Omit<ServeOrder, "servingTeam">>) => {
+    setPicks({ ...picks, ...patch });
     setI(Math.min(i + 1, steps.length - 1));
   };
+  // The other team serving first: every answer named a player of the wrong team, so ask again.
+  const flip = () => {
+    setServing(other);
+    setPicks({});
+    setI(0);
+  };
+  const order: ServeOrder | null =
+    picks.server !== undefined && picks.receiver !== undefined && picks.otherServer !== undefined && picks.otherReceiver !== undefined
+      ? { servingTeam: serving, server: picks.server, receiver: picks.receiver, otherServer: picks.otherServer, otherReceiver: picks.otherReceiver }
+      : null;
   return (
     <div className="space-y-4" data-testid="serve-order">
       <h3 className="text-xl font-black uppercase">Start of set {set}</h3>
@@ -477,23 +466,35 @@ export function ServeOrderDialog({
           </button>
         )}
       </div>
-      {!teamFree && step === "server" && (
-        <p className="rounded-xl bg-background px-3 py-2 text-sm font-semibold" data-testid="serve-order-team">
-          {sides[serving].name} serve first this set (the rotation)
+      {i === 0 && (
+        <p className="flex items-center gap-3 rounded-xl bg-background px-3 py-2 text-sm font-semibold" data-testid="serve-order-team">
+          <span className="flex-1">{teamFree ? `${sides[serving].name} serve first (chosen when the match started).` : `${sides[serving].name} serve first this set (the rotation).`}</span>
+          {teamFree && (
+            <button type="button" className="text-accent" onClick={flip} data-testid="serve-order-flip">
+              Change
+            </button>
+          )}
         </p>
       )}
-      {step === "team" && <Big question="Which country serves first?" value={serving} onPick={(v: TeamKey) => pick({ servingTeam: v })} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} />}
-      {step === "server" && <Big question={`Which player serves for ${sides[serving].name}?`} value={o.server} onPick={(v: 0 | 1) => pick({ server: v })} options={players(serving)} />}
-      {step === "receiver" && <Big question={`Which player of ${sides[other].name} receives the serve?`} value={o.receiver} onPick={(v: 0 | 1) => pick({ receiver: v })} options={players(other)} />}
-      {step === "next" && (
+      {step === "server" && <Big question={`Which player serves for ${sides[serving].name}?`} value={picks.server} onPick={(v: 0 | 1) => pick({ server: v })} options={players(serving)} />}
+      {step === "receiver" && <Big question={`Which player of ${sides[other].name} receives the serve?`} value={picks.receiver} onPick={(v: 0 | 1) => pick({ receiver: v })} options={players(other)} />}
+      {step === "server2" && <Big question={`Game 2: which player serves for ${sides[other].name}?`} value={picks.otherServer} onPick={(v: 0 | 1) => pick({ otherServer: v })} options={players(other)} />}
+      {step === "receiver2" && <Big question={`Game 2: which player of ${sides[serving].name} receives the serve?`} value={picks.otherReceiver} onPick={(v: 0 | 1) => pick({ otherReceiver: v })} options={players(serving)} />}
+      {step === "next" && order && (
         <div className="space-y-4">
-          <p className="text-sm">
-            <b>{sides[serving].players[o.server] ?? "Player"}</b> ({sides[serving].name}) serves to <b>{sides[other].players[o.receiver] ?? "Player"}</b> ({sides[other].name}).
-          </p>
-          <p className="text-sm text-muted">Game 2 (ITF Rule 14), filled in — change only if the players chose otherwise:</p>
-          <Choice label={`${sides[other].name} serves in game 2`} value={o.otherServer} onPick={(v: 0 | 1) => setO({ ...o, otherServer: v })} options={players(other)} />
-          <Choice label={`${sides[serving].name} receives first in game 2`} value={o.otherReceiver} onPick={(v: 0 | 1) => setO({ ...o, otherReceiver: v })} options={players(serving)} />
-          <button type="button" onClick={() => onConfirm(o)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
+          <div className="space-y-2 rounded-xl bg-background p-3 text-sm" data-testid="serve-order-summary">
+            <p>
+              Game 1: <b>{name(serving, order.server)}</b> ({sides[serving].name}) serves to <b>{name(other, order.receiver)}</b> ({sides[other].name}).
+            </p>
+            <p>
+              Game 2: <b>{name(other, order.otherServer)}</b> ({sides[other].name}) serves to <b>{name(serving, order.otherReceiver)}</b> ({sides[serving].name}).
+            </p>
+            <p className="text-xs text-muted">
+              Each team keeps its sides for the whole set: {name(other, order.receiver)} and {name(serving, order.otherReceiver)} receive on the deuce court (the first point of every game), their partners on the
+              ad court. The receiver changes every point; that is the rule, not a mistake.
+            </p>
+          </div>
+          <button type="button" onClick={() => onConfirm(order)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
             Start the set
           </button>
         </div>
@@ -503,7 +504,7 @@ export function ServeOrderDialog({
 }
 
 /** One question with big answers stacked full width; picking one answers it. */
-function Big<V extends string | number>({ question, value, onPick, options }: { question: string; value: V; onPick: (v: V) => void; options: [V, string][] }) {
+function Big<V extends string | number>({ question, value, onPick, options }: { question: string; value: V | undefined; onPick: (v: V) => void; options: [V, string][] }) {
   return (
     <div className="space-y-3">
       <p className="text-lg font-bold">{question}</p>

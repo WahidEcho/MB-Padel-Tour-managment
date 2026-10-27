@@ -449,7 +449,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
     await record(() => (cur() ? Console.timeDecision(cur()!, t.kind, decision, seconds, team) : null));
     if (t.recorded) await stopRunning();
     else setTimer(null);
-    if (decision === "code_violation" && team) await step(() => (cur() ? Console.violation(cur()!, team, "time", opts) : null));
+    if (decision !== "no_action" && team) await step(() => (cur() ? Console.violation(cur()!, team, "time", opts) : null));
   };
 
   return {

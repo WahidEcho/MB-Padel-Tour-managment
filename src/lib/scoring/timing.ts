@@ -187,8 +187,15 @@ export function liveClock(s: ScoreState | null | undefined, nowMs: number): (Tim
 
 export type TimeDecision = "code_violation" | "warning" | "no_action";
 export const TIME_DECISIONS: readonly TimeDecision[] = ["code_violation", "warning", "no_action"];
+/**
+ * The rulings offered on an overrun timer. ITF Rule 29 / the point penalty system: every
+ * overrun ruled on is a time violation; the ladder (`nextPenalty`) decides the penalty, a
+ * warning the first time, then a point penalty (receiver) or a fault (server). "warning"
+ * stays a valid decision so older consoles' events still read; it is recorded the same way.
+ */
+export const RULINGS: readonly TimeDecision[] = ["code_violation", "no_action"];
 export const TIME_DECISION_LABELS: Record<TimeDecision, string> = {
-  code_violation: "Code violation",
+  code_violation: "Time violation",
   warning: "Warning",
   no_action: "No action",
 };

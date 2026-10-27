@@ -81,7 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_ENV === "production" ? "Move Score" : `Move Score ${APP_ENV === "staging" ? "Staging" : "Dev"}`,
   slug: "move-score",
   scheme: "movescore",
-  version: "1.0.3",
+  version: "1.0.4",
   orientation: "default",
   icon: "./assets/brand/icon.png",
   userInterfaceStyle: "automatic",
@@ -186,6 +186,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     ["react-native-share", { ios: ["instagram-stories", "instagram", "whatsapp"], android: ["com.instagram.android", "com.whatsapp"] }],
+    // A second app icon (the Move Score mark), switched from the server: flag `icon_mark`
+    // (src/live/appIcon.ts). iPhone only for now; the Android alias stays disabled.
+    [
+      "expo-alternate-app-icons",
+      [{ name: "Mark", ios: "./assets/brand/alt/icon-mark.png", android: { foregroundImage: "./assets/brand/alt/adaptive-mark.png", backgroundColor: "#231F20" } }],
+    ],
     ...(LIVE_ACTIVITIES
       ? [
           [
