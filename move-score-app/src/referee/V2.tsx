@@ -353,61 +353,58 @@ export function TimerCard({ timer, now, sides, onStop, onDecision, onRetire }: {
   );
 }
 
-type OrderStep = "server" | "receiver" | "next";
-const ORDER_STEPS: OrderStep[] = ["server", "receiver", "next"];
+type OrderStep = "team" | "server" | "receiver" | "next";
+const ORDER_STEPS: OrderStep[] = ["team", "server", "receiver", "next"];
 
 /**
- * Doubles, at the start of every set (ITF Rule 14), three things only: which country serves
- * (at the first set "Who serves first?" already answered it and `teamFree` lets the referee
- * change it here; later sets follow the rotation), which of its players serves, and which
- * player of the other country receives first. Nothing is picked in advance. The other
- * country's server and the first server's team receiving order keep the set's defaults
- * (`initial`): the other country chooses when its first service game comes, and More →
- * "Swap … server" corrects it; the scoreboard does not name a receiver it was not told.
+ * Doubles, at the start of every set (ITF Rule 14), three questions with nothing picked in
+ * advance: which country serves first, which of its players serves, which player of the other
+ * country receives first. The country the console expects (the toss at the first set, then the
+ * rotation) is shown as a hint, never chosen for the referee (`initial.servingTeam`, `firstSet`).
+ * The other country's server keeps the set's default (`initial`): it chooses when its first
+ * service game comes, and More → "Swap … server" corrects it; the scoreboard does not name a
+ * receiver it was not told.
  */
-export function ServeOrderForm({ sides, initial, onConfirm, teamFree = true }: { sides: Record<TeamKey, V2Side>; initial: ServeOrder; onConfirm: (o: ServeOrder) => void; teamFree?: boolean }) {
+export function ServeOrderForm({ sides, initial, onConfirm, firstSet = false }: { sides: Record<TeamKey, V2Side>; initial: ServeOrder; onConfirm: (o: ServeOrder) => void; firstSet?: boolean }) {
   const { t } = useTheme();
   const tr = useT();
-  const [team, setTeam] = useState<TeamKey>(initial.servingTeam);
-  const [picks, setPicks] = useState<{ server?: 0 | 1; receiver?: 0 | 1 }>({});
+  const [picks, setPicks] = useState<{ team?: TeamKey; server?: 0 | 1; receiver?: 0 | 1 }>({});
   const [i, setI] = useState(0);
   const step = ORDER_STEPS[i];
+  const team: TeamKey = picks.team ?? initial.servingTeam;
   const other: TeamKey = team === "A" ? "B" : "A";
   const players = (k: TeamKey): [0 | 1, string][] => [
     [0, sides[k].players[0] ?? tr("score.player1")],
     [1, sides[k].players[1] ?? tr("score.player2")],
   ];
-  const pick = (patch: { server?: 0 | 1; receiver?: 0 | 1 }) => {
-    setPicks({ ...picks, ...patch });
+  const pick = (patch: { team?: TeamKey; server?: 0 | 1; receiver?: 0 | 1 }) => {
+    // A different country makes the player answers of the old one meaningless.
+    const next = patch.team && patch.team !== picks.team ? { team: patch.team } : { ...picks, ...patch };
+    setPicks(next);
     setI(Math.min(i + 1, ORDER_STEPS.length - 1));
   };
-  const flip = () => {
-    setTeam(other);
-    setPicks({});
-    setI(0);
-  };
-  // The flipped team's own defaults sit on the other side of `initial`.
+  // The chosen team's own defaults for the rest: `initial` holds them by its serving team.
   const rest = team === initial.servingTeam ? { otherServer: initial.otherServer, otherReceiver: initial.otherReceiver } : { otherServer: initial.server, otherReceiver: initial.receiver };
   const order: ServeOrder | null =
-    picks.server !== undefined && picks.receiver !== undefined ? { servingTeam: team, server: picks.server, receiver: picks.receiver, ...rest } : null;
+    picks.team && picks.server !== undefined && picks.receiver !== undefined ? { servingTeam: picks.team, server: picks.server, receiver: picks.receiver, ...rest } : null;
   return (
     <View style={{ gap: 16 }} testID="serve-order">
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Eyebrow size={11} tone="ink3">{step === "next" ? tr("score.checkAndConfirm") : tr("score.questionOf", { n: i + 2, total: 3 })}</Eyebrow>
+        <Eyebrow size={11} tone="ink3">{step === "next" ? tr("score.checkAndConfirm") : tr("score.questionOf", { n: i + 1, total: 3 })}</Eyebrow>
         {i > 0 ? (
           <Pressable accessibilityRole="button" onPress={() => setI(i - 1)} hitSlop={10}>
             <Body tone="blue" weight="semi" size={14}>{tr("score.backLink")}</Body>
           </Pressable>
         ) : null}
       </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.chip, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 }}>
-        <Body weight="semi" size={14} style={{ flex: 1 }}>{tr(teamFree ? "score.tossServes" : "score.rotationServes", { name: sides[team].name })}</Body>
-        {teamFree && step !== "next" ? (
-          <Pressable testID="serve-order-flip" accessibilityRole="button" onPress={flip} hitSlop={10}>
-            <Body tone="blue" weight="semi" size={14}>{tr("score.changeLink")}</Body>
-          </Pressable>
-        ) : null}
-      </View>
+      {step === "team" ? (
+        <View style={{ gap: 10 }}>
+          <BigChoice question={tr("score.whichCountry")} value={picks.team} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} onPick={(v) => pick({ team: v })} />
+          <View style={{ backgroundColor: t.chip, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 }}>
+            <Body tone="ink2" size={13}>{tr(firstSet ? "score.tossHint" : "score.rotationHint", { name: sides[initial.servingTeam].name })}</Body>
+          </View>
+        </View>
+      ) : null}
       {step === "server" ? <BigChoice question={tr("score.whichPlayerServes", { name: sides[team].name })} value={picks.server} options={players(team)} onPick={(v) => pick({ server: v })} /> : null}
       {step === "receiver" ? <BigChoice question={tr("score.whichPlayerReceives", { name: sides[other].name })} value={picks.receiver} options={players(other)} onPick={(v) => pick({ receiver: v })} /> : null}
       {step === "next" && order ? (

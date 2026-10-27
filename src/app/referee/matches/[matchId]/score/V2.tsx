@@ -412,67 +412,63 @@ export function TimerCard({
 /* ---------------- doubles: the set-start question ---------------- */
 
 /**
- * Doubles, at the start of every set (ITF Rule 14), three things only: which country serves (at
- * the first set "Who serves first?" already answered it and `teamFree` lets the referee change it
- * here; later sets follow the rotation), which of its players serves, and which player of the other
- * country receives first. Nothing is picked in advance. The other country's server keeps the set's
- * default: it chooses when its first service game comes, and More → "Other … player serves" corrects it.
+ * Doubles, at the start of every set (ITF Rule 14), three questions with nothing picked in advance:
+ * which country serves first, which of its players serves, which player of the other country receives
+ * first. The country the console expects (the toss at the first set, then the rotation) is a hint only.
+ * The other country's server keeps the set's default: it chooses when its first service game comes,
+ * and More → "Other … player serves" corrects it.
  */
 export function ServeOrderDialog({
   set,
   sides,
   initial,
   onConfirm,
-  teamFree = true,
+  firstSet = false,
 }: {
   set: number;
   sides: Record<TeamKey, { name: string; players: string[] }>;
   initial: ServeOrder;
   onConfirm: (o: ServeOrder) => void;
-  teamFree?: boolean;
+  firstSet?: boolean;
 }) {
-  const steps = ["server", "receiver", "next"] as const;
-  const [serving, setServing] = useState<TeamKey>(initial.servingTeam);
-  const [picks, setPicks] = useState<{ server?: 0 | 1; receiver?: 0 | 1 }>({});
+  const steps = ["team", "server", "receiver", "next"] as const;
+  const [picks, setPicks] = useState<{ team?: TeamKey; server?: 0 | 1; receiver?: 0 | 1 }>({});
   const [i, setI] = useState(0);
   const step = steps[i];
+  const serving: TeamKey = picks.team ?? initial.servingTeam;
   const other: TeamKey = serving === "A" ? "B" : "A";
   const players = (k: TeamKey): [0 | 1, string][] => [
     [0, sides[k].players[0] ?? "Player 1"],
     [1, sides[k].players[1] ?? "Player 2"],
   ];
-  const pick = (patch: { server?: 0 | 1; receiver?: 0 | 1 }) => {
-    setPicks({ ...picks, ...patch });
+  const pick = (patch: { team?: TeamKey; server?: 0 | 1; receiver?: 0 | 1 }) => {
+    // A different country makes the player answers of the old one meaningless.
+    setPicks(patch.team && patch.team !== picks.team ? { team: patch.team } : { ...picks, ...patch });
     setI(Math.min(i + 1, steps.length - 1));
   };
-  const flip = () => {
-    setServing(other);
-    setPicks({});
-    setI(0);
-  };
-  // The flipped team's own defaults sit on the other side of `initial`.
+  // The chosen team's own defaults for the rest: `initial` holds them by its serving team.
   const rest = serving === initial.servingTeam ? { otherServer: initial.otherServer, otherReceiver: initial.otherReceiver } : { otherServer: initial.server, otherReceiver: initial.receiver };
   const order: ServeOrder | null =
-    picks.server !== undefined && picks.receiver !== undefined ? { servingTeam: serving, server: picks.server, receiver: picks.receiver, ...rest } : null;
+    picks.team && picks.server !== undefined && picks.receiver !== undefined ? { servingTeam: picks.team, server: picks.server, receiver: picks.receiver, ...rest } : null;
   return (
     <div className="space-y-4" data-testid="serve-order">
       <h3 className="text-xl font-black uppercase">Start of set {set}</h3>
       <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted">
-        <span>{step === "next" ? "Check and confirm" : `Question ${i + 2} of 3`}</span>
+        <span>{step === "next" ? "Check and confirm" : `Question ${i + 1} of 3`}</span>
         {i > 0 && (
           <button type="button" className="text-accent" onClick={() => setI(i - 1)}>
             ‹ Back
           </button>
         )}
       </div>
-      <p className="flex items-center gap-3 rounded-xl bg-background px-3 py-2 text-sm font-semibold" data-testid="serve-order-team">
-        <span className="flex-1">{teamFree ? `${sides[serving].name} serve first (chosen when the match started).` : `${sides[serving].name} serve first this set (the rotation).`}</span>
-        {teamFree && step !== "next" && (
-          <button type="button" className="text-accent" onClick={flip} data-testid="serve-order-flip">
-            Change
-          </button>
-        )}
-      </p>
+      {step === "team" && (
+        <>
+          <Big question="Which country serves first?" value={picks.team} onPick={(v: TeamKey) => pick({ team: v })} options={[["A", sides.A.name], ["B", sides.B.name]] as [TeamKey, string][]} />
+          <p className="rounded-xl bg-background px-3 py-2 text-sm text-muted" data-testid="serve-order-team">
+            {firstSet ? `Chosen when the match started: ${sides[initial.servingTeam].name}.` : `By the rotation, ${sides[initial.servingTeam].name} serve first this set.`}
+          </p>
+        </>
+      )}
       {step === "server" && <Big question={`Which player serves for ${sides[serving].name}?`} value={picks.server} onPick={(v: 0 | 1) => pick({ server: v })} options={players(serving)} />}
       {step === "receiver" && <Big question={`Which player of ${sides[other].name} receives the serve?`} value={picks.receiver} onPick={(v: 0 | 1) => pick({ receiver: v })} options={players(other)} />}
       {step === "next" && order && (

@@ -174,14 +174,13 @@ export function defaultServeOrder(s: ScoreState): ServeOrder {
 }
 
 /**
- * Records the order for this set. Only at the start of a set, and only with the
- * serving team the rotation gives after the first set (`tossDecidesServer`); null
- * otherwise. Doubles only: the caller (console, server) refuses it in singles.
+ * Records the order for this set. Only at the start of a set; null otherwise. The
+ * referee names the serving team at every set (owner, 27 Oct 2026): the console offers
+ * the rotation's team (`dueServingTeam`) but a correction is the referee's call.
+ * Doubles only: the caller (console, server) refuses it in singles.
  */
 export function setServeOrder(prev: ScoreState, o: ServeOrder): ScoreState | null {
   if (!atSetStart(prev)) return null;
-  const due = dueServingTeam(prev);
-  if (!tossDecidesServer(prev) && due && o.servingTeam !== due) return null;
   const next = clone(prev);
   const team = o.servingTeam;
   const other = opponent(team);

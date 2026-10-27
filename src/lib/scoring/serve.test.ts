@@ -227,7 +227,6 @@ describe("doubles: serve and receive order", () => {
     expect(needsServeOrder(s, true)).toBe(true);
     // Set 2 went 0-6 with A serving games 1, 3, 5: A serves the match tie-break's first point.
     expect(dueServingTeam(s)).toBe("A");
-    expect(setServeOrder(s, { servingTeam: "B", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })).toBeNull();
     s = setServeOrder(s, { servingTeam: "A", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })!;
     expect(currentServer(s)).toBe("A");
     expect(servingPlayer(s)).toEqual({ team: "A", index: 1 });
@@ -237,7 +236,7 @@ describe("doubles: serve and receive order", () => {
     expect(receivingPlayer(s)).toEqual({ team: "A", index: 0, court: "ad" });
   });
 
-  it("only the first set's toss picks the serving team; later sets follow the rotation (L5)", () => {
+  it("the rotation is offered at every set, and the referee may name the other team", () => {
     // The toss: at the first set the referee may name either team, whatever MATCH_STARTED said.
     const start = initialScoreState("A");
     expect(tossDecidesServer(start)).toBe(true);
@@ -250,7 +249,7 @@ describe("doubles: serve and receive order", () => {
     expect(s.currentSet).toBe(2);
     expect(tossDecidesServer(s)).toBe(false);
     expect(dueServingTeam(s)).toBe("B");
-    expect(setServeOrder(s, { ...order, servingTeam: "A" })).toBeNull();
+    expect(setServeOrder(s, { ...order, servingTeam: "A" })?.servingTeam).toBe("A");
     const ok = setServeOrder(s, { servingTeam: "B", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 })!;
     expect(ok.servingTeam).toBe("B");
     expect(servingPlayer(ok)).toEqual({ team: "B", index: 1 });

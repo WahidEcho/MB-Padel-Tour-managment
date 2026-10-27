@@ -8,7 +8,7 @@
  * timers the court TVs and the app read. Audit fixes: a v2 event must start from the
  * server's score (M2, 409 stale_state), a court code changes a finished match only
  * within 30 minutes of its end (L4, 409 finished_locked), no serve order in singles and
- * the rotation's serving team after the first set (L5), and a point closes a running
+ * the rotation's serving team offered at every set (the referee may name the other), and a point closes a running
  * timer that Undo never brings back (L9).
  *
  *   npm run localdb                                      # terminal 1
@@ -348,10 +348,8 @@ async function main() {
     while (d.state!.currentSet === 1) await d.send(d.build(C.point(d.state!, "B", d.opts)));
     // 6-0 to Japan, who served game 1: six games, so Japan serves set 2's first game (the rotation).
     check(dueServingTeam(d.state!) === "B" && C.serveOrderEvent(d.state!, { servingTeam: "B", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }, true) !== null, "set 2 starts: the console asks again, Japan to serve by the rotation", dueServingTeam(d.state!));
-    // L5: only the first set's toss picks the serving team; the referee picks the partners after that.
-    // A console that offers Spain anyway (its form still shows the team) sends it from the server's score.
-    const offRotation = await d.refused((x) => C.serveOrderEvent({ ...x, servingTeam: "A" }, { servingTeam: "A", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }));
-    check(offRotation.status === 409 && offRotation.json?.conflict === "state_mismatch" && (offRotation.json?.applied as unknown[])?.length === 0, "L5: Spain to serve set 2 (not the rotation): 409 state_mismatch, nothing applied", offRotation.json);
+    // The rotation is only offered: the referee may name either team at a set start (owner, 27 Oct 2026).
+    check(C.serveOrderEvent(d.state!, { servingTeam: "A", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }, true)?.next.servingTeam === "A", "set 2: the referee may name Spain instead of the rotation's Japan");
     r = await d.step((x) => C.serveOrderEvent(x, { servingTeam: "B", server: 0, receiver: 1, otherServer: 0, otherReceiver: 0 }, true));
     ds = await snapshotOf(D.id);
     check(r.status === 200 && ds.orderSet === 2 && ds.servingTeam === "B" && JSON.stringify(servingPlayer(ds)) === JSON.stringify({ team: "B", index: 0 }) && JSON.stringify(receivingPlayer(ds)) === JSON.stringify({ team: "A", index: 1, court: "deuce" }), "SERVE_ORDER for set 2 stored and followed", { srv: servingPlayer(ds), rcv: receivingPlayer(ds) });

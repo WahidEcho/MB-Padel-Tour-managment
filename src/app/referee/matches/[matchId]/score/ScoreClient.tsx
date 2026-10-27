@@ -43,7 +43,7 @@ import type { ScoringModeChoice } from "@/lib/matchday/rules";
 import { useSunlight } from "@/components/referee/useSunlight";
 import * as C from "@/lib/scoring/console";
 import { pushesHistory } from "@/lib/scoring/eventGuard";
-import { aceMoment, defaultServeOrder, lockServeOrder, needsServeOrder, tossDecidesServer, type ServeOrder } from "@/lib/scoring/serve";
+import { aceMoment, defaultServeOrder, needsServeOrder, tossDecidesServer, type ServeOrder } from "@/lib/scoring/serve";
 import { TIMERS, sidesSwapped, withoutClock, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import { aceCounts } from "@/lib/scoring/matchLog";
 import { nationByCode } from "@/lib/tennis/nations";
@@ -781,8 +781,7 @@ export default function ScoreClient({
   function confirmServeOrder(order: ServeOrder) {
     const cur = stateRef.current;
     if (!cur) return;
-    // After the first set the serving team is the rotation's; the referee picks the partners.
-    const e = C.serveOrderEvent(cur, lockServeOrder(cur, order), pairs);
+    const e = C.serveOrderEvent(cur, order, pairs);
     if (e) recordV2(e);
   }
 
@@ -1298,7 +1297,7 @@ export default function ScoreClient({
               set={renderState.currentSet}
               sides={v2Sides}
               initial={defaultServeOrder(renderState)}
-              teamFree={tossDecidesServer(renderState)}
+              firstSet={tossDecidesServer(renderState)}
               onConfirm={confirmServeOrder}
             />
           </div>

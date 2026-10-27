@@ -2,7 +2,7 @@
  * Scoring audit fixes, without a database:
  * - M2: a v2 event must start from the server's own score (v2ChainCut);
  * - L4: a court referee code changes a finished match only within the carry-over grace (finishedLockCut);
- * - L5: the serve order: only the first set's toss picks the serving team, and none in singles;
+ * - L5: the serve order: set at a set start from the server's own score (any team), and none in singles;
  * - L9: a step that moves the score closes a running timer, and Undo never brings one back.
  */
 import { describe, expect, it } from "vitest";
@@ -142,16 +142,18 @@ describe("L5: the serve order", () => {
     expect(v2Cut([ev], { teamA: TEAM.A, config: doublesConfig, features: SCORING_FEATURES_ON, doubles: true })).toBeNull();
   });
 
-  it("after the first set the server refuses a serving team the rotation does not give", () => {
+  it("after the first set the referee may name the other team; the server still rebuilds the state", () => {
     let s = C.serveOrderEvent(initialScoreState("A"), order, true)!.next;
-    for (let i = 0; i < 6; i++) s = game(s, "A", doublesConfig); // 6-0: A serves set 2's first game
+    for (let i = 0; i < 6; i++) s = game(s, "A", doublesConfig); // 6-0: A serves set 2's first game by the rotation
     expect(s.currentSet).toBe(2);
-    const wrong = { event_type: "SERVE_ORDER", team_id: null, previous_state: s, new_state: { ...s, servingTeam: "B" as const }, payload: { ...order, servingTeam: "B" } };
-    expect(C.serveOrderEvent(s, { ...order, servingTeam: "B" }, true)).toBeNull();
-    expect(v2Cut([wrong], { teamA: TEAM.A, config: doublesConfig, features: SCORING_FEATURES_ON, doubles: true })?.code).toBe("state_mismatch");
-    const right = C.serveOrderEvent(s, { ...order, server: 1 }, true)!;
-    const ok = { event_type: "SERVE_ORDER", team_id: null, previous_state: s, new_state: right.next, payload: right.payload };
-    expect(v2Cut([ok], { teamA: TEAM.A, config: doublesConfig, features: SCORING_FEATURES_ON, doubles: true })).toBeNull();
+    // Owner, 27 Oct 2026: the console asks the country at every set; a correction is the referee's call.
+    const changed = C.serveOrderEvent(s, { ...order, servingTeam: "B" }, true)!;
+    expect(changed.next.servingTeam).toBe("B");
+    const ev = { event_type: "SERVE_ORDER", team_id: null, previous_state: s, new_state: changed.next, payload: changed.payload };
+    expect(v2Cut([ev], { teamA: TEAM.A, config: doublesConfig, features: SCORING_FEATURES_ON, doubles: true })).toBeNull();
+    // A state the order does not give (here: only the team flipped, no order recorded) is still refused.
+    const forged = { ...ev, new_state: { ...s, servingTeam: "B" as const } };
+    expect(v2Cut([forged], { teamA: TEAM.A, config: doublesConfig, features: SCORING_FEATURES_ON, doubles: true })?.code).toBe("state_mismatch");
   });
 
   it("the first set's toss may name either team", () => {

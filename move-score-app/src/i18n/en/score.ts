@@ -250,13 +250,13 @@ export const score = {
   checkAndConfirm: "Check and confirm",
   questionOf: "Question {n} of {total}",
   backLink: "‹ Back",
-  rotationServes: "{name} serve first this set (the rotation).",
   whichPlayerServes: "Which player serves for {name}?",
   whichPlayerReceives: "Which player of {name} receives the serve?",
   startSet: "Start the set",
-  tossServes: "{name} serve first (chosen when the match started).",
+  whichCountry: "Which country serves first?",
+  tossHint: "Chosen when the match started: {name}.",
+  rotationHint: "By the rotation, {name} serve first this set.",
   servesTo: "{server} ({team}) serves to {receiver} ({other}).",
-  changeLink: "Change",
 
   // Match log
   logEmpty: "Nothing recorded yet.",

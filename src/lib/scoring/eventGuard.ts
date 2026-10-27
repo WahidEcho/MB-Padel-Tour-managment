@@ -441,12 +441,12 @@ export function expectedV2State(e: V2Event, opts: { teamA: string | null; config
       return { ok: true, state: applyLet(prev, p.kind) };
     }
     case "SERVE_ORDER": {
-      // Doubles only; and after the first set the serving team is the rotation's (setServeOrder).
+      // Doubles only, at the start of a set (setServeOrder).
       if (opts.doubles === false) return { ok: false, error: "A singles match has no serve and receive order" };
       const order = parseServeOrder(p);
       const next = order ? setServeOrder(prev, order) : null;
       if (!next) {
-        return { ok: false, error: "The serve and receive order is set at the start of a set; after the first set the serving team follows the rotation" };
+        return { ok: false, error: "The serve and receive order is set at the start of a set" };
       }
       return { ok: true, state: next };
     }

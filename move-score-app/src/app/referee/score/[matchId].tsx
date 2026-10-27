@@ -16,7 +16,6 @@ import {
   namedReceiver,
   aceMoment,
   defaultServeOrder,
-  lockServeOrder,
   tossDecidesServer,
   needsServeOrder,
   nationByCode,
@@ -844,7 +843,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       </Sheetish>
 
       <Sheetish tall open={askOrder && sheet === null} onClose={() => {}} title={tr("score.startOfSet", { n: c.state?.currentSet ?? 1 })}>
-        {askOrder && c.state ? <ServeOrderForm key={c.state.currentSet} sides={v2Sides} teamFree={tossDecidesServer(c.state)} initial={c.state ? lockServeOrder(c.state, defaultServeOrder(c.state)) : defaultServeOrder(c.state)} onConfirm={(o) => guard(() => void c.serveOrder(c.state ? lockServeOrder(c.state, o) : o))} /> : null}
+        {askOrder && c.state ? <ServeOrderForm key={c.state.currentSet} sides={v2Sides} firstSet={tossDecidesServer(c.state)} initial={defaultServeOrder(c.state)} onConfirm={(o) => guard(() => void c.serveOrder(o))} /> : null}
       </Sheetish>
 
       <Sheetish open={sheet?.kind === "violation"} onClose={() => setSheet(null)} title={tr("score.codeViolation")}>
