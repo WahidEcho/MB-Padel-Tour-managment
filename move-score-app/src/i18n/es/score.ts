@@ -244,11 +244,8 @@ export const score: Shape<typeof en> = {
   whichPlayerReceives: "¿Qué jugador de {name} resta el saque?",
   startSet: "Empezar el set",
   tossServes: "{name} saca primero (elegido al empezar el partido).",
+  servesTo: "{server} ({team}) saca a {receiver} ({other}).",
   changeLink: "Cambiar",
-  whoServesGame2: "Juego 2: ¿qué jugador saca por {name}?",
-  whoReceivesGame2: "Juego 2: ¿qué jugador de {name} resta el saque?",
-  gameLine: "Juego {n}: {server} ({team}) saca a {receiver} ({other}).",
-  receiveNote: "Cada equipo mantiene sus lados todo el set: {a} y {b} restan en el lado de iguales (el primer punto de cada juego), sus compañeros en el lado de ventaja. El restador cambia cada punto; es la regla, no un error.",
 
   logEmpty: "Aún no hay nada registrado.",
   setN: "Set {n}",

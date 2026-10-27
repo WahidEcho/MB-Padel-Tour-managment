@@ -224,4 +224,14 @@ export function receivingPlayer(s: ScoreState): { team: TeamKey; index: 0 | 1; c
   return { team, index: (court === "deuce" ? first : 1 - first) as 0 | 1, court };
 }
 
+/**
+ * The receiver to show a referee: the console asks only the side that receives first in a
+ * set who receives (the other side chooses when it first receives), so for the team that
+ * served the set's first game this is null rather than a guess.
+ */
+export function namedReceiver(s: ScoreState): { team: TeamKey; index: 0 | 1; court: "deuce" | "ad" } | null {
+  const r = receivingPlayer(s);
+  return r && s.setFirstServer && r.team === s.setFirstServer ? null : r;
+}
+
 export { servingPlayer };

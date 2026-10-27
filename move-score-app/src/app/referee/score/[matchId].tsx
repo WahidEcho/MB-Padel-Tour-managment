@@ -13,7 +13,7 @@ import {
   OFFENCE_LABELS,
   currentServer,
   servingPlayer,
-  receivingPlayer,
+  namedReceiver,
   aceMoment,
   defaultServeOrder,
   lockServeOrder,
@@ -487,7 +487,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           <Body weight="bold" size={17} numberOfLines={1}>{v2Sides[k].name}</Body>
           {(() => {
             // Doubles: who serves and who receives this point; aces when the organiser counts them.
-            const rcv = shown && pairs && !shown.matchOver ? receivingPlayer(shown) : null;
+            const rcv = shown && pairs && !shown.matchOver ? namedReceiver(shown) : null;
             const srv = shown && pairs && !shown.matchOver ? servingPlayer(shown) : null;
             const who =
               srv?.team === k ? tr("score.servingName", { name: s.players[srv.index]?.name ?? "" }) : rcv?.team === k ? tr("score.receivingName", { name: s.players[rcv.index]?.name ?? "" }) : c.opts.doubles && servingIdx?.team === k ? tr("score.servingName", { name: s.players[servingIdx.index]?.name ?? "" }) : s.players.map((p) => p.name).join(" / ");

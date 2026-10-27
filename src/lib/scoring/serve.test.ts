@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { awardPoint, currentServer, initialScoreState, servingPlayer, type ScoreState, type TeamKey } from "./engine";
-import { ace, aceMoment, applyLet, defaultServeOrder, dueServingTeam, fault, lockServeOrder, needsServeOrder, receivingPlayer, scoreKey, serveCourt, serveNumber, setServeOrder, tossDecidesServer } from "./serve";
+import { ace, aceMoment, applyLet, defaultServeOrder, dueServingTeam, fault, lockServeOrder, namedReceiver, needsServeOrder, receivingPlayer, scoreKey, serveCourt, serveNumber, setServeOrder, tossDecidesServer } from "./serve";
 import { applyViolation, nextPenalty } from "./conduct";
 import { scoringConfigForMatch } from "./rules";
 import { DEFAULT_TENNIS_SCORING_CONFIG, type ScoringConfig } from "../types";
@@ -258,5 +258,18 @@ describe("doubles: serve and receive order", () => {
     const locked = lockServeOrder(s, { servingTeam: "A", server: 1, receiver: 0, otherServer: 0, otherReceiver: 1 });
     expect(locked).toEqual({ servingTeam: "B", server: 0, receiver: 1, otherServer: 1, otherReceiver: 0 });
     expect(lockServeOrder(start, { ...order, servingTeam: "B" }).servingTeam).toBe("B");
+  });
+});
+
+describe("namedReceiver: only the receiver the referee was asked for", () => {
+  it("names the first receiving team's receiver and none for the team that served first", () => {
+    const cfg = doubles;
+    let s: ScoreState = setServeOrder(initialScoreState("B"), { servingTeam: "B", server: 1, receiver: 1, otherServer: 0, otherReceiver: 0 })!;
+    expect(namedReceiver(s)).toEqual({ team: "A", index: 1, court: "deuce" });
+    for (let i = 0; i < 4; i++) s = awardPoint(s, "B", cfg);
+    // Game 2: A serves, B receives — B never said who receives first.
+    expect(currentServer(s)).toBe("A");
+    expect(namedReceiver(s)).toBeNull();
+    expect(servingPlayer(s)).toEqual({ team: "A", index: 0 });
   });
 });

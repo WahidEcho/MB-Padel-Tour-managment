@@ -244,11 +244,8 @@ export const score: Shape<typeof en> = {
   whichPlayerReceives: "Quel joueur de {name} retourne le service ?",
   startSet: "Commencer le set",
   tossServes: "{name} sert en premier (choisi au début du match).",
+  servesTo: "{server} ({team}) sert à {receiver} ({other}).",
   changeLink: "Modifier",
-  whoServesGame2: "Jeu 2 : quel joueur sert pour {name} ?",
-  whoReceivesGame2: "Jeu 2 : quel joueur de {name} retourne le service ?",
-  gameLine: "Jeu {n} : {server} ({team}) sert à {receiver} ({other}).",
-  receiveNote: "Chaque équipe garde ses côtés tout le set : {a} et {b} retournent côté égalité (le premier point de chaque jeu), leurs partenaires côté avantage. Le relanceur change à chaque point ; c'est la règle, pas une erreur.",
 
   logEmpty: "Rien n'est encore enregistré.",
   setN: "Set {n}",

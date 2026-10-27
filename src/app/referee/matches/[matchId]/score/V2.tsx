@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { currentServer, formatSet, type ScoreState, type TeamKey } from "@/lib/scoring/engine";
-import { receivingPlayer, serveNumber, servingPlayer, type ServeOrder } from "@/lib/scoring/serve";
+import { namedReceiver, serveNumber, servingPlayer, type ServeOrder } from "@/lib/scoring/serve";
 import { TIMERS, RULINGS, TIME_DECISION_LABELS, clockText, timerView, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import type { LogEntry } from "@/lib/scoring/matchLog";
 import { violationMarks } from "@/lib/scoring/conduct";
@@ -67,7 +67,7 @@ export function BoardV2({
 }) {
   const server = currentServer(state);
   const serving = doubles ? servingPlayer(state) : null;
-  const receiving = doubles ? receivingPlayer(state) : null;
+  const receiving = doubles ? namedReceiver(state) : null;
   return (
     <div className="relative rounded-[20px] border border-border bg-card px-4 pb-3 pt-3" data-testid="v2-board">
       {banner}
@@ -412,10 +412,11 @@ export function TimerCard({
 /* ---------------- doubles: the set-start question ---------------- */
 
 /**
- * Doubles, at the start of every set (ITF Rule 14): who serves and who receives first, for game 1
- * and for game 2, one question each with nothing picked in advance, then a summary to confirm.
- * Which team serves is never asked again: at the first set "Who serves first?" answered it
- * (`teamFree` lets the referee change it from the summary line), after that it is the rotation's.
+ * Doubles, at the start of every set (ITF Rule 14), three things only: which country serves (at
+ * the first set "Who serves first?" already answered it and `teamFree` lets the referee change it
+ * here; later sets follow the rotation), which of its players serves, and which player of the other
+ * country receives first. Nothing is picked in advance. The other country's server keeps the set's
+ * default: it chooses when its first service game comes, and More → "Other … player serves" corrects it.
  */
 export function ServeOrderDialog({
   set,
@@ -430,9 +431,9 @@ export function ServeOrderDialog({
   onConfirm: (o: ServeOrder) => void;
   teamFree?: boolean;
 }) {
-  const steps = ["server", "receiver", "server2", "receiver2", "next"] as const;
+  const steps = ["server", "receiver", "next"] as const;
   const [serving, setServing] = useState<TeamKey>(initial.servingTeam);
-  const [picks, setPicks] = useState<Partial<Omit<ServeOrder, "servingTeam">>>({});
+  const [picks, setPicks] = useState<{ server?: 0 | 1; receiver?: 0 | 1 }>({});
   const [i, setI] = useState(0);
   const step = steps[i];
   const other: TeamKey = serving === "A" ? "B" : "A";
@@ -440,60 +441,45 @@ export function ServeOrderDialog({
     [0, sides[k].players[0] ?? "Player 1"],
     [1, sides[k].players[1] ?? "Player 2"],
   ];
-  const name = (k: TeamKey, n: 0 | 1 | undefined) => (n === undefined ? "" : (sides[k].players[n] ?? "Player"));
-  const pick = (patch: Partial<Omit<ServeOrder, "servingTeam">>) => {
+  const pick = (patch: { server?: 0 | 1; receiver?: 0 | 1 }) => {
     setPicks({ ...picks, ...patch });
     setI(Math.min(i + 1, steps.length - 1));
   };
-  // The other team serving first: every answer named a player of the wrong team, so ask again.
   const flip = () => {
     setServing(other);
     setPicks({});
     setI(0);
   };
+  // The flipped team's own defaults sit on the other side of `initial`.
+  const rest = serving === initial.servingTeam ? { otherServer: initial.otherServer, otherReceiver: initial.otherReceiver } : { otherServer: initial.server, otherReceiver: initial.receiver };
   const order: ServeOrder | null =
-    picks.server !== undefined && picks.receiver !== undefined && picks.otherServer !== undefined && picks.otherReceiver !== undefined
-      ? { servingTeam: serving, server: picks.server, receiver: picks.receiver, otherServer: picks.otherServer, otherReceiver: picks.otherReceiver }
-      : null;
+    picks.server !== undefined && picks.receiver !== undefined ? { servingTeam: serving, server: picks.server, receiver: picks.receiver, ...rest } : null;
   return (
     <div className="space-y-4" data-testid="serve-order">
       <h3 className="text-xl font-black uppercase">Start of set {set}</h3>
       <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted">
-        <span>{step === "next" ? "Check and confirm" : `Question ${i + 1} of ${steps.length - 1}`}</span>
+        <span>{step === "next" ? "Check and confirm" : `Question ${i + 2} of 3`}</span>
         {i > 0 && (
           <button type="button" className="text-accent" onClick={() => setI(i - 1)}>
             ‹ Back
           </button>
         )}
       </div>
-      {i === 0 && (
-        <p className="flex items-center gap-3 rounded-xl bg-background px-3 py-2 text-sm font-semibold" data-testid="serve-order-team">
-          <span className="flex-1">{teamFree ? `${sides[serving].name} serve first (chosen when the match started).` : `${sides[serving].name} serve first this set (the rotation).`}</span>
-          {teamFree && (
-            <button type="button" className="text-accent" onClick={flip} data-testid="serve-order-flip">
-              Change
-            </button>
-          )}
-        </p>
-      )}
+      <p className="flex items-center gap-3 rounded-xl bg-background px-3 py-2 text-sm font-semibold" data-testid="serve-order-team">
+        <span className="flex-1">{teamFree ? `${sides[serving].name} serve first (chosen when the match started).` : `${sides[serving].name} serve first this set (the rotation).`}</span>
+        {teamFree && step !== "next" && (
+          <button type="button" className="text-accent" onClick={flip} data-testid="serve-order-flip">
+            Change
+          </button>
+        )}
+      </p>
       {step === "server" && <Big question={`Which player serves for ${sides[serving].name}?`} value={picks.server} onPick={(v: 0 | 1) => pick({ server: v })} options={players(serving)} />}
       {step === "receiver" && <Big question={`Which player of ${sides[other].name} receives the serve?`} value={picks.receiver} onPick={(v: 0 | 1) => pick({ receiver: v })} options={players(other)} />}
-      {step === "server2" && <Big question={`Game 2: which player serves for ${sides[other].name}?`} value={picks.otherServer} onPick={(v: 0 | 1) => pick({ otherServer: v })} options={players(other)} />}
-      {step === "receiver2" && <Big question={`Game 2: which player of ${sides[serving].name} receives the serve?`} value={picks.otherReceiver} onPick={(v: 0 | 1) => pick({ otherReceiver: v })} options={players(serving)} />}
       {step === "next" && order && (
         <div className="space-y-4">
-          <div className="space-y-2 rounded-xl bg-background p-3 text-sm" data-testid="serve-order-summary">
-            <p>
-              Game 1: <b>{name(serving, order.server)}</b> ({sides[serving].name}) serves to <b>{name(other, order.receiver)}</b> ({sides[other].name}).
-            </p>
-            <p>
-              Game 2: <b>{name(other, order.otherServer)}</b> ({sides[other].name}) serves to <b>{name(serving, order.otherReceiver)}</b> ({sides[serving].name}).
-            </p>
-            <p className="text-xs text-muted">
-              Each team keeps its sides for the whole set: {name(other, order.receiver)} and {name(serving, order.otherReceiver)} receive on the deuce court (the first point of every game), their partners on the
-              ad court. The receiver changes every point; that is the rule, not a mistake.
-            </p>
-          </div>
+          <p className="text-base" data-testid="serve-order-summary">
+            <b>{sides[serving].players[order.server] ?? "Player"}</b> ({sides[serving].name}) serves to <b>{sides[other].players[order.receiver] ?? "Player"}</b> ({sides[other].name}).
+          </p>
           <button type="button" onClick={() => onConfirm(order)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
             Start the set
           </button>

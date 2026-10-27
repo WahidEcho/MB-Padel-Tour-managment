@@ -255,11 +255,8 @@ export const score = {
   whichPlayerReceives: "Which player of {name} receives the serve?",
   startSet: "Start the set",
   tossServes: "{name} serve first (chosen when the match started).",
+  servesTo: "{server} ({team}) serves to {receiver} ({other}).",
   changeLink: "Change",
-  whoServesGame2: "Game 2: which player serves for {name}?",
-  whoReceivesGame2: "Game 2: which player of {name} receives the serve?",
-  gameLine: "Game {n}: {server} ({team}) serves to {receiver} ({other}).",
-  receiveNote: "Each team keeps its sides for the whole set: {a} and {b} receive on the deuce court (the first point of every game), their partners on the ad court. The receiver changes every point; that is the rule, not a mistake.",
 
   // Match log
   logEmpty: "Nothing recorded yet.",
