@@ -69,10 +69,14 @@ export function LivePill({ label: given }: { label?: string }) {
   );
 }
 
-/** A nation's flag from the platform's own flag set, with the code as a fallback. */
+/**
+ * A nation's flag from the platform's own flag set, with the code as a fallback.
+ * PNGs drawn from the SVGs in Chrome (public/flags/png): iOS's SVG renderer drops clip paths and
+ * <use>, which broke Egypt, Korea, India, Serbia… Shown whole at the files' 4:3, never cropped.
+ */
 export function Flag({ iso2, code, size = 22 }: { iso2: string | null | undefined; code?: string | null; size?: number }) {
   const { t } = useTheme();
-  const h = Math.round(size * 0.68);
+  const h = Math.round(size * 0.75);
   if (!iso2 || !/^[a-z]{2}$/.test(iso2)) {
     return (
       <View style={{ width: size, height: h, borderRadius: 3, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
@@ -80,7 +84,7 @@ export function Flag({ iso2, code, size = 22 }: { iso2: string | null | undefine
       </View>
     );
   }
-  return <Image source={{ uri: `${config.apiBaseUrl}/flags/${iso2}.svg` }} style={{ width: size, height: h, borderRadius: 3 }} contentFit="cover" cachePolicy="disk" accessibilityLabel={code ?? iso2} />;
+  return <Image source={{ uri: `${config.apiBaseUrl}/flags/png/${iso2}.png` }} style={{ width: size, height: h, borderRadius: 3 }} contentFit="fill" cachePolicy="disk" accessibilityLabel={code ?? iso2} />;
 }
 
 export function SectionHeader({ title, action, onAction, onTitlePress, titleLabel }: { title: string; action?: string; onAction?: () => void; onTitlePress?: () => void; titleLabel?: string }) {

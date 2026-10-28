@@ -40,15 +40,15 @@ const shadow = (u: number, a = 0.45): TextStyle => ({ textShadowColor: `rgba(0,0
 
 function FlagImage({ iso2, w, h, r }: { iso2: string; w: number; h: number; r: number }) {
   const gate = useGatedImage();
-  return <Image source={{ uri: `${config.apiBaseUrl}/flags/${iso2}.svg` }} style={{ width: w, height: h, borderRadius: r }} contentFit="cover" cachePolicy="disk" transition={0} {...gate} />;
+  return <Image source={{ uri: `${config.apiBaseUrl}/flags/png/${iso2}.png` }} style={{ width: w, height: h, borderRadius: r }} contentFit="fill" cachePolicy="disk" transition={0} {...gate} />;
 }
 
 export function flagUrl(iso2: string | null): string | null {
-  return iso2 && /^[a-z]{2}$/.test(iso2) ? `${config.apiBaseUrl}/flags/${iso2}.svg` : null;
+  return iso2 && /^[a-z]{2}$/.test(iso2) ? `${config.apiBaseUrl}/flags/png/${iso2}.png` : null;
 }
 
 export function StoryFlag({ iso2, code, size, u, dark = true }: { iso2: string | null; code: string; size: number; u: number; dark?: boolean }) {
-  const h = Math.round(size * 0.68 * 100) / 100;
+  const h = Math.round(size * 0.75 * 100) / 100;
   if (flagUrl(iso2)) return <FlagImage iso2={iso2!} w={size} h={h} r={3 * u} />;
   return (
     <View style={{ width: size, height: h, borderRadius: 3 * u, backgroundColor: dark ? "rgba(255,255,255,0.14)" : "rgba(5,6,10,0.08)", alignItems: "center", justifyContent: "center" }}>

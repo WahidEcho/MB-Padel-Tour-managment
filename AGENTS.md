@@ -36,7 +36,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   The real Cairo events: `scripts/events/cairo-2026.ts` (SQL, drafts, public pages off).
 - Tennis court TVs (`src/components/tennis/`, scenes decided by `src/lib/tennis/tvScene.ts`): a tie-format
   tournament's live screen runs line-up → walk-on → live score → rubber won → tie score per court on its own.
-  Flags are local SVGs in `public/flags/` (from `flag-icons`, MIT). Gate on the stand-in only:
+  Flags are local SVGs in `public/flags/` (from `flag-icons`, MIT); the app loads PNGs drawn from them in Chrome
+  (`public/flags/png/`, 480×360, `sh scripts/flags/render-png.sh` after any SVG change) because iOS's SVG renderer breaks
+  clip paths / `<use>` (Egypt, Korea, India, Serbia…); flags show whole at 4:3. Gate on the stand-in only:
   `npm run e2e:tennis-tv` (plays the demo's first tie; screenshots + video to `OUT`).
 - **Voice calls are OFF for the coming tour (owner, 21 Oct 2026):** `VOICE_CALLS_ON = false` in the web referee console
   (`ScoreClient.tsx`) hides Voice/Mute and plays nothing; do not build on the voice code or run `e2e:tennis-voice` until the owner says.
