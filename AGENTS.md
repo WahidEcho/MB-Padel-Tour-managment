@@ -315,11 +315,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Ages: juniors are minors, so only with App tab "Show players' ages" (`app_skin.showAges`, default off) and only as `MPlayer.age`
   computed from the linked profile's `birth_year` (`publicAges` in `src/lib/mobile/server.ts`; never the year, never for a profile
   the organisation does not vouch for). Player follows get match soon / live / result (`composeMatchSoon` targets the players).
-- Venue map (migration `0039_venue_map.sql`, not yet on the live project; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
+- Venue map (migration `0039_venue_map.sql`, applied on the live project 20 Oct 2026; `docs/venue-map.md`): pure `src/lib/venue/` (routing,
   geo, directions, navigation, DXF, scene/camera maths, bridge via `@core`), WebGL renderer + UI `src/components/venue/`, page
   `/t/<slug>/map`, API `api/mobile/v1/t/[slug]/venue{,/live,/route}`, editor + Survey mode `admin/tournaments/[id]/venue`, app
   screen `move-score-app/src/app/venue/[slug].tsx` (WebView + expo-location). The public venue is an explicit projection (no
   underlay, no survey fixes). Gate `npm run e2e:venue-map` (stand-in). The sample layout's anchor is a placeholder.
+  Smash Sporting Club (the Cairo events): `scripts/venue/smash-club-2026.ts` builds the real layout from the club's CAD plan
+  (`public/venue/smash-2026/site-plan.jpg`, 0.149 m/px, north up; anchor from Google Maps, ±4 m) and the owner's marked satellite
+  view (courts, gates 1/5/6, lockers, referee room, lounge, buffet, toilets); loaded on the live project 28 Oct 2026 as one
+  `venue_maps` row per event (unpublished until the owner checks it in Admin → Venue map). Medical and prayer room still unplaced.
 - Fan stats (no migration): pure `src/lib/scoring/stats.ts` (via `@core`; replays the non-superseded, non-undone score events: the stored
   state before each point gives the server and break points, never in a tie-break; only POINT_AWARDED counts as a point played),
   server `src/lib/mobile/stats.ts` (explicit columns, a few JSON fields of each previous state, never `created_by`), routes
