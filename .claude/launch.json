@@ -66,6 +66,15 @@
         "scripts/demo/fake-move-tick.ts"
       ],
       "port": 54399
+    },
+    {
+      "name": "dev-localdb",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env.localdb; set +a; PUSH_DRY_RUN=1 MESSAGING_DRY_RUN=1 exec npx next dev -p 3078"
+      ],
+      "port": 3078
     }
   ]
 }

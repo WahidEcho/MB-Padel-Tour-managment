@@ -118,11 +118,11 @@ export default function VenueMap({ doc, version = 0, slug = null, liveUrl = null
   const size = () => ({ w: wrapRef.current?.clientWidth || 1, h: wrapRef.current?.clientHeight || 1 });
 
   const fitPoints = useCallback(
-    (pts: Pt[], opts: { minDistance?: number; dur?: number; sheet?: boolean } = {}) => {
+    (pts: Pt[], opts: { minDistance?: number; dur?: number; sheet?: boolean; pitch?: number } = {}) => {
       const { w, h } = size();
       const b = boundsOf(pts);
       const pad = 18;
-      const c = fitCamera({ minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad }, w / h, { yaw: cam.current.yaw, pitch: cam.current.pitch, fovY: BASE.fovY });
+      const c = fitCamera({ minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad }, w / h, { yaw: cam.current.yaw, pitch: opts.pitch ?? cam.current.pitch, fovY: BASE.fovY });
       flyTo(clearOfPanels({ ...c, distance: Math.max(opts.minDistance ?? 60, c.distance) }, opts.sheet ? 0.24 : 0.08), opts.dur);
     },
     [flyTo],
@@ -203,7 +203,7 @@ export default function VenueMap({ doc, version = 0, slug = null, liveUrl = null
   }, [scene, theme]);
 
   useEffect(() => {
-    renderer.current?.setRoute(route ? ribbon(route.points, 4.2, COURT_SLAB + 0.25) : null);
+    renderer.current?.setRoute(route ? ribbon(route.points, 6.4, COURT_SLAB + 0.25) : null);
     dirty.current = true;
   }, [route]);
 
@@ -232,7 +232,11 @@ export default function VenueMap({ doc, version = 0, slug = null, liveUrl = null
     }
     if (navTarget && route) {
       const end = route.points[route.points.length - 1];
-      o.push({ tris: ring(end, 0, 2.6, 0.32), color: [accent[0], accent[1], accent[2], 0.95] });
+      const start = route.points[0];
+      const go = rgb("#12a150");
+      o.push({ tris: ring(end, 0, 3.4, 0.32), color: [accent[0], accent[1], accent[2], 0.95] });
+      o.push({ tris: ring(end, 4.2, 5.4, 0.31), color: [accent[0], accent[1], accent[2], 0.6] });
+      o.push({ tris: ring(start, 0, 2.6, 0.32), color: [go[0], go[1], go[2], 0.95] });
     }
     if (here && loc.fix) {
       const acc = Math.max(3, loc.fix.accuracy ?? 10);
@@ -530,7 +534,9 @@ export default function VenueMap({ doc, version = 0, slug = null, liveUrl = null
       setNav(NAV_START);
       setSelected(t.key);
       setStepsOpen(false);
-      fitPoints(r.points, { minDistance: 80, sheet: true });
+      // Directions are read from above: straight down, the whole route in view.
+      setTopDown(true);
+      fitPoints(r.points, { minDistance: 80, sheet: true, pitch: MAX_PITCH });
     },
     [fitPoints, freshFix, loc, plan, preview, targetFor],
   );

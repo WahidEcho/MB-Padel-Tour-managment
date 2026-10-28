@@ -120,8 +120,8 @@ const doc: VenueDoc = {
   geo,
   boundary: rectPx(1033, 217, 3309, 2067),
   events: [
-    { key: "dc", label: "Davis Cup Junior Finals", color: "#1f6fd1", slugs: ["davis-cup-junior-finals-2026"] },
-    { key: "bjk", label: "Billie Jean King Cup Junior Finals", color: "#e0457b", slugs: ["bjk-cup-junior-finals-2026"] },
+    { key: "dc", label: "Davis Cup Junior Finals", color: "#16a34a", slugs: ["davis-cup-junior-finals-2026"] },
+    { key: "bjk", label: "Billie Jean King Cup Junior Finals", color: "#1b1b1f", slugs: ["bjk-cup-junior-finals-2026"] },
   ],
   categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
   courts, buildings, walkways: { nodes, edges }, pois,
@@ -145,7 +145,7 @@ writeFileSync(`${OUT}/underlay.json`, JSON.stringify(underlay));
 const toPx = (p: Pt) => [p.x / s, H - p.y / s];
 const svg: string[] = [];
 for (const b of buildings) svg.push(`<polygon points="${b.polygon.map((p) => toPx(p).join(",")).join(" ")}" fill="${b.kind === "area" ? "#9ca3af" : b.kind === "stand" ? "#f59e0b" : "#374151"}" fill-opacity="0.35" stroke="#111" stroke-width="3"/><text x="${toPx(b.polygon[0])[0] + 8}" y="${toPx(b.polygon[0])[1] + 34}" font-size="28" font-family="Helvetica">${b.name}</text>`);
-for (const c of courts) { const [x, y] = toPx(c.center); const w = c.width / s, h = c.length / s; const col = c.event === "bjk" ? "#e0457b" : "#1f6fd1"; svg.push(`<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" fill="${col}" fill-opacity="0.3" stroke="${col}" stroke-width="4"/><text x="${x}" y="${y + 20}" font-size="56" font-weight="bold" text-anchor="middle" fill="${col}" font-family="Helvetica">${c.number}</text>`); }
+for (const c of courts) { const [x, y] = toPx(c.center); const w = c.width / s, h = c.length / s; const col = c.event === "bjk" ? "#1b1b1f" : "#16a34a"; svg.push(`<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" fill="${col}" fill-opacity="0.3" stroke="${col}" stroke-width="4"/><text x="${x}" y="${y + 20}" font-size="56" font-weight="bold" text-anchor="middle" fill="${col}" font-family="Helvetica">${c.number}</text>`); }
 const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
 for (const e of edges) { const a = toPx(byId[e.a]), b = toPx(byId[e.b]); svg.push(`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#16a34a" stroke-width="8" stroke-opacity="0.8"/>`); }
 for (const n of nodes) { const [x, y] = toPx(n); svg.push(`<circle cx="${x}" cy="${y}" r="10" fill="#16a34a"/>`); }

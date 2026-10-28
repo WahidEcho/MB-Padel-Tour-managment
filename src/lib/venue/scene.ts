@@ -26,6 +26,7 @@ export interface Theme {
   accent: string;
   route: string;
   routeGlow: string;
+  routeAlt: string;
   label: string;
   labelInk: string;
 }
@@ -48,6 +49,7 @@ export const VENUE_THEMES: Record<"light" | "dark", Theme> = {
     accent: "#ff3b5c",
     route: "#1a73e8",
     routeGlow: "#4d9bff",
+    routeAlt: "#ff8a00",
     label: "#ffffff",
     labelInk: "#0b1220",
   },
@@ -68,6 +70,7 @@ export const VENUE_THEMES: Record<"light" | "dark", Theme> = {
     accent: "#ff4d6d",
     route: "#4d9bff",
     routeGlow: "#7ab8ff",
+    routeAlt: "#ffb347",
     label: "#0a1022",
     labelInk: "#e8ecf4",
   },

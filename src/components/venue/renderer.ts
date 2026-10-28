@@ -29,14 +29,22 @@ uniform mat4 vp; varying float va; varying float vs;
 void main() { va = along; vs = side; gl_Position = vp * vec4(p, 1.0); }`;
 const ROUTE_FS = `
 precision mediump float;
-varying float va; varying float vs; uniform float time; uniform vec3 core; uniform vec3 glow;
+varying float va; varying float vs; uniform float time; uniform vec3 core; uniform vec3 glow; uniform vec3 alt;
 void main() {
   float s = abs(vs);
-  float halo = pow(1.0 - s, 1.6);
-  float inner = smoothstep(0.42, 0.28, s);
-  float pulse = 0.5 + 0.5 * sin((va - time * 14.0) * 0.32);
-  vec3 col = mix(glow, core, inner) + vec3(0.25) * inner * pulse;
-  float a = max(halo * 0.55, inner * (0.82 + 0.18 * pulse));
+  // A dark rim so the ribbon reads on pale walkways, a soft halo outside it.
+  float halo = pow(1.0 - s, 1.4);
+  float inner = smoothstep(0.62, 0.5, s);
+  float rim = smoothstep(0.78, 0.62, s) - inner;
+  // The colour slides between the two route colours along the way.
+  float wave = 0.5 + 0.5 * sin(va * 0.09 - time * 1.6);
+  vec3 body = mix(core, alt, wave);
+  // Chevrons marching toward the destination: a V whose tip leads (side 0 ahead of the edges).
+  float u = va - time * 6.0 + s * 2.2;
+  float chev = smoothstep(0.35, 0.0, abs(mod(u, 5.0) - 2.5) - 0.7) * inner;
+  vec3 col = mix(mix(glow, body, inner), vec3(1.0), chev * 0.95);
+  col = mix(col, vec3(0.06, 0.08, 0.14), rim * 0.85);
+  float a = max(max(halo * 0.45, inner * 0.96), rim * 0.9);
   gl_FragColor = vec4(col, a);
 }`;
 
@@ -200,6 +208,8 @@ export class VenueRenderer {
       const glow = rgb(this.theme.routeGlow);
       gl.uniform3f(gl.getUniformLocation(this.route, "core"), core[0], core[1], core[2]);
       gl.uniform3f(gl.getUniformLocation(this.route, "glow"), glow[0], glow[1], glow[2]);
+      const alt = rgb(this.theme.routeAlt);
+      gl.uniform3f(gl.getUniformLocation(this.route, "alt"), alt[0], alt[1], alt[2]);
       this.attrib(this.route, "p", this.routeBufs.p, 3);
       this.attrib(this.route, "along", this.routeBufs.a, 1);
       this.attrib(this.route, "side", this.routeBufs.s, 1);
