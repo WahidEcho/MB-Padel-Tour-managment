@@ -45,8 +45,9 @@ const courts: VenueCourt[] = Object.entries(COURTS)
   .sort((a, b) => a.number - b.number);
 
 const buildings: VenueBuilding[] = [
-  { id: "stand-14", name: "Court 14 stand", kind: "stand", polygon: rectPx(2048, 1440, 2110, 1710), height: 4 },
-  { id: "stand-13", name: "Court 13 stand", kind: "stand", polygon: rectPx(2278, 1440, 2340, 1710), height: 4 },
+  // Stands step up from their first edge, so x1 comes first: the low tier faces the court to the west.
+  { id: "stand-14", name: "Court 14 stand", kind: "stand", polygon: rectPx(2110, 1440, 2048, 1710), height: 4 },
+  { id: "stand-13", name: "Court 13 stand", kind: "stand", polygon: rectPx(2340, 1440, 2278, 1710), height: 4 },
   { id: "pitch", name: "Football pitch", kind: "area", polygon: [P(1400, 1117), P(1770, 1117), P(1817, 1170), P(1817, 1900), P(1770, 1950), P(1400, 1950), P(1350, 1900), P(1350, 1170)], height: 0.1 },
   { id: "other-courts", name: "Courts not in use", kind: "area", polygon: rectPx(1820, 1785, 2050, 2030), height: 0.1 },
   { id: "clubhouse", name: "Clubhouse", kind: "building", polygon: rectPx(1885, 300, 2300, 767), height: 8 },
