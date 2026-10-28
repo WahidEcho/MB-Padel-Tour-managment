@@ -40,7 +40,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   (`public/flags/png/`, 480×360, `sh scripts/flags/render-png.sh` after any SVG change) because iOS's SVG renderer breaks
   clip paths / `<use>` (Egypt, Korea, India, Serbia…); flags show whole at 4:3.
   Shipped OTA 29 Oct 2026 to runtimes 1.0.2 (6cdf7b0), 1.0.3 (8b6d77d) and 1.0.4 (71c5b8f), each = that build's code + only
-  the flag patch (Bits.tsx `Flag`, story/Stickers.tsx); any later OTA for these runtimes must keep the PNG flags. Gate on the stand-in only:
+  the flag patch (Bits.tsx `Flag`, story/Stickers.tsx); any later OTA for these runtimes must keep the PNG flags. A second OTA
+  (same three bases) added `?v=2` on flag URLs and the story headline sizing (`src/story/headline.ts`). Chinese Taipei = its
+  Olympic flag (`tw.svg` from `scripts/flags/chinese-taipei.ts`). Gate on the stand-in only:
   `npm run e2e:tennis-tv` (plays the demo's first tie; screenshots + video to `OUT`).
 - **Voice calls are OFF for the coming tour (owner, 21 Oct 2026):** `VOICE_CALLS_ON = false` in the web referee console
   (`ScoreClient.tsx`) hides Voice/Mute and plays nothing; do not build on the voice code or run `e2e:tennis-voice` until the owner says.
