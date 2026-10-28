@@ -17,7 +17,7 @@ import { PASS_RATIO, PASS_W, PassCard } from "../ui/PassCard";
 // The story sticker draws the pass at the prototype width and scales it; its height follows the card ratio.
 const PASS_H = Math.round(PASS_W * PASS_RATIO);
 import { useGatedImage } from "./LoadGate";
-import { appLink, scoreText, shortEvent, type LayoutId, type StoryInfo, type StorySide, type Tone } from "./model";
+import { appLink, headlineSize, scoreText, shortEvent, type LayoutId, type StoryInfo, type StorySide, type Tone } from "./model";
 import { useT } from "../i18n";
 import { tr } from "../i18n/t";
 
@@ -40,11 +40,11 @@ const shadow = (u: number, a = 0.45): TextStyle => ({ textShadowColor: `rgba(0,0
 
 function FlagImage({ iso2, w, h, r }: { iso2: string; w: number; h: number; r: number }) {
   const gate = useGatedImage();
-  return <Image source={{ uri: `${config.apiBaseUrl}/flags/png/${iso2}.png` }} style={{ width: w, height: h, borderRadius: r }} contentFit="fill" cachePolicy="disk" transition={0} {...gate} />;
+  return <Image source={{ uri: `${config.apiBaseUrl}/flags/png/${iso2}.png?v=2` }} style={{ width: w, height: h, borderRadius: r }} contentFit="fill" cachePolicy="disk" transition={0} {...gate} />;
 }
 
 export function flagUrl(iso2: string | null): string | null {
-  return iso2 && /^[a-z]{2}$/.test(iso2) ? `${config.apiBaseUrl}/flags/png/${iso2}.png` : null;
+  return iso2 && /^[a-z]{2}$/.test(iso2) ? `${config.apiBaseUrl}/flags/png/${iso2}.png?v=2` : null;
 }
 
 export function StoryFlag({ iso2, code, size, u, dark = true }: { iso2: string | null; code: string; size: number; u: number; dark?: boolean }) {
@@ -199,6 +199,7 @@ export function PassSticker({ info, u }: { info: StoryInfo; u: number }) {
 export function MinimalSticker({ info, u, tone }: { info: StoryInfo; u: number; tone: Tone }) {
   const tr = useT();
   const big = tone === "dark" ? BALL : "#FFFFFF";
+  const headSize = headlineSize(info.headline, 312 * u, 62 * u);
   return (
     <View style={{ width: 312 * u, gap: 10 * u }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 * u }}>
@@ -207,7 +208,7 @@ export function MinimalSticker({ info, u, tone }: { info: StoryInfo; u: number; 
           {[tr("story.imHere"), info.city].filter(Boolean).join(" · ")}
         </T>
       </View>
-      <T style={{ fontFamily: F.display, fontSize: 62 * u, lineHeight: 56 * u, color: big, textTransform: "uppercase", ...shadow(u, 0.35) }}>{`${info.headline[0]}\n${info.headline[1]}`}</T>
+      <T style={{ fontFamily: F.display, fontSize: headSize, lineHeight: headSize * 0.9, color: big, textTransform: "uppercase", ...shadow(u, 0.35) }}>{`${info.headline[0]}\n${info.headline[1]}`}</T>
       {info.sides ? (
         <View style={{ gap: 4 * u }}>
           {info.sides.map((s) => (
@@ -250,6 +251,7 @@ export function TicketSticker({ info, u, tone }: { info: StoryInfo; u: number; t
   const W = 316 * u;
   const H = 140 * u;
   const cut = 222 * u; // where the stub tears off
+  const stubHead = headlineSize(info.headline, W - cut - 22 * u, 13 * u);
   const r = 14 * u;
   const n = 9 * u; // notch radius
   const fill = tone === "dark" ? BALL : "#FFFFFF";
@@ -300,7 +302,7 @@ export function TicketSticker({ info, u, tone }: { info: StoryInfo; u: number; t
         </T>
       </View>
       <View style={{ position: "absolute", left: cut, top: 0, width: W - cut, height: H, paddingVertical: 14 * u, paddingHorizontal: 11 * u, justifyContent: "space-between", alignItems: "center" }}>
-        <T style={{ fontFamily: F.display, fontSize: 13 * u, lineHeight: 13 * u, color: ink, textTransform: "uppercase", textAlign: "center" }}>{`${info.headline[0]}\n${info.headline[1]}`}</T>
+        <T style={{ fontFamily: F.display, fontSize: stubHead, lineHeight: stubHead, color: ink, textTransform: "uppercase", textAlign: "center" }}>{`${info.headline[0]}\n${info.headline[1]}`}</T>
         <Barcode seed={info.serial} w={W - cut - 22 * u} h={26 * u} ink={ink} />
         <T style={{ fontFamily: F.bodyBold, fontSize: 7.5 * u, letterSpacing: 0.8 * u, color: ink, opacity: 0.75 }}>{info.serial}</T>
       </View>

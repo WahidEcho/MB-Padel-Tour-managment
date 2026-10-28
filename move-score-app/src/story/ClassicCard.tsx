@@ -9,7 +9,7 @@ import { Body, Eyebrow, Num } from "../ui/Text";
 import { Flag } from "../ui/Bits";
 import { LoadState } from "../ui/LoadState";
 import { SchemeScope } from "../theme/ThemeProvider";
-import type { StoryInfo } from "./model";
+import { headlineSize, type StoryInfo } from "./model";
 import { useT } from "../i18n";
 
 export const CARD_W = 270;
@@ -53,6 +53,11 @@ export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null
       </Frame>
     );
   }
+  // Big words shrink until their longest word fits the card (never "COMIN / G").
+  const headSize = headlineSize(info.headline, CARD_W - 36, 44);
+  const passBig = info.noteBig ?? info.note ?? info.headline.join("\n");
+  const passSize = headlineSize(passBig.split(/\s+/), CARD_W - 36, 40);
+
   if (info.kind === "pass") {
     return (
       <Frame>
@@ -61,7 +66,7 @@ export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null
         <Body style={{ fontFamily: F.display, fontSize: 26, lineHeight: 26, color: "#E8ECF4", textTransform: "uppercase", marginTop: 10 }}>{info.event}</Body>
         {info.place ? <Body size={12} style={{ color: "#9AA4B8", marginTop: 8 }}>{info.place}</Body> : null}
         <View style={{ marginTop: "auto" }}>
-          <Body style={{ fontFamily: F.display, fontSize: 40, lineHeight: 38, color: BALL, textTransform: "uppercase" }}>{info.noteBig ?? info.note ?? info.headline.join("\n")}</Body>
+          <Body style={{ fontFamily: F.display, fontSize: passSize, lineHeight: passSize * 0.95, color: BALL, textTransform: "uppercase" }}>{passBig}</Body>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12 }}>
             <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{info.serial}</Eyebrow>
             <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{info.holder ?? ""}</Eyebrow>
@@ -88,7 +93,7 @@ export function ClassicCard({ info, problem, onRetry }: { info: StoryInfo | null
       {info.kind === "match" && info.note ? <Body size={12} style={{ color: "#9AA4B8", marginTop: 10 }}>{info.note}</Body> : null}
       {info.when ? <Body size={12} style={{ color: "#9AA4B8", marginTop: 6 }}>{[info.when, info.place].filter(Boolean).join(" · ")}</Body> : null}
       <View style={{ marginTop: "auto" }}>
-        <Body style={{ fontFamily: F.display, fontSize: 44, lineHeight: 40, color: BALL, textTransform: "uppercase" }}>{info.headline.join("\n")}</Body>
+        <Body style={{ fontFamily: F.display, fontSize: headSize, lineHeight: headSize * 0.91, color: BALL, textTransform: "uppercase" }}>{info.headline.join("\n")}</Body>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12 }}>
           <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{[info.city, new Date().getFullYear()].filter(Boolean).join(" · ")}</Eyebrow>
           <Eyebrow size={9} style={{ color: "#9AA4B8" }}>{tr("story.iWasThere")}</Eyebrow>

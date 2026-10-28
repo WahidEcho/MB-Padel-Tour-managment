@@ -84,7 +84,7 @@ export function Flag({ iso2, code, size = 22 }: { iso2: string | null | undefine
       </View>
     );
   }
-  return <Image source={{ uri: `${config.apiBaseUrl}/flags/png/${iso2}.png` }} style={{ width: size, height: h, borderRadius: 3 }} contentFit="fill" cachePolicy="disk" accessibilityLabel={code ?? iso2} />;
+  return <Image source={{ uri: `${config.apiBaseUrl}/flags/png/${iso2}.png?v=2` }} style={{ width: size, height: h, borderRadius: 3 }} contentFit="fill" cachePolicy="disk" accessibilityLabel={code ?? iso2} />;
 }
 
 export function SectionHeader({ title, action, onAction, onTitlePress, titleLabel }: { title: string; action?: string; onAction?: () => void; onTitlePress?: () => void; titleLabel?: string }) {

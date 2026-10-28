@@ -106,6 +106,8 @@ export function headline(key: Key): [string, string] {
   return [a, b];
 }
 
+export { displayWidthEm, headlineSize } from "./headline";
+
 /** The styles this story can use: "Pass" needs a pass for the event. */
 export function layoutsFor(info: StoryInfo): Layout[] {
   return LAYOUTS.filter((l) => l.id !== "pass" || info.pass);
