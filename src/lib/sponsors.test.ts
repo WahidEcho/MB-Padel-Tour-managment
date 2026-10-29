@@ -327,3 +327,17 @@ describe("TV band and replacement logos", () => {
     expect(siteLogoUrl("//evil.example/sponsors/x.png", "https://tour.mbeg.org")).toBeNull();
   });
 });
+
+describe("appSponsorOrder", () => {
+  it("swaps the chosen footer sponsor with the main one, app grid only", async () => {
+    const { appSponsorOrder } = await import("./sponsors");
+    const m = { logoUrl: "midar" };
+    const f = [{ logoUrl: "wt" }, { logoUrl: "etf" }, { logoUrl: "su" }, { logoUrl: "dg" }];
+    const o = appSponsorOrder(m, f, "su");
+    expect([o.main, ...o.footer].map((s) => s!.logoUrl)).toEqual(["su", "wt", "etf", "midar", "dg"]);
+    expect(f.map((s) => s.logoUrl)).toEqual(["wt", "etf", "su", "dg"]);
+    expect(appSponsorOrder(m, f, "nope").main).toBe(m);
+    expect(appSponsorOrder(m, f, undefined).main).toBe(m);
+    expect(appSponsorOrder(null, f, "su").main).toBeNull();
+  });
+});

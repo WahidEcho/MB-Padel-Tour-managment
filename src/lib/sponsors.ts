@@ -114,6 +114,22 @@ export function resolveSponsors(branding: BrandingConfig | null | undefined, opt
   return { main, footer };
 }
 
+/**
+ * The order of the app's partners grid. Every Move Score version draws
+ * `[main, ...footer]`, so `appFirstSponsor` swaps that footer sponsor with the
+ * main one: it is sent as `main`, the main sponsor takes its place in the list.
+ * Unset, unknown or no main sponsor: unchanged.
+ */
+export function appSponsorOrder<T extends { logoUrl: string }>(main: T | null, footer: T[], firstUrl: unknown): { main: T | null; footer: T[] } {
+  if (!main || typeof firstUrl !== "string" || !firstUrl) return { main, footer };
+  const at = footer.findIndex((s) => s.logoUrl === firstUrl);
+  if (at < 0) return { main, footer };
+  const next = footer.slice();
+  const lead = next[at];
+  next[at] = main;
+  return { main: lead, footer: next };
+}
+
 /** The footer sponsors the TV screens' looping band draws: those not marked "not in TV band". */
 export function tvBandSponsors(footer: SponsorEntry[]): SponsorEntry[] {
   return footer.filter((s) => s.hideOnTv !== true);

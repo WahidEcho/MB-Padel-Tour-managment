@@ -172,6 +172,17 @@ export default function BrandingForm({
             </label>
           </div>
         ))}
+        {footer.length > 0 && (
+          <label className="flex flex-wrap items-center gap-2 text-xs" title="The app's partners grid only: this sponsor swaps places with the main sponsor. The website and the TVs keep their order.">
+            First in the app&apos;s partners
+            <select name="app_first_sponsor" defaultValue={branding.appFirstSponsor ?? ""} className="input w-56 text-xs" data-testid="app-first-sponsor">
+              <option value="">The main sponsor</option>
+              {footer.filter((sp) => !sp.hidden).map((sp) => (
+                <option key={sp.logoUrl} value={sp.logoUrl}>{sp.name || sp.logoUrl.split("/").pop()}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div>
           <label className="label">Add logos</label>
           <ImageInput name="sponsor_logos" multiple />

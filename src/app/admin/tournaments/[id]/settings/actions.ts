@@ -342,6 +342,7 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     const byUrl = new Map(current.map((sp) => [sp.logoUrl, sp]));
     const count = Math.min(200, Number(formData.get("sponsor_count") ?? 0) || 0);
     const kept: SponsorEntry[] = [];
+    const replacedLogo = new Map<string, string>();
     for (let i = 0; i < count; i++) {
       const url = String(formData.get(`sponsor_url_${i}`) ?? "");
       const existing = byUrl.get(url);
@@ -358,6 +359,7 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
         const next = siteLogoUrl(replace, siteUrl());
         if (!next) problems.push(`Sponsor ${i + 1}: a replacement logo must be a file on this site, a /sponsors/… path.`);
         else if (next !== base.logoUrl) {
+          replacedLogo.set(base.logoUrl, next);
           base.logoUrl = next;
           delete base.aspect;
           const aspect = await measureLogo(next);
@@ -381,6 +383,13 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     branding.sponsors = kept;
     // Kept in step for anything still reading the old list (clones, exports).
     branding.sponsorLogoUrls = kept.filter((sp) => !sp.hidden).map((sp) => sp.logoUrl);
+    // The app grid's lead: only a sponsor still in the list (a replaced logo carries its choice over).
+    if (formData.has("app_first_sponsor")) {
+      const wanted = String(formData.get("app_first_sponsor") ?? "");
+      const url = replacedLogo.get(wanted) ?? wanted;
+      if (url && kept.some((sp) => sp.logoUrl === url && !sp.hidden)) branding.appFirstSponsor = url;
+      else delete branding.appFirstSponsor;
+    }
 
     // ---------- how the band draws its logos ----------
     // Each rides with a hidden "off", so unticking is written too: an unchecked

@@ -6,7 +6,7 @@
  */
 import type { Match, MatchRules, MatchSnapshot, Player, Stage, StageRuleKey, Standing, Team, Tie, Tournament, BrandingConfig } from "../types";
 import { NIGHT_TABLE_LAYOUT } from "../friendly/nightTable";
-import { resolveSponsors } from "../sponsors";
+import { appSponsorOrder, resolveSponsors } from "../sponsors";
 import { resolvePortrait, portraitSrc, sizedImageSrc, PORTRAIT_WIDTHS } from "../portrait";
 import { rubberPlan } from "../tennis/ties";
 import { matchDayRules, publicMatchDay } from "../matchday/rules";
@@ -262,7 +262,11 @@ export function toBundle(
     teams: teams.map((tm) => toTeam(tm, groupOf.get(tm.id) ?? null, showPhotos, extras)),
     courts: courts.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.court_name, order: c.court_order })),
     groups: groups.map((g) => ({ id: g.id, name: g.group_name, order: g.group_order })),
-    sponsors: { main: main ? sponsor(main) : null, footer: footer.map(sponsor) },
+    // The app's grid may lead with another partner (appFirstSponsor); only here.
+    sponsors: (() => {
+      const o = appSponsorOrder<{ name: string; logoUrl: string; aspect?: number; tier?: string }>(main, footer, t.branding_config?.appFirstSponsor);
+      return { main: o.main ? sponsor(o.main) : null, footer: o.footer.map(sponsor) };
+    })(),
     rules: toStageRules(t, plateBrackets),
     sides: toSides(t.branding_config),
   };

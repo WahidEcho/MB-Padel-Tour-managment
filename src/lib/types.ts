@@ -343,6 +343,12 @@ export interface BrandingConfig {
   backgroundUrl?: string;
   mainSponsor?: MainSponsor;
   sponsors?: SponsorEntry[];
+  /**
+   * The app's partners grid only: the logo URL of a footer sponsor that swaps
+   * places with the main sponsor there (it leads, the main sponsor takes its
+   * place). Website and screens are untouched. Read through `appSponsorOrder`.
+   */
+  appFirstSponsor?: string;
   holding?: HoldingContent;
   background?: EventBackground;
   /**
