@@ -153,6 +153,17 @@ export default function BrandingForm({
               title="Drawn straight on a dark screen when the white panels are off. A site path (/sponsors/…) or an https link."
               className="input w-56 text-xs"
             />
+            <input
+              name={`sponsor_logo_${i}`}
+              defaultValue=""
+              placeholder="Replace logo: /sponsors/… (optional)"
+              title="Point this sponsor at a logo file already on this site (a /sponsors/… path). Leave empty to keep the current logo."
+              className="input w-48 text-xs"
+              data-testid={`sponsor-logo-${i}`}
+            />
+            <label className="flex items-center gap-1 text-xs" title="Shown in the app and on the public pages, but not in the TV screens' looping band">
+              <input type="checkbox" name={`sponsor_hidetv_${i}`} defaultChecked={sp.hideOnTv === true} data-testid={`sponsor-hidetv-${i}`} /> not in TV band
+            </label>
             <label className="flex items-center gap-1 text-xs" title="Kept in the list but shown nowhere">
               <input type="checkbox" name={`sponsor_hidden_${i}`} defaultChecked={sp.hidden === true} data-testid={`sponsor-hidden-${i}`} /> hidden
             </label>

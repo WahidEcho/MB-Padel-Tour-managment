@@ -278,6 +278,12 @@ export interface SponsorEntry {
    */
   hidden?: boolean;
   /**
+   * Shown in the app and on the public pages, but left out of the TV screens'
+   * looping footer band (e.g. a partner already in the court TV's header).
+   * The full-screen sponsors slate still shows it. Read through `tvBandSponsors`.
+   */
+  hideOnTv?: boolean;
+  /**
    * The logo drawn straight on a dark surface (a dark screen with the white chips
    * off). A site path or https only. With chips on, logoUrl is used.
    */

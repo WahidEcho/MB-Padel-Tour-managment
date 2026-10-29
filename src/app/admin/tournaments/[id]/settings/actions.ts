@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
 import { requireTournamentPermission } from "@/lib/guard";
 import { audit } from "@/lib/audit";
-import { deleteUploads, uploadImage, uploadLogo } from "@/lib/upload";
-import { isHex, resolveSponsors, isLogoSrc, sponsorLabel } from "@/lib/sponsors";
+import { isHex, resolveSponsors, isLogoSrc, siteLogoUrl, sponsorLabel } from "@/lib/sponsors";
+import { siteUrl } from "@/lib/messaging/links";
+import { deleteUploads, imageDimensions, uploadImage, uploadLogo } from "@/lib/upload";
 import { getTournament } from "@/lib/data";
 import type {
   BrandingConfig,
@@ -246,6 +247,18 @@ export type BrandingFormState = { ok: true; message: string } | { ok: false; pro
 
 const INTENSITIES = ["subtle", "standard", "vivid"] as const;
 
+/** A logo file's width over height, read from its first bytes on our own site; undefined when it cannot be read. */
+async function measureLogo(url: string): Promise<number | undefined> {
+  try {
+    const res = await fetch(url, { headers: { range: "bytes=0-65535" }, signal: AbortSignal.timeout(5000), cache: "no-store" });
+    if (!res.ok) return undefined;
+    const dims = imageDimensions(new Uint8Array(await res.arrayBuffer()));
+    return dims ? Math.round((dims.width / dims.height) * 1000) / 1000 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function text(formData: FormData, key: string, max: number): string {
   return String(formData.get(key) ?? "").trim().slice(0, max);
 }
@@ -337,11 +350,25 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
       if (dark && !isLogoSrc(dark)) problems.push(`Sponsor ${i + 1}: the dark-screen logo must be a site path (/sponsors/…) or an https link.`);
       const base = { ...existing };
       delete base.hidden;
+      delete base.hideOnTv;
       delete base.logoDarkUrl;
+      // A replacement logo: only a file this site ships, measured so its box is right.
+      const replace = text(formData, `sponsor_logo_${i}`, 1000);
+      if (replace) {
+        const next = siteLogoUrl(replace, siteUrl());
+        if (!next) problems.push(`Sponsor ${i + 1}: a replacement logo must be a file on this site, a /sponsors/… path.`);
+        else if (next !== base.logoUrl) {
+          base.logoUrl = next;
+          delete base.aspect;
+          const aspect = await measureLogo(next);
+          if (aspect) base.aspect = aspect;
+        }
+      }
       kept.push({
         ...base,
         name: text(formData, `sponsor_name_${i}`, 60),
         ...(formData.get(`sponsor_hidden_${i}`) === "on" ? { hidden: true } : {}),
+        ...(formData.get(`sponsor_hidetv_${i}`) === "on" ? { hideOnTv: true } : {}),
         ...(dark && isLogoSrc(dark) ? { logoDarkUrl: dark } : {}),
       });
     }

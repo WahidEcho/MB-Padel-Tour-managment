@@ -37,7 +37,7 @@ import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
 import { redBlueTeams } from "@/lib/sides";
-import { resolveSponsors, sponsorStyle, surfaceForMode, watermarkSponsor } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle, surfaceForMode, tvBandSponsors, watermarkSponsor } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
@@ -189,6 +189,9 @@ export default async function TvScreen({
   const logos = tournament.branding_config;
   const { main: mainSponsor, footer: footerSponsors } = resolveSponsors(logos);
   const bandStyle = sponsorStyle(logos);
+  // The looping band leaves out sponsors marked "not in TV band" (e.g. partners
+  // already in the court TV's header); the full-screen sponsors slate keeps them.
+  const bandSponsors = tvBandSponsors(footerSponsors);
   const dark = settings.theme === "dark";
   const backdrop = backgroundFor(logos, "screen", dark ? "dark" : "light");
   // How loud the glow may be depends on what it sits behind: quiet under a full
@@ -324,7 +327,7 @@ export default async function TvScreen({
           <>
             <CourtTv
               {...courtTv}
-              footer={<SponsorTicker main={mainSponsor} sponsors={footerSponsors} chips={bandStyle.chips} uniform={bandStyle.uniform} dark={dark} />}
+              footer={<SponsorTicker main={mainSponsor} sponsors={bandSponsors} chips={bandStyle.chips} uniform={bandStyle.uniform} dark={dark} />}
             />
             {/* The operator's break, over the content row only. */}
             <div className="absolute inset-x-0" style={{ top: 132, height: "calc(var(--stage-h, 1080px) - 260px)", zIndex: 20 }}>
@@ -532,7 +535,7 @@ export default async function TvScreen({
             {mode !== "sponsors" && (
               <SponsorTicker
                 main={mainSponsor}
-                sponsors={footerSponsors}
+                sponsors={bandSponsors}
                 chips={bandStyle.chips}
                 uniform={bandStyle.uniform}
                 dark={dark}

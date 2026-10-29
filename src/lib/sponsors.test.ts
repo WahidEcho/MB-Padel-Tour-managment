@@ -304,3 +304,26 @@ describe("main sponsor label", () => {
     expect(labelLines("Presenting")).toEqual(["Presenting", ""]);
   });
 });
+
+describe("TV band and replacement logos", () => {
+  it("keeps a 'not in TV band' sponsor everywhere but the band", async () => {
+    const { resolveSponsors, tvBandSponsors } = await import("./sponsors");
+    const { footer } = resolveSponsors({
+      sponsors: [
+        { name: "ETF", logoUrl: "https://tour.mbeg.org/sponsors/a.png", hideOnTv: true },
+        { name: "Pepsi", logoUrl: "https://tour.mbeg.org/sponsors/b.png" },
+      ],
+    });
+    expect(footer.map((s) => s.name)).toEqual(["ETF", "Pepsi"]);
+    expect(tvBandSponsors(footer).map((s) => s.name)).toEqual(["Pepsi"]);
+  });
+
+  it("accepts only this site's /sponsors/ files as a replacement logo", async () => {
+    const { siteLogoUrl } = await import("./sponsors");
+    expect(siteLogoUrl("/sponsors/cairo-2026/dark/x.png", "https://tour.mbeg.org/")).toBe("https://tour.mbeg.org/sponsors/cairo-2026/dark/x.png");
+    expect(siteLogoUrl("https://evil.example/x.png", "https://tour.mbeg.org")).toBeNull();
+    expect(siteLogoUrl("/flags/eg.svg", "https://tour.mbeg.org")).toBeNull();
+    expect(siteLogoUrl("/sponsors/../x.png", "https://tour.mbeg.org")).toBeNull();
+    expect(siteLogoUrl("//evil.example/sponsors/x.png", "https://tour.mbeg.org")).toBeNull();
+  });
+});

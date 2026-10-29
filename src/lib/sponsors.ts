@@ -107,10 +107,28 @@ export function resolveSponsors(branding: BrandingConfig | null | undefined, opt
       ...(s.tier ? { tier: s.tier } : {}),
       ...(cleanAspect(s.aspect) ? { aspect: cleanAspect(s.aspect) } : {}),
       ...(s.hidden === true ? { hidden: true } : {}),
+      ...(s.hideOnTv === true ? { hideOnTv: true } : {}),
       ...(isLogoSrc(s.logoDarkUrl) ? { logoDarkUrl: s.logoDarkUrl } : {}),
     });
   }
   return { main, footer };
+}
+
+/** The footer sponsors the TV screens' looping band draws: those not marked "not in TV band". */
+export function tvBandSponsors(footer: SponsorEntry[]): SponsorEntry[] {
+  return footer.filter((s) => s.hideOnTv !== true);
+}
+
+/**
+ * A replacement logo for a footer sponsor, typed in the admin form: only a file
+ * this site ships (/sponsors/…), never another host, stored as an absolute https
+ * URL on `siteUrl` so every surface (app, public pages, TVs) accepts it.
+ */
+export function siteLogoUrl(raw: unknown, siteUrl: string): string | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim();
+  if (!v.startsWith("/sponsors/") || !isLogoSrc(v)) return null;
+  return `${siteUrl.replace(/\/+$/, "")}${v}`;
 }
 
 /* ------------------------------------------------------------------ */
