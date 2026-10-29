@@ -111,7 +111,16 @@ const origins = refs.map((r) => {
   const mLng = (Math.PI / 180) * 6_371_008.8 * Math.cos(r.lat * Math.PI / 180);
   return { lat: r.lat - r.plan.y / mLat, lng: r.lng - r.plan.x / mLng };
 });
-const geo = { lat: +(origins.reduce((a, o) => a + o.lat, 0) / 2).toFixed(7), lng: +(origins.reduce((a, o) => a + o.lng, 0) / 2).toFixed(7), rotationDeg: 0, scale: 1 };
+// Superseded 29 Oct 2026 by the owner's Google Maps pin of the south-west outer wall corner on Airport Rd
+// (30.1177648, 31.3991591 = site-plan pixel 1058, 2051 = plan 157.64, 42.92 m): the court references above put
+// that corner ~15 m south of the pin. Live maps patched by supabase/ops/venue_smash_geo_pin.sql.
+void origins;
+const PIN = { lat: 30.1177648, lng: 31.3991591, plan: { x: 157.64, y: 42.92 } };
+const pinOrigin = {
+  lat: PIN.lat - PIN.plan.y / 6_371_008.8 / (Math.PI / 180),
+  lng: PIN.lng - PIN.plan.x / (6_371_008.8 * Math.cos(((PIN.lat - PIN.plan.y / 6_371_008.8 / (Math.PI / 180)) * Math.PI) / 180)) / (Math.PI / 180),
+};
+const geo = { lat: +pinOrigin.lat.toFixed(7), lng: +pinOrigin.lng.toFixed(7), rotationDeg: 0, scale: 1 };
 
 const doc: VenueDoc = {
   schema: 1,
