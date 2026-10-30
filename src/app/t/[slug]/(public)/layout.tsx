@@ -72,7 +72,7 @@ export default async function PublicLayout({
   const hasMap = await hasPublicVenue(slug);
   // The event info for fans, once the organiser has published it.
   const hasInfo = await hasPublicEventInfo(slug);
-  const backdrop = backgroundFor(tournament.branding_config, "public");
+  const backdrop = backgroundFor(tournament.branding_config, "public", "light");
   // The audience delay (Admin → In the app → Score delay): say so while it is on.
   const delayNote = scoreDelayNotice(scoreDelaySeconds(tournament.branding_config));
 
@@ -90,21 +90,18 @@ export default async function PublicLayout({
       )}
       {/* Above the content, not level with it: the Watch menu drops out of the
           header, and at the same z-index the page below painted straight over it. */}
-      <header className={`relative z-30 border-b border-border px-4 py-3${backdrop ? " bg-background/85" : ""}`}>
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2">
-          <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto">
+      <header className={`relative z-30 border-b border-border px-4 py-2 sm:py-3${backdrop ? " bg-background/85" : ""}`}>
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+          <div className="flex w-full min-w-0 items-center gap-2.5 sm:w-auto sm:gap-3">
             {headerLogo && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={sizedImageSrc(headerLogo, 320) ?? ""} alt="" className="h-9 w-auto max-w-[45%] shrink-0 object-contain" />
+              <img src={sizedImageSrc(headerLogo, 320) ?? ""} alt="" className="h-7 w-auto max-w-[42%] shrink-0 object-contain sm:h-9" />
             )}
             <div className="min-w-0">
-              <h1 className="flex items-center gap-2 font-bold leading-tight">
-                {tournament.name}
-                {/* Reports this browser and shows how many others are here. The
-                    page is read from the path, so one mount covers every tab. */}
-                <PresenceBeatForPath slug={slug} />
-              </h1>
-              <p className="text-[10px] uppercase tracking-widest text-muted">Powered by Move Beyond</p>
+              <h1 className="line-clamp-2 text-sm font-bold leading-snug sm:text-base">{tournament.name}</h1>
+              {tournament.branding_config.hidePoweredBy !== true && (
+                <p className="text-[10px] uppercase tracking-widest text-muted">Powered by Move Beyond</p>
+              )}
             </div>
           </div>
           {/* On a phone the nav is its own row and scrolls sideways; Watch stays outside
@@ -129,6 +126,12 @@ export default async function PublicLayout({
         </p>
       )}
       <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 p-4">{children}</main>
+      {/* Reports this browser and shows how many others are here, out of the header
+          (it crowded the title on phones). The page is read from the path, so one
+          mount covers every tab. */}
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl justify-end px-4 pb-2 text-xs">
+        <PresenceBeatForPath slug={slug} />
+      </div>
       {footer.length > 0 && (
         <footer className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-4">
           <SponsorMarquee logos={footer.map((sp) => sp.logoUrl)} chips={band.chips} uniform={band.uniform} />

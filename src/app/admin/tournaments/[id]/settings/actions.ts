@@ -394,6 +394,10 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     // ---------- how the band draws its logos ----------
     // Each rides with a hidden "off", so unticking is written too: an unchecked
     // box sends nothing, which would otherwise read as "leave it alone".
+    if (formData.has("powered_by")) {
+      if (formData.getAll("powered_by").includes("on")) delete branding.hidePoweredBy;
+      else branding.hidePoweredBy = true;
+    }
     if (formData.has("sponsor_chips")) branding.sponsorChips = formData.getAll("sponsor_chips").includes("on");
     if (formData.has("sponsor_uniform")) {
       branding.sponsorUniformSize = formData.getAll("sponsor_uniform").includes("on");

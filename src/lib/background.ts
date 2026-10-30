@@ -148,6 +148,10 @@ export function backgroundFor(
   const bg = branding?.background;
   if (!bg?.url || !BACKGROUND_TYPES[bg.mime]) return null;
   if (surface === "public" && !bg.showOnPublic) return null;
-  const light = typeof bg.lightUrl === "string" && /^(\/(?!\/)|https:\/\/)/.test(bg.lightUrl) ? bg.lightUrl : null;
-  return { ...bg, url: theme === "light" && light ? light : bg.url, dim: isBackgroundDim(bg.dim) ? bg.dim : DEFAULT_DIM };
+  const safe = (u: unknown): u is string => typeof u === "string" && /^(\/(?!\/)|https:\/\/)/.test(u);
+  const light = safe(bg.lightUrl) ? bg.lightUrl : null;
+  const dim = isBackgroundDim(bg.dim) ? bg.dim : DEFAULT_DIM;
+  // The public pages may have their own design (drawn for phones); same type as url.
+  if (surface === "public" && safe(bg.publicUrl)) return { ...bg, url: bg.publicUrl, dim };
+  return { ...bg, url: theme === "light" && light ? light : bg.url, dim };
 }

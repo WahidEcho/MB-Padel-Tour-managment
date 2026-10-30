@@ -226,6 +226,15 @@ export default function BrandingForm({
             <p className="text-xs text-muted">Add a logo above to see the band.</p>
           )}
 
+          <input type="hidden" name="powered_by" value="off" />
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="powered_by" value="on" defaultChecked={branding.hidePoweredBy !== true} className="mt-0.5 h-4 w-4" data-testid="powered-by" />
+            <span>
+              &ldquo;Powered by Move Beyond&rdquo; under the event title
+              <span className="block text-xs text-muted">On the public pages.</span>
+            </span>
+          </label>
+
           <input type="hidden" name="sponsor_chips" value="off" />
           <label className="flex items-start gap-2 text-sm">
             <input

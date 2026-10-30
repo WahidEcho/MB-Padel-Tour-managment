@@ -314,6 +314,11 @@ export interface EventBackground {
   showOnPublic: boolean;
   /** The same design drawn for a light screen (Admin → Screens theme "light"); `url` is then the dark one. Same type as `url`. */
   lightUrl?: string;
+  /**
+   * A design drawn for the public pages (phones, long scrolling pages), used there
+   * instead of `url`/`lightUrl`. A site path or https only. Same type as `url`.
+   */
+  publicUrl?: string;
 }
 
 import type { PlayStatusConfig } from "./notices/playStatus";
@@ -327,6 +332,8 @@ export interface BrandingConfig {
    * white one. A site path or https only (src/lib/tennis/courtTv.ts eventLogoFor).
    */
   eventLogoLightUrl?: string;
+  /** Hide "Powered by Move Beyond" under the event title on the public pages. */
+  hidePoweredBy?: boolean;
   /**
    * Co-branding logos beside the event logo in the court TV header (federation,
    * tour). Read only through sanitizeHeaderPartners (src/lib/tennis/courtTv.ts).
