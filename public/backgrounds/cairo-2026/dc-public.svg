@@ -1,17 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1200" height="1200" preserveAspectRatio="xMidYMid slice">
-<!-- DC public pages "Rally & Ball" (light), from the DC 09 court-TV background, drawn for phones and scrolling pages.
-     Motifs sit in the middle third so a portrait phone keeps them; arcs run edge to edge for desktops. -->
+<!-- DC public pages "Rally & Ball" (light, animated), from the DC 09 court-TV background, drawn for phones and scrolling pages.
+     Motifs sit in the middle third so a portrait phone keeps them; arcs run edge to edge for desktops.
+     Slow CSS motion (arcs breathe, the rally path marches, the ball floats and spins); still for reduced motion. -->
+<style>
+.drift{animation:drift 14s ease-in-out infinite alternate;transform-box:view-box;transform-origin:600px 600px}
+.drift2{animation:drift2 18s ease-in-out infinite alternate;transform-box:view-box;transform-origin:600px 600px}
+.rally{animation:rally 3s linear infinite}
+.float{animation:float 6s ease-in-out infinite alternate}
+.spin{animation:spin 12s linear infinite;transform-box:view-box;transform-origin:780px 330px}
+.glow{animation:glow 7s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate(-18px,10px) rotate(-1.2deg)}to{transform:translate(18px,-10px) rotate(1.2deg)}}
+@keyframes drift2{from{transform:translate(14px,-8px)}to{transform:translate(-14px,12px)}}
+@keyframes rally{to{stroke-dashoffset:-44}}
+@keyframes float{from{transform:translateY(-10px)}to{transform:translateY(10px)}}
+@keyframes spin{to{transform:rotate(375deg)}}
+@keyframes glow{from{opacity:.65}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F2F1EA"/><stop offset="1" stop-color="#E3EADC"/></linearGradient>
 <clipPath id="ball"><circle cx="780" cy="330" r="46"/></clipPath>
 </defs>
 <rect width="1200" height="1200" fill="url(#bg)"/>
-<path d="M-140 1180C220 900 520 860 760 1320" stroke="#A3DBAA" stroke-width="110" fill="none" stroke-linecap="round" opacity="0.75"/>
-<path d="M-180 1080C180 600 620 330 1360 300" stroke="#A3DBAA" stroke-width="140" fill="none" stroke-linecap="round" opacity="0.95"/>
-<path d="M-120 980C220 560 600 370 735 345" stroke="#123C33" stroke-width="3" fill="none" stroke-dasharray="2 20" stroke-linecap="round" opacity="0.6"/>
-<path d="M1360 760C1080 700 900 820 760 1060" stroke="#A3DBAA" stroke-width="70" fill="none" stroke-linecap="round" opacity="0.6"/>
-<g transform="rotate(15 780 330)">
+<g class="drift2"><path d="M-140 1180C220 900 520 860 760 1320" stroke="#A3DBAA" stroke-width="110" fill="none" stroke-linecap="round" opacity="0.75"/></g>
+<g class="drift"><path class="glow" d="M-180 1080C180 600 620 330 1360 300" stroke="#A3DBAA" stroke-width="140" fill="none" stroke-linecap="round"/></g>
+<path class="rally" d="M-120 980C220 560 600 370 735 345" stroke="#123C33" stroke-width="3" fill="none" stroke-dasharray="2 20" stroke-linecap="round" opacity="0.6"/>
+<g class="drift2"><path d="M1360 760C1080 700 900 820 760 1060" stroke="#A3DBAA" stroke-width="70" fill="none" stroke-linecap="round" opacity="0.6"/></g>
+<g class="float"><g class="spin">
 <circle cx="780" cy="330" r="46" fill="#123C33"/>
 <g clip-path="url(#ball)" stroke="#F2F1EA" stroke-width="6" fill="none"><circle cx="725.8" cy="330" r="45"/><circle cx="834.2" cy="330" r="45"/></g>
-</g>
+</g></g>
 </svg>
