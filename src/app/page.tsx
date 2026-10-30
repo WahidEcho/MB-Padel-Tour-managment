@@ -37,7 +37,7 @@ export default async function Home() {
         : { icon: "🎾", label: "Padel" };
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 p-8">
+    <main className="glass flex flex-1 flex-col items-center justify-center gap-8 p-8">
       <div className="text-center">
         <p className="text-sm font-semibold uppercase tracking-widest text-accent">Move Beyond</p>
         <h1 className="mt-1 text-4xl font-bold">Tournament Management</h1>
