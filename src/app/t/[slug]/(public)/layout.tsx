@@ -76,6 +76,9 @@ export default async function PublicLayout({
   // The audience delay (Admin → In the app → Score delay): say so while it is on.
   const delayNote = scoreDelayNotice(scoreDelaySeconds(tournament.branding_config));
 
+  // These pages are light: the light-surface logo first (eventLogoUrl is often the white one for dark TVs).
+  const headerLogo = tournament.branding_config.eventLogoLightUrl || tournament.branding_config.eventLogoUrl;
+
   return (
     <div className={`relative isolate flex min-h-screen flex-col${backdrop ? " bc-page-backdrop" : ""}`}>
       {/* The main sponsor glows behind the public pages too, fixed to the
@@ -89,12 +92,12 @@ export default async function PublicLayout({
           header, and at the same z-index the page below painted straight over it. */}
       <header className={`relative z-30 border-b border-border px-4 py-3${backdrop ? " bg-background/85" : ""}`}>
         <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            {tournament.branding_config.eventLogoUrl && (
+          <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto">
+            {headerLogo && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={sizedImageSrc(tournament.branding_config.eventLogoUrl, 160) ?? ""} alt="" className="h-9" />
+              <img src={sizedImageSrc(headerLogo, 320) ?? ""} alt="" className="h-9 w-auto max-w-[45%] shrink-0 object-contain" />
             )}
-            <div>
+            <div className="min-w-0">
               <h1 className="flex items-center gap-2 font-bold leading-tight">
                 {tournament.name}
                 {/* Reports this browser and shows how many others are here. The
@@ -104,8 +107,10 @@ export default async function PublicLayout({
               <p className="text-[10px] uppercase tracking-widest text-muted">Powered by Move Beyond</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <nav className="flex flex-wrap gap-1 text-xs font-semibold">
+          {/* On a phone the nav is its own row and scrolls sideways; Watch stays outside
+              the scroller so its menu is never clipped. */}
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <nav className="-mx-1 flex min-w-0 flex-1 gap-1 overflow-x-auto whitespace-nowrap px-1 text-xs font-semibold [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
               {[...NAV, ...(hasMap ? [["/map", "Map"] as const] : []), ...(hasInfo ? [["/info", "Info"] as const] : [])].map(([path, label]) => (
                 <Link key={path} href={`/t/${slug}${path}`} className="rounded-lg px-2 py-1 text-muted hover:bg-card hover:text-foreground">
                   {label}
