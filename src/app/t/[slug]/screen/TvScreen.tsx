@@ -37,7 +37,7 @@ import SponsorWatermark from "@/components/broadcast/SponsorWatermark";
 import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
 import { redBlueTeams } from "@/lib/sides";
-import { resolveSponsors, sponsorStyle, surfaceForMode, tvBandSponsors, watermarkSponsor } from "@/lib/sponsors";
+import { resolveSponsors, sponsorStyle, surfaceForMode, tvSponsorBand, watermarkSponsor } from "@/lib/sponsors";
 import { toPublicTeam } from "@/lib/public";
 import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
@@ -191,7 +191,8 @@ export default async function TvScreen({
   const bandStyle = sponsorStyle(logos);
   // The looping band leaves out sponsors marked "not in TV band" (e.g. partners
   // already in the court TV's header); the full-screen sponsors slate keeps them.
-  const bandSponsors = tvBandSponsors(footerSponsors);
+  // With tvMainInBand the main sponsor loops too instead of standing on the left.
+  const { anchored: bandMain, band: bandSponsors } = tvSponsorBand(mainSponsor, footerSponsors, logos.tvMainInBand);
   const dark = settings.theme === "dark";
   const backdrop = backgroundFor(logos, "screen", dark ? "dark" : "light");
   // How loud the glow may be depends on what it sits behind: quiet under a full
@@ -327,7 +328,7 @@ export default async function TvScreen({
           <>
             <CourtTv
               {...courtTv}
-              footer={<SponsorTicker main={mainSponsor} sponsors={bandSponsors} chips={bandStyle.chips} uniform={bandStyle.uniform} dark={dark} />}
+              footer={<SponsorTicker main={bandMain} sponsors={bandSponsors} chips={bandStyle.chips} uniform={bandStyle.uniform} dark={dark} />}
             />
             {/* The operator's break, over the content row only. */}
             <div className="absolute inset-x-0" style={{ top: 132, height: "calc(var(--stage-h, 1080px) - 260px)", zIndex: 20 }}>
@@ -534,7 +535,7 @@ export default async function TvScreen({
           <footer className="min-h-0 overflow-hidden">
             {mode !== "sponsors" && (
               <SponsorTicker
-                main={mainSponsor}
+                main={bandMain}
                 sponsors={bandSponsors}
                 chips={bandStyle.chips}
                 uniform={bandStyle.uniform}

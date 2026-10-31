@@ -318,6 +318,26 @@ describe("TV band and replacement logos", () => {
     expect(tvBandSponsors(footer).map((s) => s.name)).toEqual(["Pepsi"]);
   });
 
+  it("loops the main sponsor in the TV band only when tvMainInBand is on", async () => {
+    const { resolveSponsors, tvSponsorBand } = await import("./sponsors");
+    const branding = {
+      mainSponsor: { name: "Midar", logoUrl: "https://tour.mbeg.org/sponsors/m.png", accentHex: "#123c33", aspect: 4.865 },
+      sponsors: [
+        { name: "ETF", logoUrl: "https://tour.mbeg.org/sponsors/a.png", hideOnTv: true },
+        { name: "Pepsi", logoUrl: "https://tour.mbeg.org/sponsors/b.png" },
+      ],
+    };
+    const { main, footer } = resolveSponsors(branding);
+    const still = tvSponsorBand(main, footer, undefined);
+    expect(still.anchored?.name).toBe("Midar");
+    expect(still.band.map((s) => s.name)).toEqual(["Pepsi"]);
+    const looping = tvSponsorBand(main, footer, true);
+    expect(looping.anchored).toBeNull();
+    expect(looping.band.map((s) => s.name)).toEqual(["Midar", "Pepsi"]);
+    expect(looping.band[0].aspect).toBe(4.865);
+    expect(tvSponsorBand(null, footer, true)).toEqual({ anchored: null, band: footer.filter((s) => !s.hideOnTv) });
+  });
+
   it("accepts only this site's /sponsors/ files as a replacement logo", async () => {
     const { siteLogoUrl } = await import("./sponsors");
     expect(siteLogoUrl("/sponsors/cairo-2026/dark/x.png", "https://tour.mbeg.org/")).toBe("https://tour.mbeg.org/sponsors/cairo-2026/dark/x.png");

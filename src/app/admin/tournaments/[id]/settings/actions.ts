@@ -394,6 +394,10 @@ export async function saveBranding(_prev: BrandingFormState, formData: FormData)
     // ---------- how the band draws its logos ----------
     // Each rides with a hidden "off", so unticking is written too: an unchecked
     // box sends nothing, which would otherwise read as "leave it alone".
+    if (formData.has("tv_main_in_band")) {
+      if (formData.getAll("tv_main_in_band").includes("on")) branding.tvMainInBand = true;
+      else delete branding.tvMainInBand;
+    }
     if (formData.has("powered_by")) {
       if (formData.getAll("powered_by").includes("on")) delete branding.hidePoweredBy;
       else branding.hidePoweredBy = true;

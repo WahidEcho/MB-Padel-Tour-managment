@@ -183,6 +183,13 @@ export default function BrandingForm({
             </select>
           </label>
         )}
+        {main && (
+          <label className="flex items-start gap-2 text-xs" title="TV screens only: the app, the website and the sponsors slate are unchanged.">
+            <input type="hidden" name="tv_main_in_band" value="off" />
+            <input type="checkbox" name="tv_main_in_band" value="on" defaultChecked={branding.tvMainInBand === true} className="mt-0.5 h-4 w-4" data-testid="tv-main-in-band" />
+            <span>On the TVs, the main sponsor loops in the sponsor band with the others instead of standing still on its left</span>
+          </label>
+        )}
         <div>
           <label className="label">Add logos</label>
           <ImageInput name="sponsor_logos" multiple />

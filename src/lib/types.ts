@@ -356,6 +356,12 @@ export interface BrandingConfig {
    * place). Website and screens are untouched. Read through `appSponsorOrder`.
    */
   appFirstSponsor?: string;
+  /**
+   * TV screens only: the main sponsor loops in the sponsor band with everyone else instead of
+   * standing still on its left. App, website and the sponsors slate are untouched. Read through
+   * `tvSponsorBand`.
+   */
+  tvMainInBand?: boolean;
   holding?: HoldingContent;
   background?: EventBackground;
   /**

@@ -136,6 +136,26 @@ export function tvBandSponsors(footer: SponsorEntry[]): SponsorEntry[] {
 }
 
 /**
+ * The TV sponsor band: the main sponsor anchored on the left and the looping footer sponsors,
+ * or, with `tvMainInBand`, nobody anchored and the main sponsor first in the loop.
+ */
+export function tvSponsorBand(
+  main: MainSponsor | null,
+  footer: SponsorEntry[],
+  mainInBand: unknown,
+): { anchored: MainSponsor | null; band: SponsorEntry[] } {
+  const band = tvBandSponsors(footer);
+  if (!main || mainInBand !== true) return { anchored: main, band };
+  const lead: SponsorEntry = {
+    name: main.name,
+    logoUrl: main.logoUrl,
+    ...(main.aspect ? { aspect: main.aspect } : {}),
+    ...(main.logoDarkUrl ? { logoDarkUrl: main.logoDarkUrl } : {}),
+  };
+  return { anchored: null, band: [lead, ...band] };
+}
+
+/**
  * A replacement logo for a footer sponsor, typed in the admin form: only a file
  * this site ships (/sponsors/…), never another host, stored as an absolute https
  * URL on `siteUrl` so every surface (app, public pages, TVs) accepts it.
