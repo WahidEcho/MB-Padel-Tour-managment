@@ -35,6 +35,43 @@ export function OrbitPage({ buttons, displayFont }: { buttons: ReactNode; displa
     <h1 className="ms-disp" style={{ margin: "0", fontSize: "clamp(34px, 9.5vw, 80px)", lineHeight: "0.95" }}>Your match.<br />Wherever you are.</h1>
   </section>
 
+  <OrbitStage />
+
+  <section style={{ position: "relative", zIndex: "2", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 300px))", justifyContent: "center", gap: "12px", padding: "0 24px 100px" }}>
+    {buttons}
+  </section>
+
+  <section style={{ position: "relative", zIndex: "2", maxWidth: "900px", margin: "0 auto", padding: "40px 24px 120px", display: "flex", flexDirection: "column", gap: "40px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      <p style={{ margin: "0", color: "#FCFC00", fontSize: "12px", fontWeight: "700", letterSpacing: "0.3em", display: "flex", alignItems: "center", gap: "10px" }}><Mark size={22} />A MATCH DAY WITH MOVE SCORE</p>
+      <h2 className="ms-disp" style={{ margin: "0", fontSize: "clamp(30px, 4vw, 50px)", lineHeight: "1" }}><span style={{ fontWeight: "normal" }}>From the first serve<br /></span>to the final card.</h2>
+    </div>
+    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><rect x="3" y="4" width="18" height="17" rx="3"></rect><path d="M3 9h18M8 2v4M16 2v4"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Morning: the order of play</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>Every court and every tie for the day, by court or by time.</p></div></div>
+    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Match soon</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>A nudge when the players and nations you follow are about to go on.</p></div></div>
+    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="9"></circle><path d="M5 5c4 4 4 10 0 14M19 5c-4 4-4 10 0 14"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Live, point by point</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>Who serves, the score, the momentum, the stats, and the live video when the court is streamed.</p></div></div>
+    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><rect x="6" y="2" width="12" height="20" rx="3"></rect><path d="M9 14h6"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>On your lock screen</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>Lock your iPhone and the score keeps going.</p></div></div>
+    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"></path><path d="M16 6l-4-4-4 4M12 2v13"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Share the win</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>The result as a card for Move Score Stories, Instagram or WhatsApp.</p></div></div>
+  </section>
+
+  <footer style={{ position: "relative", zIndex: "2", maxWidth: "1200px", margin: "0 auto", padding: "0 24px 48px", fontSize: "13px", color: "rgba(255,255,255,0.5)", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}><Mark size={56} label /><p style={{ margin: 0 }}>Move Score by <a href="https://mbeg.org">Move Beyond</a> · Free, no ads · iPhone iOS 16.4+ · Android 8+</p>
+    <nav aria-label="Move Score pages" style={{ display: "flex", gap: "18px", flexWrap: "wrap", justifyContent: "center" }}>
+      <a href="/movescore">About</a>
+      <a href="/movescore/support">Support</a>
+      <a href="/movescore/privacy">Privacy</a>
+      <a href="/movescore/terms">Terms</a>
+    </nav>
+  </footer>
+</div>
+    </div>
+  );
+}
+
+/**
+ * The turning 3D phone with nations and alerts circling it (design C "Orbit"). Used by the Orbit page
+ * and by the Cairo edition (CairoEdition.tsx); needs an `ms-root` ancestor (fonts, reduced motion).
+ */
+export function OrbitStage() {
+  return (
   <section style={{ position: "relative", zIndex: "1", overflow: "hidden" }}>
     <div className="ms-space" role="img" aria-label="A turning phone showing a live match, with nations and alerts circling it">
       <div className="ms-wm" aria-hidden><Mark size={620} /></div>
@@ -130,32 +167,5 @@ export function OrbitPage({ buttons, displayFont }: { buttons: ReactNode; displa
       </div>
     </div>
   </section>
-
-  <section style={{ position: "relative", zIndex: "2", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 300px))", justifyContent: "center", gap: "12px", padding: "0 24px 100px" }}>
-    {buttons}
-  </section>
-
-  <section style={{ position: "relative", zIndex: "2", maxWidth: "900px", margin: "0 auto", padding: "40px 24px 120px", display: "flex", flexDirection: "column", gap: "40px" }}>
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      <p style={{ margin: "0", color: "#FCFC00", fontSize: "12px", fontWeight: "700", letterSpacing: "0.3em", display: "flex", alignItems: "center", gap: "10px" }}><Mark size={22} />A MATCH DAY WITH MOVE SCORE</p>
-      <h2 className="ms-disp" style={{ margin: "0", fontSize: "clamp(30px, 4vw, 50px)", lineHeight: "1" }}><span style={{ fontWeight: "normal" }}>From the first serve<br /></span>to the final card.</h2>
-    </div>
-    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><rect x="3" y="4" width="18" height="17" rx="3"></rect><path d="M3 9h18M8 2v4M16 2v4"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Morning: the order of play</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>Every court and every tie for the day, by court or by time.</p></div></div>
-    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Match soon</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>A nudge when the players and nations you follow are about to go on.</p></div></div>
-    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="9"></circle><path d="M5 5c4 4 4 10 0 14M19 5c-4 4-4 10 0 14"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Live, point by point</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>Who serves, the score, the momentum, the stats, and the live video when the court is streamed.</p></div></div>
-    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><rect x="6" y="2" width="12" height="20" rx="3"></rect><path d="M9 14h6"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>On your lock screen</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>Lock your iPhone and the score keeps going.</p></div></div>
-    <div className="ms-step"><div className="ms-dot"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FCFC00" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"></path><path d="M16 6l-4-4-4 4M12 2v13"></path></svg></div><div><h3 style={{ margin: "6px 0 6px", fontSize: "21px" }}>Share the win</h3><p style={{ margin: "0", color: "rgba(255,255,255,0.7)", lineHeight: "1.55" }}>The result as a card for Move Score Stories, Instagram or WhatsApp.</p></div></div>
-  </section>
-
-  <footer style={{ position: "relative", zIndex: "2", maxWidth: "1200px", margin: "0 auto", padding: "0 24px 48px", fontSize: "13px", color: "rgba(255,255,255,0.5)", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}><Mark size={56} label /><p style={{ margin: 0 }}>Move Score by <a href="https://mbeg.org">Move Beyond</a> · Free, no ads · iPhone iOS 16.4+ · Android 8+</p>
-    <nav aria-label="Move Score pages" style={{ display: "flex", gap: "18px", flexWrap: "wrap", justifyContent: "center" }}>
-      <a href="/movescore">About</a>
-      <a href="/movescore/support">Support</a>
-      <a href="/movescore/privacy">Privacy</a>
-      <a href="/movescore/terms">Terms</a>
-    </nav>
-  </footer>
-</div>
-    </div>
   );
 }

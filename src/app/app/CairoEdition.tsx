@@ -1,5 +1,5 @@
 import SponsorMarquee from "@/components/SponsorMarquee";
-import { Mark } from "./Orbit";
+import { Mark, OrbitStage } from "./Orbit";
 import type { CairoEdition } from "./cairo";
 import { PLAY_STORE_URL, TESTFLIGHT_URL, type Platform } from "./stores";
 import { AndroidIcon, AppleIcon } from "./ui";
@@ -79,6 +79,11 @@ export function CairoEditionPage({ edition, iosLive, platform, displayFont }: { 
           </a>
         </div>
       </section>
+
+      {/* The turning 3D phone of the Orbit design, in the middle of the page (owner, 31 Oct 2026). */}
+      <div className="ms-root cx-stage" style={{ ["--ms-display" as string]: displayFont }}>
+        <OrbitStage />
+      </div>
 
       <section id="web" className="cx-sec">
         <p className="cx-kicker">Live scoring on the web</p>

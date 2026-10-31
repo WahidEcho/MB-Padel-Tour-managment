@@ -34,6 +34,10 @@
 .cx-store b{display:block;font-size:18px;line-height:1.15}
 .cx-nodl{font-size:14px;font-weight:600;color:#1f6b52!important;border-bottom:1px solid rgba(31,107,82,.35);padding-bottom:2px}
 
+/* The Orbit phone between the hero and the sections: a soft dark well so its glow and pills read on the light page. */
+.cx-stage{margin:0 auto;max-width:1200px;border-radius:40px;overflow:hidden;background:radial-gradient(700px 520px at 50% 50%,#16124a 0%,#0b0d18 70%);color:#fff;margin-inline:16px}
+@media (min-width:1232px){.cx-stage{margin-inline:auto}}
+
 /* Sections. */
 .cx-sec{max-width:1120px;margin:0 auto;padding:56px 16px;display:flex;flex-direction:column;gap:12px}
 .cx-h2{margin:0;font-size:clamp(28px,5vw,46px);line-height:1}
