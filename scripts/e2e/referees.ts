@@ -426,7 +426,7 @@ async function main() {
   }
 
   /* ---------------- Coming / Decline, reminders, "X is going", escalation (0042) ---------------- */
-  section("Two masters on duty: Coming / Decline, 30-second reminders, \"X is going\", the organiser after 2 minutes");
+  section("Two masters on duty: Coming / Decline, 10-second reminders, \"X is going\", the organiser after 2 minutes");
   {
     await db().from("request_counters").delete().like("bucket_key", "staff-assist:%");
     const KARIM = await addRef("Karim", "master_referee");
@@ -440,7 +440,7 @@ async function main() {
     await http("GET", ASSIST, MASTER);
     await http("GET", ASSIST, MASTER2);
     type Answer = { name: string; answer: string; at: string | null };
-    type View = { id: string; status: string; going: string | null; responses: Answer[]; remindersSent: number; escalatedAt: string | null; mine?: string | null; acknowledgedBy: string | null; resolvedBy: string | null };
+    type View = { id: string; status: string; reason?: string | null; going: string | null; responses: Answer[]; remindersSent: number; escalatedAt: string | null; mine?: string | null; acknowledgedBy: string | null; resolvedBy: string | null };
     const courtCall = async () => (await http("GET", ASSIST, REF)).json?.call as View | null;
     const steps = async (id: string, action: string) => {
       const { data } = await db().from("audit_logs").select("new_value, created_at").eq("entity_id", id).eq("action", action).order("created_at");
@@ -449,9 +449,12 @@ async function main() {
     const backdate = (id: string, secs: number) => db().from("assistance_calls").update({ requested_at: new Date(Date.now() - secs * 1000).toISOString() }).eq("id", id);
     const answerOf = (v: View | null, name: string) => v?.responses.find((r) => r.name === name);
 
-    const c = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id });
+    const c = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id, reason: "medical" });
     const id = String((c.json?.call as { id: string } | undefined)?.id);
-    check(c.status === 201 && c.json?.alerted === 2, "the call: both masters' phones alerted (time-sensitive, dry run)", c.json?.alerted);
+    check(c.status === 201 && c.json?.alerted === 2, "the call (Call Referee for Medical): both masters' phones alerted (time-sensitive, dry run)", c.json?.alerted);
+    check((c.json?.call as View | undefined)?.reason === "medical", "the call carries its reason: medical", c.json?.call);
+    const { data: stored } = await db().from("assistance_calls").select("reason").eq("id", id).single();
+    check((stored as { reason: string | null } | null)?.reason === "medical", "…stored on the call (migration 0044)", stored);
     const v0 = await courtCall();
     check(
       v0?.status === "open" && v0.responses.length === 2 && v0.responses.every((r) => r.answer === "none" && r.at === null) && !!answerOf(v0, OMAR.name) && !!answerOf(v0, KARIM.name) && v0.remindersSent === 0 && v0.escalatedAt === null,
@@ -459,12 +462,12 @@ async function main() {
       v0,
     );
     check(v0!.responses.every((r) => Object.keys(r).sort().join() === "answer,at,name") && !/\+20|phone|referee_id|refereeId/.test(JSON.stringify(v0)), "names only: no phones, no ids", v0?.responses);
-    check((await steps(id, "ASSISTANCE_REMINDED")).length === 0, "no reminder before 30 s");
+    check((await steps(id, "ASSISTANCE_REMINDED")).length === 0, "no reminder before 10 s");
 
-    await backdate(id, 31);
+    await backdate(id, 11);
     const [p1, p2, p3] = await Promise.all([courtCall(), courtCall(), http("GET", ASSIST, MASTER)]);
     const r1 = await steps(id, "ASSISTANCE_REMINDED");
-    check(r1.length === 1, "after 30 s, three reads at once (court phone ×2, a desk): one reminder", r1);
+    check(r1.length === 1, "after 10 s, three reads at once (court phone ×2, a desk): one reminder", r1);
     check(r1[0]?.to?.length === 2 && r1[0].to.includes(OMAR.id) && r1[0].to.includes(KARIM.id) && r1[0].phones === 2, "…to both masters (neither has answered)", r1[0]);
     check([p1, p2].some((p) => p?.remindersSent === 1) && p3.status === 200, "the chair umpire's card: Reminder sent", [p1?.remindersSent, p2?.remindersSent]);
     check((await courtCall())?.remindersSent === 1, "a read in the same window sends nothing more");
@@ -477,10 +480,10 @@ async function main() {
     const kOpen = ((deskK.json?.open ?? []) as View[]).find((x) => x.id === id);
     check(kOpen?.mine === null && kOpen.responses.some((r) => r.name === OMAR.name && r.answer === "declined"), "Karim's desk: still his to answer, Omar declined", kOpen);
 
-    await backdate(id, 61);
+    await backdate(id, 21);
     await courtCall();
     const r2 = await steps(id, "ASSISTANCE_REMINDED");
-    check(r2.length === 2 && r2[1].to?.length === 1 && r2[1].to[0] === KARIM.id && r2[1].phones === 1, "the next reminder (60 s): only Karim (Omar declined)", r2[1]);
+    check(r2.length === 2 && r2[1].to?.length === 1 && r2[1].to[0] === KARIM.id && r2[1].phones === 1, "the next reminder (20 s): only Karim (Omar declined)", r2[1]);
     check((await steps(id, "ASSISTANCE_ESCALATED")).length === 0, "no escalation before 2 minutes");
 
     await backdate(id, 121);
@@ -518,7 +521,7 @@ async function main() {
     section("Every master declines: the organiser at once; Move Score 1.0.1's On my way is Coming");
     const d = await http("POST", ASSIST, REF, { action: "request" });
     const id2 = String((d.json?.call as { id: string } | undefined)?.id);
-    check(d.status === 201, "a second call", d.status);
+    check(d.status === 201 && (d.json?.call as View | undefined)?.reason === null, "a second call with no reason (Move Score 1.0.4 and older): still goes out", d.status);
     await http("POST", ASSIST, MASTER, { action: "respond", callId: id2, answer: "declined" });
     check((await steps(id2, "ASSISTANCE_ESCALATED")).length === 0, "one of two declined: not yet", id2);
     const d2 = await http("POST", ASSIST, MASTER2, { action: "respond", callId: id2, answer: "declined" });
@@ -536,7 +539,7 @@ async function main() {
       section("Nobody polling: the scheduled drain sends the reminder");
       const s = await http("POST", ASSIST, REF, { action: "request" });
       const id3 = String((s.json?.call as { id: string } | undefined)?.id);
-      await backdate(id3, 35);
+      await backdate(id3, 12);
       const drain = await http("POST", "/api/internal/notifications/drain", { Authorization: `Bearer ${process.env.CRON_SECRET}` }, {});
       const r3 = await steps(id3, "ASSISTANCE_REMINDED");
       check(drain.status === 200 && ((drain.json?.assistance as { checked: number } | undefined)?.checked ?? 0) >= 1 && r3.length === 1 && r3[0].to?.length === 2, "the drain's sweep: one reminder to both masters", { drain: drain.json?.assistance, r3 });

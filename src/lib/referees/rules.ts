@@ -160,10 +160,25 @@ export function callStatusLine(call: { status: CallStatus; acknowledged_by_name?
 export type CallAnswer = "coming" | "declined";
 export const isCallAnswer = (a: unknown): a is CallAnswer => a === "coming" || a === "declined";
 
-/** An open call nobody has taken is pushed again to the masters who have not declined, every this many seconds. */
-export const REMINDER_SECONDS = 30;
+/**
+ * An open call nobody has taken is pushed again to the masters who have not declined, every this
+ * many seconds (owner, 31 Oct 2026: 10 s, so a phone in a pocket keeps ringing and buzzing).
+ */
+export const REMINDER_SECONDS = 10;
 /** At most this many reminders per call (ten minutes of them); the call itself stays open. */
-export const MAX_REMINDERS = 20;
+export const MAX_REMINDERS = 60;
+
+/**
+ * Why the chair umpire calls (owner, 31 Oct 2026; migration 0044): two buttons, "Call Referee for
+ * Rule" and "Call Referee for Medical", each sends the call at once. Move Score 1.0.4 and older send
+ * no reason: the call goes out without one.
+ */
+export const ASSISTANCE_REASONS = ["rules", "medical"] as const;
+export type AssistanceReason = (typeof ASSISTANCE_REASONS)[number];
+
+export function cleanReason(raw: unknown): AssistanceReason | null {
+  return typeof raw === "string" && (ASSISTANCE_REASONS as readonly string[]).includes(raw) ? (raw as AssistanceReason) : null;
+}
 /** An open call nobody has taken after this many seconds is escalated to the organiser's owners and admins, once. */
 export const ESCALATE_SECONDS = 120;
 /** A closed call stays on the chair umpire's card this long ("Resolved by Sara"), then the card hides. */

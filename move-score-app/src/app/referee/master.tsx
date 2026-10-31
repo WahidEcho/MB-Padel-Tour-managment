@@ -3,8 +3,8 @@ import { Pressable, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import type { CallAnswer, CallStatus, MasterAnswerRow } from "@core";
-import { ct } from "../../referee/callText";
+import { reasonText, type CallAnswer, type CallStatus, type MasterAnswerRow } from "@core";
+import { callLangNow, ct } from "../../referee/callText";
 import { api, ApiError } from "../../api/client";
 import { session } from "../../state/session";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -33,6 +33,8 @@ interface Call {
   responses?: MasterAnswerRow[];
   mine?: CallAnswer | null;
   escalatedAt?: string | null;
+  // 0044
+  reason?: string | null;
 }
 interface PickerMatch {
   id: string;
@@ -151,6 +153,7 @@ export default function MasterReferee() {
         {open.map((c) => (
           <Card key={c.id} style={{ gap: 8, borderWidth: 2, borderColor: c.status === "open" ? t.live : t.warning }}>
             <Body weight="bold" size={16}>{ct("calledBy", { name: c.requestedBy, court: c.court })}</Body>
+            {c.reason ? <Body weight="bold" size={15} style={{ color: t.live }}>{reasonText(callLangNow(), c.reason)}</Body> : null}
             <Body tone="ink2" size={13}>
               {ct("calledAt", { time: time(c.requestedAt) })}
               {c.status === "open" && c.escalatedAt ? ` · ${ct("organiserAlerted")}` : ""}

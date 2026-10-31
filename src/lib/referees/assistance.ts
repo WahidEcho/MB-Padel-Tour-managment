@@ -28,6 +28,8 @@ import { matchDayRules } from "../matchday/rules";
 import {
   CALLS_PER_COURT,
   ESCALATE_SECONDS,
+  REMINDER_SECONDS,
+  cleanReason,
   TAP_DEDUPE_SECONDS,
   escalationDue,
   isOpenCall,
@@ -36,13 +38,14 @@ import {
   reminderDue,
   reminderRecipients,
   shouldRealert,
+  type AssistanceReason,
   type CallAction,
   type CallAnswer,
   type CallResponse,
   type CallStatus,
   type MasterAnswerRow,
 } from "./rules";
-import { callLang, callWord, type CallLang, type CallWordKey } from "./callWords";
+import { callLang, callWord, reasonText, type CallLang, type CallWordKey } from "./callWords";
 
 export interface AssistanceCall {
   id: string;
@@ -71,9 +74,11 @@ export interface AssistanceCall {
   last_alert_at: string | null;
   reminders_sent: number;
   escalated_at: string | null;
+  // 0044
+  reason: AssistanceReason | null;
 }
 export const CALL_COLS =
-  "id, organization_id, event_group_id, tournament_id, match_id, court_name, court_key, scope_key, code_id, requested_by, requested_by_name, status, requested_at, taps, last_tap_at, acknowledged_at, acknowledged_by, acknowledged_by_name, resolved_at, resolved_by, resolved_by_name, alerted, last_alert_at, reminders_sent, escalated_at";
+  "id, organization_id, event_group_id, tournament_id, match_id, court_name, court_key, scope_key, code_id, requested_by, requested_by_name, status, requested_at, taps, last_tap_at, acknowledged_at, acknowledged_by, acknowledged_by_name, resolved_at, resolved_by, resolved_by_name, alerted, last_alert_at, reminders_sent, escalated_at, reason";
 
 /** What a call's answers add to its public shape: every master on duty with their answer (names only), and the caller's own answer on a master's desk. */
 export interface CallExtras {
@@ -105,6 +110,8 @@ export function publicCall(c: AssistanceCall, extras?: CallExtras) {
     responses: extras?.answers ?? [],
     remindersSent: c.reminders_sent ?? 0,
     escalatedAt: c.escalated_at ?? null,
+    /** Why the chair umpire called (0044): "rules" | "medical". Null on calls from 1.0.4 and older. */
+    reason: c.reason ?? null,
     ...(extras && "mine" in extras ? { mine: extras.mine ?? null } : {}),
   };
 }
@@ -220,11 +227,20 @@ export function ringsWithAlarm(appVersion: string | null | undefined): boolean {
   return a > 1 || (a === 1 && (b > 0 || c >= 3));
 }
 
+/**
+ * The call's ringtone. With ASSISTANCE_CRITICAL_ALERTS=1 (only once Apple has granted Move Score the
+ * Critical Alerts entitlement and phones run a build that carries it) it is a critical alert: an
+ * iPhone plays it at full volume even on silent and in Focus. Android already rings it as an alarm.
+ */
+function alarmSound(): ExpoMessage["sound"] {
+  return process.env.ASSISTANCE_CRITICAL_ALERTS === "1" ? { critical: true, name: "master_alarm.wav", volume: 1 } : "master_alarm.wav";
+}
+
 async function sendTo(devices: Device[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
   if (!devices.length) return 0;
   const messages: ExpoMessage[] = devices.map((d) => {
     // A call's alarm on phones that have the ringtone; older phones keep their channel and sound.
-    const alarm = extra.channelId === "assistance" && ringsWithAlarm(d.app_version) ? { channelId: "assistance_alarm", sound: "master_alarm.wav" as const } : {};
+    const alarm = extra.channelId === "assistance" && ringsWithAlarm(d.app_version) ? { channelId: "assistance_alarm", sound: alarmSound() } : {};
     return { to: d.expo_push_token, ...words(callLang(d.locale)), ...extra, ...alarm };
   });
   try {
@@ -237,6 +253,14 @@ async function sendTo(devices: Device[], words: Words, extra: Omit<ExpoMessage, 
 }
 
 const titled = (title: CallWordKey, body: CallWordKey, vars: Record<string, string | number>): Words => (lang) => ({ title: callWord(lang, title, vars), body: callWord(lang, body, vars) });
+
+/** A call's alert in each phone's language, its reason first when the chair umpire gave one (0044). */
+const callWords =
+  (call: Pick<AssistanceCall, "reason">, plain: CallWordKey, withReason: CallWordKey, vars: Record<string, string | number>, title: CallWordKey = "pushTitle"): Words =>
+  (lang) => {
+    const reason = reasonText(lang, call.reason);
+    return { title: callWord(lang, title, vars), body: reason ? callWord(lang, withReason, { ...vars, reason }) : callWord(lang, plain, vars) };
+  };
 
 /** The time-sensitive alert with the Coming / Decline buttons (notification category `assistance_call`). */
 const urgent = (call: AssistanceCall, extraData: Record<string, unknown> = {}): Omit<ExpoMessage, "to" | "title" | "body"> => ({
@@ -261,7 +285,7 @@ function phonesOf(duty: Duty, onlyRefereeIds?: string[]): string[] {
  */
 export async function alertMasters(call: AssistanceCall, onlyRefereeIds?: string[], duty?: Duty): Promise<number> {
   const d = duty ?? (await dutyFor(call));
-  return pushTo(phonesOf(d, onlyRefereeIds), titled("pushTitle", "pushBody", { name: call.requested_by_name, court: call.court_name }), urgent(call));
+  return pushTo(phonesOf(d, onlyRefereeIds), callWords(call, "pushBody", "pushBodyReason", { name: call.requested_by_name, court: call.court_name }), urgent(call));
 }
 
 /** A step the system took on a call (reminder, "is going", escalation): an audit row with who it went to. */
@@ -349,7 +373,7 @@ export async function tickCall(call: AssistanceCall, nowMs = Date.now()): Promis
       cur = claimed as AssistanceCall;
       const [duty, responses] = await Promise.all([dutyFor(cur, nowMs), responsesFor([cur.id])]);
       const to = reminderRecipients(duty.refereeIds, responses.get(cur.id) ?? []);
-      const phones = await pushTo(phonesOf(duty, to), titled("reminderTitle", "reminderBody", { court: cur.court_name }), urgent(cur, { reminder: due }));
+      const phones = await pushTo(phonesOf(duty, to), callWords(cur, "reminderBody", "reminderBodyReason", { court: cur.court_name }, "reminderTitle"), urgent(cur, { reminder: due }));
       await addAlerted(cur.id, phones);
       await auditStep(cur, "ASSISTANCE_REMINDED", { window: due, to, phones });
       cur = { ...cur, alerted: cur.alerted + phones };
@@ -383,7 +407,8 @@ export async function tickOpenCalls(nowMs = Date.now()): Promise<{ checked: numb
     .from("assistance_calls")
     .select(CALL_COLS)
     .eq("status", "open")
-    .lte("requested_at", new Date(nowMs - 25_000).toISOString())
+    // Old enough for a first reminder (a second of slack under REMINDER_SECONDS).
+    .lte("requested_at", new Date(nowMs - (REMINDER_SECONDS - 1) * 1000).toISOString())
     .order("requested_at")
     .limit(50);
   const calls = (data ?? []) as AssistanceCall[];
@@ -413,7 +438,11 @@ export async function callMasterEnabled(staff: Pick<StaffPrincipal, "scopeCourt"
  * REALERT_SECONDS; a tap after a master answered Coming re-rings the call for every master
  * who has not declined). New calls per court: at most CALLS_PER_COURT per window.
  */
-export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?: string | null; tournamentId?: string | null } = {}, nowMs = Date.now()): Promise<CallOutcome> {
+export async function requestAssistance(
+  staff: StaffPrincipal,
+  opts: { matchId?: string | null; tournamentId?: string | null; reason?: unknown } = {},
+  nowMs = Date.now(),
+): Promise<CallOutcome> {
   if (!isCourtReferee(staff)) return refusal(403, "court_referee_only", "Only a chair umpire signed in with their PIN can call for assistance.");
   if (!(await callMasterEnabled(staff, opts.tournamentId ?? null))) {
     return refusal(409, "feature_off", "Call master referee is switched off for this event. Call the desk.");
@@ -425,6 +454,9 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
   const key = courtKey(court.name);
   const tournamentId = opts.tournamentId && court.tournamentIds.includes(opts.tournamentId) ? opts.tournamentId : (court.withCourt[0] ?? court.tournamentIds[0] ?? null);
   const nowIso = new Date(nowMs).toISOString();
+  // Why (0044). Move Score 1.0.4 and older send none: the call goes out without one, as before.
+  const reason = cleanReason(opts.reason);
+  const why = reason ? { reason } : {};
 
   const tap = async (open: AssistanceCall): Promise<CallOutcome> => {
     if (nowMs - Date.parse(open.last_tap_at) < TAP_DEDUPE_SECONDS * 1000) return { ok: true, call: open, deduped: true };
@@ -435,7 +467,7 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
     if (open.status === "acknowledged" || coming.length) {
       const { data: reopened } = await db()
         .from("assistance_calls")
-        .update({ status: "open", acknowledged_at: null, acknowledged_by: null, acknowledged_by_name: null, taps: open.taps + 1, last_tap_at: nowIso })
+        .update({ status: "open", acknowledged_at: null, acknowledged_by: null, acknowledged_by_name: null, taps: open.taps + 1, last_tap_at: nowIso, ...why })
         .eq("id", open.id)
         .eq("taps", open.taps)
         .select(CALL_COLS)
@@ -452,7 +484,7 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
     const realert = shouldRealert(open, nowMs);
     const { data } = await db()
       .from("assistance_calls")
-      .update({ taps: open.taps + 1, last_tap_at: nowIso })
+      .update({ taps: open.taps + 1, last_tap_at: nowIso, ...why })
       .eq("id", open.id)
       .eq("taps", open.taps)
       .select(CALL_COLS)
@@ -489,6 +521,7 @@ export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?:
       requested_at: nowIso,
       last_tap_at: nowIso,
       last_alert_at: nowIso,
+      ...why,
     })
     .select(CALL_COLS)
     .single();

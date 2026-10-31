@@ -159,8 +159,11 @@ export type ExpoMessage = {
   title: string;
   body: string;
   data: Record<string, unknown>;
-  /** "default", or a sound file bundled in the app ("master_alarm.wav", Move Score 1.0.3+). */
-  sound: "default" | "master_alarm.wav";
+  /**
+   * "default", or a sound file bundled in the app ("master_alarm.wav", Move Score 1.0.3+); an object
+   * makes it an iOS critical alert (plays on silent; needs Apple's Critical Alerts entitlement).
+   */
+  sound: "default" | "master_alarm.wav" | { critical: true; name: "master_alarm.wav"; volume: number };
   channelId: string;
   /** Calls for assistance (migration 0035): delivered at once, through Focus where the app may. */
   priority?: "default" | "normal" | "high";

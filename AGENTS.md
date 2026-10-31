@@ -290,6 +290,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   manual swap still flips). Doubles: SERVE_ORDER (first server / receiver) right after. App `move-score-app/src/referee/Toss.tsx`, web
   `TossDialog` (score/V2.tsx); "Skip the toss" = the old "Who serves first?". Match log says it in words; court TV shows `tossHeadline`
   until the first point. Gate `npm run e2e:toss` (stand-in).
+- Call reasons (owner, 31 Oct 2026; migration `0044_assistance_reason.sql`, not yet on the live project: apply BEFORE deploying,
+  `CALL_COLS` selects `reason`): the chair umpire's call is two buttons, "Call Referee for Rule" / "Call Referee for Medical"
+  (`ASSISTANCE_REASONS` = rules | medical in `src/lib/referees/rules.ts`, words `callFor_*` / `reason_*` in `callWords.ts`); the reason
+  leads the masters' push and reminders and shows on the alarm, desks and the chair umpire's card (additive `reason` on the call).
+  1.0.4 and older send none (call goes out as before). Reminders every 10 s (`REMINDER_SECONDS`, 60 max = 10 min; the drain sweep
+  follows it). iOS Critical Alerts: server switch `ASSISTANCE_CRITICAL_ALERTS=1` sends the ringtone as a critical alert — only once
+  Apple grants the entitlement AND phones run a build that carries it (app side not built yet: entitlement
+  `com.apple.developer.usernotifications.critical-alerts` + `allowCriticalAlerts` permission + regenerated profiles).
 - Line-ups on match day (no migration): pure checks `src/lib/tennis/lineupRules.ts` (problems refuse; warnings — order of merit
   Reg 43, retired player Reg 50 — need accepting; a change after the lock needs a reason), regulation summaries in our own words
   `src/lib/tennis/regulations.ts` (page `/regulations/itf-junior-team/[reg]`, button to the ITF site), Excel sheet pure

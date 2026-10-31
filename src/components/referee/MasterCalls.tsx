@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CallAnswer, CallStatus, MasterAnswerRow } from "@/lib/referees/rules";
-import { callWord } from "@/lib/referees/callWords";
+import { callWord, reasonText } from "@/lib/referees/callWords";
 
 interface Call {
   id: string;
@@ -23,6 +23,8 @@ interface Call {
   responses?: MasterAnswerRow[];
   mine?: CallAnswer | null;
   escalatedAt?: string | null;
+  // 0044
+  reason?: string | null;
 }
 
 const API = "/api/mobile/v1/referee/assistance";
@@ -135,8 +137,13 @@ export default function MasterCalls({ banner = false }: { banner?: boolean }) {
         >
           <div>
             <p className="text-base font-black">
-              {c.status === "open" ? "🆘 " : "🏃 "}Referee {c.requestedBy} is calling for assistance at {c.court}
+              {c.status === "open" ? "🆘 " : "🏃 "}Chair umpire {c.requestedBy} is calling for assistance at {c.court}
             </p>
+            {c.reason && (
+              <p className="text-sm font-black text-danger" data-testid="call-reason">
+                {reasonText("en", c.reason)}
+              </p>
+            )}
             {c.status === "acknowledged" && (
               <p className="text-sm font-bold text-success" data-testid="call-going">
                 {callWord("en", "goingDesk", { name: c.going ?? c.acknowledgedBy ?? "A master referee", court: c.court })}

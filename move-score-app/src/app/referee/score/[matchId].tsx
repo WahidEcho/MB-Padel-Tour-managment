@@ -40,6 +40,7 @@ import type { RefereeBootstrap } from "../../../referee/types";
 import type { SyncState } from "../../../referee/sync";
 import { useCall } from "../../../referee/useCall";
 import { AssistanceCard, requestAssistance } from "../../../referee/AssistanceCard";
+import { ReasonPicker } from "../../../referee/ReasonPicker";
 import { BetweenPoints, MatchLogList, PadV2, ServeOrderForm, TimerCard, useTick, type V2Side } from "../../../referee/V2";
 import { TossForm } from "../../../referee/Toss";
 import { BALL, BALL_INK } from "../../../theme/palette";
@@ -818,16 +819,15 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
       <Sheetish open={sheet?.kind === "call"} onClose={() => setSheet(null)} title={tr("score.callMaster")}>
         <Display size={20}>{tr("score.callMasterQuestion", { court: boot.courtName })}</Display>
         <Body tone="ink2">{tr("score.callMasterNote")}</Body>
-        <Button
-          kind="danger"
-          label={tr("score.call")}
-          onPress={() => {
+        {/* Two buttons (owner, 31 Oct 2026): Rule or Medical, each sends the call. */}
+        <ReasonPicker
+          onSend={(reason) => {
             setSheet(null);
             setCallNote(tr("score.calling"));
-            void requestAssistance(m.id).then((r) => setCallNote(r.ok ? tr("score.masterCalled") : r.message));
+            void requestAssistance(m.id, reason).then((r) => setCallNote(r.ok ? tr("score.masterCalled") : r.message));
           }}
+          onCancel={() => setSheet(null)}
         />
-        <Button kind="ghost" label={tr("common.cancel")} onPress={() => setSheet(null)} />
       </Sheetish>
 
       <Sheetish open={sheet?.kind === "let"} onClose={() => setSheet(null)} title={tr("score.let")}>

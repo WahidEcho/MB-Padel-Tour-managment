@@ -47,6 +47,13 @@ const en = {
   alarmTitle: "Emergency call",
   alarmFor: "Ringing for {clock}",
   alarmDesk: "Open the master desk",
+  // The reason (migration 0044): one button each
+  pushBodyReason: "{reason} · Chair umpire {name} at {court}",
+  reminderBodyReason: "{reason} · {court} still needs a master referee — tap to answer",
+  callFor_rules: "Call Referee for Rule",
+  callFor_medical: "Call Referee for Medical",
+  reason_rules: "Rule",
+  reason_medical: "Medical",
 };
 export type CallWordKey = keyof typeof en;
 
@@ -90,6 +97,12 @@ const es: Record<CallWordKey, string> = {
   alarmTitle: "Llamada de emergencia",
   alarmFor: "Sonando desde hace {clock}",
   alarmDesk: "Abrir el panel del juez árbitro",
+  pushBodyReason: "{reason} · Juez de silla {name} en {court}",
+  reminderBodyReason: "{reason} · {court} todavía necesita un juez árbitro: toca para responder",
+  callFor_rules: "Llamar al juez árbitro: reglamento",
+  callFor_medical: "Llamar al juez árbitro: médico",
+  reason_rules: "Reglamento",
+  reason_medical: "Médico",
 };
 
 const fr: Record<CallWordKey, string> = {
@@ -132,6 +145,12 @@ const fr: Record<CallWordKey, string> = {
   alarmTitle: "Appel d'urgence",
   alarmFor: "Sonne depuis {clock}",
   alarmDesk: "Ouvrir le bureau du juge-arbitre",
+  pushBodyReason: "{reason} · Juge de chaise {name} sur {court}",
+  reminderBodyReason: "{reason} · {court} attend toujours un juge-arbitre : touchez pour répondre",
+  callFor_rules: "Appeler le juge-arbitre : règlement",
+  callFor_medical: "Appeler le juge-arbitre : médical",
+  reason_rules: "Règlement",
+  reason_medical: "Médical",
 };
 
 const WORDS: Record<CallLang, Record<CallWordKey, string>> = { en, es, fr };
@@ -150,3 +169,9 @@ export function callWord(lang: CallLang, key: CallWordKey, vars: Record<string, 
 
 /** Every key of every language (tests: no language is missing a placeholder). */
 export const CALL_WORDS = WORDS;
+
+/** "Medical" / "Rule" in `lang` (migration 0044). Null without a reason. */
+export function reasonText(lang: CallLang, reason: string | null | undefined): string | null {
+  if (!reason || !(`reason_${reason}` in en)) return null;
+  return callWord(lang, `reason_${reason}` as CallWordKey);
+}

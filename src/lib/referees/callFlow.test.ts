@@ -26,22 +26,25 @@ const call = (over: Partial<{ status: "open" | "acknowledged" | "resolved" | "ca
 });
 const resp = (refereeId: string, answer: "coming" | "declined", name = refereeId): CallResponse => ({ refereeId, name, answer, at: new Date(at(10)).toISOString() });
 
-describe("calls for assistance: 30-second reminders", () => {
-  it("one window per 30 s, none before", () => {
-    expect(REMINDER_SECONDS).toBe(30);
-    expect(reminderWindows(call().requested_at, at(29))).toBe(0);
-    expect(reminderWindows(call().requested_at, at(30))).toBe(1);
-    expect(reminderWindows(call().requested_at, at(89))).toBe(2);
+describe("calls for assistance: 10-second reminders", () => {
+  it("one window per 10 s, none before", () => {
+    expect(REMINDER_SECONDS).toBe(10);
+    expect(reminderWindows(call().requested_at, at(9))).toBe(0);
+    expect(reminderWindows(call().requested_at, at(10))).toBe(1);
+    expect(reminderWindows(call().requested_at, at(29))).toBe(2);
     expect(reminderWindows(call().requested_at, at(-5))).toBe(0);
   });
-  it("is due at 30 s, not at 29 s, and once per window", () => {
-    expect(reminderDue(call(), at(29))).toBeNull();
-    expect(reminderDue(call(), at(30))).toBe(1);
-    expect(reminderDue(call({ reminders_sent: 1 }), at(45))).toBeNull();
-    expect(reminderDue(call({ reminders_sent: 1 }), at(60))).toBe(2);
+  it("is due at 10 s, not at 9 s, and once per window", () => {
+    expect(reminderDue(call(), at(9))).toBeNull();
+    expect(reminderDue(call(), at(10))).toBe(1);
+    expect(reminderDue(call({ reminders_sent: 1 }), at(15))).toBeNull();
+    expect(reminderDue(call({ reminders_sent: 1 }), at(20))).toBe(2);
   });
   it("missed windows collapse into one reminder (the latest window)", () => {
-    expect(reminderDue(call({ reminders_sent: 1 }), at(125))).toBe(4);
+    expect(reminderDue(call({ reminders_sent: 1 }), at(45))).toBe(4);
+  });
+  it("keeps ringing for ten minutes", () => {
+    expect(MAX_REMINDERS * REMINDER_SECONDS).toBe(600);
   });
   it("stops after MAX_REMINDERS", () => {
     expect(reminderDue(call({ reminders_sent: MAX_REMINDERS }), at(3600))).toBeNull();
@@ -140,5 +143,25 @@ describe("calls for assistance: the words in English, Spanish and French", () =>
     expect(callLang(null)).toBe("en");
     expect(callWord("es", "coming")).toBe("Voy");
     expect(callWord("fr", "decline")).toBe("Refuser");
+  });
+});
+
+describe("calls for assistance: the reason (migration 0044)", () => {
+  it("knows Rule and Medical and nothing else", async () => {
+    const { ASSISTANCE_REASONS, cleanReason } = await import("./rules");
+    expect(ASSISTANCE_REASONS).toEqual(["rules", "medical"]);
+    expect(cleanReason("medical")).toBe("medical");
+    expect(cleanReason("weather")).toBeNull();
+    expect(cleanReason(undefined)).toBeNull();
+  });
+  it("says it in each language, first in the push", async () => {
+    const { callWord, reasonText } = await import("./callWords");
+    expect(callWord("en", "callFor_rules")).toBe("Call Referee for Rule");
+    expect(callWord("en", "callFor_medical")).toBe("Call Referee for Medical");
+    expect(reasonText("es", "medical")).toBe("Médico");
+    expect(reasonText("fr", "rules")).toBe("Règlement");
+    expect(reasonText("en", null)).toBeNull();
+    expect(reasonText("en", "weather")).toBeNull();
+    expect(callWord("en", "pushBodyReason", { reason: "Medical", name: "Sara", court: "Court 3" })).toBe("Medical · Chair umpire Sara at Court 3");
   });
 });

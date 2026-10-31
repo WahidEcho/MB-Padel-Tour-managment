@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { closedCallShown, elapsedClock, type CallStatus, type MasterAnswerRow } from "@/lib/referees/rules";
-import { callWord } from "@/lib/referees/callWords";
+import { ASSISTANCE_REASONS, closedCallShown, elapsedClock, type AssistanceReason, type CallStatus, type MasterAnswerRow } from "@/lib/referees/rules";
+import { callWord, reasonText } from "@/lib/referees/callWords";
 
 interface Call {
   id: string;
@@ -18,6 +18,8 @@ interface Call {
   responses?: MasterAnswerRow[];
   remindersSent?: number;
   escalatedAt?: string | null;
+  // 0044
+  reason?: AssistanceReason | null;
 }
 
 const API = "/api/mobile/v1/referee/assistance";
@@ -125,16 +127,22 @@ export default function AssistanceButton({
     >
       {!open ? (
         <>
+          {/* Two buttons (owner, 31 Oct 2026): Rule or Medical, each sends the call with its reason. */}
           {!statusOnly && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void post({ action: "request", matchId })}
-              className={`w-full rounded-xl bg-danger font-black uppercase tracking-wide text-white active:scale-[0.99] disabled:opacity-60 ${compact ? "py-2 text-sm" : "py-4 text-lg"}`}
-              data-testid="call-assistance"
-            >
-              {busy ? W("calling") : W("callButton")}
-            </button>
+            <div className="grid gap-2">
+              {ASSISTANCE_REASONS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void post({ action: "request", matchId, reason: r })}
+                  className={`w-full rounded-xl bg-danger font-black uppercase tracking-wide text-white active:scale-[0.99] disabled:opacity-60 ${compact ? "py-2 text-sm" : "py-4 text-lg"}`}
+                  data-testid={`call-assistance-${r}`}
+                >
+                  {busy ? W("calling") : W(r === "rules" ? "callFor_rules" : "callFor_medical")}
+                </button>
+              ))}
+            </div>
           )}
           {call && closedShown && (
             <p className="mt-1 text-xs font-semibold text-muted" data-testid="assistance-resolved">
@@ -155,6 +163,11 @@ export default function AssistanceButton({
                   {W("callingNoAnswer", { clock: elapsedClock(call!.requestedAt, now) })}
                 </p>
               )}
+              {call!.reason && (
+                <p className="text-sm font-black" data-testid="assistance-reason">
+                  {reasonText("en", call!.reason)}
+                </p>
+              )}
               <p className="text-xs text-muted">
                 {call!.court} · {W("calledAt", { time: hhmm(call!.requestedAt) })}
                 {!going && reminders > 0 ? <span data-testid="assistance-reminders"> · {reminders === 1 ? W("remindersSent") : W("remindersSentMany", { n: reminders })}</span> : null}
@@ -162,7 +175,7 @@ export default function AssistanceButton({
               </p>
             </div>
             <div className="flex gap-2">
-              <button type="button" disabled={busy} onClick={() => void post({ action: "request", matchId })} className="btn-secondary text-xs" data-testid="call-again">
+              <button type="button" disabled={busy} onClick={() => void post({ action: "request", matchId, reason: call!.reason ?? undefined })} className="btn-secondary text-xs" data-testid="call-again">
                 {W("callAgain")}
               </button>
               {call!.status === "open" && (

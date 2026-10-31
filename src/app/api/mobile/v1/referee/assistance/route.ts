@@ -35,7 +35,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
  * GET: a chair umpire gets its court's call (open, or just closed) with the masters'
  * answers; a master referee the open calls of its events (and records this phone for
  * its alerts); the organiser every open call of the organisation.
- * POST { action: "request", matchId? } (chair umpire), { action: "respond", callId, answer: "coming" | "declined" }
+ * POST { action: "request", matchId?, reason? } (chair umpire; reason "rules" | "medical", migration 0044), { action: "respond", callId, answer: "coming" | "declined" }
  * (master referees, 0042), { action: "acknowledge" | "resolve" | "cancel", callId } ("acknowledge" is Move Score
  * 1.0.1's "On my way": the same as Coming).
  *
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   const gate = await staffRoute("score_match");
   if (!gate.ok) return gate.response;
   const { staff } = gate;
-  const body = await readJson<{ action?: unknown; callId?: unknown; matchId?: unknown; answer?: unknown }>(request);
+  const body = await readJson<{ action?: unknown; callId?: unknown; matchId?: unknown; answer?: unknown; reason?: unknown }>(request);
   const action = typeof body?.action === "string" ? body.action : "";
   const mine = isMasterReferee(staff) ? staff.referee!.id : undefined;
   const refused = async (out: Extract<CallOutcome, { ok: false }>) => {
@@ -85,7 +85,8 @@ export async function POST(request: Request) {
     // The match it is about, only when this chair umpire reaches it (its court's match).
     const matchId = typeof body?.matchId === "string" ? body.matchId : null;
     const scope = matchId ? await entityInScope(staff, { match: matchId }) : null;
-    const out = await requestAssistance(staff, { matchId: scope ? matchId : null, tournamentId: scope?.tournamentId ?? null });
+    // Why (0044): "rules" | "medical"; Move Score 1.0.4 and older send none.
+    const out = await requestAssistance(staff, { matchId: scope ? matchId : null, tournamentId: scope?.tournamentId ?? null, reason: body?.reason });
     if (!out.ok) return NextResponse.json({ error: out.error, code: out.code }, { status: out.status, headers: { ...NO_STORE, ...(out.retryAfterSeconds ? { "Retry-After": String(out.retryAfterSeconds) } : {}) } });
     if (!out.deduped) {
       await audit({
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
         action: "ASSISTANCE_REQUESTED",
         entity_type: "assistance_call",
         entity_id: out.call.id,
-        new_value: { court: out.call.court_name, match_id: out.call.match_id, alerted: out.call.alerted },
+        new_value: { court: out.call.court_name, match_id: out.call.match_id, alerted: out.call.alerted, reason: out.call.reason ?? null },
       });
     }
     const [shown] = await describeCalls([out.call]);

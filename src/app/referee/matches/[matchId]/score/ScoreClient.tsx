@@ -47,6 +47,8 @@ import { aceMoment, defaultServeOrder, needsServeOrder, tossDecidesServer, type 
 import { TIMERS, sidesSwapped, withoutClock, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import { aceCounts } from "@/lib/scoring/matchLog";
 import { nationByCode } from "@/lib/tennis/nations";
+import { ASSISTANCE_REASONS, type AssistanceReason } from "@/lib/referees/rules";
+import { callWord } from "@/lib/referees/callWords";
 import { SCORING_FEATURES_OFF } from "@/lib/matchday/rules";
 import { BetweenPointsBanner, BoardV2, MatchLogPanel, PadV2, ServeOrderDialog, TimerCard, TossDialog, shortCode, useNow, type RunningTimer, type V2Side } from "./V2";
 import type { TossRecord } from "@/lib/scoring/toss";
@@ -777,13 +779,13 @@ export default function ScoreClient({
   }
 
   /** The existing assistance call (migration 0035): every master referee on duty is alerted. */
-  async function callMasterNow() {
+  async function callMasterNow(reason: AssistanceReason) {
     setCallNote("Calling…");
     try {
       const res = await fetch("/api/mobile/v1/referee/assistance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "request", matchId: match.id }),
+        body: JSON.stringify({ action: "request", matchId: match.id, reason }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       setCallNote(res.ok ? "Master referee called. Their answer shows under the header." : (body.error ?? "The call could not be sent. Call the desk."));
@@ -1508,17 +1510,21 @@ export default function ScoreClient({
                 <p className="mx-auto flex h-12 w-12 items-center justify-center rounded-full text-xl text-white" style={{ background: "#e11d48" }}>📣</p>
                 <h3 className="text-xl font-bold">Call the master referee to {courtName}?</h3>
                 <p className="text-sm text-muted">Every master referee on duty gets an alert.</p>
-                <button
-                  className="w-full rounded-2xl py-3 font-bold text-white"
-                  style={{ background: "#e11d48" }}
-                  data-testid="call-confirm-yes"
-                  onClick={() => {
-                    setModal(null);
-                    void callMasterNow();
-                  }}
-                >
-                  Call
-                </button>
+                {/* Two buttons (owner, 31 Oct 2026): each sends the call with its reason. */}
+                {ASSISTANCE_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    className="w-full rounded-2xl py-3 font-bold text-white"
+                    style={{ background: "#e11d48" }}
+                    data-testid={`call-confirm-${r}`}
+                    onClick={() => {
+                      setModal(null);
+                      void callMasterNow(r);
+                    }}
+                  >
+                    {callWord("en", r === "rules" ? "callFor_rules" : "callFor_medical")}
+                  </button>
+                ))}
                 <button className="btn-secondary w-full py-3" onClick={() => setModal(null)}>Cancel</button>
               </div>
             )}

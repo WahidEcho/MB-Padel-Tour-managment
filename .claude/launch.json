@@ -75,6 +75,26 @@
         "set -a; . ./.env.localdb; set +a; PUSH_DRY_RUN=1 MESSAGING_DRY_RUN=1 exec npx next dev -p 3078"
       ],
       "port": 3078
+    },
+    {
+      "name": "localdb-fresh",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/localdb/server.mjs"
+      ],
+      "env": {
+        "LOCALDB_PORT": "54322"
+      },
+      "port": 54322
+    },
+    {
+      "name": "e2e-start-fresh",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env.localdb; set +a; SUPABASE_URL=http://localhost:54322 PUBLIC_SITE_URL=http://localhost:3080 PUSH_DRY_RUN=1 MESSAGING_DRY_RUN=1 npx next start -p 3080"
+      ],
+      "port": 3080
     }
   ]
 }

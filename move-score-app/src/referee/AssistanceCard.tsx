@@ -11,14 +11,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import * as Haptics from "expo-haptics";
-import { closedCallShown, elapsedClock, type CallStatus, type MasterAnswerRow } from "@core";
+import { closedCallShown, elapsedClock, reasonText, type AssistanceReason, type CallStatus, type MasterAnswerRow } from "@core";
 import { api, ApiError } from "../api/client";
 import { useTheme } from "../theme/ThemeProvider";
 import { Body } from "../ui/Text";
 import { Button, Card } from "../ui/Bits";
 import { Glyph } from "../ui/Glyph";
 import { useT } from "../i18n";
-import { callTime, ct } from "./callText";
+import { callLangNow, callTime, ct } from "./callText";
+import { ReasonPicker } from "./ReasonPicker";
 
 interface Call {
   id: string;
@@ -33,14 +34,16 @@ interface Call {
   responses?: MasterAnswerRow[];
   remindersSent?: number;
   escalatedAt?: string | null;
+  // 0044
+  reason?: AssistanceReason | null;
 }
 
 const PATH = "/api/mobile/v1/referee/assistance";
 
 /** Scoring v2's More → "Call master referee": the same call as the card's button. */
-export async function requestAssistance(matchId?: string): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function requestAssistance(matchId?: string, reason?: AssistanceReason): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    await api(PATH, { who: "staff", body: { action: "request", matchId } });
+    await api(PATH, { who: "staff", body: { action: "request", matchId, reason } });
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     return { ok: true };
   } catch (e) {
@@ -111,16 +114,7 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
   if (!open) {
     return (
       <View style={{ gap: 4 }}>
-        {!statusOnly && enabled ? (
-          <Button
-            kind="danger"
-            label={busy ? ct("calling") : ct("callButton")}
-            icon={busy ? undefined : <Glyph name="help" color="#FFFFFF" size={20} />}
-            disabled={busy}
-            onPress={() => void post({ action: "request", matchId })}
-            accessibilityLabel={ct("callButton")}
-          />
-        ) : null}
+        {!statusOnly && enabled ? <ReasonPicker busy={busy} onSend={(reason) => void post({ action: "request", matchId, reason })} /> : null}
         {call && closedShown ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Glyph name={call.status === "resolved" ? "check" : "cross"} color={call.status === "resolved" ? t.success : t.ink3} size={16} />
@@ -146,6 +140,11 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
           {going ? ct("isComing", { name: going, court: c.court }) : ct("callingNoAnswer", { clock: elapsedClock(c.requestedAt, now) })}
         </Body>
       </View>
+      {c.reason ? (
+        <Body weight="semi" size={14} testID="call-reason">
+          {reasonText(callLangNow(), c.reason)}
+        </Body>
+      ) : null}
       <Body tone="ink3" size={12}>
         {[c.court, ct("calledAt", { time: callTime(c.requestedAt) }), !going && reminders > 0 ? (reminders === 1 ? ct("remindersSent") : ct("remindersSentMany", { n: reminders })) : null].filter(Boolean).join(" · ")}
       </Body>
@@ -171,7 +170,7 @@ export function AssistanceCard({ matchId, statusOnly = false }: { matchId?: stri
         <Body tone="ink3" size={12}>{ct("noMastersOnDuty")}</Body>
       ) : null}
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button kind="ghost" label={ct("callAgain")} disabled={busy} onPress={() => void post({ action: "request", matchId })} style={{ flex: 1 }} />
+        <Button kind="ghost" label={ct("callAgain")} disabled={busy} onPress={() => void post({ action: "request", matchId, reason: c.reason ?? undefined })} style={{ flex: 1 }} />
         {c.status === "open" && <Button kind="ghost" label={ct("cancel")} disabled={busy} onPress={() => void post({ action: "cancel", callId: c.id })} style={{ flex: 1 }} />}
       </View>
       {err ? <Body tone="live" size={12}>{err}</Body> : null}

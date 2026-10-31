@@ -19,7 +19,8 @@ import { api } from "../api/client";
 import { session } from "../state/session";
 import { Body, Display, Eyebrow } from "../ui/Text";
 import { Glyph } from "../ui/Glyph";
-import { ct } from "./callText";
+import { reasonText } from "@core";
+import { callLangNow, ct } from "./callText";
 
 interface RingingCall {
   id: string;
@@ -28,6 +29,8 @@ interface RingingCall {
   requestedBy: string;
   requestedAt: string;
   mine?: "coming" | "declined" | null;
+  // 0044: why the chair umpire called
+  reason?: string | null;
 }
 
 const ALARM = require("../../assets/sounds/master_alarm.wav");
@@ -163,6 +166,12 @@ export function MasterCallAlarm() {
           <Display size={44} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5} style={{ color: "#FFFFFF", textAlign: "center", lineHeight: 48, marginTop: 6 }}>
             {call.court}
           </Display>
+          {/* The reason, big: what the master walks into (0044). */}
+          {call.reason ? (
+            <Body weight="bold" size={22} style={{ color: "#FFB3BF", textAlign: "center" }} numberOfLines={3} testID="alarm-reason">
+              {reasonText(callLangNow(), call.reason)}
+            </Body>
+          ) : null}
           <Body size={18} style={{ color: "#E6EBF5", textAlign: "center" }} numberOfLines={2}>{call.requestedBy}</Body>
           <Body size={15} style={{ color: "#9FB0D0" }}>{ct("alarmFor", { clock: clock(call.requestedAt, now) })}</Body>
           {ringing.length > 1 ? <Body size={13} weight="semi" style={{ color: "#FFB3BF" }}>{`+${ringing.length - 1}`}</Body> : null}
