@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Platform, View } from "react-native";
-import { Stack, useRootNavigationState } from "expo-router";
+import { Stack, usePathname, useRootNavigationState } from "expo-router";
+import { trackPath } from "../referee/masterDesk";
 import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -47,6 +48,13 @@ function AlertTaps() {
   return null;
 }
 
+/** Tells the master desk helper which screen is showing, so a second alert tap does not stack another desk. */
+function RouteTracker() {
+  const path = usePathname();
+  useEffect(() => trackPath(path), [path]);
+  return null;
+}
+
 function Navigator() {
   const { t } = useTheme();
   // Re-renders the screens when the language changes on Account.
@@ -61,6 +69,7 @@ function Navigator() {
         <Stack.Screen name="stories" options={{ presentation: "fullScreenModal", animation: "fade", gestureEnabled: false }} />
         <Stack.Screen name="referee/score/[matchId]" options={{ gestureEnabled: false }} />
       </Stack>
+      <RouteTracker />
       {Platform.OS !== "web" && <AlertTaps />}
       {Platform.OS !== "web" && <AlertsPrompt />}
       {/* A master referee's emergency call rings here, above every screen. */}

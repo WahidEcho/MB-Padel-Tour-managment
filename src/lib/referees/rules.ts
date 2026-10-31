@@ -141,6 +141,16 @@ export function shouldRealert(call: { status: CallStatus; last_tap_at: string },
   return !Number.isFinite(last) || nowMs - last >= REALERT_SECONDS * 1000;
 }
 
+/**
+ * The masters were alerted for this call within the last ALERT_GAP_SECONDS (a reminder, a re-alert from
+ * "Call again"): another push now would ring their phones twice in a row, so it waits for the next window.
+ */
+export const ALERT_GAP_SECONDS = 8;
+export function alertedRecently(lastAlertAt: string | null | undefined, nowMs = Date.now()): boolean {
+  const last = lastAlertAt ? Date.parse(lastAlertAt) : NaN;
+  return Number.isFinite(last) && nowMs - last < ALERT_GAP_SECONDS * 1000;
+}
+
 /** "Referee Sara is calling for assistance at Court 3". */
 export function assistanceMessage(refereeName: string, court: string): string {
   return `Referee ${refereeName.trim()} is calling for assistance at ${court.trim()}`;

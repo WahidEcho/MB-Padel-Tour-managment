@@ -28,6 +28,7 @@ import { matchDayRules } from "../matchday/rules";
 import {
   CALLS_PER_COURT,
   ESCALATE_SECONDS,
+  alertedRecently,
   REMINDER_SECONDS,
   cleanReason,
   TAP_DEDUPE_SECONDS,
@@ -360,6 +361,8 @@ export async function tickCall(call: AssistanceCall, nowMs = Date.now()): Promis
   let cur = call;
   const nowIso = new Date(nowMs).toISOString();
   const due = reminderDue(cur, nowMs);
+  // A "Call again" re-alert a moment ago already rang them: this window is claimed without a second push.
+  const justAlerted = alertedRecently(cur.last_alert_at, nowMs);
   if (due !== null) {
     const { data: claimed } = await db()
       .from("assistance_calls")
@@ -369,7 +372,10 @@ export async function tickCall(call: AssistanceCall, nowMs = Date.now()): Promis
       .eq("reminders_sent", cur.reminders_sent)
       .select(CALL_COLS)
       .maybeSingle();
-    if (claimed) {
+    if (claimed && justAlerted) {
+      cur = { ...(claimed as AssistanceCall), last_alert_at: call.last_alert_at };
+      await db().from("assistance_calls").update({ last_alert_at: call.last_alert_at }).eq("id", cur.id);
+    } else if (claimed) {
       cur = claimed as AssistanceCall;
       const [duty, responses] = await Promise.all([dutyFor(cur, nowMs), responsesFor([cur.id])]);
       const to = reminderRecipients(duty.refereeIds, responses.get(cur.id) ?? []);
@@ -481,7 +487,7 @@ export async function requestAssistance(
       if (n) await db().from("assistance_calls").update({ alerted: call.alerted + n, last_alert_at: nowIso }).eq("id", call.id);
       return { ok: true, call: { ...call, alerted: call.alerted + n }, deduped: true };
     }
-    const realert = shouldRealert(open, nowMs);
+    const realert = shouldRealert(open, nowMs) && !alertedRecently(open.last_alert_at, nowMs);
     const { data } = await db()
       .from("assistance_calls")
       .update({ taps: open.taps + 1, last_tap_at: nowIso, ...why })

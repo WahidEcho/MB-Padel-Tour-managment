@@ -24,6 +24,7 @@ import { report } from "../monitoring";
 import { flushPrefs } from "./prefs";
 import { getLang, onLangChange, tr } from "../i18n/t";
 import { handleAssistanceResponse, registerAssistanceCategory } from "./assistanceActions";
+import { openMasterDesk } from "../referee/masterDesk";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true }),
@@ -293,7 +294,7 @@ export function openLink(url: string | undefined) {
   if (!url) return;
   // A master referee's call for assistance (migration 0035) opens their calls screen.
   if (/^movescore:\/\/referee\/master\/?$/.test(url)) {
-    router.push("/referee/master");
+    openMasterDesk();
     return;
   }
   // A team coach's alert (migration 0037): their own tie or rubber, or My team.

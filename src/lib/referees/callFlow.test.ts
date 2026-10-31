@@ -165,3 +165,16 @@ describe("calls for assistance: the reason (migration 0044)", () => {
     expect(callWord("en", "pushBodyReason", { reason: "Medical", name: "Sara", court: "Court 3" })).toBe("Medical · Chair umpire Sara at Court 3");
   });
 });
+
+describe("calls for assistance: no two pushes in a row", () => {
+  it("an alert within ALERT_GAP_SECONDS holds the next one back", async () => {
+    const { alertedRecently, ALERT_GAP_SECONDS } = await import("./rules");
+    const t0 = Date.parse("2026-10-31T12:00:00Z");
+    const at = new Date(t0).toISOString();
+    expect(alertedRecently(at, t0 + 1000)).toBe(true);
+    expect(alertedRecently(at, t0 + ALERT_GAP_SECONDS * 1000 - 1)).toBe(true);
+    expect(alertedRecently(at, t0 + ALERT_GAP_SECONDS * 1000)).toBe(false);
+    expect(alertedRecently(null, t0)).toBe(false);
+  });
+});
+

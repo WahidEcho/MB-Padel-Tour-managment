@@ -7,9 +7,9 @@
  * on this phone). A tap on the alert itself still opens the master desk on that call.
  * Builds without the category (Move Score 1.0.1) show the alert without buttons.
  */
+import { openMasterDesk } from "../referee/masterDesk";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { api } from "../api/client";
 import { session } from "../state/session";
@@ -69,6 +69,6 @@ export function handleAssistanceResponse(r: Notifications.NotificationResponse):
       }
     })();
   }
-  if (answer !== "declined") router.push(callId ? { pathname: "/referee/master", params: { call: callId } } : "/referee/master");
+  if (answer !== "declined") openMasterDesk(callId);
   return true;
 }

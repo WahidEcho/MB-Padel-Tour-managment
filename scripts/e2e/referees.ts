@@ -446,7 +446,9 @@ async function main() {
       const { data } = await db().from("audit_logs").select("new_value, created_at").eq("entity_id", id).eq("action", action).order("created_at");
       return ((data ?? []) as { new_value: { to?: string[]; phones?: number; reason?: string; going?: string } }[]).map((r) => r.new_value);
     };
-    const backdate = (id: string, secs: number) => db().from("assistance_calls").update({ requested_at: new Date(Date.now() - secs * 1000).toISOString() }).eq("id", id);
+    // The last alert moves back with the call (the reminders hold back within ALERT_GAP_SECONDS of one).
+    const backdate = (id: string, secs: number) =>
+      db().from("assistance_calls").update({ requested_at: new Date(Date.now() - secs * 1000).toISOString(), last_alert_at: new Date(Date.now() - 9_000).toISOString() }).eq("id", id);
     const answerOf = (v: View | null, name: string) => v?.responses.find((r) => r.name === name);
 
     const c = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id, reason: "medical" });

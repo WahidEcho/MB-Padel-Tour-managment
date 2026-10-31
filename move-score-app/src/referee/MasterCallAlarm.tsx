@@ -13,7 +13,6 @@ import { Animated, AppState, Easing, Modal, Platform, Pressable, Vibration, View
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { api } from "../api/client";
 import { session } from "../state/session";
@@ -21,6 +20,7 @@ import { Body, Display, Eyebrow } from "../ui/Text";
 import { Glyph } from "../ui/Glyph";
 import { reasonText } from "@core";
 import { callLangNow, ct } from "./callText";
+import { openMasterDesk } from "./masterDesk";
 
 interface RingingCall {
   id: string;
@@ -152,7 +152,7 @@ export function MasterCallAlarm() {
       setBusy(false);
       void qc.invalidateQueries({ queryKey: ["assistance"] });
     }
-    if (answer === "coming") router.push({ pathname: "/referee/master", params: { call: call.id } });
+    if (answer === "coming") openMasterDesk(call.id);
   };
 
   if (!ringingNow || !call) return null;
@@ -206,7 +206,7 @@ export function MasterCallAlarm() {
               <Body size={15} weight="semi" style={{ color: "#FFFFFF" }}>{ct("coming")}</Body>
             </View>
           </View>
-          <Body size={14} weight="semi" style={{ color: "#9FB0D0", textAlign: "center", textDecorationLine: "underline" }} onPress={() => router.push({ pathname: "/referee/master", params: { call: call.id } })}>
+          <Body size={14} weight="semi" style={{ color: "#9FB0D0", textAlign: "center", textDecorationLine: "underline" }} onPress={() => openMasterDesk(call.id)}>
             {ct("alarmDesk")}
           </Body>
         </View>
