@@ -55,6 +55,7 @@ export function CairoEditionPage({ edition, iosLive, platform, displayFont }: { 
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/backgrounds/cairo-2026/bjk-public.svg" alt="" className="cx-art-r" />
         </div>
+        <div className="cx-hero-grid">
         <div className="cx-hero-in">
           <div className="cx-logos">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -78,12 +79,12 @@ export function CairoEditionPage({ edition, iosLive, platform, displayFont }: { 
             No download? Watch live on the web <span aria-hidden>↓</span>
           </a>
         </div>
+        {/* The turning 3D phone of the Orbit design beside "Every point. Live." (owner, 31 Oct 2026); below it on phones. */}
+        <div className="ms-root cx-stage" style={{ ["--ms-display" as string]: displayFont }}>
+          <OrbitStage />
+        </div>
+        </div>
       </section>
-
-      {/* The turning 3D phone of the Orbit design, in the middle of the page (owner, 31 Oct 2026). */}
-      <div className="ms-root cx-stage" style={{ ["--ms-display" as string]: displayFont }}>
-        <OrbitStage />
-      </div>
 
       <section id="web" className="cx-sec">
         <p className="cx-kicker">Live scoring on the web</p>

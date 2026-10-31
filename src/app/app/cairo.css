@@ -59,6 +59,28 @@
 .cx-stage .ms-ph [style*="color:#FCFC00"]{color:#8A7A00 !important}
 .cx-stage .ms-ph .ms-dots span{background:rgba(11,13,24,.2)}
 
+/* The hero: text and the 3D phone side by side on a wide screen, the phone under the text on a phone. */
+.cx-hero-grid{max-width:1240px;margin:0 auto;display:grid;align-items:center}
+.cx-hero .cx-stage{margin-top:8px}
+@media (min-width:1024px){
+  .cx-hero{padding-top:40px;padding-bottom:24px;text-align:left}
+  .cx-hero-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+  .cx-hero-in{align-items:flex-start;margin:0}
+  .cx-hero .cx-h1{font-size:clamp(64px,7vw,104px)}
+  .cx-hero .cx-stores{margin-left:0}
+  .cx-hero .cx-stage{margin-top:0;overflow:visible}
+  /* The orbit may pass behind the text column: the text stays above it. */
+  .cx-hero .cx-stage > section{overflow:visible !important}
+  .cx-hero-in{position:relative;z-index:2}
+  .cx-hero .cx-stage .ms-space{height:680px}
+  .cx-hero .cx-stage .ms-stage-scale{transform:scale(.88)}
+  /* The chips come in from the column's edges instead of the page's. */
+  .cx-hero .cx-stage .ms-p1{left:2% !important;top:70px !important}
+  .cx-hero .cx-stage .ms-p2{left:auto !important;right:0;top:150px !important}
+  .cx-hero .cx-stage .ms-p3{left:0 !important;top:470px !important}
+  .cx-hero .cx-stage .ms-p4{left:auto !important;right:4%;top:540px !important}
+}
+
 /* Sections. */
 .cx-sec{max-width:1120px;margin:0 auto;padding:56px 16px;display:flex;flex-direction:column;gap:12px}
 .cx-h2{margin:0;font-size:clamp(28px,5vw,46px);line-height:1}
