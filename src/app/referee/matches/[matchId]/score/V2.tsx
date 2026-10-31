@@ -579,11 +579,28 @@ export function TossDialog({
             <div className="grid grid-cols-2 gap-2" data-testid="toss-court">
               {(["left", "right"] as const).map((at) => {
                 const k = at === "left" ? record.leftTeam : opp(record.leftTeam);
+                // Who plays on this side: the server (ball) and the receiver (ring) marked in doubles.
+                const first = k === record.servingTeam ? order?.server : order?.receiver;
                 return (
-                  <div key={at} className="rounded-xl border-2 bg-background p-3" style={{ borderColor: k === "A" ? "#E5133A" : "#1E5BFF" }}>
+                  <div key={at} className="rounded-xl border-2 bg-background p-3" style={{ borderColor: k === "A" ? "#E5133A" : "#1E5BFF" }} data-testid={`toss-side-${at}`}>
                     <p className="text-[11px] font-bold uppercase tracking-widest text-muted">{at === "left" ? "Left" : "Right"}</p>
-                    <p className="truncate font-bold">{name(k)}</p>
-                    {k === record.servingTeam && <span className="mt-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: SERVING_YELLOW }} />}
+                    <p className="font-bold leading-tight">{name(k)}</p>
+                    <ul className="mt-1.5 space-y-0.5 text-sm">
+                      {(sides[k].players.length ? sides[k].players : [name(k)]).map((p, i) => (
+                        <li key={i} className="flex items-center gap-1.5">
+                          {first === i || (sides[k].players.length <= 1 && i === 0) ? (
+                            k === record.servingTeam ? (
+                              <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: SERVING_YELLOW }} aria-label="serves" />
+                            ) : (
+                              <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-current text-muted" aria-label="receives" />
+                            )
+                          ) : (
+                            <span className="inline-block h-2.5 w-2.5 shrink-0" />
+                          )}
+                          <span className="min-w-0 break-words">{p}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 );
               })}

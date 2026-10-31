@@ -121,11 +121,32 @@ export function TossForm({
             <View style={{ flexDirection: "row", gap: 8 }} testID="toss-court">
               {(["left", "right"] as const).map((at) => {
                 const k = at === "left" ? record.leftTeam : other(record.leftTeam);
+                // Who plays on this side: the server (ball) and the receiver (ring) marked in doubles.
+                const first = k === record.servingTeam ? order?.server : order?.receiver;
+                const shown = sides[k].players.length ? sides[k].players : [name(k)];
                 return (
-                  <View key={at} style={{ flex: 1, borderRadius: 14, padding: 12, borderWidth: 2, borderColor: SIDE_HEX[k], backgroundColor: t.chip, gap: 2 }}>
+                  <View key={at} testID={`toss-side-${at}`} style={{ flex: 1, borderRadius: 14, padding: 12, borderWidth: 2, borderColor: SIDE_HEX[k], backgroundColor: t.chip, gap: 4 }}>
                     <Eyebrow size={10} tone="ink3">{at === "left" ? tr("score.tossLeft") : tr("score.tossRight")}</Eyebrow>
-                    <Body weight="bold" size={16} numberOfLines={1}>{name(k)}</Body>
-                    {k === record.servingTeam ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: BALL, marginTop: 4 }} /> : null}
+                    <Body weight="bold" size={16} numberOfLines={2}>{name(k)}</Body>
+                    {shown.map((p, i) => {
+                      const marked = first === i || (shown.length <= 1 && i === 0);
+                      const serving = k === record.servingTeam;
+                      return (
+                        <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <View
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: 5,
+                              backgroundColor: marked && serving ? BALL : "transparent",
+                              borderWidth: marked && !serving ? 1.5 : 0,
+                              borderColor: t.ink3,
+                            }}
+                          />
+                          <Body size={14} tone="ink2" style={{ flex: 1 }}>{p}</Body>
+                        </View>
+                      );
+                    })}
                   </View>
                 );
               })}
