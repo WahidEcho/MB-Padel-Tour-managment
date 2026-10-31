@@ -121,3 +121,6 @@
 @media (min-width:640px){.cx-hero{padding:72px 24px 96px}.cx-logos{gap:22px;padding:16px 26px}.cx-logos img{height:44px}}
 @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.cx-bar,.cx-logos{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none}.cx-way{background:#fff;border-color:var(--cx-line)}}
 @media (prefers-reduced-motion:reduce){.cx-bar-cta,.cx-store,.cx-ev,.cx-way{transition:none}.cx-bar-cta:active,.cx-store:active,.cx-ev:active,.cx-way:active{transform:none}}
+/* ETF and World Tennis 15% taller in the partners strip (owner, 31 Oct 2026): their crest + two-line names read small at the shared height. */
+.cx-foot img[src*="egyptian-tennis-federation"],.cx-foot img[src*="world-tennis"]{height:46px}
+@media (min-width:640px){.cx-foot img[src*="egyptian-tennis-federation"],.cx-foot img[src*="world-tennis"]{height:55px}}
