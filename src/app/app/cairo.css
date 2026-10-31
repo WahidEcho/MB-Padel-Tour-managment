@@ -1,0 +1,76 @@
+/* tour.mbeg.org/app, Cairo edition (CairoEdition.tsx). Light, in the events' colours: Davis Cup
+   green #123C33 / #A3DBAA, Billie Jean King Cup charcoal #2F3030, Move Score yellow #FCFC00.
+   Classes are prefixed cx- (global CSS). */
+.cx-root{--cx-ink:#0b0d18;--cx-muted:rgba(11,13,24,.62);--cx-line:rgba(11,13,24,.09);min-height:100vh;background:#f5f6f1;color:var(--cx-ink);font-family:var(--font-geist-sans),system-ui,sans-serif;overflow-x:hidden}
+.cx-root a{color:inherit;text-decoration:none}
+.cx-disp{font-family:var(--cx-display),sans-serif;font-weight:900;letter-spacing:-.01em}
+.cx-kicker{margin:0;font-size:12px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:#1f6b52}
+
+/* The bar floats over the art, as glass. */
+.cx-bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px max(16px,calc(50% - 560px));background:rgba(245,246,241,.72);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);border-bottom:1px solid var(--cx-line)}
+.cx-brand{display:inline-flex;align-items:center;gap:10px}
+.cx-brand b{display:block;font-size:15px;line-height:1.1}
+.cx-brand small{display:block;font-size:11px;color:var(--cx-muted)}
+.cx-bar-cta{padding:9px 16px;border-radius:999px;background:var(--cx-ink);color:#fff!important;font-size:13px;font-weight:700;transition:transform .1s ease-out}
+.cx-bar-cta:active,.cx-store:active,.cx-ev:active,.cx-way:active{transform:scale(.97)}
+
+/* Hero: Davis Cup art on the left, Billie Jean King Cup art on the right, meeting in the middle. */
+.cx-hero{position:relative;isolation:isolate;padding:48px 16px 72px;text-align:center}
+.cx-art{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.cx-art img{position:absolute;top:0;height:100%;width:62%;object-fit:cover;opacity:.9}
+.cx-art-l{left:0;-webkit-mask-image:linear-gradient(90deg,#000 35%,transparent);mask-image:linear-gradient(90deg,#000 35%,transparent)}
+.cx-art-r{right:0;-webkit-mask-image:linear-gradient(270deg,#000 35%,transparent);mask-image:linear-gradient(270deg,#000 35%,transparent)}
+.cx-art:after{content:"";position:absolute;inset:0;background:radial-gradient(60% 55% at 50% 45%,rgba(245,246,241,.92),rgba(245,246,241,.55) 70%,rgba(245,246,241,.2))}
+.cx-hero-in{max-width:760px;margin:0 auto;display:flex;flex-direction:column;align-items:center;gap:18px}
+.cx-logos{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 18px;border-radius:22px;background:rgba(255,255,255,.62);backdrop-filter:blur(18px) saturate(170%);-webkit-backdrop-filter:blur(18px) saturate(170%);border:1px solid rgba(255,255,255,.8);box-shadow:inset 0 1px 0 #fff,0 12px 34px -16px rgba(11,13,24,.3);max-width:100%;box-sizing:border-box}
+.cx-logos img{height:28px;width:auto;min-width:0;flex:0 1 auto;object-fit:contain}
+.cx-logos span{width:1px;align-self:stretch;background:var(--cx-line)}
+.cx-h1{margin:0;font-size:clamp(46px,13vw,112px);line-height:.92;letter-spacing:-.02em}
+.cx-lede{margin:0;max-width:600px;font-size:17px;line-height:1.55;color:var(--cx-muted)}
+.cx-lede b{color:var(--cx-ink)}
+.cx-stores{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;width:100%;max-width:520px;margin-top:6px}
+.cx-store{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 20px;border-radius:18px;text-align:left;box-shadow:0 14px 30px -14px rgba(11,13,24,.45);transition:transform .1s ease-out}
+.cx-store small{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.7}
+.cx-store b{display:block;font-size:18px;line-height:1.15}
+.cx-nodl{font-size:14px;font-weight:600;color:#1f6b52!important;border-bottom:1px solid rgba(31,107,82,.35);padding-bottom:2px}
+
+/* Sections. */
+.cx-sec{max-width:1120px;margin:0 auto;padding:56px 16px;display:flex;flex-direction:column;gap:12px}
+.cx-h2{margin:0;font-size:clamp(28px,5vw,46px);line-height:1}
+.cx-sub{margin:0;color:var(--cx-muted);font-size:16px}
+
+/* The two events' web pages: each card in its event's own colour and art. */
+.cx-events{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;margin-top:14px}
+.cx-ev{position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-height:250px;padding:26px;border-radius:28px;color:#fff!important;box-shadow:0 24px 50px -24px rgba(11,13,24,.55);transition:transform .1s ease-out,box-shadow .2s ease}
+.cx-ev:hover{box-shadow:0 30px 60px -24px rgba(11,13,24,.65)}
+.cx-ev-dc{background:#123C33}
+.cx-ev-bjk{background:#2F3030}
+.cx-ev-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;opacity:.16;mix-blend-mode:screen}
+.cx-ev-logo{height:46px;width:auto;max-width:100%;object-fit:contain;object-position:left}
+.cx-ev-name{margin-top:auto;font-size:22px;font-weight:800;line-height:1.2}
+.cx-ev-go{display:inline-flex;gap:8px;align-items:center;padding:11px 18px;border-radius:999px;background:#fff;color:var(--cx-ink);font-weight:700;font-size:15px}
+.cx-ev-dc .cx-ev-go{background:#A3DBAA}
+.cx-ev-url{font-size:12px;opacity:.6;word-break:break-all}
+
+/* Every way to follow: glass tiles. */
+.cx-ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:12px;margin-top:14px}
+.cx-way{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:22px;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.9);box-shadow:inset 0 1px 0 #fff,0 10px 28px -16px rgba(11,13,24,.28);transition:transform .1s ease-out}
+.cx-way b{font-size:15px;line-height:1.25;margin-top:6px}
+.cx-way span{font-size:13px;line-height:1.4;color:var(--cx-muted)}
+
+.cx-feats{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:1px;background:var(--cx-line);border-radius:22px;overflow:hidden;border:1px solid var(--cx-line)}
+.cx-feats li{display:flex;flex-direction:column;gap:4px;padding:20px;background:#fff}
+.cx-feats b{font-size:16px}
+.cx-feats span{font-size:14px;line-height:1.5;color:var(--cx-muted)}
+.cx-stores-end{margin:22px auto 0}
+
+/* The foot: every partner looping like the court TVs, then the Move Score line. */
+.cx-foot{margin-top:24px;padding:20px 0 28px;background:#fff;border-top:1px solid var(--cx-line)}
+.cx-foot-in{max-width:1120px;margin:14px auto 0;padding:0 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;font-size:13px;color:var(--cx-muted)}
+.cx-foot-in nav{display:flex;gap:18px;flex-wrap:wrap}
+.cx-foot-in a:hover{color:var(--cx-ink)}
+.cx-foot-in small a{text-decoration:underline!important}
+
+@media (min-width:640px){.cx-hero{padding:72px 24px 96px}.cx-logos{gap:22px;padding:16px 26px}.cx-logos img{height:44px}}
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.cx-bar,.cx-logos{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none}.cx-way{background:#fff;border-color:var(--cx-line)}}
+@media (prefers-reduced-motion:reduce){.cx-bar-cta,.cx-store,.cx-ev,.cx-way{transition:none}.cx-bar-cta:active,.cx-store:active,.cx-ev:active,.cx-way:active{transform:none}}
