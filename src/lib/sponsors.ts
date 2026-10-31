@@ -227,7 +227,17 @@ export function labelLines(label: string): [string, string] {
 /** The main sponsor whose watermark a screen draws: none when the organiser turned it off. */
 /** The logo a footer sponsor shows: its dark-surface version when drawn chip-less on a dark screen. */
 export function sponsorLogoSrc(s: Pick<SponsorEntry, "logoUrl" | "logoDarkUrl">, surface: { dark: boolean; chips: boolean }): string {
-  return surface.dark && !surface.chips && s.logoDarkUrl ? s.logoDarkUrl : s.logoUrl;
+  if (!surface.dark || surface.chips) return s.logoUrl;
+  return s.logoDarkUrl ?? pairedWhiteLogo(s.logoUrl) ?? s.logoUrl;
+}
+
+/**
+ * Our own sponsor sets keep every logo twice (public/sponsors/<set>/dark/ and /white/, same file name), so a
+ * near-black logo with no dark-surface version set still turns white on a dark chip-less screen instead of vanishing.
+ */
+export function pairedWhiteLogo(url: string): string | undefined {
+  const m = /^((?:https:\/\/tour\.mbeg\.org)?\/sponsors\/[a-z0-9-]+\/)dark(\/[a-z0-9-]+\.png)$/.exec(url);
+  return m ? `${m[1]}white${m[2]}` : undefined;
 }
 
 export function watermarkSponsor(main: MainSponsor | null): MainSponsor | null {

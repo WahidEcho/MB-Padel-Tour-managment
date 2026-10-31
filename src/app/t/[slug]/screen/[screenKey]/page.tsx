@@ -8,7 +8,7 @@ export default async function KeyedScreenPage({
   searchParams,
 }: {
   params: Promise<{ slug: string; screenKey: string }>;
-  searchParams: Promise<{ court?: string; mode?: string; preview?: string; aspect?: string }>;
+  searchParams: Promise<{ court?: string; mode?: string; preview?: string; aspect?: string; theme?: string }>;
 }) {
   const { slug, screenKey } = await params;
   return <TvScreen slug={slug} screenKey={screenKey} overrides={await searchParams} />;

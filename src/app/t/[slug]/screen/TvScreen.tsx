@@ -93,7 +93,7 @@ export default async function TvScreen({
 }: {
   slug: string;
   screenKey?: string;
-  overrides: { court?: string; mode?: string; preview?: string; aspect?: string };
+  overrides: { court?: string; mode?: string; preview?: string; aspect?: string; theme?: string };
 }) {
   if (!isValidScreenKey(screenKey)) notFound();
 
@@ -193,7 +193,8 @@ export default async function TvScreen({
   // already in the court TV's header); the full-screen sponsors slate keeps them.
   // With tvMainInBand the main sponsor loops too instead of standing on the left.
   const { anchored: bandMain, band: bandSponsors } = tvSponsorBand(mainSponsor, footerSponsors, logos.tvMainInBand);
-  const dark = settings.theme === "dark";
+  // `?theme=light|dark` previews a screen in the other theme without changing its saved settings.
+  const dark = overrides.theme === "light" ? false : overrides.theme === "dark" ? true : settings.theme === "dark";
   const backdrop = backgroundFor(logos, "screen", dark ? "dark" : "light");
   // How loud the glow may be depends on what it sits behind: quiet under a full
   // grid of scores, strongest on the holding slate and the ceremony.

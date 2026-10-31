@@ -15,6 +15,7 @@ import {
   tickerPlan,
   watermarkSponsor,
   sponsorLogoSrc,
+  pairedWhiteLogo,
   sponsorLabel,
   labelLines,
   type WatermarkSurface,
@@ -284,6 +285,16 @@ describe("hidden sponsors and dark-surface logos", () => {
     expect(sponsorLogoSrc(bee, { dark: true, chips: true })).toBe(B);
     expect(sponsorLogoSrc(bee, { dark: false, chips: false })).toBe(B);
     expect(sponsorLogoSrc(bad, { dark: true, chips: false })).toBe(FRESH);
+  });
+  it("a near-black logo of our own sets turns to its white twin on a dark chip-less screen", () => {
+    const elf = { logoUrl: "https://tour.mbeg.org/sponsors/cairo-2026/dark/elf.png" };
+    expect(sponsorLogoSrc(elf, { dark: true, chips: false })).toBe("https://tour.mbeg.org/sponsors/cairo-2026/white/elf.png");
+    expect(sponsorLogoSrc(elf, { dark: true, chips: true })).toBe(elf.logoUrl);
+    expect(sponsorLogoSrc(elf, { dark: false, chips: false })).toBe(elf.logoUrl);
+    expect(sponsorLogoSrc({ ...elf, logoDarkUrl: "https://tour.mbeg.org/x-on-dark.png" }, { dark: true, chips: false })).toBe("https://tour.mbeg.org/x-on-dark.png");
+    expect(pairedWhiteLogo("/sponsors/cairo-2026/dark/magma.png")).toBe("/sponsors/cairo-2026/white/magma.png");
+    expect(pairedWhiteLogo("https://evil.example/sponsors/set/dark/a.png")).toBeUndefined();
+    expect(pairedWhiteLogo("https://tour.mbeg.org/sponsors/cairo-2026/color/pepsi-on-light.png")).toBeUndefined();
   });
 });
 
