@@ -1,6 +1,6 @@
 /**
  * A master referee's emergency call, made to feel like an incoming phone call (owner, 22 Oct
- * 2026): when a court referee calls for assistance, a master referee signed in on this phone
+ * 2026): when a chair umpire calls for assistance, a master referee signed in on this phone
  * gets a full-screen incoming-call screen (the caller, Decline / Coming) on top of
  * whatever they are looking at, with the alarm sound looping (even with the phone on silent)
  * and the phone vibrating, until they answer Coming or Decline or the call ends. Mounted

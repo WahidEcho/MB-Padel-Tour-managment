@@ -61,7 +61,7 @@ export interface StaffPrincipal {
   /** A code scoped to one tournament (or a session's hidden tournament). */
   scopeTournamentId: string | null;
   /**
-   * A court referee code (migration 0034): only the matches on this physical court,
+   * A chair umpire code (migration 0034): only the matches on this physical court,
    * in the code's event group or tournament. Resolved from the database on every
    * request, so a match moved to or from the court counts at once.
    */
@@ -386,7 +386,7 @@ export type CodeSignIn =
       orgName: string;
       orgSlug: string;
       scopeTournamentId: string | null;
-      /** A court referee code: its court (migration 0034). */
+      /** A chair umpire code: its court (migration 0034). */
       court: CourtSignIn | null;
       /** What the new credential reaches (to decide which old matches it does not). */
       reach: Reach;

@@ -114,7 +114,7 @@ async function main() {
     const S = await f.match(T, { team_a_id: st.teams[0].id, team_b_id: st.teams[1].id, court_id: c1, group_id: st.groupId, match_order: 1 });
     const D = await f.match(T, { team_a_id: dt.teams[0].id, team_b_id: dt.teams[1].id, court_id: c2, group_id: dt.groupId, match_order: 2 });
 
-    // A court referee for Court 1 (code + PIN) and a master referee.
+    // A chair umpire for Court 1 (code + PIN) and a master referee.
     const sara = await refereeWithPin(MB, `Sara V2 ${tag}`);
     const omar = await refereeWithPin(MB, `Omar V2 ${tag}`);
     await db().from("referees").update({ role: "master_referee" }).eq("id", omar.id);
@@ -131,7 +131,7 @@ async function main() {
     codes.push(...((cr ?? []) as { id: string }[]).map((r) => r.id));
     const refIn = await http("POST", SESSION, ip(71), { code: courtCode, pin: sara.pin });
     const masterIn = await http("POST", SESSION, ip(72), { code: masterCode, pin: omar.pin });
-    check(refIn.status === 200 && masterIn.status === 200, "a court referee (Court 1) and a master referee sign in with their PINs", { ref: refIn.json?.error, master: masterIn.json?.error });
+    check(refIn.status === 200 && masterIn.status === 200, "a chair umpire (Court 1) and a master referee sign in with their PINs", { ref: refIn.json?.error, master: masterIn.json?.error });
     const REF = bearer(String(refIn.json?.token));
     const MASTER = bearer(String(masterIn.json?.token));
 
@@ -143,7 +143,7 @@ async function main() {
     const config = boot.json?.config as ScoringConfig;
 
     /* ---------------- singles ---------------- */
-    section("Singles through the events API (court referee): faults, double fault, aces, lets, changeover, rulings, a bathroom break");
+    section("Singles through the events API (chair umpire): faults, double fault, aces, lets, changeover, rulings, a bathroom break");
     const claim = await http("POST", `/api/matches/${S.id}/claim`, REF, { deviceId: `v2-ref-${tag}`, deviceLabel: "Court 1 phone" });
     check(claim.status === 200 && claim.json?.controller === true, "the referee's phone takes the match", claim.json);
     const s = new Scorer(S.id, REF, `v2-ref-${tag}`, { A: st.teams[0].id, B: st.teams[1].id }, config, false);
@@ -305,20 +305,20 @@ async function main() {
     check(anon.status === 401, "nobody signed out", anon.status);
 
     /* ---------------- L4: a court code and a finished match ---------------- */
-    section("L4: the court referee's code changes a finished match only within 30 minutes of its end; the master referee still can");
+    section("L4: the chair umpire's code changes a finished match only within 30 minutes of its end; the master referee still can");
     {
       const historyOf = async () => ((await http("GET", `/api/mobile/v1/referee/matches/${S.id}/bootstrap`, ADMIN)).json?.history ?? []) as ScoreState[];
       const rowOf = async () => (await db().from("matches").select("status, ended_at").eq("id", S.id).single()).data as { status: string; ended_at: string | null } | null;
       await db().from("matches").update({ ended_at: new Date(Date.now() - 5 * 60_000).toISOString() }).eq("id", S.id);
       let h = await historyOf();
       r = await s.step(() => C.undo(h, true));
-      check(r.status === 200 && (await rowOf())?.status === "live", "5 minutes after the end: the court referee's Undo reopens the match", { status: r.status, body: r.json });
+      check(r.status === 200 && (await rowOf())?.status === "live", "5 minutes after the end: the chair umpire's Undo reopens the match", { status: r.status, body: r.json });
       r = await s.send(s.build(C.point(s.state!, "A", s.opts)));
       check(r.status === 200 && (await rowOf())?.status === "completed", "…and the winning point finishes it again", { status: r.status, body: r.json });
       await db().from("matches").update({ ended_at: new Date(Date.now() - 31 * 60_000).toISOString() }).eq("id", S.id);
       h = await historyOf();
       const locked = await s.refused(() => C.undo(h, true));
-      check(locked.status === 409 && locked.json?.conflict === "finished_locked" && (locked.json?.applied as unknown[])?.length === 0 && (await rowOf())?.status === "completed", "31 minutes after the end: the court referee's Undo is refused (409 finished_locked), the match stays completed", locked.json);
+      check(locked.status === 409 && locked.json?.conflict === "finished_locked" && (locked.json?.applied as unknown[])?.length === 0 && (await rowOf())?.status === "completed", "31 minutes after the end: the chair umpire's Undo is refused (409 finished_locked), the match stays completed", locked.json);
       const master = new Scorer(S.id, MASTER, `v2-ref-${tag}`, { A: st.teams[0].id, B: st.teams[1].id }, config, false);
       master.state = s.state;
       master.n = s.n;

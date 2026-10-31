@@ -2,9 +2,9 @@
  * Line-ups on match day, server side (Junior Finals 2026, owner's decisions):
  *
  * - who may enter them: the organiser's staff, a master referee for its events, and
- *   the court referee of the tie's court (court code + PIN). Nobody else (no
+ *   the chair umpire of the tie's court (court code + PIN). Nobody else (no
  *   whole-event referee code, no shared referee password, no operator).
- * - the court referee's picker (web console and app): the tie, both squads in order
+ * - the chair umpire's picker (web console and app): the tie, both squads in order
  *   of merit, what is named now and which step it is on (singles before the tie,
  *   the doubles pair after the singles).
  * - applying both sides at once (picker, Excel sheet): every side checked first
@@ -92,7 +92,7 @@ async function tieBundle(tieId: string, tournamentId: string): Promise<TieBundle
   return { tie, tournamentName: (t as { name: string } | null)?.name ?? "", court: (court as { court_name: string } | null)?.court_name ?? null, rubbers: rs, sides: { A: side("A"), B: side("B") } };
 }
 
-/** The court referee's line-up screen for the tie a rubber belongs to; null when the match is not a rubber. */
+/** The chair umpire's line-up screen for the tie a rubber belongs to; null when the match is not a rubber. */
 export async function lineupPicker(matchId: string, actor: LineupActor): Promise<LineupPickerModel | null> {
   const { data: m } = await db().from("matches").select("id, tie_id, tournament_id").eq("id", matchId).maybeSingle();
   const match = m as { id: string; tie_id: string | null; tournament_id: string } | null;

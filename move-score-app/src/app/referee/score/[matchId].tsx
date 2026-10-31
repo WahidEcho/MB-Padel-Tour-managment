@@ -546,7 +546,7 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
           </View>
         ) : null}
       </Card>
-      {/* A court referee signed in with their PIN can call the master referees (migration 0035). */}
+      {/* A chair umpire signed in with their PIN can call the master referees (migration 0035). */}
       {courtReferee && (
         <View style={{ marginTop: 8 }}>
           <AssistanceCard matchId={m.id} statusOnly />
@@ -1028,7 +1028,7 @@ function Opening({ boot }: { boot: LoadQuery }) {
   );
 }
 
-/** No players for this rubber yet: the court referee (or a master referee) enters them right here. */
+/** No players for this rubber yet: the chair umpire (or a master referee) enters them right here. */
 function WaitingForLineups({ matchId, message, onSaved }: { matchId: string; message: string; onSaved: () => void }) {
   const { t } = useTheme();
   const tr = useT();

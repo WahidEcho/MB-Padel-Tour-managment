@@ -33,7 +33,7 @@ function AnswerMark({ answer }: { answer: MasterAnswerRow["answer"] }) {
 }
 
 /**
- * "Call for assistance" on a court referee's console (migrations 0035 and 0042): one big
+ * "Call for assistance" on a chair umpire's console (migrations 0035 and 0042): one big
  * button, then the call's live status, polled every five seconds while the page is
  * visible: the running time and reminders while nobody has answered ("Organiser alerted"
  * after two minutes), every master on duty with their answer (Coming / Declined / No

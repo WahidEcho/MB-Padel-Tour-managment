@@ -36,7 +36,7 @@ export interface Session {
   } | null;
   /**
    * The staff sign-in. `referee` and `court` (referee PINs, migration 0035): who signed in
-   * with their PIN, as a court referee ("Court 1") or a master referee (court null).
+   * with their PIN, as a chair umpire ("Court 1") or a master referee (court null).
    */
   staff: { role: string; token: string; expiresAt: string; referee?: { name: string; role: "referee" | "master_referee" } | null; court?: string | null } | null;
   /**

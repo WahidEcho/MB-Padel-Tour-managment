@@ -102,8 +102,8 @@ export default async function CoachCards({ searchParams }: { searchParams: Promi
               <li>Already in Move Score: Account → Staff → <strong>Coach sign-in</strong>, then type the code.</li>
               <li>On a computer: open <strong>{host}/coach</strong> and type the code.</li>
               <li>The head coach and every assistant use this same code, each on their own phone. Alerts reach every phone signed in: tie soon, called to court, started, result, line-up entered.</li>
-              <li>You see your own team only: your group table, your ties with court and time, your line-ups once the referee enters them, the opponents&apos; players once the line-ups are confirmed, live scores and match logs of your rubbers, and where you play after the groups.</li>
-              <li>Line-ups are given to the referee as usual; the app cannot change them, score or call the referee.</li>
+              <li>You see your own team only: your group table, your ties with court and time, your line-ups once the chair umpire enters them, the opponents&apos; players once the line-ups are confirmed, live scores and match logs of your rubbers, and where you play after the groups.</li>
+              <li>Line-ups are given to the chair umpire as usual; the app cannot change them, score or call the chair umpire.</li>
               <li>Keep this card within your team staff. Lost it? Ask the tournament desk for a new code (the old one stops at once).</li>
             </ol>
           </div>

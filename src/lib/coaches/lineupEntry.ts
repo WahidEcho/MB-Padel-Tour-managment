@@ -8,7 +8,7 @@
  * the order of merit checked as for officials, Reg 43) and, if they wish, the doubles pair
  * ("to be named" until after the singles is the normal course). Their entry is a
  * submission, never the line-up itself: it is kept apart from the rubbers (no public page,
- * no opponent sees it) and the court referee, a master referee or the organiser confirms
+ * no opponent sees it) and the chair umpire, a master referee or the organiser confirms
  * it in their picker, which locks the line-ups. From the lock (or the event's deadline, if
  * one is set) the coach can only view; changes go through the officials as before.
  */
@@ -44,10 +44,10 @@ export function deadlineFrom(v: unknown): number | null {
 export type CoachLineupClosed = "feature_off" | "locked" | "deadline" | "under_way" | "opponent_unknown" | "finished";
 
 export const COACH_LINEUP_CLOSED_MESSAGE: Record<CoachLineupClosed, string> = {
-  feature_off: "Line-ups are entered by the court referee, a master referee or the organiser.",
-  locked: "The line-ups are confirmed. Changes now go through the court referee or the master referee.",
-  deadline: "The time for coaches to enter the line-up has passed. Ask the court referee or the master referee.",
-  under_way: "The tie is under way. Changes go through the court referee or the master referee.",
+  feature_off: "Line-ups are entered by the chair umpire, a master referee or the organiser.",
+  locked: "The line-ups are confirmed. Changes now go through the chair umpire or the master referee.",
+  deadline: "The time for coaches to enter the line-up has passed. Ask the chair umpire or the master referee.",
+  under_way: "The tie is under way. Changes go through the chair umpire or the master referee.",
   opponent_unknown: "The opponent of this tie is not known yet.",
   finished: "This tie is over.",
 };

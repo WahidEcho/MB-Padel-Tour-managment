@@ -58,7 +58,7 @@ export function issueMessage(issue: Pick<LineupIssue, "code" | "message"> & { ke
   }
 }
 
-/** A call for assistance's state, as the court referee's card says it. */
+/** A call for assistance's state, as the chair umpire's card says it. */
 export function callStatusWords(call: { status: CallStatus; acknowledgedBy?: string | null; resolvedBy?: string | null }): string {
   if (call.status === "open") return tr("referee.callOpen");
   if (call.status === "acknowledged") return tr("referee.callAck", { name: call.acknowledgedBy ?? tr("referee.aMaster") });

@@ -8,9 +8,9 @@ import { LineupPicker } from "./LineupPicker";
 import { useT } from "../i18n";
 
 /**
- * Loads a tie's line-up picker for a rubber. Court referees (their court), master
+ * Loads a tie's line-up picker for a rubber. Chair umpires (their court), master
  * referees and the organiser get the picker; anyone else (a whole-event code) is
- * told the court referee or the desk enters it. `onSaved`: the console reloads.
+ * told the chair umpire or the desk enters it. `onSaved`: the console reloads.
  */
 export function LineupScreenBody({ matchId, onSaved, fallback }: { matchId: string; onSaved?: () => void; fallback?: string }) {
   const tr = useT();

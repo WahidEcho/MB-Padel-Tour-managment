@@ -120,10 +120,10 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
 
 ## Call for assistance
 
-- Court referee (court code + PIN): big button on the web court list and the app console (`AssistanceCard`), and More →
+- Chair umpire (court code + PIN): big button on the web court list and the app console (`AssistanceCard`), and More →
   Call master referee on the scoring screens. `POST /api/mobile/v1/referee/assistance { action: "request", matchId? }`.
 - Only while **Call master referee** (Admin → Scoring features, `features.callMaster`) is on for the match's event (or,
-  without a match, any of the court's events): otherwise 409 `feature_off` (audit L1); `GET` tells the court referee
+  without a match, any of the court's events): otherwise 409 `feature_off` (audit L1); `GET` tells the chair umpire
   `enabled` so the consoles hide the button.
 - One open call per physical court (unique index); a tap within 30 s is the same tap, later taps re-alert at most
   once a minute; new calls per court: 6 per 10 minutes (429).
@@ -151,7 +151,7 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
 - **Escalation**: after 2 minutes unanswered (`ESCALATE_SECONDS`), or as soon as every master on duty declined, the
   organisation's active owners and admins get a push on their signed-in phones and a `staff_alert` email, once
   (`escalated_at` claimed where null). The call stays open.
-- What the court referee sees (app `AssistanceCard`, web `AssistanceButton`, polled every 5 s): "Calling the master
+- What the chair umpire sees (app `AssistanceCard`, web `AssistanceButton`, polled every 5 s): "Calling the master
   referees… no answer yet · 0:42" with "Reminder sent" and "Organiser alerted"; every master on duty with their
   answer (Coming since / Declined at / No answer yet, drawn icons); then "Sara is coming to Court 2" in green with the
   declines below; "Resolved by Sara" or "Call cancelled" for a minute after it closes. GET carries, additively,
@@ -161,7 +161,7 @@ placement draws). App: Referee → *Calls for assistance & courts* (`/referee/ma
   `@core`; pushes in each phone's `push_devices.locale`). System steps are audit rows `ASSISTANCE_REMINDED`
   (`to`: master ids, `phones`), `ASSISTANCE_GOING_SENT`, `ASSISTANCE_ESCALATED` (`reason`); masters' answers
   `ASSISTANCE_COMING` / `ASSISTANCE_DECLINED`. The admin log shows declines and "Organiser alerted".
-- "Resolved" (master or organiser). "Cancel" (the court referee, before anyone answered).
+- "Resolved" (master or organiser). "Cancel" (the chair umpire, before anyone answered).
 - Staff only: the route is `private, no-store`; no TV, public page or public API reads `assistance_calls` or
   `assistance_responses`.
 

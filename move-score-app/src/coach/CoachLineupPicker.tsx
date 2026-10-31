@@ -2,7 +2,7 @@
  * The coach's "Enter line-up" flow (only while the event's coach line-up switch is on):
  * their own team's two singles players from the squad (order of merit, No. 1 first) and,
  * if they wish, the doubles pair ("to be named" until after the singles). The same chips,
- * checks and regulation links as the court referee's picker (referee/LineupPicker.tsx); a
+ * checks and regulation links as the chair umpire's picker (referee/LineupPicker.tsx); a
  * warning (Reg 43, Reg 50) is sent only once the coach accepts it, and the master referees
  * and the organiser are told. The officials confirm the submission, which locks it; from
  * then on the coach only views. Server: /api/mobile/v1/coach/ties/[id]/lineup.

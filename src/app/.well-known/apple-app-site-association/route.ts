@@ -20,7 +20,7 @@ const APP_ID = "33C2U7Q76F.org.mbeg.movescore";
 // "/r" and "/c" match those paths only.
 const PATHS = ["/v/*", "/m/*", "/r", "/c"];
 const COMMENTS: Record<string, string> = {
-  "/r": "Court referee QR: open the referee console",
+  "/r": "Chair umpire QR: open the referee console",
   "/c": "Team coach QR: open the coach sign-in",
 };
 

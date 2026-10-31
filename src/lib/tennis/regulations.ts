@@ -56,7 +56,7 @@ export const ITF_TEAM_REGULATIONS: Record<string, RegulationSummary> = {
     ],
     inMoveScore: [
       "The squad lists show each player's place in the order of merit (No. 1 first).",
-      "A line-up against the order of merit is a warning, not a refusal: the court referee may accept it, and the master referees and the organiser are told at once. The acceptance is recorded with the referee's name.",
+      "A line-up against the order of merit is a warning, not a refusal: the chair umpire may accept it, and the master referees and the organiser are told at once. The acceptance is recorded with the referee's name.",
     ],
   },
   "46": {

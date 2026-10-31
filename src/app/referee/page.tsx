@@ -22,7 +22,7 @@ async function codeLabel(codeId: string | null, orgId: string): Promise<string |
 
 export default async function RefereePicker() {
   const staff = await requireStaff(["referee", "admin", "manager"], "/referee");
-  // A court referee code (migration 0034): today's matches on its court, nothing else.
+  // A chair umpire code (migration 0034): today's matches on its court, nothing else.
   if (staff.scopeCourt) return <CourtList scope={staff.scopeCourt} label={await codeLabel(staff.codeId, staff.orgId)} assistance={Boolean(staff.referee) && (await callMasterEnabled(staff))} />;
   // This organisation's only, and only the one tournament an event code is scoped to.
   let tq = db()

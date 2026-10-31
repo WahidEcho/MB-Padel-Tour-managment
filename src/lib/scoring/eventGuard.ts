@@ -561,7 +561,7 @@ export function v2ChainCut(
   return null;
 }
 
-/* ---------------- court referee codes and finished matches ---------------- */
+/* ---------------- chair umpire codes and finished matches ---------------- */
 
 /** The parts of a staff principal (src/lib/auth/staff.ts StaffPrincipal) that say whether it is a court code. */
 export interface WriterScope {
@@ -572,7 +572,7 @@ export interface WriterScope {
 }
 
 /**
- * A court referee code (one physical court, migration 0034) or its carry-over token
+ * A chair umpire code (one physical court, migration 0034) or its carry-over token
  * after a court switch: not a master referee, a whole-event code or a member.
  */
 export function isCourtCode(staff: WriterScope | null | undefined): boolean {
@@ -603,6 +603,6 @@ export function finishedLockCut(
   return {
     index: 0,
     code: "finished_locked",
-    error: `This match finished more than ${CARRY_GRACE_MINUTES} minutes ago, so a court referee code can no longer change it (event ${events[0].event_number}, ${events[0].event_type}). Ask the master referee or the organiser.`,
+    error: `This match finished more than ${CARRY_GRACE_MINUTES} minutes ago, so a chair umpire code can no longer change it (event ${events[0].event_number}, ${events[0].event_type}). Ask the master referee or the organiser.`,
   };
 }

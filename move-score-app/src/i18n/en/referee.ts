@@ -4,7 +4,7 @@ export const referee = {
   eyebrow: "Move Score · Referee",
   courtReady: "Court-ready",
   referee: "Referee",
-  courtReferee: "Court referee",
+  courtReferee: "Chair umpire",
   masterReferee: "Master referee",
   pendingTitle: "Points waiting to send",
   pendingBody: "This phone has scored points that have not reached the server yet. Open the match to send them.",
@@ -78,7 +78,7 @@ export const referee = {
 
   // Scan and court links
   scanTitle: "Scan the court QR",
-  scanBody: "The QR code on the court's referee table signs this phone in to that court. You then see only its matches today.",
+  scanBody: "The QR code at the court's umpire chair signs this phone in to that court. You then see only its matches today.",
   signingIn: "Signing in…",
   carriedStays: { one: "the old court's match stays yours until sent and finished", other: "the old court's {count} matches stay yours until sent and finished" },
   allowCamera: "Allow the camera",
@@ -90,7 +90,7 @@ export const referee = {
   masterOnlyBody: "Sign in with your master referee code and your PIN on the Referee screen.",
   callsTitle: "Calls for assistance",
   callsTitleN: "Calls for assistance ({count})",
-  callingAt: "Referee {name} is calling for assistance at {court}",
+  callingAt: "Chair umpire {name} is calling for assistance at {court}",
   calledAt: "Called {time}",
   ackBy: "{name} on the way",
   onMyWay: "On my way",

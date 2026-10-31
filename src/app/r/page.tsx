@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ANDROID_APP_URL, IOS_APP_STORE_URL } from "@/lib/site";
 import OpenInApp from "./OpenInApp";
 
-export const metadata: Metadata = { title: "Court referee · Move Score", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Chair umpire · Move Score", robots: { index: false, follow: false } };
 
 /**
  * The court QR's link, https://tour.mbeg.org/r#<code> (migration 0034). With Move
@@ -18,9 +18,9 @@ export default function CourtQrPage() {
       <div className="card w-full max-w-sm space-y-4 p-6 text-center" data-testid="court-qr">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-accent">Move Score</p>
-          <h1 className="text-xl font-bold">Court referee</h1>
+          <h1 className="text-xl font-bold">Chair umpire</h1>
         </div>
-        <p className="text-sm text-muted">This court&apos;s QR code opens the referee console in the Move Score app.</p>
+        <p className="text-sm text-muted">This court&apos;s QR code opens the chair umpire&apos;s console in the Move Score app.</p>
         <OpenInApp />
         <div className="space-y-2 border-t border-border pt-4 text-sm">
           <p className="font-semibold">No Move Score on this phone?</p>

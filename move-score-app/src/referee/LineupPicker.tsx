@@ -1,5 +1,5 @@
 /**
- * The court referee's line-up screen in the app (the web console has its own):
+ * The chair umpire's line-up screen in the app (the web console has its own):
  * before the tie each nation's two singles players from its squad (order of merit,
  * No. 1 first), after the singles the doubles pair. No approval step. A breach of an
  * ITF rule is a warning with its "ITF Reg. 43" link (opens the regulation page in the

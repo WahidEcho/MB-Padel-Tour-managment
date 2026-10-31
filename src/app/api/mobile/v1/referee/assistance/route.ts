@@ -29,13 +29,13 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 
 /**
  * Calls for assistance (migrations 0035 and 0042), for the web console and the app. Staff
- * only (a court referee or master referee signed in with their PIN, or the organiser);
+ * only (a chair umpire or master referee signed in with their PIN, or the organiser);
  * never cached, never on a TV or a public route.
  *
- * GET: a court referee gets its court's call (open, or just closed) with the masters'
+ * GET: a chair umpire gets its court's call (open, or just closed) with the masters'
  * answers; a master referee the open calls of its events (and records this phone for
  * its alerts); the organiser every open call of the organisation.
- * POST { action: "request", matchId? } (court referee), { action: "respond", callId, answer: "coming" | "declined" }
+ * POST { action: "request", matchId? } (chair umpire), { action: "respond", callId, answer: "coming" | "declined" }
  * (master referees, 0042), { action: "acknowledge" | "resolve" | "cancel", callId } ("acknowledge" is Move Score
  * 1.0.1's "On my way": the same as Coming).
  *
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: out.error, code: out.code, ...extra }, { status: out.status, headers: NO_STORE });
   };
   if (action === "request") {
-    // The match it is about, only when this court referee reaches it (its court's match).
+    // The match it is about, only when this chair umpire reaches it (its court's match).
     const matchId = typeof body?.matchId === "string" ? body.matchId : null;
     const scope = matchId ? await entityInScope(staff, { match: matchId }) : null;
     const out = await requestAssistance(staff, { matchId: scope ? matchId : null, tournamentId: scope?.tournamentId ?? null });

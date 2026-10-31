@@ -628,7 +628,7 @@ async function main() {
     const signedOut = await new OldPhone().api(`/api/mobile/v1/referee/tournaments/${tid}/matches`, { who: "staff" });
     check([401, 403].includes(signedOut.status) && typeof signedOut.json?.error === "string", "Without a token: 401 (1.0.1 handles 401 and 403 alike) with a message", signedOut.status);
 
-    section("A court referee code (migration 0034) typed by hand into 1.0.1, with the referee's PIN (migration 0035)");
+    section("A chair umpire code (migration 0034) typed by hand into 1.0.1, with the referee's PIN (migration 0035)");
     {
       const { data: c2 } = await db().from("courts").insert({ tournament_id: tid, court_name: "Court 2", court_order: 2 }).select("*").single();
       const { data: other } = await db()

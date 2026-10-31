@@ -193,7 +193,7 @@ export const score = {
 
   // Opening the match
   aNation: "A nation",
-  waitingLineupsMessage: "{nation}'s captain has not nominated the players for this rubber yet. The court referee, a master referee or the tournament desk enters them. This page checks again every 10 seconds.",
+  waitingLineupsMessage: "{nation}'s captain has not nominated the players for this rubber yet. The chair umpire, a master referee or the tournament desk enters them. This page checks again every 10 seconds.",
   codeNeeded: "Referee code needed",
   codeNeededNote: "Points already on this phone are kept, and send once you are signed in.",
   theMatch: "the match",

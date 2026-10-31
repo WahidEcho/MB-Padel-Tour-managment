@@ -1,5 +1,5 @@
 /**
- * Court referee codes (migration 0034): which matches a code limited to one
+ * Chair umpire codes (migration 0034): which matches a code limited to one
  * physical court reaches, and what its referee sees today. Pure (no Node, browser
  * or Next.js APIs): the server, the web console and the app share it.
  *

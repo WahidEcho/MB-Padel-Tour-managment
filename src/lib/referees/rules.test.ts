@@ -73,7 +73,7 @@ describe("calls for assistance: the state machine", () => {
     expect(nextCallStatus("open", "resolve", "staff")).toBe("resolved");
     expect(nextCallStatus("open", "resolve", "court")).toBeNull();
   });
-  it("the court referee may cancel only before anyone answered", () => {
+  it("the chair umpire may cancel only before anyone answered", () => {
     expect(nextCallStatus("open", "cancel", "court")).toBe("cancelled");
     expect(nextCallStatus("acknowledged", "cancel", "court")).toBeNull();
     expect(nextCallStatus("acknowledged", "cancel", "staff")).toBe("cancelled");

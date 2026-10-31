@@ -1,7 +1,7 @@
 /**
  * The words of a call for assistance (migrations 0035 and 0042) in English, Spanish and
  * French: the pushes to master referees and the organiser (written in each phone's
- * language, `push_devices.locale`), the court referee's card and the master's desk (app
+ * language, `push_devices.locale`), the chair umpire's card and the master's desk (app
  * and web). Pure, shared with the app through `@core`. English is the source of truth;
  * es/fr are typed against it, so a missing key fails the type check.
  */
@@ -9,13 +9,13 @@ export type CallLang = "en" | "es" | "fr";
 
 const en = {
   pushTitle: "Call for assistance",
-  pushBody: "Referee {name} is calling for assistance at {court}",
+  pushBody: "Chair umpire {name} is calling for assistance at {court}",
   reminderTitle: "Call for assistance: no answer yet",
   reminderBody: "{court} still needs a master referee — tap to answer",
   goingTitle: "Call for assistance taken",
   goingBody: "Master referee {name} is going to the emergency call at {court}",
   escalationTitle: "No master referee has answered",
-  escalationBody: "Referee {name} has been calling for assistance at {court} for {minutes} minutes and no master referee has taken it.",
+  escalationBody: "Chair umpire {name} has been calling for assistance at {court} for {minutes} minutes and no master referee has taken it.",
   coming: "Coming",
   decline: "Decline",
   resolve: "Resolved",
@@ -38,7 +38,7 @@ const en = {
   cancelled: "Call cancelled",
   mastersHeader: "Master referees",
   calledAt: "Called {time}",
-  calledBy: "Referee {name} is calling for assistance at {court}",
+  calledBy: "Chair umpire {name} is calling for assistance at {court}",
   youComing: "You: Coming",
   youDeclined: "You declined. Tap Coming if you can go after all.",
   goingDesk: "{name} is going · {court}",
@@ -52,13 +52,13 @@ export type CallWordKey = keyof typeof en;
 
 const es: Record<CallWordKey, string> = {
   pushTitle: "Llamada de asistencia",
-  pushBody: "El árbitro {name} pide asistencia en {court}",
+  pushBody: "El juez de silla {name} pide asistencia en {court}",
   reminderTitle: "Llamada de asistencia: aún sin respuesta",
   reminderBody: "{court} todavía necesita un juez árbitro: toca para responder",
   goingTitle: "Llamada de asistencia atendida",
   goingBody: "El juez árbitro {name} va a la llamada de emergencia en {court}",
   escalationTitle: "Ningún juez árbitro ha respondido",
-  escalationBody: "El árbitro {name} lleva {minutes} minutos pidiendo asistencia en {court} y ningún juez árbitro la ha atendido.",
+  escalationBody: "El juez de silla {name} lleva {minutes} minutos pidiendo asistencia en {court} y ningún juez árbitro la ha atendido.",
   coming: "Voy",
   decline: "Rechazar",
   resolve: "Resuelto",
@@ -81,7 +81,7 @@ const es: Record<CallWordKey, string> = {
   cancelled: "Llamada cancelada",
   mastersHeader: "Jueces árbitros",
   calledAt: "Llamada a las {time}",
-  calledBy: "El árbitro {name} pide asistencia en {court}",
+  calledBy: "El juez de silla {name} pide asistencia en {court}",
   youComing: "Tú: Voy",
   youDeclined: "Rechazaste. Toca Voy si al final puedes ir.",
   goingDesk: "{name} va · {court}",
@@ -94,13 +94,13 @@ const es: Record<CallWordKey, string> = {
 
 const fr: Record<CallWordKey, string> = {
   pushTitle: "Appel à l'aide",
-  pushBody: "L'arbitre {name} demande de l'aide sur {court}",
+  pushBody: "Le juge de chaise {name} demande de l'aide sur {court}",
   reminderTitle: "Appel à l'aide : toujours sans réponse",
   reminderBody: "{court} attend toujours un juge-arbitre — touchez pour répondre",
   goingTitle: "Appel à l'aide pris en charge",
   goingBody: "Le juge-arbitre {name} se rend à l'appel d'urgence sur {court}",
   escalationTitle: "Aucun juge-arbitre n'a répondu",
-  escalationBody: "L'arbitre {name} demande de l'aide sur {court} depuis {minutes} minutes et aucun juge-arbitre ne l'a pris en charge.",
+  escalationBody: "Le juge de chaise {name} demande de l'aide sur {court} depuis {minutes} minutes et aucun juge-arbitre ne l'a pris en charge.",
   coming: "J'arrive",
   decline: "Refuser",
   resolve: "Résolu",
@@ -123,7 +123,7 @@ const fr: Record<CallWordKey, string> = {
   cancelled: "Appel annulé",
   mastersHeader: "Juges-arbitres",
   calledAt: "Appel à {time}",
-  calledBy: "L'arbitre {name} demande de l'aide sur {court}",
+  calledBy: "Le juge de chaise {name} demande de l'aide sur {court}",
   youComing: "Vous : J'arrive",
   youDeclined: "Vous avez refusé. Touchez J'arrive si vous pouvez finalement y aller.",
   goingDesk: "{name} y va · {court}",

@@ -1,13 +1,13 @@
 /**
  * Line-up checks for a tie, as problems and warnings. Pure (shared with the app
- * through @core): the server's setLineup, the court referee's pickers (web and app)
+ * through @core): the server's setLineup, the chair umpire's pickers (web and app)
  * and the Excel preview all use it, so every surface says the same words.
  *
  * - A problem refuses the line-up (a player in both singles, someone not in the
  *   squad, half a doubles pair).
  * - A warning lets it through once accepted (owner's decision, Junior Finals 2026):
  *   the order of merit (ITF Reg. 43) and a player named again after retiring in the
- *   tie (ITF Reg. 50). The court referee may accept a warning himself; the master
+ *   tie (ITF Reg. 50). The chair umpire may accept a warning himself; the master
  *   referees and the organiser are told at once (src/lib/tennis/lineupServer.ts).
  *
  * Every issue names its regulation, so a surface can link "ITF Reg. 43" to the
@@ -174,7 +174,7 @@ export function needsReason(locked: boolean, current: LineupDraft, next: LineupD
   return !(changed.length === 1 && changed[0] === "D" && !doublesOf(current));
 }
 
-/* ---------------- the court referee's picker ---------------- */
+/* ---------------- the chair umpire's picker ---------------- */
 
 export interface StepRubber {
   type: RubberType;
@@ -194,7 +194,7 @@ export type LineupStep =
 const FINISHED: MatchStatus[] = ["completed", "walkover", "disqualified", "retired", "cancelled"];
 export const rubberEditable = (status: MatchStatus) => status === "scheduled" || status === "ready";
 
-/** Which step the court referee's line-up screen is on. */
+/** Which step the chair umpire's line-up screen is on. */
 export function lineupStep(rubbers: StepRubber[], lineups: { A: LineupDraft; B: LineupDraft }): LineupStep {
   const r = (t: RubberType) => rubbers.find((x) => x.type === t);
   const singlesNamed = (["A", "B"] as const).every((s) => lineups[s].S1 && lineups[s].S2);

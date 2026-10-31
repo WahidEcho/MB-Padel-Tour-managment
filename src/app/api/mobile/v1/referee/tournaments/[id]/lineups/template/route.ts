@@ -12,7 +12,7 @@ import { fileSlug } from "@/lib/brand/brand";
  * The match-day line-up sheet (.xlsx) for the organiser and the master referees:
  * one row per tie of the day (`?day=YYYY-MM-DD`, Cairo; today by default) across the
  * event group's tie events the person reaches, with the players already named, a
- * Squads sheet (order of merit) and short instructions. A court referee: 403.
+ * Squads sheet (order of merit) and short instructions. A chair umpire: 403.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

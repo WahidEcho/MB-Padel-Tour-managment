@@ -115,7 +115,7 @@ export default async function TeamCoachesPage({ searchParams }: { searchParams: 
               </label>
               <button className="btn-secondary text-sm">Save</button>
               <p className="w-full text-xs text-muted">
-                Off by default, until officially confirmed. On: each coach submits their team&apos;s singles (and, if they wish, the doubles pair) with the same checks as the referees; the court referee and the master referees are told and confirm it in their line-up screen, which locks it. After that coaches only view.
+                Off by default, until officially confirmed. On: each coach submits their team&apos;s singles (and, if they wish, the doubles pair) with the same checks as the referees; the chair umpire and the master referees are told and confirm it in their line-up screen, which locks it. After that coaches only view.
               </p>
             </form>
           )}

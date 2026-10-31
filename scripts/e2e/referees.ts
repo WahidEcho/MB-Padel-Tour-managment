@@ -12,7 +12,7 @@
  *     matches from the draw (the admin desk's own actions), and is refused on another
  *     organisation's event and on everything that is not match work;
  *   - a call for assistance: alerted to the master's phone (PUSH_DRY_RUN), repeated taps
- *     deduped, the master sees it, "On my way" (once), the court referee sees who is
+ *     deduped, the master sees it, "On my way" (once), the chair umpire sees who is
  *     coming, resolved; the admin log shows the three times; calls per court rate-limited;
  *     never on a TV or public route;
  *   - Move Score 1.0.1's one field: "<court code> <PIN>" and "<court code>-<PIN>";
@@ -265,7 +265,7 @@ async function main() {
   const desk = await http("GET", `/referee/tournaments/${BOYS}/desk`, MASTER_WEB);
   check(desk.status === 200 && desk.text.includes('data-testid="desk-add-match"'), "the match desk opens for a master referee", desk.status);
   const deskRef = await http("GET", `/referee/tournaments/${BOYS}/desk`, cookie(String(s1.json?.token)));
-  check(deskRef.status === 404 || deskRef.status === 307, "…not for a court referee", deskRef.status);
+  check(deskRef.status === 404 || deskRef.status === 307, "…not for a chair umpire", deskRef.status);
   const add = await callAction("src/app/admin/tournaments/[id]/matches/actions.ts", "createManualMatch", [form({ tournament_id: BOYS, team_a_id: bt.teams[0].id, team_b_id: bt.teams[3].id, court_id: b2, round_name: `Master ${tag}` })], MASTER_WEB, { id: BOYS });
   const { data: added } = await db().from("matches").select("id").eq("tournament_id", BOYS).eq("round_name", `Master ${tag}`);
   // (The reply re-renders the admin page the action is registered on, which redirects a master referee: only the row counts.)
@@ -321,7 +321,7 @@ async function main() {
     const off = await http("POST", ASSIST, REF, { action: "request", matchId: MB1.id });
     check(off.status === 409 && off.json?.code === "feature_off", "switched off: 409 feature_off, no call", off.json);
     const offGet = await http("GET", ASSIST, REF);
-    check(offGet.json?.enabled === false, "…and the court referee's console is told (enabled: false)", offGet.json);
+    check(offGet.json?.enabled === false, "…and the chair umpire's console is told (enabled: false)", offGet.json);
     await db().from("tournaments").update({ match_day_rules: { features: { callMaster: true } } }).in("id", [BOYS, GIRLS]);
     const onGet = await http("GET", ASSIST, REF);
     check(onGet.json?.enabled === true, "switched on: enabled", onGet.json?.enabled);
@@ -341,21 +341,21 @@ async function main() {
   const msgOk = /Referee .* is calling for assistance at Court 1/.test(JSON.stringify(openCalls)) || openCalls.length > 0;
   check(msgOk, "with what the alert says");
   const courtSees = await http("GET", ASSIST, REF);
-  check((courtSees.json?.call as { status: string } | null)?.status === "open", "the court referee sees it open", courtSees.json);
+  check((courtSees.json?.call as { status: string } | null)?.status === "open", "the chair umpire sees it open", courtSees.json);
   const lina = await http("POST", SESSION, ip(6), { code: C2.code, refereeId: LINA.id, pin: LINA.pin });
   const LREF = bearer(String(lina.json?.token));
   const linaCancel = await http("POST", ASSIST, LREF, { action: "cancel", callId });
   check(linaCancel.status === 404, "another court's referee cannot touch it (404)", linaCancel.status);
   const refAck = await http("POST", ASSIST, REF, { action: "acknowledge", callId });
-  check(refAck.status === 409, "a court referee cannot acknowledge", refAck.status);
+  check(refAck.status === 409, "a chair umpire cannot acknowledge", refAck.status);
   const ack = await http("POST", ASSIST, MASTER, { action: "acknowledge", callId });
   check(ack.status === 200 && (ack.json?.call as { status: string; acknowledgedBy: string }).acknowledgedBy === OMAR.name, "On my way: acknowledged by Omar", ack.json);
   const ack2 = await http("POST", ASSIST, MASTER, { action: "acknowledge", callId });
   check(ack2.status === 409, "a second On my way: 409", ack2.status);
   const courtAck = await http("GET", ASSIST, REF);
-  check((courtAck.json?.call as { status: string; acknowledgedBy: string } | null)?.acknowledgedBy === OMAR.name, "the court referee sees Omar is on the way", courtAck.json?.call);
+  check((courtAck.json?.call as { status: string; acknowledgedBy: string } | null)?.acknowledgedBy === OMAR.name, "the chair umpire sees Omar is on the way", courtAck.json?.call);
   const refResolve = await http("POST", ASSIST, REF, { action: "resolve", callId });
-  check(refResolve.status === 409, "the court referee cannot close it as resolved", refResolve.status);
+  check(refResolve.status === 409, "the chair umpire cannot close it as resolved", refResolve.status);
   const resolve = await http("POST", ASSIST, MASTER, { action: "resolve", callId });
   check(resolve.status === 200 && (resolve.json?.call as { status: string }).status === "resolved", "resolved by the master", resolve.json?.call);
   const { data: callRow } = await db().from("assistance_calls").select("requested_at, acknowledged_at, resolved_at, acknowledged_by_name, resolved_by_name, taps").eq("id", callId).single();
@@ -455,7 +455,7 @@ async function main() {
     const v0 = await courtCall();
     check(
       v0?.status === "open" && v0.responses.length === 2 && v0.responses.every((r) => r.answer === "none" && r.at === null) && !!answerOf(v0, OMAR.name) && !!answerOf(v0, KARIM.name) && v0.remindersSent === 0 && v0.escalatedAt === null,
-      "the court referee sees every master on duty: Omar, Karim — no answer yet",
+      "the chair umpire sees every master on duty: Omar, Karim — no answer yet",
       v0,
     );
     check(v0!.responses.every((r) => Object.keys(r).sort().join() === "answer,at,name") && !/\+20|phone|referee_id|refereeId/.test(JSON.stringify(v0)), "names only: no phones, no ids", v0?.responses);
@@ -466,13 +466,13 @@ async function main() {
     const r1 = await steps(id, "ASSISTANCE_REMINDED");
     check(r1.length === 1, "after 30 s, three reads at once (court phone ×2, a desk): one reminder", r1);
     check(r1[0]?.to?.length === 2 && r1[0].to.includes(OMAR.id) && r1[0].to.includes(KARIM.id) && r1[0].phones === 2, "…to both masters (neither has answered)", r1[0]);
-    check([p1, p2].some((p) => p?.remindersSent === 1) && p3.status === 200, "the court referee's card: Reminder sent", [p1?.remindersSent, p2?.remindersSent]);
+    check([p1, p2].some((p) => p?.remindersSent === 1) && p3.status === 200, "the chair umpire's card: Reminder sent", [p1?.remindersSent, p2?.remindersSent]);
     check((await courtCall())?.remindersSent === 1, "a read in the same window sends nothing more");
 
     const dec = await http("POST", ASSIST, MASTER, { action: "respond", callId: id, answer: "declined" });
     check(dec.status === 200 && (dec.json?.call as View).status === "open" && (dec.json?.call as View).mine === "declined", "Omar declines: the call stays open, his desk shows his answer", dec.json?.call);
     const v1 = await courtCall();
-    check(answerOf(v1, OMAR.name)?.answer === "declined" && Boolean(answerOf(v1, OMAR.name)?.at) && answerOf(v1, KARIM.name)?.answer === "none", "the court referee sees ✗ Omar — Declined, … Karim — no answer yet", v1?.responses);
+    check(answerOf(v1, OMAR.name)?.answer === "declined" && Boolean(answerOf(v1, OMAR.name)?.at) && answerOf(v1, KARIM.name)?.answer === "none", "the chair umpire sees ✗ Omar — Declined, … Karim — no answer yet", v1?.responses);
     const deskK = await http("GET", ASSIST, MASTER2);
     const kOpen = ((deskK.json?.open ?? []) as View[]).find((x) => x.id === id);
     check(kOpen?.mine === null && kOpen.responses.some((r) => r.name === OMAR.name && r.answer === "declined"), "Karim's desk: still his to answer, Omar declined", kOpen);
@@ -489,7 +489,7 @@ async function main() {
     const e1 = await steps(id, "ASSISTANCE_ESCALATED");
     check(e1.length === 1 && e1[0].reason === "unanswered", "after 2 minutes unanswered: the organiser alerted, once", e1);
     const v2 = await courtCall();
-    check(Boolean(v2?.escalatedAt) && v2?.status === "open", "the court referee's card: Organiser alerted (the call stays open)", v2?.escalatedAt);
+    check(Boolean(v2?.escalatedAt) && v2?.status === "open", "the chair umpire's card: Organiser alerted (the call stays open)", v2?.escalatedAt);
     const remindersBefore = (await steps(id, "ASSISTANCE_REMINDED")).length;
 
     const com = await http("POST", ASSIST, MASTER2, { action: "respond", callId: id, answer: "coming" });
@@ -498,7 +498,7 @@ async function main() {
     const g = await steps(id, "ASSISTANCE_GOING_SENT");
     check(g.length === 1 && g[0].to?.length === 1 && g[0].to[0] === OMAR.id && g[0].phones === 1 && g[0].going === KARIM.name, "Omar's phone gets \"Master referee Karim is going to the emergency call at Court 1\"", g);
     const v3 = await courtCall();
-    check(v3?.going === KARIM.name && v3.acknowledgedBy === KARIM.name && v3.responses[0]?.name === KARIM.name && v3.responses[0].answer === "coming" && answerOf(v3, OMAR.name)?.answer === "declined", "the court referee: Karim is coming to Court 1 (✓ Karim — Coming, ✗ Omar — Declined)", v3);
+    check(v3?.going === KARIM.name && v3.acknowledgedBy === KARIM.name && v3.responses[0]?.name === KARIM.name && v3.responses[0].answer === "coming" && answerOf(v3, OMAR.name)?.answer === "declined", "the chair umpire: Karim is coming to Court 1 (✓ Karim — Coming, ✗ Omar — Declined)", v3);
     const deskO = await http("GET", ASSIST, MASTER);
     const oOpen = ((deskO.json?.open ?? []) as View[]).find((x) => x.id === id);
     check(oOpen?.going === KARIM.name, "Omar's desk: Karim is going · Court 1", oOpen);
@@ -510,7 +510,7 @@ async function main() {
     const doneK = await http("POST", ASSIST, MASTER2, { action: "resolve", callId: id });
     check(doneK.status === 200, "Karim resolves it", doneK.status);
     const v4 = await courtCall();
-    check(v4?.status === "resolved" && v4.resolvedBy === KARIM.name, "the court referee: Resolved by Karim", v4);
+    check(v4?.status === "resolved" && v4.resolvedBy === KARIM.name, "the chair umpire: Resolved by Karim", v4);
     const log = await http("GET", "/admin/org/referees/calls", ADMIN);
     const logText = log.text.replace(/<!-- -->/g, "");
     check(log.status === 200 && logText.includes('data-testid="call-escalated"') && logText.includes(`Declined: ${OMAR.name}`), "the admin log: Organiser alerted, Declined: Omar", log.status);
@@ -544,7 +544,7 @@ async function main() {
       check((await steps(id3, "ASSISTANCE_REMINDED")).length === 1, "a second sweep in the same window: nothing more");
       const cancel = await http("POST", ASSIST, REF, { action: "cancel", callId: id3 });
       const v5 = await courtCall();
-      check(cancel.status === 200 && v5?.status === "cancelled", "the court referee cancels it: Call cancelled", v5?.status);
+      check(cancel.status === 200 && v5?.status === "cancelled", "the chair umpire cancels it: Call cancelled", v5?.status);
     }
     await db().from("audit_logs").delete().in("entity_id", [id, id2]);
   }

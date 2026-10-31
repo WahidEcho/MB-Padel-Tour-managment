@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   const match = await getMatch(matchId);
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
   const referee = gate.staff.referee ?? null;
-  // `staff`: a court referee code changes a finished match only within the carry-over grace (append.ts).
+  // `staff`: a chair umpire code changes a finished match only within the carry-over grace (append.ts).
   const out = await appendScoreEvents(match, deviceId, events, {
     role: gate.staff.role,
     defer: (task) => after(task),

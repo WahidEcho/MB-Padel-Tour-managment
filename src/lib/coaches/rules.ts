@@ -7,7 +7,7 @@
  *   - the ties and rubbers that team plays in (either side), nothing else;
  *   - their own team's line-up for each of them, once entered;
  *   - the opponents' players of a rubber once the tie's line-ups are confirmed (locked by the
- *     court referee, a master referee or the organiser: published, public from then on) or
+ *     chair umpire, a master referee or the organiser: published, public from then on) or
  *     once the rubber is under way; never another team's line-up before that;
  *   - the score and match log of their own rubbers, with no referee names;
  *   - their group's table (every team of the group, results only).
@@ -56,7 +56,7 @@ const NOT_UNDER_WAY = new Set(["scheduled", "ready", "cancelled"]);
 /**
  * Whether the opponents' players of a rubber are shown to the coach (owner's decision,
  * 20 Oct 2026: line-ups are public once published): as soon as the tie's line-ups are
- * confirmed (`ties.lineup_locked_at`, set when the court referee, a master referee or the
+ * confirmed (`ties.lineup_locked_at`, set when the chair umpire, a master referee or the
  * organiser locks them), or once the rubber is under way (or over). Before either, the
  * opponents' line-up is another team's unpublished line-up, and a coach never sees one.
  */

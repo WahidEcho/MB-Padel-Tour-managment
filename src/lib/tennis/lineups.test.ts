@@ -66,7 +66,7 @@ describe("line-up checks: problems refuse, warnings need accepting", () => {
   });
 });
 
-describe("the court referee's step", () => {
+describe("the chair umpire's step", () => {
   const r = (S1: string, S2: string, D: string) => [
     { type: "S2" as const, status: S2 as never },
     { type: "S1" as const, status: S1 as never },

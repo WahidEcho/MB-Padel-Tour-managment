@@ -34,15 +34,15 @@ export async function GET(request: Request) {
   const brand = await loadEventBrand(ev.tournamentId);
   return shareCardResponse({
     brand,
-    kind: "Referee scoring",
+    kind: "Chair umpire scoring",
     heading: c.name,
-    subheading: "Court code for the referees",
+    subheading: "Court code for the chair umpires",
     link: courtLink(siteUrl(), shown),
     code: shown,
     steps: [
-      `Scan the QR with the phone camera: Move Score opens the referee console on ${c.name}.`,
+      `Scan the QR with the phone camera: Move Score opens the chair umpire's console on ${c.name}.`,
       "Then type your own 4-digit referee PIN. The PIN is personal: never share it.",
-      "Changing referees: sign out; the next referee scans this code on their own phone.",
+      "Changing chair umpires: sign out; the next chair umpire scans this code on their own phone.",
     ],
     validity: row.expires_at ? `Works until ${new Date(row.expires_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo", dateStyle: "medium", timeStyle: "short" })} (Cairo)` : "Works for the whole event",
     fileName: `court-card-${fileSlug(c.name, 20)}-${fileSlug(brand.eventName, 30)}.png`,

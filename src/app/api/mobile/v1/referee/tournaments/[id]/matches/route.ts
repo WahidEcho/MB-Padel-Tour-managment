@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     getLiveLeasesByMatch(id),
   ]);
   if (!t) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
-  // A court referee code (migration 0034): today's matches on its court only (live, upcoming, finished today);
+  // A chair umpire code (migration 0034): today's matches on its court only (live, upcoming, finished today);
   // with ?earlier=1 ("Show earlier days") also the court's matches of past days. Both with their scores.
   const courtScope = gate.staff.scopeCourt;
   const tz = (t as { timezone: string | null }).timezone || "Africa/Cairo";

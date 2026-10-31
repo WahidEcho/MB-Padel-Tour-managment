@@ -1,9 +1,9 @@
 /**
- * Calls for assistance (migrations 0035 and 0042), server side. A court referee (court
+ * Calls for assistance (migrations 0035 and 0042), server side. A chair umpire (court
  * code + PIN) taps "Call for assistance"; every master referee on duty for that court's
  * events gets a time-sensitive alert (push to their phones, with Coming / Decline
  * buttons; plus the live banner of the web console and the app). Each master answers:
- * - Coming: the first one takes the call (compare-and-set), the court referee sees
+ * - Coming: the first one takes the call (compare-and-set), the chair umpire sees
  *   "Sara is coming to Court 2", every other master on duty gets "Master referee Sara is
  *   going to the emergency call at Court 2", and the reminders stop;
  * - Decline: the call stays open for the others; that master gets no more reminders.
@@ -116,7 +116,7 @@ export type CallOutcome =
 
 const refusal = (status: number, code: string, error: string, retryAfterSeconds?: number): CallOutcome => ({ ok: false, status, code, error, retryAfterSeconds });
 
-/** A court referee signed in with their PIN: who may call for assistance. */
+/** A chair umpire signed in with their PIN: who may call for assistance. */
 export function isCourtReferee(staff: StaffPrincipal): boolean {
   return staff.kind === "code" && Boolean(staff.scopeCourt && staff.referee && !staff.scopeMatchIds);
 }
@@ -391,11 +391,11 @@ export async function tickOpenCalls(nowMs = Date.now()): Promise<{ checked: numb
   return { checked: calls.length };
 }
 
-/* ---------------- the court referee's call ---------------- */
+/* ---------------- the chair umpire's call ---------------- */
 
 /**
  * Whether "Call master referee" (Admin → Scoring features, `features.callMaster`) is on
- * for a court referee (audit L1): the match's own tournament when the call names one,
+ * for a chair umpire (audit L1): the match's own tournament when the call names one,
  * otherwise any of the court's events. Enforced here, not only by the consoles hiding the
  * button.
  */
@@ -407,14 +407,14 @@ export async function callMasterEnabled(staff: Pick<StaffPrincipal, "scopeCourt"
 }
 
 /**
- * "Call for assistance" from a court referee (court code + PIN). One open call per
+ * "Call for assistance" from a chair umpire (court code + PIN). One open call per
  * physical court: a tap while one is open joins it (a tap within TAP_DEDUPE_SECONDS
  * is the same tap; later taps re-alert the masters who have not answered, at most every
  * REALERT_SECONDS; a tap after a master answered Coming re-rings the call for every master
  * who has not declined). New calls per court: at most CALLS_PER_COURT per window.
  */
 export async function requestAssistance(staff: StaffPrincipal, opts: { matchId?: string | null; tournamentId?: string | null } = {}, nowMs = Date.now()): Promise<CallOutcome> {
-  if (!isCourtReferee(staff)) return refusal(403, "court_referee_only", "Only a court referee signed in with their PIN can call for assistance.");
+  if (!isCourtReferee(staff)) return refusal(403, "court_referee_only", "Only a chair umpire signed in with their PIN can call for assistance.");
   if (!(await callMasterEnabled(staff, opts.tournamentId ?? null))) {
     return refusal(409, "feature_off", "Call master referee is switched off for this event. Call the desk.");
   }
@@ -583,7 +583,7 @@ export async function respondToCall(staff: StaffPrincipal, callId: string, answe
   return { ok: true, call };
 }
 
-/** "Coming" (as acknowledge, Move Score 1.0.1's "On my way"), "Resolved" (master referees, the organiser) and "Cancel" (the court referee who called). */
+/** "Coming" (as acknowledge, Move Score 1.0.1's "On my way"), "Resolved" (master referees, the organiser) and "Cancel" (the chair umpire who called). */
 export async function actOnCall(staff: StaffPrincipal, callId: string, action: CallAction, nowMs = Date.now()): Promise<CallOutcome> {
   const call = await loadCall(staff, callId);
   if (!call) return refusal(404, "not_found", "Not found");
@@ -620,7 +620,7 @@ export async function callsForMaster(staff: StaffPrincipal, nowMs = Date.now()):
   return { open: ticked, recent: (recent ?? []) as AssistanceCall[] };
 }
 
-/** The court referee's own court: its open call (its timed steps run first), or the last one closed in the past two minutes. */
+/** The chair umpire's own court: its open call (its timed steps run first), or the last one closed in the past two minutes. */
 export async function callForCourt(staff: StaffPrincipal, nowMs = Date.now()): Promise<AssistanceCall | null> {
   if (!isCourtReferee(staff)) return null;
   const court = staff.scopeCourt!;

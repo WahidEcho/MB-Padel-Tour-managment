@@ -1,5 +1,5 @@
 /**
- * Court referee codes (migration 0034), server side: what a court code reaches,
+ * Chair umpire codes (migration 0034), server side: what a court code reaches,
  * read fresh from the database on every request, and the organiser's tools
  * (Admin → Event codes → Court codes). Pure rules: src/lib/orgs/courtScope.ts.
  */

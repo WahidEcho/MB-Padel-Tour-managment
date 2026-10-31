@@ -1,5 +1,5 @@
 /**
- * Court referee codes (migration 0034), end to end on the stand-in: two events of
+ * Chair umpire codes (migration 0034), end to end on the stand-in: two events of
  * one event group (the Junior Finals' shape), a code per physical court made with
  * the organiser's one-click action, and a Court 1 referee who
  *   - sees only Court 1's matches, across both events, and today's only (live,

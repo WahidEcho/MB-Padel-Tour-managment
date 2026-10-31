@@ -766,7 +766,7 @@ export async function markPresentAsPlayer(userId: string, matchId: string, nowMs
   if (!day) return refuse(404, "not_found", "Not found");
   const side = await sideOfUser(userId, day.match);
   if (!side) return refuse(404, "not_found", "Not found");
-  if (!day.rules.extras.imAtCourt) return refuse(409, "off", "This tournament does not use \"I'm at court\". Tell the referee you are here.");
+  if (!day.rules.extras.imAtCourt) return refuse(409, "off", "This tournament does not use \"I'm at court\". Tell the chair umpire you are here.");
   const r = await markPresent(matchId, side, { by: "player", role: "player", nowMs });
   if (!r.ok) return r;
   return { ok: true, status: 200, value: { side, call: r.value.call, changed: r.value.changed } };

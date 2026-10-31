@@ -7,7 +7,7 @@ import { lineupActor, lineupPicker } from "@/lib/tennis/lineupServer";
 export const dynamic = "force-dynamic";
 
 /**
- * A tie's line-ups from one of its rubbers: the court referee of the tie's court, a
+ * A tie's line-ups from one of its rubbers: the chair umpire of the tie's court, a
  * master referee or the organiser (lineupActor). Another court's tie and another
  * organisation's are a 404 (the match decides the organisation and the court).
  */

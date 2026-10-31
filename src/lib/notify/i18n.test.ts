@@ -151,7 +151,7 @@ describe("alerts in Spanish and French", () => {
   });
 
   it("officials' alerts", () => {
-    expect(aw("es", "assistanceBody", { name: "Ana", court: "Court 4" })).toBe("El juez Ana pide asistencia en Court 4");
+    expect(aw("es", "assistanceBody", { name: "Ana", court: "Court 4" })).toBe("El juez de silla Ana pide asistencia en Court 4");
     expect(aw("fr", "coachLineupSubmittedBody", { by: "Coach of Egypt", vs: "EGY vs JPN", court: " (Court 1)" })).toBe("Coach of Egypt a envoyé la composition de EGY vs JPN (Court 1). Confirmez-la dans l'écran des compositions.");
   });
 });

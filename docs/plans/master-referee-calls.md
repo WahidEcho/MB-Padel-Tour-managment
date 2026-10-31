@@ -6,7 +6,7 @@ Store or TestFlight (iPhone builds only with `eas build --profile adhoc-local`).
 
 ## What the owner asked for
 
-> When a court referee calls the master referees, each master answers **Coming** or **Decline**. If a master has
+> When a chair umpire calls the master referees, each master answers **Coming** or **Decline**. If a master has
 > not answered within **30 seconds**, alert them again on their phone as a **time-sensitive** notification. When
 > one master answers Coming, the others are shown "Master referee X is going to the emergency call at Court 2".
 
@@ -25,15 +25,15 @@ are easy to change:
   `acknowledged_by(_name)`, `alerted` (count of pushes), `taps`, `last_tap_at`. One open call per court (unique
   partial index).
 - Server `src/lib/referees/assistance.ts`:
-  - `requestAssistance`: a court referee's tap creates or joins the call.
+  - `requestAssistance`: a chair umpire's tap creates or joins the call.
   - `alertMasters(call)`: an Expo push to every master on duty (`mastersOnDuty` in `src/lib/referees/server.ts`).
     It is sent `priority: high`, `interruptionLevel: "time-sensitive"` and on Android channel `assistance`.
   - `actOnCall`: `acknowledge | resolve | cancel` (compare-and-set; the first acknowledge wins).
   - `callsForMaster`, `callForCourt`, `publicCall`.
 - Pure rules `src/lib/referees/rules.ts`: `nextCallStatus`, `shouldRealert` (today a re-alert happens only when the
-  court referee taps again, at most once a minute), `assistanceMessage`, `callStatusLine`. Tests in
+  chair umpire taps again, at most once a minute), `assistanceMessage`, `callStatusLine`. Tests in
   `src/lib/referees/rules.test.ts`.
-- Route `src/app/api/mobile/v1/referee/assistance/route.ts`. GET returns the court's call (court referee) or the
+- Route `src/app/api/mobile/v1/referee/assistance/route.ts`. GET returns the court's call (chair umpire) or the
   open and recent calls (master). POST takes `{ action: "request" | "acknowledge" | "resolve" | "cancel" }`.
   Audit rows `ASSISTANCE_*`.
 - Web: the court button is `src/components/referee/AssistanceButton.tsx`; the master list is
@@ -94,7 +94,7 @@ policies, nothing granted to anon or authenticated.
   - When `escalationDue`: claim it by setting `escalated_at` with a compare-and-set, then send the organiser
     alert.
 - **Who runs `tickCall`**: no new scheduled job.
-  - The court referee's console already polls GET every few seconds. Run `tickCall` on that GET while the call is
+  - The chair umpire's console already polls GET every few seconds. Run `tickCall` on that GET while the call is
     open. The masters' GET does the same.
   - Backstop for phones that stop polling: run `tickCalls()` (open calls only, limit 50) from the existing
     notification drain. That is the `movescore-drain-notifications` cron, every minute, in
@@ -135,12 +135,12 @@ policies, nothing granted to anon or authenticated.
   - escalation when all decline and at 120 s, and only once;
   - the wording of `goingMessage`.
 - Extend `scripts/e2e/referees.ts` (stand-in, `PUSH_DRY_RUN=1`; push tickets read `dry-run`). Use two masters on
-  duty and one court referee:
-  1. The court referee calls, and both masters are alerted.
+  duty and one chair umpire:
+  1. The chair umpire calls, and both masters are alerted.
   2. At 30 s, a re-alert goes only to masters with no answer. Move time forward with the existing `nowMs`
      parameters; no real waits.
   3. Master A declines. Master B says Coming: the call is acknowledged, A gets the "B is going to Court N" push,
-     and the court referee sees B on the way.
+     and the chair umpire sees B on the way.
   4. A's later Coming gets 409 `already_taken`.
   5. A second call where both decline is escalated once.
   6. `tickCall` run twice in parallel pushes once.
@@ -153,7 +153,7 @@ policies, nothing granted to anon or authenticated.
 
 ## Done when
 
-- On a real phone, a court referee's call reaches two master phones.
+- On a real phone, a chair umpire's call reaches two master phones.
   - One master ignores it and gets a time-sensitive re-alert at about 30 s.
   - The other taps **Coming** from the notification.
   - The first master's phone then shows "Master referee X is going to the emergency call at Court N", and its

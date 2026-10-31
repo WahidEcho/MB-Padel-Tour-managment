@@ -29,7 +29,7 @@ describe("master referee permissions", () => {
       expect(staffCan(master, p), p).toBe(false);
     }
   });
-  it("a court referee keeps a referee's permissions only", () => {
+  it("a chair umpire keeps a referee's permissions only", () => {
     expect(staffCan(courtRef, "score_match")).toBe(true);
     expect(staffCan(courtRef, "generate_matches")).toBe(false);
     expect(staffCan(courtRef, "manage_groups")).toBe(false);

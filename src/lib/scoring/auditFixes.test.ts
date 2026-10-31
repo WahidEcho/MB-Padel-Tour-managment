@@ -1,7 +1,7 @@
 /**
  * Scoring audit fixes, without a database:
  * - M2: a v2 event must start from the server's own score (v2ChainCut);
- * - L4: a court referee code changes a finished match only within the carry-over grace (finishedLockCut);
+ * - L4: a chair umpire code changes a finished match only within the carry-over grace (finishedLockCut);
  * - L5: the serve order: set at a set start from the server's own score (any team), and none in singles;
  * - L9: a step that moves the score closes a running timer, and Undo never brings one back.
  */
@@ -101,7 +101,7 @@ describe("L4: court codes and finished matches", () => {
   const undo = [{ event_number: 90, event_type: "UNDO" }];
   const court = { scopeCourt: { name: "Court 1" }, referee: { role: "referee" } };
 
-  it("who is a court code: a court referee code or its carry-over token, never a master, a whole-event code or a member", () => {
+  it("who is a court code: a chair umpire code or its carry-over token, never a master, a whole-event code or a member", () => {
     expect(isCourtCode(court)).toBe(true);
     expect(isCourtCode({ scopeMatchIds: ["m1"] })).toBe(true);
     expect(isCourtCode({ scopeCourt: { name: "Court 1" }, referee: { role: "master_referee" } })).toBe(false);

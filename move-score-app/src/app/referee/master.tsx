@@ -78,7 +78,7 @@ export default function MasterReferee() {
     if (fresh.length) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     known.current = new Set(open.map((c) => c.id));
   }, [open]);
-  // Line-up exceptions a court referee accepted (ITF Reg. 43 / 50): told here at once (and by push).
+  // Line-up exceptions a chair umpire accepted (ITF Reg. 43 / 50): told here at once (and by push).
   const notices = useQuery({
     queryKey: ["lineup-notices", staff?.token],
     queryFn: () => api<{ notices: { id: string; at: string; text: string; regs: string[] }[] }>("/api/mobile/v1/referee/notices", { who: "staff" }),

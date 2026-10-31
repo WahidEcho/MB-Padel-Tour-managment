@@ -179,7 +179,7 @@ async function coachLineupEntry(x: {
   check((await submissions()).length === 0, "nothing recorded until the coach accepts it", null);
   const sub = await http("POST", LU(T2.id), C1, { lineup: swapped, accept: [w[0]?.key] });
   check(sub.status === 200 && sub.json?.changed === true && (sub.json?.entry as { submitted: { at: string } | null }).submitted !== null, "accepted: the line-up is submitted", [sub.status, sub.json?.error]);
-  check(Number(sub.json?.exceptionAlerted) >= 1 && Number(sub.json?.officialsAlerted) >= 2, "the master referee's phone hears the exception; the court referee and the master hear the submission (dry run)", [sub.json?.exceptionAlerted, sub.json?.officialsAlerted]);
+  check(Number(sub.json?.exceptionAlerted) >= 1 && Number(sub.json?.officialsAlerted) >= 2, "the master referee's phone hears the exception; the chair umpire and the master hear the submission (dry run)", [sub.json?.exceptionAlerted, sub.json?.officialsAlerted]);
   const rows = await submissions();
   const { data: exc } = await db().from("audit_logs").select("actor_name, actor_role, new_value").eq("entity_id", T2.id).eq("action", "LINEUP_EXCEPTION_ACCEPTED");
   const e0 = ((exc ?? []) as { actor_name: string | null; actor_role: string; new_value: { actor: string; by: string; issues: { reg: string }[]; text: string } }[])[0];
@@ -209,12 +209,12 @@ async function coachLineupEntry(x: {
   section("The officials see it prefilled and confirm it: locked, the coach can only view");
   const pick = await http("GET", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF);
   const pc = (pick.json?.coach ?? {}) as Record<string, { pending: boolean; note: string; lineup: { S1: string } } | undefined>;
-  check(pick.status === 200 && pc[egySide]?.pending === true && /^Submitted by the coach at \d\d:\d\d$/.test(pc[egySide]!.note) && pc[egySide]!.lineup.S1 === EGYB.players[1] && pc[oppSide] === undefined, "the court referee's picker: “Submitted by the coach at HH:MM”, prefilled; nothing for the other side", pick.json?.coach);
+  check(pick.status === 200 && pc[egySide]?.pending === true && /^Submitted by the coach at \d\d:\d\d$/.test(pc[egySide]!.note) && pc[egySide]!.lineup.S1 === EGYB.players[1] && pc[oppSide] === undefined, "the chair umpire's picker: “Submitted by the coach at HH:MM”, prefilled; nothing for the other side", pick.json?.coach);
   const conf = await http("POST", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF, {
     lineups: { [egySide]: swapped, [oppSide]: { S1: opp.players[0], S2: opp.players[1], D: [null, null] } },
     accept: [`${egySide}:${w[0]?.key}`],
   });
-  check(conf.status === 200 && conf.json?.locked === true, "the court referee confirms the coach's line-up with the other side's: locked", [conf.status, conf.json?.error]);
+  check(conf.status === 200 && conf.json?.locked === true, "the chair umpire confirms the coach's line-up with the other side's: locked", [conf.status, conf.json?.error]);
   const ids = await egyRubberIds();
   check(ids.includes(EGYB.players[1]) && ids.includes(EGYB.players[0]), "the confirmed line-up is now in Egypt's rubbers", ids);
   const pick2 = await http("GET", `/api/mobile/v1/referee/matches/${r2[0].id}/lineup`, REF);
@@ -424,7 +424,7 @@ async function main() {
 
   section("Line-ups confirmed (locked by the referee): the opponents' players are shown");
   const lock = await lockLineups(BOYS, T1.id, "referee");
-  check(lock.ok, "the court referee confirms (locks) the line-ups", lock);
+  check(lock.ok, "the chair umpire confirms (locks) the line-ups", lock);
   const afterLock = (await http("GET", "/api/mobile/v1/coach/team", C1)).json as unknown as import("../../src/lib/mobile/contract").MCoachTeamView;
   const t1c = afterLock.ties.find((t) => t.id === T1.id)!;
   const singles = t1c.rubbers.filter((r) => r.rubberType !== "D");

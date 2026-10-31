@@ -29,8 +29,8 @@ route, and coach routes accept nothing else.
 
 ## What a coach sees (`src/lib/coaches/rules.ts`, `server.ts`)
 
-Their group table; every tie of their team with court and time; their own line-up once entered by the court referee,
-master referee or organiser; the opponents' players of a rubber as soon as the tie's line-ups are confirmed (locked by the court referee, a master
+Their group table; every tie of their team with court and time; their own line-up once entered by the chair umpire,
+master referee or organiser; the opponents' players of a rubber as soon as the tie's line-ups are confirmed (locked by the chair umpire, a master
 referee or the organiser: line-ups are public once published, owner's decision 20 Oct 2026) or the rubber is under way; live scores
 (our team first) and the match log of their own rubbers, without referee names; their players' schedule; after the
 groups, Cup or Plate and the next ties; the final place. Another team's tie, rubber, line-up or log answers 404 exactly
@@ -60,16 +60,16 @@ about coaches.
   they pick their two singles players from their squad (order of merit, No. 1 first) and, if they wish, the doubles pair
   ("to be named" until after the singles, Reg 43). Same checks as the officials (`lineupRules.ts`): problems refuse
   (400), warnings (Reg 43 order of merit, Reg 50 retired player) are submitted only once the coach ticks "I accept",
-  with the regulation link shown (409 `warnings` until then). They can change it until the court referee, a master
+  with the regulation link shown (409 `warnings` until then). They can change it until the chair umpire, a master
   referee or the organiser confirms (locks) the line-ups, or until the deadline; after that 409 `locked` / `deadline` /
   `under_way` and the form is view only: changes go through the officials as before.
 - **A submission is not the line-up.** It is kept as an audit row `COACH_LINEUP_SUBMITTED` (entity = the tie; side,
   team, line-up, accepted warnings; `actor_role` `coach`, `actor_name` "Coach of Egypt"), never written to the
   rubbers, so no public page, screen or the opponent's coach ever sees it; the opponent's coach sees only its own form.
-- **Officials** (court referee, master referee, organiser) see it in their line-up picker (web and app; additive
+- **Officials** (chair umpire, master referee, organiser) see it in their line-up picker (web and app; additive
   `coach` field of the picker answer): "Submitted by the coach at HH:MM" per side, prefilled while it is newer than what
   the officials last saved and not confirmed yet. Confirming it ("Confirm the singles") writes it through `setLineup`
-  and locks the line-ups (the official accepts any warning again, as today). The court referee signed in on the tie's
+  and locks the line-ups (the official accepts any warning again, as today). The chair umpire signed in on the tie's
   court and the master referees on duty get a push when a coach submits or changes a line-up.
 - **An accepted exception** by a coach is audited `LINEUP_EXCEPTION_ACCEPTED` (actor `coach`, `actor_name` "Coach of
   Egypt"), pushed to the master referees on duty, shown on the master's and organiser's live banners, and emailed to

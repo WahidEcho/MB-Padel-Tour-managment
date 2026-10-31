@@ -1,5 +1,5 @@
 /**
- * "Call for assistance" on the court referee's console (migrations 0035 and 0042): one
+ * "Call for assistance" on the chair umpire's console (migrations 0035 and 0042): one
  * big button, then the call's live status, polled every five seconds while the console
  * is open: the running time and the reminders while nobody has answered ("Organiser
  * alerted" after two minutes), every master referee on duty with their answer (Coming /

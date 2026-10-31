@@ -260,7 +260,7 @@ export async function appendScoreEvents(match: Match, deviceId: string, events: 
       const { data: prior } = await db().from("score_events").select("event_type").eq("match_id", matchId).limit(5000);
       scoredBefore = ((prior ?? []) as { event_type: string }[]).some((r) => !NON_SCORING_EVENTS.has(r.event_type));
     }
-    // A court referee code (one physical court, or its carry-over token) changes a finished
+    // A chair umpire code (one physical court, or its carry-over token) changes a finished
     // match (an Undo that reopens it, a correction, any event) only within
     // CARRY_GRACE_MINUTES of its end; after that it is the master referee's or the
     // organiser's. Master referees, whole-event codes and members are not limited.

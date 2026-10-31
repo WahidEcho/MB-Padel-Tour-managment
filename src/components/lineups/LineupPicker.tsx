@@ -30,7 +30,7 @@ function set(d: LineupDraft, slot: Slot, id: string | null): LineupDraft {
 }
 
 /**
- * The court referee's line-up screen (web console; the app has its own): before the
+ * The chair umpire's line-up screen (web console; the app has its own): before the
  * tie each nation's two singles players from the squad (in order of merit), after
  * the singles the doubles pair. No approval step. A breach of an ITF rule is a
  * warning with its regulation link; the referee may accept it, and the master

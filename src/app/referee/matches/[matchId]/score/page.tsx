@@ -49,7 +49,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
     match.tie_id
       ? `${(t.players ?? []).map((p) => p.full_name.split(" ").slice(-1)[0]).join(" / ")} (${t.nation_code ?? t.team_name})`
       : t.team_name;
-  // Line-ups on match day: the court referee (or a master referee, or the organiser) enters them here.
+  // Line-ups on match day: the chair umpire (or a master referee, or the organiser) enters them here.
   const actor = match.tie_id ? lineupActor(staff) : null;
   if (!teamA || !teamB) {
     const picker = actor ? await lineupPicker(matchId, actor) : null;
@@ -63,7 +63,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
             <h1 className="text-xl font-bold">Waiting for the line-ups</h1>
             <p className="text-sm text-muted">
               {!teamA ? nationA.team_name : nationB.team_name}&apos;s captain has not nominated the players for this rubber yet.
-              The court referee, a master referee or the tournament desk enters them.
+              The chair umpire, a master referee or the tournament desk enters them.
             </p>
           </div>
         )}
@@ -136,7 +136,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       matchDay={matchDay}
       initialCall={initialCall}
       canCorrect={staff.role === "admin" || staff.role === "manager"}
-      // A court referee signed in with their PIN can call the master referees (migration 0035):
+      // A chair umpire signed in with their PIN can call the master referees (migration 0035):
       // with scoring v2's "Call master referee" on, from More (with a confirm); the card shows an open call.
       callMaster={Boolean(staff.scopeCourt && staff.referee) && matchDay.features.callMaster}
       assistance={

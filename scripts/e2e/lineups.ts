@@ -4,15 +4,15 @@
  *   - the Excel sheet: the template downloads with the day's ties; an upload previews
  *     every name against its squad (an unknown name red, a typo amber with its
  *     suggestion); Confirm saves through setLineup and locks the singles;
- *   - the court referee enters the singles alone (web picker route), then the doubles
+ *   - the chair umpire enters the singles alone (web picker route), then the doubles
  *     after the singles; no approval step;
  *   - an order-of-merit breach (ITF Reg. 43): refused until accepted; accepted by the
- *     court referee → the master referee's phone alerted (PUSH_DRY_RUN), the master's
+ *     chair umpire → the master referee's phone alerted (PUSH_DRY_RUN), the master's
  *     and the organiser's live banners, an audit row with the referee's name;
- *   - a change after entry needs a reason, by the court referee, the master referee
+ *   - a change after entry needs a reason, by the chair umpire, the master referee
  *     and the organiser (admin action), each audited as a late change with who;
  *   - refusals: another court's referee, a whole-event referee password, another
- *     organisation, a court referee on the sheet routes, a sheet row of another
+ *     organisation, a chair umpire on the sheet routes, a sheet row of another
  *     organisation's event;
  *   - the regulation page; Move Score 1.0.1's bootstrap shows the nominated players.
  *
@@ -151,7 +151,7 @@ async function main() {
   check(Boolean(wb.getWorksheet("Squads")) && wb.getWorksheet("Squads")!.rowCount === BRAND_ROWS + 1 + 16, "…and a Squads sheet in order of merit", wb.getWorksheet("Squads")?.rowCount);
   check(String(ws.getRow(3).getCell(1).value).includes("Move Score by Move Beyond · tour.mbeg.org") && ws.getImages().length >= 2 && /Move Score by Move Beyond/.test(ws.headerFooter.oddFooter ?? ""), "…branded: Move Score and Move Beyond logos, the event, the footer line", ws.getImages().length);
   const refTpl = await http("GET", `/api/mobile/v1/referee/tournaments/${BOYS}/lineups/template`, REF1);
-  check(refTpl.status === 403, "a court referee cannot download the sheet (403)", refTpl.status);
+  check(refTpl.status === 403, "a chair umpire cannot download the sheet (403)", refTpl.status);
 
   // Fill in ties 1 and 2 (Court 1 and Court 2, 09:30): one unknown name, one typo.
   const t0 = ties[0];
@@ -213,7 +213,7 @@ async function main() {
   const mUpload = await upload(MASTER_WEB);
   check(mUpload.status === 200, "the master referee can upload the sheet too (desk)", mUpload.status);
   const rUpload = await upload(REF1_WEB);
-  check(rUpload.status === 403, "a court referee cannot (403)", rUpload.status);
+  check(rUpload.status === 403, "a chair umpire cannot (403)", rUpload.status);
   const desk = await http("GET", `/referee/tournaments/${BOYS}/desk`, MASTER_WEB);
   check(desk.status === 200 && desk.text.includes('data-testid="lineup-sheet"'), "the master's desk has the sheet upload", desk.status);
   const adminTies = await http("GET", `/admin/tournaments/${BOYS}/ties`, ADMIN);
@@ -247,8 +247,8 @@ async function main() {
   const foreign = await http("POST", APPLY, ADMIN, { rows: [{ ...payload[0], tournamentId: OT }] });
   check(foreign.status === 404, "a sheet row naming another organisation's event: 404", foreign.status);
 
-  /* ---------------- the court referee: singles, then the doubles ---------------- */
-  section("The court referee enters the line-ups alone");
+  /* ---------------- the chair umpire: singles, then the doubles ---------------- */
+  section("The chair umpire enters the line-ups alone");
   const t2 = ties[2];
   const rb2 = await rubbers(t2);
   const s2m = rb2.find((r) => r.rubber_type === "S2")!;
@@ -263,7 +263,7 @@ async function main() {
   const lina = await http("GET", picker(s2m.id), REF2);
   check(lina.status === 404, "another court's referee: 404", lina.status);
   const shared = await http("GET", picker(s2m.id), staff("referee"));
-  check(shared.status === 403, "the shared referee password (not a court referee, master or organiser): 403", shared.status);
+  check(shared.status === 403, "the shared referee password (not a chair umpire, master or organiser): 403", shared.status);
   const outsider = await http("GET", picker(s2m.id), other.who);
   check(outsider.status === 404 || outsider.status === 403, "another organisation's referee: refused", outsider.status);
 
@@ -274,7 +274,7 @@ async function main() {
   check(Boolean(w?.message.includes("(No. 1) is ranked above") && w.message.includes("should play Singles 1")), "…in plain words", w?.message);
   check((await rubbers(t2)).every((r) => !r.team_a_player_ids?.length), "…nothing saved");
   const ok = await http("POST", picker(s2m.id), REF1, { lineups: breach, accept: [w!.key] });
-  check(ok.status === 200 && ok.json?.locked === true && ok.json?.alerted === 1, "accepted by the court referee: saved, singles locked, the master's phone alerted (dry run)", ok.json && { locked: ok.json.locked, alerted: ok.json.alerted, err: ok.json.error });
+  check(ok.status === 200 && ok.json?.locked === true && ok.json?.alerted === 1, "accepted by the chair umpire: saved, singles locked, the master's phone alerted (dry run)", ok.json && { locked: ok.json.locked, alerted: ok.json.alerted, err: ok.json.error });
   const { data: exc } = await db().from("audit_logs").select("actor_name, actor_referee_id, new_value").eq("entity_id", t2.id).eq("action", "LINEUP_EXCEPTION_ACCEPTED");
   const excRow = ((exc ?? []) as { actor_name: string; actor_referee_id: string; new_value: { text: string } }[])[0];
   const expectText = `Referee ${SARA.name} accepted a line-up exception on Court 1: ${await nameOf(A2[1])} plays Singles 1 above ${await nameOf(A2[0])} (ITF Reg. 43)`;
@@ -284,7 +284,7 @@ async function main() {
   const aNotices = await http("GET", "/api/mobile/v1/referee/notices", ADMIN);
   check(((aNotices.json?.notices ?? []) as { text: string }[]).some((n) => n.text === expectText), "the organiser's live banner has it", aNotices.json?.role);
   const rNotices = await http("GET", "/api/mobile/v1/referee/notices", REF2);
-  check(rNotices.status === 200 && ((rNotices.json?.notices ?? []) as unknown[]).length === 0, "a court referee's list is empty", rNotices.json);
+  check(rNotices.status === 200 && ((rNotices.json?.notices ?? []) as unknown[]).length === 0, "a chair umpire's list is empty", rNotices.json);
   const live = await http("GET", "/admin/org/referees/live", ADMIN);
   const liveText = live.text.replace(/<!-- -->/g, "").replace(/&#x27;/g, "'");
   check(live.status === 200 && liveText.includes("lineup exception accepted") && liveText.includes(expectText), "the admin log (On court now) lists it with the words", live.status);
@@ -296,15 +296,15 @@ async function main() {
   check(g1.json?.step === "doubles", "after the singles: step doubles", g1.json?.step);
   const singlesNow = { A: { S1: A2[1], S2: A2[0] }, B: { S1: B2[0], S2: B2[1] } };
   const dbl = await http("POST", picker(s2m.id), REF1, { lineups: { A: { ...singlesNow.A, D: [A2[2], A2[3]] }, B: { ...singlesNow.B, D: [B2[2], B2[3]] } } });
-  check(dbl.status === 200 && (dbl.json?.picker as { step: string } | undefined)?.step === "done", "the doubles named by the court referee, no reason needed", dbl.json?.error ?? (dbl.json?.picker as { step: string } | undefined)?.step);
+  check(dbl.status === 200 && (dbl.json?.picker as { step: string } | undefined)?.step === "done", "the doubles named by the chair umpire, no reason needed", dbl.json?.error ?? (dbl.json?.picker as { step: string } | undefined)?.step);
   const { count: dn } = await db().from("audit_logs").select("id", { count: "exact", head: true }).eq("entity_id", t2.id).eq("action", "DOUBLES_NAMED").eq("actor_referee_id", SARA.id);
   check(dn === 2, "…recorded as the doubles named, by Sara", dn);
 
   /* ---------------- changes after entry, with a reason ---------------- */
-  section("Changes after entry need a reason: court referee, master referee, organiser");
+  section("Changes after entry need a reason: chair umpire, master referee, organiser");
   const change = { A: { ...singlesNow.A, D: [A2[2], A2[1]] } };
   const noReason = await http("POST", picker(s2m.id), REF1, { lineups: change });
-  check(noReason.status === 409 && noReason.json?.code === "reason", "court referee, a named pair changed without a reason: 409", noReason.json);
+  check(noReason.status === 409 && noReason.json?.code === "reason", "chair umpire, a named pair changed without a reason: 409", noReason.json);
   const withReason = await http("POST", picker(s2m.id), REF1, { lineups: change, reason: "Cramp in the warm-up" });
   check(withReason.status === 200, "…with one: saved", withReason.json?.error);
   const s2t1 = (await rubbers(t1)).find((r) => r.rubber_type === "S2")!;

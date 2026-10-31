@@ -15,7 +15,7 @@ export default async function RefereeMatches({ params }: { params: Promise<{ id:
   const tournament = await getTournament(id);
   if (!tournament) notFound();
   const [all, teams, courts] = await Promise.all([getMatches(id), getTeams(id), getCourts(id)]);
-  // A court referee code (migration 0034): today's matches on its court only.
+  // A chair umpire code (migration 0034): today's matches on its court only.
   const matches = staff.scopeCourt ? filterForCourt(staff.scopeCourt, all, tournament.timezone || "Africa/Cairo") : all;
   const tm = teamMap(teams);
   const courtName = new Map(courts.map((c) => [c.id, c.court_name]));

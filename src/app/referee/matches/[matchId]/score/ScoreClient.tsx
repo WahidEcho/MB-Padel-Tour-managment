@@ -149,9 +149,9 @@ export default function ScoreClient({
   initialCall?: CallSnapshot | null;
   /** The organiser's staff (admin, manager) correct a finished result; a referee does not (append.ts correctionCut). */
   canCorrect?: boolean;
-  /** A court referee's "Call for assistance" (migration 0035), under the header. */
+  /** A chair umpire's "Call for assistance" (migration 0035), under the header. */
   assistance?: React.ReactNode;
-  /** Scoring v2: More → "Call master referee" (a court referee signed in with a PIN, the organiser's switch on). */
+  /** Scoring v2: More → "Call master referee" (a chair umpire signed in with a PIN, the organiser's switch on). */
   callMaster?: boolean;
 }) {
   // Follows the device's light/dark setting (the referee layout); "☀ Sunlight" is the high-contrast light extra.

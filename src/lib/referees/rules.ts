@@ -116,7 +116,7 @@ export const isOpenCall = (s: CallStatus) => s === "open" || s === "acknowledged
  * The call's next status after `action` by `who`, or null when it is not allowed:
  * - "On my way" (acknowledge): a master referee, on an open call;
  * - resolve: a master referee or the organiser's staff, on an open or acknowledged call;
- * - cancel: the court referee who called, while nobody has answered yet; the organiser's staff too.
+ * - cancel: the chair umpire who called, while nobody has answered yet; the organiser's staff too.
  * A resolved or cancelled call never changes again.
  */
 export function nextCallStatus(current: CallStatus, action: CallAction, who: "master" | "court" | "staff"): CallStatus | null {
@@ -146,7 +146,7 @@ export function assistanceMessage(refereeName: string, court: string): string {
   return `Referee ${refereeName.trim()} is calling for assistance at ${court.trim()}`;
 }
 
-/** The answer a court referee sees. */
+/** The answer a chair umpire sees. */
 export function callStatusLine(call: { status: CallStatus; acknowledged_by_name?: string | null; resolved_by_name?: string | null }): string {
   if (call.status === "open") return "Calling the master referees…";
   if (call.status === "acknowledged") return `${call.acknowledged_by_name ?? "A master referee"} is on the way`;
@@ -166,7 +166,7 @@ export const REMINDER_SECONDS = 30;
 export const MAX_REMINDERS = 20;
 /** An open call nobody has taken after this many seconds is escalated to the organiser's owners and admins, once. */
 export const ESCALATE_SECONDS = 120;
-/** A closed call stays on the court referee's card this long ("Resolved by Sara"), then the card hides. */
+/** A closed call stays on the chair umpire's card this long ("Resolved by Sara"), then the card hides. */
 export const CLOSED_SHOWN_SECONDS = 60;
 
 export interface CallResponse {
@@ -226,7 +226,7 @@ export function escalationDue(call: TimedCall, nowMs: number, dutyRefereeIds: re
 
 export type MasterAnswerRow = { name: string; answer: CallAnswer | "none"; at: string | null };
 
-/** Every master on duty with their answer, for the court referee's card: coming first, then no answer yet, then declined. Names only. */
+/** Every master on duty with their answer, for the chair umpire's card: coming first, then no answer yet, then declined. Names only. */
 export function masterAnswers(duty: readonly { id: string; name: string }[], responses: readonly CallResponse[]): MasterAnswerRow[] {
   const byId = new Map(responses.map((r) => [r.refereeId, r]));
   const rows = new Map<string, MasterAnswerRow>();
@@ -240,14 +240,14 @@ export function masterAnswers(duty: readonly { id: string; name: string }[], res
   return [...rows.values()].sort((a, b) => order[a.answer] - order[b.answer] || a.name.localeCompare(b.name));
 }
 
-/** Whether a closed call still shows on the court referee's card (CLOSED_SHOWN_SECONDS after it closed). */
+/** Whether a closed call still shows on the chair umpire's card (CLOSED_SHOWN_SECONDS after it closed). */
 export function closedCallShown(call: { status: CallStatus; resolvedAt: string | null }, nowMs: number): boolean {
   if (isOpenCall(call.status) || !call.resolvedAt) return false;
   const at = Date.parse(call.resolvedAt);
   return Number.isFinite(at) && nowMs - at < CLOSED_SHOWN_SECONDS * 1000;
 }
 
-/** "0:42", "2:05", "1:02:10": the running time since a call, for the court referee's card. */
+/** "0:42", "2:05", "1:02:10": the running time since a call, for the chair umpire's card. */
 export function elapsedClock(sinceIso: string, nowMs: number): string {
   const s = Math.max(0, Math.floor((nowMs - Date.parse(sinceIso)) / 1000));
   if (!Number.isFinite(s)) return "0:00";

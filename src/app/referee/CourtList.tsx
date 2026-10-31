@@ -23,7 +23,7 @@ const clock = (iso: string | null, timeZone: string) =>
   iso ? new Date(iso).toLocaleTimeString("en-GB", { timeZone, hour: "2-digit", minute: "2-digit" }) : null;
 
 /**
- * A court referee's home (migration 0034): today's matches on this court, every
+ * A chair umpire's home (migration 0034): today's matches on this court, every
  * event of the venue in one list. Moved matches appear and disappear on the next
  * refresh; the scoring routes check the court again on every request anyway.
  */
@@ -75,7 +75,7 @@ export default async function CourtList({ scope, label, assistance = false }: { 
     <div className="space-y-5" data-testid="court-list">
       <AutoRefresh seconds={10} />
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-accent">Court referee</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-accent">Chair umpire</p>
         <h1 className="text-2xl font-bold" data-testid="court-name">{scope.name}</h1>
         <p className="text-xs text-muted">
           {label ? `${label} · ` : ""}Today&apos;s matches on this court only.{" "}

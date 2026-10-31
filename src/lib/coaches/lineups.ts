@@ -227,7 +227,7 @@ export async function submitCoachLineup(coach: CoachPrincipal, tieId: string, bo
   return { ok: true, changed: true, entry: entryOf(l, after, now), accepted: check.warnings, officialsAlerted, exceptionAlerted };
 }
 
-/** The installations of the court referees signed in on this tie's court (its events), right now. */
+/** The installations of the chair umpires signed in on this tie's court (its events), right now. */
 async function courtRefereePhones(orgId: string, courtName: string, scope: { eventGroupId: string | null; tournamentId: string }, now: number): Promise<string[]> {
   const since = new Date(now - 12 * 3600_000).toISOString();
   const { data } = await db()

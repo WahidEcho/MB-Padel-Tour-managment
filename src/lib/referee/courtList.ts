@@ -1,5 +1,5 @@
 /**
- * A court referee's list (migration 0034): today's matches on the court, across
+ * A chair umpire's list (migration 0034): today's matches on the court, across
  * every tournament of the code's event group (or its one tournament), and the
  * earlier days' matches with their scores ("Show earlier days"). Server-only.
  * Which matches and in which order: src/lib/orgs/courtScope.ts.

@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       expiresAt: r.expiresAt,
       organization: { name: r.orgName, slug: r.orgSlug },
       scope: r.scopeTournamentId ? { tournamentId: r.scopeTournamentId } : null,
-      // New: a court referee code's court (null otherwise); 1.0.1 ignores it.
+      // New: a chair umpire code's court (null otherwise); 1.0.1 ignores it.
       court: r.court ? { name: r.court.name } : null,
       label: r.label,
       // New (migration 0035): the referee signed in with their PIN; 1.0.1 ignores it.

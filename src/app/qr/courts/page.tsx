@@ -66,22 +66,22 @@ export default async function CourtQrSheet({ searchParams }: { searchParams: Pro
           <a href={`/qr/courts/share?event=${event}&court=${encodeURIComponent(p.court)}`} download className="text-blue-700 underline" data-testid="court-share">Share image (PNG)</a>
         </p>
         <section className="court-page" data-testid="court-sheet-page">
-          <BrandBand brand={brand} label="Referee scoring" />
+          <BrandBand brand={brand} label="Chair umpire scoring" />
           <BrandTitle brand={brand} />
           <div className="court-body">
           <h1 className="text-5xl font-black">{p.court}</h1>
-          <p className="text-xl font-semibold">Referee scoring</p>
+          <p className="text-xl font-semibold">Chair umpire scoring</p>
           <div dangerouslySetInnerHTML={{ __html: p.svg }} />
           <p className="font-mono text-2xl font-bold tracking-widest" data-testid="court-sheet-code">{p.shown}</p>
           <ol className="max-w-[160mm] list-decimal space-y-0.5 pl-6 text-left text-[13px] leading-snug">
-            <li>Scan this code with the phone camera: Move Score opens the referee console on {p.court}, then asks you to type <strong>your own 4-digit referee PIN</strong>. (No app yet? The page that opens has the download links.)</li>
+            <li>Scan this code with the phone camera: Move Score opens the chair umpire&apos;s console on {p.court}, then asks you to type <strong>your own 4-digit referee PIN</strong>. (No app yet? The page that opens has the download links.)</li>
             <li>Already in Move Score: Referee → Scan court QR, then your PIN.</li>
             <li>No camera? In Move Score → Referee, type the code above, then your PIN.</li>
             <li data-testid="legacy-pin-note"><strong>Move Score 1.0.1:</strong> type the court code, then your 4-digit PIN, in the one field: <span className="font-mono">{p.shown} ••••</span> (a space, then your PIN).</li>
-            <li>Changing referees: the referee leaving taps Sign out; the new referee scans this code on their own phone, picks their own name and types their own PIN. The PIN is personal: never share it. Five wrong PINs lock only that referee for 5 minutes; the phone they signed in on today still gets back in.</li>
+            <li>Changing chair umpires: the chair umpire leaving taps Sign out; the new chair umpire scans this code on their own phone, picks their own name and types their own PIN. The PIN is personal: never share it. Five wrong PINs lock only that chair umpire for 5 minutes; the phone they signed in on today still gets back in.</li>
             <li>Need help on court? Tap <strong>Call for assistance</strong> on the scoring screen: the master referees are alerted.</li>
             <li>Moving to another court: scan that court&apos;s code. A match you have not finished or sent stays yours until it is.</li>
-            <li>You see only this court&apos;s matches today. Keep this sheet at the referee table; if it goes missing, tell the tournament desk.</li>
+            <li>You see only this court&apos;s matches today. Keep this sheet at the umpire&apos;s chair; if it goes missing, tell the tournament desk.</li>
           </ol>
           <p className="text-xs text-neutral-500">{p.expires ? `Works until ${new Date(p.expires).toLocaleString("en-GB", { timeZone: "Africa/Cairo", dateStyle: "medium", timeStyle: "short" })}` : "Works for the whole event"}</p>
           </div>

@@ -75,7 +75,7 @@ describe("calls for assistance: escalation to the organiser", () => {
   });
 });
 
-describe("calls for assistance: every master's answer for the court referee", () => {
+describe("calls for assistance: every master's answer for the chair umpire", () => {
   it("lists every master on duty: coming first, no answer, declined; names only", () => {
     const rows = masterAnswers(
       [
@@ -121,7 +121,7 @@ describe("calls for assistance: the words in English, Spanish and French", () =>
     expect(callWord("en", "goingBody", { name: "Sara", court: "Court 2" })).toBe("Master referee Sara is going to the emergency call at Court 2");
     expect(callWord("en", "reminderBody", { court: "Court 2" })).toBe("Court 2 still needs a master referee — tap to answer");
     expect(callWord("en", "isComing", { name: "Sara", court: "Court 2" })).toBe("Sara is coming to Court 2");
-    expect(callWord("en", "pushBody", { name: "Sara", court: "Court 3" })).toBe("Referee Sara is calling for assistance at Court 3");
+    expect(callWord("en", "pushBody", { name: "Sara", court: "Court 3" })).toBe("Chair umpire Sara is calling for assistance at Court 3");
   });
   it("every language has every key with the same placeholders", () => {
     const holes = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join();

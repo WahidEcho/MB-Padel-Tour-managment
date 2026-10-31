@@ -61,7 +61,7 @@ export default function CoachLineupForm({ tieId, initial, timeZone }: { tieId: s
       }
       setEntry(body.entry);
       setDraft(start(body.entry));
-      setDone(`Line-up submitted. The court referee and the master referees confirm it.${body.accepted?.length ? " The exception you accepted has been passed on to the master referees and the organiser." : ""}`);
+      setDone(`Line-up submitted. The chair umpire and the master referees confirm it.${body.accepted?.length ? " The exception you accepted has been passed on to the master referees and the organiser." : ""}`);
       router.refresh();
     } catch {
       setError("No connection: nothing was submitted. Try again.");
