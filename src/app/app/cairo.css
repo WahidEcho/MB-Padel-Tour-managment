@@ -46,6 +46,19 @@
 .cx-stage .ms-p2 span{color:#D91E43 !important}
 .cx-stage .ms-p3 span{color:#1E5BFF !important}
 
+/* The phone's screens in light theme on this page only (the Orbit page keeps its dark ones). The screens
+   are drawn with inline colours (Orbit.tsx), so they are matched by value. Bezel and island stay dark. */
+.cx-stage .ms-ph{background:#F7F8FB;color:#0B0D18;box-shadow:0 0 120px rgba(252,252,0,.18),0 50px 90px rgba(11,13,24,.35)}
+.cx-stage .ms-ph [style*="background:#12162a"]{background:#FFFFFF !important;box-shadow:0 1px 2px rgba(11,13,24,.06),0 6px 16px -8px rgba(11,13,24,.18)}
+.cx-stage .ms-ph [style*="background:rgba(255,255,255,0.08)"]{background:rgba(11,13,24,.06) !important}
+.cx-stage .ms-ph [style*="background:rgba(15,18,30,0.88)"]{background:rgba(255,255,255,.92) !important;box-shadow:0 10px 24px -12px rgba(11,13,24,.3)}
+.cx-stage .ms-ph [style*="background:linear-gradient(135deg, #1a2350, #0f1428)"]{background:linear-gradient(135deg,#E8EEFF,#F7F8FB) !important}
+.cx-stage .ms-ph .ms-slide[style*="radial-gradient"]{background:radial-gradient(circle at 50% 15%,#DCE7FF,#F7F8FB 70%) !important}
+.cx-stage .ms-ph [style*="color:rgba(255,255,255"]{color:rgba(11,13,24,.6) !important}
+.cx-stage .ms-ph [style*="color:#ffffff"]{color:#0B0D18 !important}
+.cx-stage .ms-ph [style*="color:#FCFC00"]{color:#8A7A00 !important}
+.cx-stage .ms-ph .ms-dots span{background:rgba(11,13,24,.2)}
+
 /* Sections. */
 .cx-sec{max-width:1120px;margin:0 auto;padding:56px 16px;display:flex;flex-direction:column;gap:12px}
 .cx-h2{margin:0;font-size:clamp(28px,5vw,46px);line-height:1}
