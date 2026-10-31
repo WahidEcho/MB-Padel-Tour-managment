@@ -12,6 +12,7 @@ import type { ScoreState, TeamKey } from "./engine";
 import { formatSet } from "./engine";
 import { LOG_ONLY_EVENTS } from "./eventGuard";
 import { OFFENCE_LABELS, PENALTY_LABELS, type Offence, type Penalty } from "./conduct";
+import { parseToss, tossSentence } from "./toss";
 import { clockText, TIMERS, TIME_DECISION_LABELS, isTimerKind, type TimeDecision } from "./timing";
 
 export interface LogEventRow {
@@ -121,10 +122,13 @@ export function buildMatchLog(rows: LogEventRow[], teams: { A: { id: string | nu
     let tag: LogTag = "status";
     let chip: string | null = null;
     switch (r.event_type) {
-      case "MATCH_STARTED":
+      case "MATCH_STARTED": {
         title = "Match started";
-        detail = next?.servingTeam ? `${names[next.servingTeam]} to serve` : "";
+        // The toss, when the chair umpire recorded one (toss.ts): the whole story in one line.
+        const toss = parseToss(p.toss);
+        detail = toss ? tossSentence(toss, (k) => names[k]) : next?.servingTeam ? `${names[next.servingTeam]} to serve` : "";
         break;
+      }
       case "POINT_AWARDED": {
         tag = "point";
         const server = prev ? (prev.isTiebreak ? null : prev.servingTeam) : null;

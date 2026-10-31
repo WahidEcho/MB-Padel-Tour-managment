@@ -13,6 +13,7 @@ import { currentServer, formatSet, type ScoreState, type TeamKey } from "@/lib/s
 import { namedReceiver, serveNumber, servingPlayer, type ServeOrder } from "@/lib/scoring/serve";
 import { TIMERS, RULINGS, TIME_DECISION_LABELS, clockText, timerView, type TimeDecision, type TimerKind } from "@/lib/scoring/timing";
 import type { LogEntry } from "@/lib/scoring/matchLog";
+import { answerToss, tossQuestion, tossRecord, type TossAnswers, type TossQuestion, type TossRecord } from "@/lib/scoring/toss";
 import { violationMarks } from "@/lib/scoring/conduct";
 import type { ScoringFeatures } from "@/lib/matchday/rules";
 import { SIDES } from "@/lib/sides";
@@ -482,6 +483,128 @@ export function ServeOrderDialog({
           </div>
           <button type="button" onClick={() => onConfirm(order)} className="w-full rounded-2xl py-4 text-base font-black text-black" style={{ background: SERVING_YELLOW }} data-testid="serve-order-confirm">
             Start the set
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The toss before the first point of a tennis or padel match (toss.ts), one question at a time as the
+ * serve order: who won it, what they chose (serve, receive, a side, or let the opponent choose), the
+ * other choice (ITF rule 4), then in doubles the first server and receiver. Last: the court as seen
+ * from the chair, server → receiver, and Start the match. Back undoes one answer; nothing is recorded
+ * before Start the match. The app's TossForm (move-score-app/src/referee/Toss.tsx) is the same flow.
+ */
+export function TossDialog({
+  sides,
+  doubles,
+  disabled = false,
+  onStart,
+  onSkip,
+}: {
+  sides: Record<TeamKey, { name: string; players: string[] }>;
+  doubles: boolean;
+  disabled?: boolean;
+  onStart: (toss: TossRecord, order: ServeOrder | null) => void;
+  onSkip: () => void;
+}) {
+  type Value = TeamKey | "serve" | "receive" | "side" | "defer" | "left" | "right";
+  const [history, setHistory] = useState<{ toss: TossAnswers; server?: 0 | 1; receiver?: 0 | 1 }[]>([{ toss: {} }]);
+  const now = history[history.length - 1];
+  const record = tossRecord(now.toss);
+  const q = tossQuestion(now.toss);
+  const step = q ? "toss" : doubles && now.server === undefined ? "server" : doubles && now.receiver === undefined ? "receiver" : "confirm";
+  const push = (next: { toss: TossAnswers; server?: 0 | 1; receiver?: 0 | 1 }) => setHistory([...history, next]);
+  const name = (k: TeamKey) => sides[k].name;
+  const opp = (k: TeamKey): TeamKey => (k === "A" ? "B" : "A");
+  const players = (k: TeamKey): [0 | 1, string][] => [
+    [0, sides[k].players[0] ?? "Player 1"],
+    [1, sides[k].players[1] ?? "Player 2"],
+  ];
+  const ask = (x: TossQuestion): { text: string; options: [Value, string][]; hint?: string } => {
+    switch (x.kind) {
+      case "winner":
+        return { text: "Who won the toss?", options: [["A", name("A")], ["B", name("B")]] };
+      case "winnerChoice":
+        return { text: `What did ${name(x.team)} choose?`, options: [["serve", "To serve"], ["receive", "To receive"], ["side", "A side of the court"], ["defer", `Let ${name(opp(x.team))} choose`]] };
+      case "choice":
+        return { text: `What does ${name(x.team)} choose?`, options: [["serve", "To serve"], ["receive", "To receive"], ["side", "A side of the court"]] };
+      case "side":
+        return { text: `Which side does ${name(x.team)} take?`, options: [["left", "Left"], ["right", "Right"]], hint: "Left and right as you see the court from the chair." };
+      case "serveOrReceive":
+        return { text: `What does ${name(x.team)} choose?`, options: [["serve", "To serve"], ["receive", "To receive"]] };
+    }
+  };
+  const order: ServeOrder | null =
+    record && doubles && now.server !== undefined && now.receiver !== undefined
+      ? { servingTeam: record.servingTeam, server: now.server, receiver: now.receiver, otherServer: 0, otherReceiver: 0 }
+      : null;
+  const who = (k: TeamKey, i: 0 | 1 | undefined) => (i !== undefined ? sides[k].players[i] : sides[k].players.length === 1 ? sides[k].players[0] : null) ?? name(k);
+  return (
+    <div className="space-y-4" data-testid="toss">
+      <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted">
+        <span>{step === "confirm" ? "Check and confirm" : "The toss"}</span>
+        {history.length > 1 ? (
+          <button type="button" className="text-accent" onClick={() => setHistory(history.slice(0, -1))}>
+            ‹ Back
+          </button>
+        ) : (
+          <button type="button" className="text-muted underline" onClick={onSkip} data-testid="toss-skip">
+            Skip the toss
+          </button>
+        )}
+      </div>
+      {step === "toss" && q && (() => {
+        const shown = ask(q);
+        return (
+          <>
+            <Big<Value> question={shown.text} value={undefined} onPick={(v) => push({ toss: answerToss(now.toss, q, v as never) })} options={shown.options} />
+            {shown.hint && <p className="rounded-xl bg-background px-3 py-2 text-sm text-muted">{shown.hint}</p>}
+          </>
+        );
+      })()}
+      {step === "server" && record && <Big question={`Who serves first for ${name(record.servingTeam)}?`} value={undefined} onPick={(v: 0 | 1) => push({ ...now, server: v })} options={players(record.servingTeam)} />}
+      {step === "receiver" && record && (
+        <Big question={`Who receives first for ${name(opp(record.servingTeam))}?`} value={undefined} onPick={(v: 0 | 1) => push({ ...now, receiver: v })} options={players(opp(record.servingTeam))} />
+      )}
+      {step === "confirm" && record && (
+        <div className="space-y-4" data-testid="toss-summary">
+          <p className="text-sm font-semibold text-muted">
+            {record.deferred ? `${name(record.winner)} won the toss and let ${name(record.first.team)} choose` : `${name(record.winner)} won the toss`}
+          </p>
+          <div>
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted">From the chair</p>
+            <div className="grid grid-cols-2 gap-2" data-testid="toss-court">
+              {(["left", "right"] as const).map((at) => {
+                const k = at === "left" ? record.leftTeam : opp(record.leftTeam);
+                return (
+                  <div key={at} className="rounded-xl border-2 bg-background p-3" style={{ borderColor: k === "A" ? "#E5133A" : "#1E5BFF" }}>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-muted">{at === "left" ? "Left" : "Right"}</p>
+                    <p className="truncate font-bold">{name(k)}</p>
+                    {k === record.servingTeam && <span className="mt-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: SERVING_YELLOW }} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="space-y-1 rounded-2xl bg-background p-4" data-testid="toss-order">
+            <OrderLine label="Serves" name={who(record.servingTeam, order?.server)} country={name(record.servingTeam)} ball />
+            <p className="pl-1 text-3xl font-black leading-none text-accent" aria-hidden>
+              ↓
+            </p>
+            <OrderLine label="Receives" name={who(opp(record.servingTeam), order?.receiver)} country={name(opp(record.servingTeam))} />
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onStart(record, order)}
+            className="w-full rounded-2xl py-4 text-base font-black text-black disabled:opacity-50"
+            style={{ background: SERVING_YELLOW }}
+            data-testid="toss-start"
+          >
+            Start the match
           </button>
         </div>
       )}

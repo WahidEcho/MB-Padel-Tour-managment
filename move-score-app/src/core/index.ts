@@ -87,6 +87,7 @@ export type { CoachLineupClosed, CoachLineupSettings } from "../../../src/lib/co
 export { ITF_REGULATIONS_URL, ITF_TEAM_REGULATIONS, regulationPath, regulationLabel, regulationSummary } from "../../../src/lib/tennis/regulations";
 export type { RegulationSummary } from "../../../src/lib/tennis/regulations";
 export * from "../../../src/lib/scoring/serve";
+export * from "../../../src/lib/scoring/toss";
 export * from "../../../src/lib/scoring/timing";
 export { buildMatchLog, scoreTitle, aceCounts } from "../../../src/lib/scoring/matchLog";
 export type { LogEntry, LogEventRow, LogTag } from "../../../src/lib/scoring/matchLog";

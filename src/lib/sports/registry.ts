@@ -35,6 +35,8 @@ export interface SportSupports {
   liveActivity: boolean;
   /** Umpire voice calls. */
   voice: boolean;
+  /** The toss before the first point in the chair umpire's console (scoring/toss.ts). */
+  toss: boolean;
 }
 
 export interface SportDef {
@@ -61,7 +63,7 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     engine: "games",
     defaultRules: DEFAULT_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
-    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true },
+    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true, toss: true },
   },
   tennis: {
     id: "tennis",
@@ -69,7 +71,7 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     engine: "games",
     defaultRules: DEFAULT_TENNIS_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
-    supports: { ties: true, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true },
+    supports: { ties: true, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true, toss: true },
     scoringFeaturesByDefault: true,
   },
   chess: {
@@ -79,7 +81,7 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     // Chess has no games-and-sets score; the default is only there so every sport has one.
     defaultRules: DEFAULT_SCORING_CONFIG,
     nouns: { side: "Player", sides: "Players", match: "Game", matches: "Games", court: "Board", courts: "Boards" },
-    supports: { ties: false, showcase: false, finalScore: true, nearEnd: false, liveActivity: false, voice: false },
+    supports: { ties: false, showcase: false, finalScore: true, nearEnd: false, liveActivity: false, voice: false, toss: false },
   },
 };
 
@@ -92,7 +94,7 @@ function genericSport(id: string): SportDef {
     engine: "games",
     defaultRules: DEFAULT_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
-    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: false },
+    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: false, toss: false },
   };
 }
 

@@ -6,6 +6,7 @@ import { useKeepAwake } from "expo-keep-awake";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Console,
+  sportOf,
   chessCompetitionFor,
   enteredSetsFromState,
   finalResultAllowed,
@@ -40,6 +41,7 @@ import type { SyncState } from "../../../referee/sync";
 import { useCall } from "../../../referee/useCall";
 import { AssistanceCard, requestAssistance } from "../../../referee/AssistanceCard";
 import { BetweenPoints, MatchLogList, PadV2, ServeOrderForm, TimerCard, useTick, type V2Side } from "../../../referee/V2";
+import { TossForm } from "../../../referee/Toss";
 import { BALL, BALL_INK } from "../../../theme/palette";
 import { LineupScreenBody } from "../../../referee/LineupScreen";
 import { signInWithCode } from "../../../referee/courtSignIn";
@@ -318,6 +320,9 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
   };
   const swapped = sidesSwapped(shown, { auto: f.autoSwap, manual: f.manualSwap && manualSwap });
   const tick = useTick(Boolean(c.timer));
+  // The toss before the first point: tennis and padel (toss.ts); "Skip the toss" brings back "Who serves first?".
+  const tossSport = !boot.chess && sportOf(boot.tournament.sport).supports.toss;
+  const [skipToss, setSkipToss] = useState(false);
   const askOrder = !readOnly && !finished && f.doublesOrder && pairs && !c.paused && c.state !== null && needsServeOrder(c.state, true);
   const [log, setLog] = useState<{ entries: LogEntry[] | null; error: string | null }>({ entries: null, error: null });
   const openLog = async () => {
@@ -652,6 +657,26 @@ function ConsoleScreen({ boot, deviceId, sunlight, setSunlight }: { boot: Refere
               </ScrollView>
             </Card>
           )
+        ) : !shown && !finished && tossSport && !skipToss ? (
+          <Card style={{ flex: 1, padding: 0 }}>
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
+              {(!A.checkedIn || !B.checkedIn) && !m.tie_id ? <Body tone="live" size={13}>{tr("score.notCheckedIn", { name: !A.checkedIn ? A.name : B.name })}</Body> : null}
+              <TossForm
+                sides={v2Sides}
+                doubles={c.opts.doubles && f.doublesOrder && pairs}
+                disabled={readOnly}
+                onSkip={() => setSkipToss(true)}
+                onStart={(toss, order) =>
+                  guard(() => {
+                    void c.start(toss.servingTeam, toss);
+                    // Doubles: the first server and receiver go in right after, as the set-start question would.
+                    if (order) void c.serveOrder(order);
+                  })
+                }
+              />
+              {resultAllowed ? <Button kind="ghost" label={tr("score.enterFinalInstead")} disabled={readOnly} onPress={() => guard(() => showResultSheet(false, null))} /> : null}
+            </ScrollView>
+          </Card>
         ) : !shown && !finished ? (
           <Card style={{ flex: 1, justifyContent: "center", gap: 12 }}>
             <Display size={22}>{tr("score.whoServesFirst")}</Display>

@@ -424,7 +424,7 @@ export function ServeOrderForm({ sides, initial, onConfirm, firstSet = false }: 
 }
 
 /** One line of the serve-order summary: who, their country, and what they do. */
-function OrderLine({ label, name, country, ball = false }: { label: string; name: string; country: string; ball?: boolean }) {
+export function OrderLine({ label, name, country, ball = false }: { label: string; name: string; country: string; ball?: boolean }) {
   const { t } = useTheme();
   return (
     <View style={{ gap: 2 }}>
@@ -438,7 +438,7 @@ function OrderLine({ label, name, country, ball = false }: { label: string; name
   );
 }
 
-function BigChoice<V extends string | number>({ question, value, options, onPick }: { question: string; value: V | undefined; options: [V, string][]; onPick: (v: V) => void }) {
+export function BigChoice<V extends string | number>({ question, value, options, onPick }: { question: string; value: V | undefined; options: [V, string][]; onPick: (v: V) => void }) {
   const { t } = useTheme();
   return (
     <View style={{ gap: 12 }}>

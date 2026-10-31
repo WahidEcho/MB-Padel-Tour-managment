@@ -25,6 +25,7 @@ import { applyViolation, nextPenalty, type Offence, type Penalty } from "./condu
 import { pushesHistory, sameState } from "./eventGuard";
 import { ace as aceState, applyLet, fault as faultState, serveNumber, setServeOrder, type LetKind, type ServeOrder } from "./serve";
 import { afterScoreChange, startClock, stopClock, withoutClock, type AfterPoint, type TimeDecision, type TimerKind } from "./timing";
+import type { TossRecord } from "./toss";
 import type { ScoringConfig } from "../types";
 
 export interface ConsoleEvent {
@@ -54,8 +55,14 @@ export interface ConsoleOptions {
 
 const done = (online: boolean, status: string) => (online ? status : "pending_sync");
 
-export function startMatch(firstServer: TeamKey): ConsoleEvent {
-  return { eventType: "MATCH_STARTED", next: initialScoreState(firstServer), team: null, payload: { first_server: firstServer }, newStatus: "live" };
+/**
+ * The first event. With a toss (toss.ts), the serving team is the toss's and the state remembers the
+ * toss and who starts on the chair umpire's left; without one (Skip the toss, other sports) as before.
+ */
+export function startMatch(firstServer: TeamKey, toss?: TossRecord | null): ConsoleEvent {
+  if (!toss) return { eventType: "MATCH_STARTED", next: initialScoreState(firstServer), team: null, payload: { first_server: firstServer }, newStatus: "live" };
+  const next: ScoreState = { ...initialScoreState(toss.servingTeam), toss, leftAtStart: toss.leftTeam };
+  return { eventType: "MATCH_STARTED", next, team: null, payload: { first_server: toss.servingTeam, toss }, newStatus: "live" };
 }
 
 /** Whether a tap needs the "about to win the game / set / match" check first. */

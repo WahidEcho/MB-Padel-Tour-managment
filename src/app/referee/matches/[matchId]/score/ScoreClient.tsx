@@ -48,7 +48,8 @@ import { TIMERS, sidesSwapped, withoutClock, type TimeDecision, type TimerKind }
 import { aceCounts } from "@/lib/scoring/matchLog";
 import { nationByCode } from "@/lib/tennis/nations";
 import { SCORING_FEATURES_OFF } from "@/lib/matchday/rules";
-import { BetweenPointsBanner, BoardV2, MatchLogPanel, PadV2, ServeOrderDialog, TimerCard, shortCode, useNow, type RunningTimer, type V2Side } from "./V2";
+import { BetweenPointsBanner, BoardV2, MatchLogPanel, PadV2, ServeOrderDialog, TimerCard, TossDialog, shortCode, useNow, type RunningTimer, type V2Side } from "./V2";
+import type { TossRecord } from "@/lib/scoring/toss";
 
 /** "RED TEAM" / "BLUE TEAM" in its colour, when the organiser uses red and blue teams. */
 function SideChip({ side }: { side: TeamKey }) {
@@ -121,6 +122,7 @@ export default function ScoreClient({
   reopenState = null,
   redBlueTeams = false,
   tennis = false,
+  tossSport = false,
   scoringMode = "point_by_point",
   matchDay = null,
   initialCall = null,
@@ -141,6 +143,8 @@ export default function ScoreClient({
   redBlueTeams?: boolean;
   /** Tennis: changeover clock, serving player in doubles, code violations. */
   tennis?: boolean;
+  /** Tennis and padel: the toss before the first point (toss.ts). */
+  tossSport?: boolean;
   /** How this match is recorded (match override → session → match-day rules). */
   scoringMode?: ScoringModeChoice;
   /** The tournament's match-day rules (court call, no-show prompt). */
@@ -237,6 +241,8 @@ export default function ScoreClient({
   const features = matchDay?.features ?? SCORING_FEATURES_OFF;
   // Serve and receive order by player: every doubles match (padel too).
   const pairs = teamA.players.length >= 2 && teamB.players.length >= 2;
+  // "Skip the toss" brings back the old "Who serves first?" buttons.
+  const [skipToss, setSkipToss] = useState(false);
   const [timer, setTimer] = useState<RunningTimer | null>(null);
   const timerRef = useRef<RunningTimer | null>(null);
   const putTimer = useCallback((t: RunningTimer | null) => {
@@ -611,6 +617,14 @@ export default function ScoreClient({
       newStatus: "live",
       payload: { first_server: firstServer },
     });
+  }
+
+  /** Start the match from the toss (toss.ts): its server, sides and record; doubles: the first server and receiver right after. */
+  async function startFromToss(toss: TossRecord, order: ServeOrder | null) {
+    const e = C.startMatch(toss.servingTeam, toss);
+    startedAtRef.current = new Date().toISOString();
+    await pushEvent(e.eventType, e.next, { newStatus: "live", payload: e.payload ?? undefined });
+    if (order) confirmServeOrder(order);
   }
 
   function tapScore(teamKey: TeamKey) {
@@ -1105,6 +1119,12 @@ export default function ScoreClient({
                   Enter final result instead
                 </button>
               )}
+              {tossSport && !skipToss ? (
+                <div className="card text-left">
+                  <TossDialog sides={v2Sides} doubles={features.doublesOrder && pairs} disabled={readOnly} onSkip={() => setSkipToss(true)} onStart={(t, o) => void startFromToss(t, o)} />
+                </div>
+              ) : (
+              <>
               <p className="label">Who serves first?</p>
               <div className="grid grid-cols-2 gap-3">
                 {(["A", "B"] as TeamKey[]).map((k) => (
@@ -1121,6 +1141,8 @@ export default function ScoreClient({
                 ))}
               </div>
               <p className="text-xs text-muted">Tapping a team starts the match with that team serving.</p>
+              </>
+              )}
             </div>
           )}
         </div>

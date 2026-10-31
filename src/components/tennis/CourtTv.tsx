@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Barlow_Condensed } from "next/font/google";
 import { currentServer, servingPlayer, type ScoreState, type TeamKey } from "@/lib/scoring/engine";
 import { aceMoment } from "@/lib/scoring/serve";
+import { beforeFirstPoint, parseToss, tossHeadline } from "@/lib/scoring/toss";
 import { statLines, durationText, type MatchStatsResult } from "@/lib/scoring/stats";
 import type { PublicPlayer } from "@/lib/public";
 import { callout, courtScene, tieScore, type SceneRubber } from "@/lib/tennis/tvScene";
@@ -390,6 +391,7 @@ function ScoreCard({ ctx, matchId, final = false }: { ctx: Ctx; matchId: string;
   const dServer = state && dbl && !final ? servingPlayer(state) : null;
   const tb = Boolean(snap?.tiebreak);
   const call = final ? null : ctx.aces && state && aceMoment(state) ? "Ace" : callout(state, r.rules);
+  const tossNow = state && beforeFirstPoint(state) ? parseToss(state.toss) : null;
   const clock = final ? (durationText(m.started_at && m.ended_at ? (Date.parse(m.ended_at) - Date.parse(m.started_at)) / 1000 : null)) : matchClock(m.started_at, ctx.now);
 
   const row = (key: TeamKey) => {
@@ -472,6 +474,12 @@ function ScoreCard({ ctx, matchId, final = false }: { ctx: Ctx; matchId: string;
             </span>
           )}
           {m.status === "paused" && <span className={`${s.call} ${s.callAlert}`}>Play suspended</span>}
+          {/* The toss the chair umpire recorded, until the first point is played. */}
+          {!final && !call && tossNow && (
+            <span className={s.toss} data-testid="tv-toss">
+              {tossHeadline(tossNow, (k) => sideOf(ctx, matchId, k).nation?.code ?? sideOf(ctx, matchId, k).nation?.name ?? k)}
+            </span>
+          )}
         </div>
         {cells.map((c, i) => (
           <div key={i} className={s.c}>

@@ -282,6 +282,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `tickCall` (CAS on `reminders_sent` / `escalated_at`), driven by any GET of the open call and the notification drain's `tickOpenCalls`.
   Push buttons: category `assistance_call` (`move-score-app/src/push/assistanceActions.ts`). Words en/es/fr in
   `src/lib/referees/callWords.ts` (via `@core`); court card shows every master's answer (names only).
+- Chair Umpire + the toss (owner, 31 Oct 2026; no migration): the on-court official is "Chair umpire" everywhere (es "Juez de silla",
+  fr "Juge de chaise"); the sign-in system stays "Referee" (masters use it); API codes (`court_referee_only`, `isCourtReferee`) unchanged.
+  Toss before the first point for sports with `supports.toss` (tennis, padel): pure `src/lib/scoring/toss.ts` (ITF rule 4: serve / receive /
+  a side / let the opponent choose; the other side makes the remaining choice), via `@core`. MATCH_STARTED carries `payload.toss` and the
+  state `toss` + `leftAtStart`; `timing.ts leftTeamNow` mirrors the consoles to the court from the chair (swaps at every change of ends,
+  manual swap still flips). Doubles: SERVE_ORDER (first server / receiver) right after. App `move-score-app/src/referee/Toss.tsx`, web
+  `TossDialog` (score/V2.tsx); "Skip the toss" = the old "Who serves first?". Match log says it in words; court TV shows `tossHeadline`
+  until the first point. Gate `npm run e2e:toss` (stand-in).
 - Line-ups on match day (no migration): pure checks `src/lib/tennis/lineupRules.ts` (problems refuse; warnings — order of merit
   Reg 43, retired player Reg 50 — need accepting; a change after the lock needs a reason), regulation summaries in our own words
   `src/lib/tennis/regulations.ts` (page `/regulations/itf-junior-team/[reg]`, button to the ITF site), Excel sheet pure

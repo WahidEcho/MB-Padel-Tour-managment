@@ -26,6 +26,7 @@ import {
   type TeamKey,
   type TimeDecision,
   type TimerKind,
+  type TossRecord,
   SCORING_FEATURES_OFF,
 } from "@core";
 import { api, ApiError } from "../api/client";
@@ -491,7 +492,7 @@ export function useConsole(boot: RefereeBootstrap, deviceId: string, online: boo
       else setTimer(null);
     },
     decide,
-    start: (first: TeamKey) => record(() => Console.startMatch(first)),
+    start: (first: TeamKey, toss?: TossRecord | null) => record(() => Console.startMatch(first, toss)),
     needsConfirm: (k: TeamKey) => (cur() ? Console.pointNeedsConfirm(cur()!, k, opts) : null),
     point: (k: TeamKey) => step(() => (cur() ? Console.point(cur()!, k, opts) : null)),
     confirmResult: () => record(() => (cur() ? Console.confirmResult(cur()!, opts) : null)),

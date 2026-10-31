@@ -1,3 +1,4 @@
+import { sportOf } from "@/lib/sports/registry";
 import { notFound } from "next/navigation";
 import { requireEntityPage } from "@/lib/guard";
 import { getCourts, getMatch, getReopenState, getSnapshot, getTeams, getTournament, tierForMatch } from "@/lib/data";
@@ -115,6 +116,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
         doubles: match.rubber_type ? match.rubber_type === "D" : isDoublesMatch(teamA, teamB),
       })}
       tennis={tournament.sport === "tennis"}
+      tossSport={sportOf(tournament.sport).supports.toss}
       teamA={{
         id: teamA.id,
         name: sideName(teamA),

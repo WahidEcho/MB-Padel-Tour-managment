@@ -325,6 +325,14 @@
   background: var(--alert);
   color: #fff;
 }
+/* The toss, before the first point: quiet, on the meta line. */
+.toss {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
 .row {
   border-top: 2px solid var(--row-line);
   min-height: 0;

@@ -136,9 +136,24 @@ export function endChangesSoFar(s: ScoreState): number {
   return n;
 }
 
-/** The referee's view: is team A on the right? Auto swap follows the ends; a manual swap flips it. */
+/**
+ * The team on the chair umpire's left right now, from the toss's starting sides (toss.ts,
+ * `leftAtStart`) and the changes of ends since. Null when the toss recorded no sides.
+ */
+export function leftTeamNow(s: ScoreState | null | undefined): TeamKey | null {
+  const start = s?.leftAtStart;
+  if (start !== "A" && start !== "B") return null;
+  return endChangesSoFar(s!) % 2 === 0 ? start : start === "A" ? "B" : "A";
+}
+
+/**
+ * The chair umpire's view: is team A on the right? With the toss's sides the console mirrors the
+ * court (team A on the right whenever B stands on the left); otherwise auto swap follows the ends.
+ * A manual swap flips either.
+ */
 export function sidesSwapped(s: ScoreState | null, opts: { auto: boolean; manual: boolean }): boolean {
-  const auto = opts.auto && s ? endChangesSoFar(s) % 2 === 1 : false;
+  const left = leftTeamNow(s);
+  const auto = left ? left === "B" : opts.auto && s ? endChangesSoFar(s) % 2 === 1 : false;
   return auto !== opts.manual;
 }
 

@@ -68,6 +68,13 @@ export interface ScoreState {
    * Undo cannot bring an old running clock back onto the screens.
    */
   clock?: { kind: string; startedAt: string; at: string; team?: TeamKey | null } | null;
+  /** The toss the chair umpire recorded at the start (toss.ts TossRecord), for the match log and the court TV. */
+  toss?: import("./toss").TossRecord | null;
+  /**
+   * The team on the chair umpire's left for the first game, from the toss. Every later state carries
+   * it; toss.ts `leftTeamNow` turns it into where each team stands now. Absent: no sides recorded.
+   */
+  leftAtStart?: TeamKey | null;
   winner: TeamKey | null;
   matchOver: boolean;
 }
