@@ -34,9 +34,17 @@
 .cx-store b{display:block;font-size:18px;line-height:1.15}
 .cx-nodl{font-size:14px;font-weight:600;color:#1f6b52!important;border-bottom:1px solid rgba(31,107,82,.35);padding-bottom:2px}
 
-/* The Orbit phone between the hero and the sections: a soft dark well so its glow and pills read on the light page. */
-.cx-stage{margin:0 auto;max-width:1200px;border-radius:40px;overflow:hidden;background:radial-gradient(700px 520px at 50% 50%,#16124a 0%,#0b0d18 70%);color:#fff;margin-inline:16px}
-@media (min-width:1232px){.cx-stage{margin-inline:auto}}
+/* The Orbit phone between the hero and the sections, floating on the light page (no panel): the
+   orbits and the alert chips restyled as light glass, the phone and its shadow as they are. */
+.cx-stage{color:var(--cx-ink);overflow:hidden}
+.cx-stage .ms-orbit{border-color:rgba(11,13,24,.12)}
+.cx-stage .ms-o2{border-color:rgba(31,107,82,.18)}
+.cx-stage .ms-pill{background:rgba(255,255,255,.78);color:var(--cx-ink);border-color:rgba(255,255,255,.9);box-shadow:inset 0 1px 0 #fff,0 18px 36px -14px rgba(11,13,24,.35);backdrop-filter:blur(14px) saturate(170%);-webkit-backdrop-filter:blur(14px) saturate(170%)}
+.cx-stage .ms-floor{background:radial-gradient(closest-side,rgba(11,13,24,.28),transparent)}
+.cx-stage .ms-wm{display:none}
+.cx-stage .ms-p1 span{color:#8A7A00 !important}
+.cx-stage .ms-p2 span{color:#D91E43 !important}
+.cx-stage .ms-p3 span{color:#1E5BFF !important}
 
 /* Sections. */
 .cx-sec{max-width:1120px;margin:0 auto;padding:56px 16px;display:flex;flex-direction:column;gap:12px}
