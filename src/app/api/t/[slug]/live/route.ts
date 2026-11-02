@@ -49,7 +49,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   if (!feed) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json(feed, {
-    // Shared for one second (see FEED_MS); never kept past two, so a TV is at most a second or two behind.
-    headers: { "Cache-Control": "public, max-age=0, s-maxage=1, stale-while-revalidate=1" },
+    // Shared for one second (see FEED_MS) and never served stale: a TV is at most about a second behind.
+    headers: { "Cache-Control": "public, max-age=0, s-maxage=1" },
   });
 }
