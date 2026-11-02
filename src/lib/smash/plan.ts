@@ -8,8 +8,9 @@
  *   - Only a rubber with no score at all on Move Score (scheduled or ready, last event 0, no score
  *     event) gets a result; anything scored, live or finished here is skipped.
  *   - Smash publishes no tie-break points (null or 0-0): the set's winner takes the tie-break 7-5
- *     (owner, 2 Nov 2026: the winner is what is announced). Retirements, walkovers, abandoned matches, a winner the sets do not give, a line-up or a
- *     doubles pair that differs from ours, and a Smash match with no single matching tie.
+ *     (owner, 2 Nov 2026: the winner is what is announced).
+ *   - The desk gets retirements, walkovers, abandoned matches, a winner the sets do not give, a
+ *     line-up or a doubles pair that differs from ours, and a Smash match with no single matching tie.
  *
  * Mapping: same court name ("Court N"), same Cairo day, same two nation codes → our tie; doubles →
  * the tie's D rubber (pair checked), singles → the S1/S2 rubber whose line-up names match. Sets are
