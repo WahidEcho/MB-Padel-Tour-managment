@@ -1,5 +1,6 @@
+import { publicBrackets, publicMatches, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
 import { notFound } from "next/navigation";
-import { getBrackets, getMatches, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
+import { teamMap } from "@/lib/data";
 import { podiumDepthFor } from "@/lib/bracket";
 import AutoRefresh from "@/components/AutoRefresh";
 import WinnerDisplay, { podiumFromMatches } from "@/components/WinnerDisplay";
@@ -11,12 +12,12 @@ export const revalidate = 10;
 
 export default async function PublicWinner({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
   const [allMatches, teams, brackets] = await Promise.all([
-    getMatches(tournament.id),
-    getTeams(tournament.id),
-    getBrackets(tournament.id),
+    publicMatches(tournament.id),
+    publicTeamRows(tournament.id),
+    publicBrackets(tournament.id),
   ]);
   // The audience delay: a final decided inside its window crowns nobody yet.
   const { matches } = await tournamentAudience(tournament, { matches: allMatches });

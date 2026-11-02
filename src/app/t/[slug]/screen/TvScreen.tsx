@@ -1,19 +1,6 @@
+import { publicBracketSlots, publicBrackets, publicCourts, publicGroups, publicMatches, publicScreenSettings, publicSnapshots, publicStandings, publicTeamRows, publicTies, publicTournamentBySlug } from "@/lib/publicData";
 import { notFound } from "next/navigation";
-import {
-  courtsForScreen,
-  defaultScreenSettings,
-  getBrackets,
-  getBracketSlots,
-  getCourts,
-  getGroups,
-  getMatches,
-  getScreenSettings,
-  getSnapshots,
-  getStandings,
-  getTeams,
-  getTournamentBySlug,
-  teamMap,
-} from "@/lib/data";
+import { courtsForScreen, defaultScreenSettings, teamMap } from "@/lib/data";
 import { MAIN_SCREEN, isValidScreenKey } from "@/lib/screens";
 import { podiumDepthFor } from "@/lib/bracket";
 import { normalizeDisplayMode, type Court, type DisplayMode, type Match, type Team, type Tournament } from "@/lib/types";
@@ -43,7 +30,7 @@ import { entranceRankFor } from "@/lib/tv/entrance";
 import { buildLiveFeed } from "@/lib/tv/liveFeedServer";
 import { GUTTER, ROWS, STAGE, bracketFontPx, isStageAspect, leaderboardPlan } from "@/lib/tv/layout";
 import { sizedImageSrc } from "@/lib/portrait";
-import { getTies, isTieFormat } from "@/lib/tennis/tieOps";
+import { isTieFormat } from "@/lib/tennis/tieOps";
 import { scoringConfigForMatch } from "@/lib/scoring/rules";
 import { sportOf } from "@/lib/sports/registry";
 import { matchDayRules } from "@/lib/matchday/rules";
@@ -97,11 +84,11 @@ export default async function TvScreen({
 }) {
   if (!isValidScreenKey(screenKey)) notFound();
 
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament || !tournament.public_access_enabled) notFound();
   const id = tournament.id;
 
-  const stored = await getScreenSettings(id, screenKey);
+  const stored = await publicScreenSettings(id, screenKey);
   // A screen that was never configured is only meaningful for `main`, which is
   // the tournament's own screen and must never 404. Any other key with no row
   // is a screen that does not exist, or one an admin deleted while a TV was
@@ -111,12 +98,12 @@ export default async function TvScreen({
   const settings = stored ?? defaultScreenSettings(id, screenKey);
 
   const [groups, standings, teams, matches, snapshots, courts] = await Promise.all([
-    getGroups(id),
-    getStandings(id),
-    getTeams(id),
-    getMatches(id),
-    getSnapshots(id),
-    getCourts(id),
+    publicGroups(id),
+    publicStandings(id),
+    publicTeamRows(id),
+    publicMatches(id),
+    publicSnapshots(id),
+    publicCourts(id),
   ]);
   const tm = teamMap(teams);
   const snapByMatch = new Map(snapshots.map((s) => [s.match_id, s]));
@@ -155,13 +142,13 @@ export default async function TvScreen({
   // Which bracket the bracket, winner and ceremony scenes show. A screen set to
   // 'both' shows them one after another; otherwise it shows the tier it is set
   // to, falling back to whatever is published when that tier is not.
-  const published = (await getBrackets(id)).filter((b) => b.status === "published");
+  const published = (await publicBrackets(id)).filter((b) => b.status === "published");
   const shownBrackets =
     settings.bracket_tier === "both"
       ? published
       : published.filter((b) => b.tier === settings.bracket_tier);
   const brackets = shownBrackets.length > 0 ? shownBrackets : published;
-  const slotsByBracket = await Promise.all(brackets.map((b) => getBracketSlots(b.id)));
+  const slotsByBracket = await Promise.all(brackets.map((b) => publicBracketSlots(b.id)));
 
   // ---------- broadcast data, projected for the client ----------
   // Court cards are client components, so their props are serialised into the
@@ -557,7 +544,7 @@ async function tennisProps(
   teams: Team[],
   matches: Match[],
 ) {
-  const ties = await getTies(tournament.id);
+  const ties = await publicTies(tournament.id);
   const nations: Record<string, TvNation> = Object.fromEntries(
     teams.map((t) => {
       const pub = toPublicTeam(t);

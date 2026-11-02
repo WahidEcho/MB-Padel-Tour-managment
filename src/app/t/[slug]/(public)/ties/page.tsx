@@ -1,7 +1,8 @@
+import { publicCourts, publicMatches, publicSnapshots, publicTeamRows, publicTies, publicTournamentBySlug } from "@/lib/publicData";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCourts, getMatches, getSnapshots, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
-import { getTies } from "@/lib/tennis/tieOps";
+import { teamMap } from "@/lib/data";
+
 import { RUBBER_SHORT } from "@/lib/tennis/ties";
 import AutoRefresh from "@/components/AutoRefresh";
 import MatchStatusBadge from "@/components/MatchStatusBadge";
@@ -22,10 +23,10 @@ export const revalidate = 2;
  */
 export default async function PublicTies({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament || !tournament.format_config?.ties) notFound();
   const id = tournament.id;
-  const [allTies, allMatches, teams, allSnapshots, courts] = await Promise.all([getTies(id), getMatches(id), getTeams(id), getSnapshots(id), getCourts(id)]);
+  const [allTies, allMatches, teams, allSnapshots, courts] = await Promise.all([publicTies(id), publicMatches(id), publicTeamRows(id), publicSnapshots(id), publicCourts(id)]);
   // The audience delay (Admin → In the app → Score delay): ties, rubbers and scores as they stood `seconds` ago.
   const { ties, matches, snapshots } = await tournamentAudience(tournament, { matches: allMatches, snapshots: allSnapshots, ties: allTies });
   const tm = teamMap(teams);

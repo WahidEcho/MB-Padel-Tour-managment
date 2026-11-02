@@ -1,15 +1,7 @@
+import { publicCourts, publicGroups, publicMatches, publicSnapshots, publicStandings, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  getCourts,
-  getGroups,
-  getMatches,
-  getSnapshots,
-  getStandings,
-  getTeams,
-  getTournamentBySlug,
-  teamMap,
-} from "@/lib/data";
+import { teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
 import { activeLiveVideos, liveVideoForMatch } from "@/lib/stream/liveVideo";
@@ -23,16 +15,16 @@ export const revalidate = 2;
 
 export default async function PublicOverview({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
   const id = tournament.id;
   const [groups, storedStandings, teams, allMatches, allSnapshots, courts] = await Promise.all([
-    getGroups(id),
-    getStandings(id),
-    getTeams(id),
-    getMatches(id),
-    getSnapshots(id),
-    getCourts(id),
+    publicGroups(id),
+    publicStandings(id),
+    publicTeamRows(id),
+    publicMatches(id),
+    publicSnapshots(id),
+    publicCourts(id),
   ]);
   // The audience delay (Admin → In the app → Score delay): the event as it stood `seconds` ago.
   const [{ matches, snapshots }, { standings }] = await Promise.all([

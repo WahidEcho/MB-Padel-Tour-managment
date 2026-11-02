@@ -1,5 +1,6 @@
+import { publicGroups, publicStandings, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
 import { notFound } from "next/navigation";
-import { getGroups, getStandings, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
+import { teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import StandingsTable from "@/components/StandingsTable";
 import { audienceTables } from "@/lib/live/delayServer";
@@ -10,12 +11,12 @@ export const revalidate = 8;
 
 export default async function PublicLeaderboard({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
   const [groups, stored, teams] = await Promise.all([
-    getGroups(tournament.id),
-    getStandings(tournament.id),
-    getTeams(tournament.id),
+    publicGroups(tournament.id),
+    publicStandings(tournament.id),
+    publicTeamRows(tournament.id),
   ]);
   // The audience delay: a result inside its window is not in the table yet.
   const { standings } = await audienceTables(tournament, stored);

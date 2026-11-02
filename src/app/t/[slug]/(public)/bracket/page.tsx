@@ -1,5 +1,6 @@
+import { publicBracketSlots, publicBrackets, publicMatches, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
 import { notFound } from "next/navigation";
-import { getBrackets, getBracketSlots, getMatches, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
+import { teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
 import { tournamentAudience } from "@/lib/live/delayServer";
@@ -11,13 +12,13 @@ export const revalidate = 8;
 
 export default async function PublicBracket({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
-  const brackets = (await getBrackets(tournament.id)).filter((b) => b.status === "published");
+  const brackets = (await publicBrackets(tournament.id)).filter((b) => b.status === "published");
   const [storedSlots, allMatches, teams] = await Promise.all([
-    Promise.all(brackets.map((b) => getBracketSlots(b.id))),
-    getMatches(tournament.id),
-    getTeams(tournament.id),
+    Promise.all(brackets.map((b) => publicBracketSlots(b.id))),
+    publicMatches(tournament.id),
+    publicTeamRows(tournament.id),
   ]);
   // The audience delay: a result inside its window has not advanced anyone yet.
   const { matches, hidden } = await tournamentAudience(tournament, { matches: allMatches });

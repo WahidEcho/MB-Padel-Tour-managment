@@ -1,6 +1,7 @@
+import { publicCourts, publicMatches, publicSnapshots, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCourts, getMatches, getSnapshots, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
+import { teamMap } from "@/lib/data";
 import { isFinished } from "@/lib/standings";
 import AutoRefresh from "@/components/AutoRefresh";
 import LiveMatchCard from "@/components/LiveMatchCard";
@@ -28,14 +29,14 @@ export const revalidate = 2;
  */
 export default async function PublicMatches({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
   const id = tournament.id;
   const [allMatches, teams, allSnapshots, courts] = await Promise.all([
-    getMatches(id),
-    getTeams(id),
-    getSnapshots(id),
-    getCourts(id),
+    publicMatches(id),
+    publicTeamRows(id),
+    publicSnapshots(id),
+    publicCourts(id),
   ]);
   // The audience delay (Admin → In the app → Score delay): the event as it stood `seconds` ago.
   const { matches, snapshots } = await tournamentAudience(tournament, { matches: allMatches, snapshots: allSnapshots });

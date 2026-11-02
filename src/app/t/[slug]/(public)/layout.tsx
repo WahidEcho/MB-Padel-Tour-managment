@@ -1,5 +1,6 @@
+import { publicHasEventInfo, publicHasVenue, publicTournamentBySlug, publicWatchTargets } from "@/lib/publicData";
 import { notFound } from "next/navigation";
-import { getTournamentBySlug } from "@/lib/data";
+
 import { sizedImageSrc } from "@/lib/portrait";
 import PresenceBeatForPath from "@/components/PresenceBeatForPath";
 import SponsorMarquee from "@/components/SponsorMarquee";
@@ -9,10 +10,9 @@ import EventBackdrop from "@/components/broadcast/EventBackdrop";
 import { backgroundFor } from "@/lib/background";
 import { resolveSponsors, sponsorStyle, watermarkSponsor } from "@/lib/sponsors";
 import WatchOnScreenMenu from "@/components/WatchOnScreenMenu";
-import { watchTargets } from "@/lib/watch";
-import { hasPublicVenue } from "@/lib/venue/server";
+
 import PlayNotice from "@/components/PlayNotice";
-import { hasPublicEventInfo } from "@/lib/eventInfo/server";
+
 import { scoreDelayNotice, scoreDelaySeconds } from "@/lib/live/delay";
 
 // Rendered at most every 10s and shared by every visitor: at the venue a crowd
@@ -33,7 +33,7 @@ export default async function PublicLayout({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament || !tournament.public_access_enabled) notFound();
 
   // Chess has no group stage, so no group leaderboard tab.
@@ -67,11 +67,11 @@ export default async function PublicLayout({
   const { main, footer } = resolveSponsors(tournament.branding_config);
   const band = sponsorStyle(tournament.branding_config);
   // The venue screens anyone here may open, on every public page.
-  const watch = await watchTargets(tournament.id);
+  const watch = await publicWatchTargets(tournament.id);
   // The venue map, when the organiser has published one (its own full-screen page).
-  const hasMap = await hasPublicVenue(slug);
+  const hasMap = await publicHasVenue(slug);
   // The event info for fans, once the organiser has published it.
-  const hasInfo = await hasPublicEventInfo(slug);
+  const hasInfo = await publicHasEventInfo(slug);
   const backdrop = backgroundFor(tournament.branding_config, "public", "light");
   // The audience delay (Admin → In the app → Score delay): say so while it is on.
   const delayNote = scoreDelayNotice(scoreDelaySeconds(tournament.branding_config));

@@ -1,8 +1,9 @@
+import { publicCourts, publicHasVenue, publicMatch, publicSnapshot, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
 import { notFound } from "next/navigation";
-import { getCourts, getMatch, getSnapshot, getTeams, getTournamentBySlug, teamMap } from "@/lib/data";
+import { teamMap } from "@/lib/data";
 import Link from "next/link";
 import AutoRefresh from "@/components/AutoRefresh";
-import { hasPublicVenue } from "@/lib/venue/server";
+
 import LiveMatchCard from "@/components/LiveMatchCard";
 import YouTubeLivePlayer from "@/components/stream/YouTubeLivePlayer";
 import { activeLiveVideos, liveVideoConfig, liveVideoForMatch } from "@/lib/stream/liveVideo";
@@ -36,15 +37,15 @@ export default async function PublicMatch({
   params: Promise<{ slug: string; matchId: string }>;
 }) {
   const { slug, matchId } = await params;
-  const tournament = await getTournamentBySlug(slug);
+  const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
-  const stored = await getMatch(matchId);
+  const stored = await publicMatch(matchId);
   if (!stored || stored.tournament_id !== tournament.id) notFound();
   const [teams, storedSnapshot, courts, venue, stats] = await Promise.all([
-    getTeams(tournament.id),
-    getSnapshot(matchId),
-    getCourts(tournament.id),
-    stored.court_id ? hasPublicVenue(slug) : Promise.resolve(false),
+    publicTeamRows(tournament.id),
+    publicSnapshot(matchId),
+    publicCourts(tournament.id),
+    stored.court_id ? publicHasVenue(slug) : Promise.resolve(false),
     // Fans' stats (public tournaments only; aces only when the organiser shows them).
     getMatchStats(matchId).catch(() => null),
   ]);
