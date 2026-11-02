@@ -92,22 +92,18 @@ describe("parseSmashSchedule", () => {
 });
 
 describe("planImport on the recorded day", () => {
-  it("enters the clean results, sends the doubtful ones to the desk and never touches courts 13 and 14", () => {
+  it("enters the clean results and never touches courts 13 and 14", () => {
     const smash = endOfDay();
     const plan = planImport(smash, oursFrom(smash));
-    expect(plan.enter).toHaveLength(36);
-    expect(plan.desk).toHaveLength(5);
+    // The five with no tie-break points on Smash are entered too (7-5 to the set's winner).
+    expect(plan.enter).toHaveLength(41);
+    expect(plan.desk).toHaveLength(0);
     expect(plan.skipped).toHaveLength(6);
     expect(plan.skipped.every((s) => OWN_COURTS.has(s.court) && s.why === "court scored on Move Score")).toBe(true);
     expect(plan.enter.some((e) => OWN_COURTS.has(e.court))).toBe(false);
     expect(plan.desk.some((e) => OWN_COURTS.has(e.court))).toBe(false);
     // Court 11's doubles was not finished on Smash: not listed at all.
     expect([...plan.enter, ...plan.desk, ...plan.skipped].some((x) => x.court === 11 && x.smash.startsWith("doubles"))).toBe(false);
-    // Desk: 7-6 sets with no tie-break points (court 1 D, court 8 D, court 16 S1 and D) and 0-0 ones (court 15).
-    expect(plan.desk.map((d) => `${d.court} ${d.ours}`).sort()).toEqual(
-      ["1 BJK Group A COL v AUS D", "15 DC Group A USA v IND S2", "16 BJK Group A GBR v BRA D", "16 BJK Group A GBR v BRA S1", "8 DC Group A BRA v MAR D"].sort(),
-    );
-    expect(plan.desk.every((d) => /no tie-break points/.test(d.why))).toBe(true);
   });
 
   it("never imports court 13 or 14, even with everything matching and nothing scored", () => {
@@ -133,33 +129,35 @@ describe("planImport on the recorded day", () => {
     expect(plan.enter.filter((e) => e.court === 2)).toHaveLength(0);
     expect(plan.skipped.filter((e) => e.court === 2).map((e) => e.why).sort()).toEqual(["already completed on Move Score", "already has a score on Move Score", "already has a score on Move Score"]);
     expect(plan.skipped.find((e) => e.court === 3)?.why).toBe("already live on Move Score");
-    expect(plan.enter).toHaveLength(32);
+    expect(plan.enter).toHaveLength(37);
   });
 
-  it("sends a 7-6 set with no tie-break points, or 0-0 ones, to the desk and enters real ones", () => {
+  it("gives a 7-6 set with no tie-break points (or 0-0 ones) to its winner 7-5, and enters real ones", () => {
     const smash = endOfDay();
     const plan = planImport(smash, oursFrom(smash));
-    expect(plan.desk.find((d) => d.court === 1)?.why).toMatch(/set 1 is 7-6 with no tie-break points/);
-    expect(plan.desk.find((d) => d.court === 15)?.why).toMatch(/set 1 is 6-7 with no tie-break points/);
+    const c1 = plan.enter.find((e) => e.court === 1 && e.ours?.endsWith(" D"))!;
+    expect(c1.payload.sets[0]).toEqual({ a: 7, b: 6, tb: { a: 7, b: 5 } });
+    const c15 = plan.enter.find((e) => e.court === 15 && e.ours?.endsWith("S2"))!;
+    expect(c15.payload.sets.slice(0, 2)).toEqual([{ a: 6, b: 7, tb: { a: 5, b: 7 } }, { a: 7, b: 6, tb: { a: 7, b: 5 } }]);
     // Court 8 S1: 6-4 6-7(4) 6-0, the tie-break points given by Smash.
     const c8 = plan.enter.find((e) => e.court === 8 && e.ours?.endsWith("S1"))!;
     expect(c8.payload.sets).toEqual([{ a: 6, b: 4 }, { a: 6, b: 7, tb: { a: 4, b: 7 } }, { a: 6, b: 0 }]);
     expect(c8.why).toBe("6-4 6-7(4) 6-0");
   });
 
-  it("enters a 7-6 set once Smash adds its tie-break points later, and never takes [0,0] as a score", () => {
+  it("uses tie-break points once Smash adds them, and never takes [0,0] as a score", () => {
     const smash = endOfDay();
     const ours = oursFrom(smash);
     const c1 = smash.matches.find((m) => m.court === 1 && m.type === "doubles")!;
-    expect(planImport(smash, ours).desk.some((d) => d.smashId === c1.id)).toBe(true);
+    expect(planImport(smash, ours).enter.find((e) => e.smashId === c1.id)?.payload.sets[0].tb).toEqual({ a: 7, b: 5 });
     // A later snapshot: Smash wrote the first set's tie-break as [7, 4].
     c1.tiebreaks = [[7, 4], null, null];
     const later = planImport(smash, ours).enter.find((e) => e.smashId === c1.id)!;
     expect(later.payload.sets).toEqual([{ a: 7, b: 6, tb: { a: 7, b: 4 } }, { a: 4, b: 6 }, { a: 1, b: 0, tb: { a: 10, b: 6 } }]);
     expect(later.why).toBe("7-6(4) 4-6 [10-6]");
-    // [0, 0] is the same as nothing.
+    // [0, 0] is the same as nothing: never a score, the set's winner takes it 7-5.
     c1.tiebreaks = [[0, 0], null, null];
-    expect(planImport(smash, ours).desk.find((d) => d.smashId === c1.id)?.why).toMatch(/no tie-break points/);
+    expect(planImport(smash, ours).enter.find((e) => e.smashId === c1.id)?.payload.sets[0].tb).toEqual({ a: 7, b: 5 });
   });
 
   it("turns the sets round when Smash's player 1 is our side B", () => {

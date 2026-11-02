@@ -405,6 +405,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `enterFinalResult` as role `system`, so append.ts's `correctionCut` refuses anything over a score; audit `SMASH_RESULT_IMPORTED` by
   "Smash import"; ≤ 6 per run, 3 s apart; run lock = `takeRateLimit` bucket `smash-import:run`), route `POST api/internal/smash/import`
   (CRON_SECRET; nothing unless `SMASH_IMPORT_ON=1`; stops itself 8 Nov 2026 21:00 Cairo, `SMASH_IMPORT_UNTIL` overrides; `SMASH_FEED_URL`
-  for tests), cron `supabase/ops/smash_import_cron.sql` (every 2 min). Never courts 13/14; only rubbers with no score at all; tie-break
-  points never guessed (7-6 without them or with 0-0, retirements, walkovers, line-up/pair differs → listed as `desk` in the response).
+  for tests), cron `supabase/ops/smash_import_cron.sql` (every 2 min). Never courts 13/14; only rubbers with no score at all; a 7-6 set
+  with no tie-break points on Smash (null or 0-0) goes to its winner 7-5 (owner, 2 Nov 2026: announce the winner); retirements, walkovers,
+  line-up/pair differs → listed as `desk` in the response.
   Gate `npm run e2e:smash-import` (stand-in only; the script refuses a non-local URL).
