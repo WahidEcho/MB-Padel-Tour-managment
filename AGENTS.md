@@ -399,3 +399,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   viewer route `stories`, guide, "Post to Move Score Stories" in the share step), words in the `stories` i18n namespace. Terms/privacy
   carry a Stories paragraph. The stand-in keeps storage object names (`GET /storage/v1/_localdb/objects?prefix=`). Gate
   `npm run e2e:stories` (stand-in).
+- Smash scores import (Cairo events, no migration; off until the owner switches it on): finished results from Smash Sporting Club's
+  public feed (`scores.sscsportsacademy.com/api/public/schedule`) become RESULT_ENTERED final results on the two Cairo events. Pure
+  `src/lib/smash/{feed,plan}.ts` (fixtures: real Smash snapshots of 2 Nov 2026), server `src/lib/smash/server.ts` (explicit columns;
+  `enterFinalResult` as role `system`, so append.ts's `correctionCut` refuses anything over a score; audit `SMASH_RESULT_IMPORTED` by
+  "Smash import"; ≤ 6 per run, 3 s apart; run lock = `takeRateLimit` bucket `smash-import:run`), route `POST api/internal/smash/import`
+  (CRON_SECRET; nothing unless `SMASH_IMPORT_ON=1`; stops itself 8 Nov 2026 21:00 Cairo, `SMASH_IMPORT_UNTIL` overrides; `SMASH_FEED_URL`
+  for tests), cron `supabase/ops/smash_import_cron.sql` (every 2 min). Never courts 13/14; only rubbers with no score at all; tie-break
+  points never guessed (7-6 without them or with 0-0, retirements, walkovers, line-up/pair differs → listed as `desk` in the response).
+  Gate `npm run e2e:smash-import` (stand-in only; the script refuses a non-local URL).
