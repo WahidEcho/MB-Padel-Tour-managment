@@ -1,6 +1,8 @@
 {
   "permissions": {
     "allow": [
+      "mcp__Supabase__execute_sql",
+      "mcp__Supabase__apply_migration",
       "Bash(npm --version)",
       "mcp__d83e062d-6316-4484-8793-970a1dcb6297__list_projects",
       "Bash(mv \"/Users/wahid/MW/Side Hustle/Move Beyond/Code Base/Padel-training-app-p1/move_beyond_tournament_management_spec.md\" /tmp/mb_spec.md)",
