@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_TENNIS_SCORING_CONFIG } from "../types";
-import { parseSmashSchedule, type SmashSchedule } from "./feed";
-import { nameKey, OWN_COURTS, planImport, smashImportSwitch, type OurSide } from "./plan";
+import { parseSmashLive, parseSmashSchedule, type SmashLiveScore, type SmashSchedule } from "./feed";
+import { liveState, nameKey, OWN_COURTS, planImport, planLive, smashImportSwitch, type OurSide } from "./plan";
 
 /** Recorded from Smash's public feed on 2 Nov 2026 (the first day of the Cairo events). */
 const fixture = (name: string) => JSON.parse(readFileSync(join(__dirname, "fixtures", name), "utf8")) as unknown;
@@ -281,5 +281,118 @@ describe("smashImportSwitch", () => {
     expect(smashImportSwitch({ SMASH_IMPORT_ON: "1", SMASH_IMPORT_UNTIL: "2026-11-09T21:00:00+02:00" }, after).on).toBe(true);
     expect(smashImportSwitch({ SMASH_IMPORT_ON: "1", SMASH_IMPORT_UNTIL: "2026-11-05T12:00:00Z" }, before).on).toBe(false);
     expect(smashImportSwitch({ SMASH_IMPORT_ON: "1", SMASH_IMPORT_UNTIL: "not a date" }, after).on).toBe(false);
+  });
+});
+
+/* ---------------- live scores ---------------- */
+
+/** Recorded together from Smash's two public feeds at 09:52 Cairo on 3 Nov 2026 (singles #1 in play). */
+const morning = () => parseSmashSchedule(fixture("2026-11-03-morning-schedule.json"));
+const morningLive = () => parseSmashLive(fixture("2026-11-03-morning-live.json"));
+/** Our side for the morning: only the day's ties (Smash's courts also list yesterday's finished matches). */
+const oursForDay = (smash: SmashSchedule, day: string) => {
+  const ours = oursFrom({ matches: smash.matches.filter((m) => m.day === day) });
+  for (const t of ours.ties) t.scheduledTime = `${day}T07:30:00Z`;
+  return ours;
+};
+
+const score = (over: Partial<SmashLiveScore> = {}): SmashLiveScore => ({
+  sets: [[6, 3], [2, 4]],
+  setsWon: [1, 0],
+  points: ["15", "40"],
+  serving: 2,
+  tiebreak: false,
+  matchTiebreak: false,
+  tiebreakPoints: [0, 0],
+  ...over,
+});
+
+describe("parseSmashLive", () => {
+  it("reads the matches in play only (the feed repeats a court's score on its later matches)", () => {
+    const live = morningLive();
+    expect(live.size).toBe(14);
+    const smash = morning();
+    const onCourt15 = smash.matches.filter((m) => m.court === 15 && live.has(m.id));
+    expect(onCourt15).toHaveLength(1);
+    expect(onCourt15[0].status).toBe("live");
+    expect(live.get(onCourt15[0].id)).toMatchObject({ sets: [[1, 2]], setsWon: [0, 0], points: ["15", "40"] });
+  });
+  it("refuses something that is not the live list", () => {
+    expect(() => parseSmashLive({ courts: [] })).toThrow();
+  });
+});
+
+describe("liveState", () => {
+  it("finished sets, the set in play, the game score and the server, from our side A", () => {
+    const st = liveState(score(), true, "x")!;
+    expect(st.completedSets).toEqual([{ teamAGames: 6, teamBGames: 3 }]);
+    expect(st).toMatchObject({ currentSet: 2, isTiebreak: false, servingTeam: "B", source: "smash", matchOver: false });
+    expect(st.teamA).toEqual({ points: "15", games: 2, sets: 1, tiebreakPoints: 0 });
+    expect(st.teamB).toEqual({ points: "40", games: 4, sets: 0, tiebreakPoints: 0 });
+  });
+  it("turns everything round when Smash's player 1 is our side B", () => {
+    const st = liveState(score(), false, "x")!;
+    expect(st.completedSets).toEqual([{ teamAGames: 3, teamBGames: 6 }]);
+    expect(st.teamA).toEqual({ points: "40", games: 4, sets: 0, tiebreakPoints: 0 });
+    expect(st.servingTeam).toBe("A");
+  });
+  it("a tie-break carries its points; a match tie-break is marked", () => {
+    const tb = liveState(score({ sets: [[6, 6]], setsWon: [0, 0], tiebreak: true, tiebreakPoints: [5, 3] }), true, "x")!;
+    expect(tb).toMatchObject({ isTiebreak: true, servingTeam: null });
+    expect([tb.teamA.tiebreakPoints, tb.teamB.tiebreakPoints, tb.teamA.points]).toEqual([5, 3, "0"]);
+    const mtb = liveState(score({ sets: [[6, 3], [3, 6], [0, 0]], setsWon: [1, 1], matchTiebreak: true, tiebreakPoints: [8, 9] }), true, "x")!;
+    expect(mtb).toMatchObject({ isTiebreak: true, isMatchTiebreak: true, currentSet: 3 });
+    expect(mtb.completedSets).toHaveLength(2);
+  });
+  it("nonsense from the feed is refused", () => {
+    expect(liveState(score({ setsWon: [2, 1], sets: [[6, 1]] }), true, "x")).toBeNull();
+    expect(liveState(score({ sets: [[40, 2]], setsWon: [0, 0] }), true, "x")).toBeNull();
+  });
+});
+
+describe("planLive on the recorded morning", () => {
+  it("writes every singles in play off courts 13 and 14 onto its rubber", () => {
+    const smash = morning();
+    const ours = oursForDay(smash, "2026-11-03");
+    const plan = planLive(smash, morningLive(), ours);
+    expect(plan.desk).toEqual([]);
+    expect(plan.update).toHaveLength(12);
+    expect(plan.update.some((u) => OWN_COURTS.has(u.court))).toBe(false);
+    expect(plan.skipped.map((s) => s.court).sort()).toEqual([13, 14]);
+    // Court 15: ITA v JPN, singles #1 → our S2, 1-2 15-40.
+    const c15 = plan.update.find((u) => u.court === 15)!;
+    expect(c15.matchId).toBe("tie-15-S2");
+    expect(c15.line).toBe("1-2 15-40");
+  });
+  it("leaves a rubber our referees have (an event, or started here) and keeps updating its own mirror", () => {
+    const smash = morning();
+    const ours = oursForDay(smash, "2026-11-03");
+    rubberOf(ours, 15, "S2").hasEvents = true;
+    Object.assign(rubberOf(ours, 16, "S2"), { status: "live", mirrored: false });
+    Object.assign(rubberOf(ours, 12, "S2"), { status: "live", mirrored: true });
+    const plan = planLive(smash, morningLive(), ours);
+    expect(plan.update.map((u) => u.court)).not.toContain(15);
+    expect(plan.update.map((u) => u.court)).not.toContain(16);
+    expect(plan.update.map((u) => u.court)).toContain(12);
+  });
+  it("a singles player who is not our line-up goes to the desk", () => {
+    const smash = morning();
+    const ours = oursForDay(smash, "2026-11-03");
+    const r = rubberOf(ours, 11, "S2");
+    r.aPlayerIds = ["someone-else"];
+    const plan = planLive(smash, morningLive(), ours);
+    expect(plan.desk.find((d) => d.court === 11)?.why).toMatch(/line-up differs/);
+  });
+});
+
+describe("the final result over a mirrored live score", () => {
+  it("is still entered: the mirror is Smash's, not our officials'", () => {
+    const smash = endOfDay();
+    const ours = oursFrom(smash);
+    const r = rubberOf(ours, 1, "S2");
+    Object.assign(r, { status: "live", mirrored: true });
+    expect(planImport(smash, ours).enter.some((e) => e.matchId === r.id)).toBe(true);
+    Object.assign(r, { mirrored: false });
+    expect(planImport(smash, ours).skipped.some((e) => e.ours?.endsWith("S2") && e.court === 1)).toBe(true);
   });
 });

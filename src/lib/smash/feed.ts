@@ -124,3 +124,54 @@ export function parseSmashSchedule(raw: unknown): SmashSchedule {
   }
   return { matches };
 }
+
+/* ---------------- live scores (`GET /api/public/live`) ---------------- */
+
+/** One match's score in play, as Smash's live feed gives it, player 1 first. */
+export interface SmashLiveScore {
+  /** Games per set, the set in play last. */
+  sets: [number, number][];
+  /** Sets won so far: the first `setsWon[0] + setsWon[1]` entries of `sets` are finished. */
+  setsWon: [number, number];
+  /** The game score in play: "0" | "15" | "30" | "40" | "AD". */
+  points: [string, string];
+  /** Who serves: 1 or 2; null when not given. */
+  serving: 1 | 2 | null;
+  tiebreak: boolean;
+  matchTiebreak: boolean;
+  tiebreakPoints: [number, number];
+}
+
+/**
+ * Smash's live feed: every match its scorers have on court, by Smash match id. Only matches marked
+ * "live" are read: the feed repeats a court's live score on that court's later matches.
+ */
+export function parseSmashLive(raw: unknown): Map<string, SmashLiveScore> {
+  const out = new Map<string, SmashLiveScore>();
+  if (!Array.isArray(raw)) throw new Error("Smash live: not a list");
+  for (const v of raw) {
+    if (!isObj(v) || v.status !== "live") continue;
+    const id = str(v.matchId) ?? str(v.id);
+    const s = isObj(v.score) ? v.score : null;
+    if (!id || !s || s.status === "completed") continue;
+    const read = (Array.isArray(s.sets) ? s.sets : []).map(pair);
+    if (!read.every((x): x is [number, number] => x !== null)) continue;
+    const won = pair(s.setsWon) ?? [0, 0];
+    const gs = isObj(s.gameScore) ? s.gameScore : {};
+    const point = (p: unknown) => {
+      const t = typeof p === "number" ? String(p) : str(p);
+      return t && ["0", "15", "30", "40", "AD"].includes(t.toUpperCase()) ? t.toUpperCase() : "0";
+    };
+    const serving = int(s.serving);
+    out.set(id, {
+      sets: read,
+      setsWon: won,
+      points: [point(gs.p1), point(gs.p2)],
+      serving: serving === 1 || serving === 2 ? serving : null,
+      tiebreak: s.tiebreak === true,
+      matchTiebreak: s.matchTiebreak === true,
+      tiebreakPoints: pair(s.tiebreakPoints) ?? [0, 0],
+    });
+  }
+  return out;
+}
