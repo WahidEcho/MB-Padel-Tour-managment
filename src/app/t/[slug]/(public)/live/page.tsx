@@ -10,7 +10,7 @@ import { tournamentAudience } from "@/lib/live/delayServer";
 
 // Rendered at most every 1s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
-export const revalidate = 1;
+export const revalidate = 5;
 
 export default async function PublicLive({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -52,7 +52,7 @@ export default async function PublicLive({ params }: { params: Promise<{ slug: s
 
   return (
     <div className="space-y-5">
-      <AutoRefresh seconds={3} />
+      <AutoRefresh seconds={5} />
       <h2 className="text-xl font-bold">{isChess ? "Live games" : "Live matches"}</h2>
       {live.length === 0 && (
         <p className="card p-8 text-center text-muted">No live {isChess ? "games" : "matches"} right now.</p>

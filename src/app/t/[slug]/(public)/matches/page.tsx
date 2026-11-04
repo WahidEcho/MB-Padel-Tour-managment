@@ -13,7 +13,7 @@ import type { Match } from "@/lib/types";
 
 // Rendered at most every 2s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
-export const revalidate = 2;
+export const revalidate = 5;
 
 /**
  * Every match, at every stage, in one place.

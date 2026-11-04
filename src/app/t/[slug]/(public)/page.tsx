@@ -11,7 +11,7 @@ import { audienceTables, tournamentAudience } from "@/lib/live/delayServer";
 
 // Rendered at most every 2s and shared by every visitor: at the venue a crowd
 // refreshing this page reads one cached copy instead of the database each time.
-export const revalidate = 2;
+export const revalidate = 5;
 
 export default async function PublicOverview({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
