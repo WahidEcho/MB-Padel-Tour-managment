@@ -136,6 +136,27 @@ export function sessionCeremonyTier(
   };
 }
 
+/**
+ * A team competition's podium (Davis Cup / BJK Cup ties): the nations in the final
+ * places decided by the placement ties, 1st to `depth`, each with its players.
+ */
+export function tieCeremonyTier(
+  label: string,
+  placings: { place: number; team_id: string }[],
+  teams: Map<string, CeremonyEntrant>,
+  depth: number,
+): CeremonyTier {
+  return {
+    key: "ties",
+    label,
+    places: placings
+      .filter((p) => p.place >= 1 && p.place <= depth && teams.has(p.team_id))
+      .sort((a, b) => a.place - b.place)
+      .map((p) => ({ place: p.place, entrants: [teams.get(p.team_id)!] })),
+    configuredDepth: depth,
+  };
+}
+
 /** Timeline of one step's build on the wall, seeked from the stamp. */
 export const CEREMONY = {
   /** Slate or card rises in. */

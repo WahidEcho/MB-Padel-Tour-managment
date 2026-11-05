@@ -4,14 +4,16 @@ import { getRankingSnapshot, getSessionByTournament, listPublicPlayers } from ".
 import { toPublicTeam } from "../public";
 import type { BracketTier, ScreenSettings, Tournament } from "../types";
 import { podiumFromMatches } from "../../components/WinnerDisplay";
-import { ceremonySteps, sessionCeremonyTier, type CeremonyPerson, type CeremonyTier } from "./ceremony";
+import { finalPlacings, isTieFormat } from "../tennis/tieOps";
+import { ceremonySteps, sessionCeremonyTier, tieCeremonyTier, type CeremonyEntrant, type CeremonyPerson, type CeremonyTier } from "./ceremony";
 
 /**
  * The ceremony a screen would run right now: its tiers, in reveal order.
  *
  * A tournament's comes from its published brackets — the Plate before the Cup
  * when the screen shows both — each at its configured podium depth. A friendly
- * session's comes from its ranking, where ties share a place. Only public
+ * session's comes from its ranking, where ties share a place. A team competition's
+ * (Davis Cup / BJK Cup) comes from the places its placement ties decided. Only public
  * projections leave this function: the ceremony stage is a client component.
  */
 export async function buildCeremony(
@@ -31,6 +33,23 @@ export async function buildCeremony(
     );
     const depth = tournament.format_config?.tiers?.cup?.podiumDepth ?? 3;
     return [sessionCeremonyTier(session.name, ranking, people, depth)];
+  }
+
+  if (isTieFormat(tournament)) {
+    const [placings, teams] = await Promise.all([finalPlacings(tournament.id), getTeams(tournament.id)]);
+    const entrants = new Map<string, CeremonyEntrant>(
+      teams.map((t) => {
+        const team = toPublicTeam(t);
+        return [
+          t.id,
+          {
+            title: team.team_name,
+            people: team.players.map((pl) => ({ id: pl.id, name: pl.full_name, photo_url: pl.photo_url, portrait_url: pl.portrait_url, focal_x: pl.focal_x, focal_y: pl.focal_y })),
+          },
+        ];
+      }),
+    );
+    return [tieCeremonyTier(tournament.name, placings, entrants, tournament.format_config?.tiers?.cup?.podiumDepth ?? 4)];
   }
 
   const [brackets, matches, teams] = await Promise.all([

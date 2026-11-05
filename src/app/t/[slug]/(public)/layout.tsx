@@ -50,6 +50,7 @@ export default async function PublicLayout({
         ? ([
             ["", "Overview"],
             ["/ties", "Ties"],
+            ["/bracket", "Bracket"],
             ["/leaderboard", "Leaderboard"],
             ["/live", "Live"],
             ["/matches", "Matches"],

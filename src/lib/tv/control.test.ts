@@ -15,6 +15,7 @@ import {
   podiumCount,
   sessionCeremonyTier,
   shortTiers,
+  tieCeremonyTier,
   stepAt,
   type CeremonyPerson,
   type CeremonyTier,
@@ -290,6 +291,24 @@ describe("ceremony sequence", () => {
 
   it("tells the operator when a tier has fewer decided places than configured", () => {
     expect(shortTiers([{ ...cup, places: cup.places.slice(0, 2) }])).toEqual(["Cup is set to 4 places but only 2 are decided"]);
+  });
+
+  it("builds a team competition's podium from the placement places, 1st to the depth", () => {
+    const nation = (id: string) => ({ title: `Nation ${id}`, people: [person(`${id}-1`), person(`${id}-2`)] });
+    const teams = new Map(["a", "b", "c", "d", "e"].map((id) => [id, nation(id)]));
+    const placings = [
+      { place: 5, team_id: "e" },
+      { place: 2, team_id: "b" },
+      { place: 1, team_id: "a" },
+      { place: 4, team_id: "d" },
+      { place: 3, team_id: "c" },
+    ];
+    const tier = tieCeremonyTier("Davis Cup Junior Finals", placings, teams, 4);
+    expect(tier.places.map((p) => [p.place, p.entrants[0].title])).toEqual([[1, "Nation a"], [2, "Nation b"], [3, "Nation c"], [4, "Nation d"]]);
+    expect(tier.places[0].entrants[0].people).toHaveLength(2);
+    expect(ceremonySteps([tier])).toHaveLength(5);
+    expect(shortTiers([tier])).toEqual([]);
+    expect(tieCeremonyTier("Before the finals", [], teams, 4).places).toEqual([]);
   });
 
   it("builds a session podium from the ranking, with ties sharing a place", () => {

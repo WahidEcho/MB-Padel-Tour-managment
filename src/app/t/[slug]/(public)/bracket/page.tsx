@@ -1,8 +1,9 @@
-import { publicBracketSlots, publicBrackets, publicMatches, publicTeamRows, publicTournamentBySlug } from "@/lib/publicData";
+import { publicBracketSlots, publicBrackets, publicCourts, publicMatches, publicTeamRows, publicTies, publicTournamentBySlug } from "@/lib/publicData";
 import { notFound } from "next/navigation";
 import { teamMap } from "@/lib/data";
 import AutoRefresh from "@/components/AutoRefresh";
 import BracketView from "@/components/BracketView";
+import TieBrackets from "@/components/TieBrackets";
 import { tournamentAudience } from "@/lib/live/delayServer";
 import { maskBracketSlots } from "@/lib/live/delay";
 
@@ -14,6 +15,7 @@ export default async function PublicBracket({ params }: { params: Promise<{ slug
   const { slug } = await params;
   const tournament = await publicTournamentBySlug(slug);
   if (!tournament) notFound();
+  if (tournament.format_config?.ties) return <TieBracketPage tournamentId={tournament.id} tournament={tournament} />;
   const brackets = (await publicBrackets(tournament.id)).filter((b) => b.status === "published");
   const [storedSlots, allMatches, teams] = await Promise.all([
     Promise.all(brackets.map((b) => publicBracketSlots(b.id))),
@@ -44,6 +46,20 @@ export default async function PublicBracket({ params }: { params: Promise<{ slug
           </section>
         ))
       )}
+    </div>
+  );
+}
+
+/** A nations event: its placement draws (Cup, Plate) as brackets, as the audience sees them. */
+async function TieBracketPage({ tournamentId, tournament }: { tournamentId: string; tournament: NonNullable<Awaited<ReturnType<typeof publicTournamentBySlug>>> }) {
+  const [allTies, allMatches, teams, courts] = await Promise.all([publicTies(tournamentId), publicMatches(tournamentId), publicTeamRows(tournamentId), publicCourts(tournamentId)]);
+  // The audience delay: a tie decided inside its window has not sent anyone on yet.
+  const { ties } = await tournamentAudience(tournament, { matches: allMatches, ties: allTies });
+  return (
+    <div className="space-y-4">
+      <AutoRefresh seconds={8} />
+      <h2 className="text-xl font-bold">Play-off brackets</h2>
+      <TieBrackets ties={ties} teams={teamMap(teams)} courts={new Map(courts.map((c) => [c.id, c.court_name]))} timeZone={tournament.timezone || "Africa/Cairo"} />
     </div>
   );
 }
