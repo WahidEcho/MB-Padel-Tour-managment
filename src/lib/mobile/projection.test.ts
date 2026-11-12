@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTimeline, shortCode, toScore, toTeam } from "./projection";
+import { buildTimeline, listedInApp, shortCode, toScore, toTeam } from "./projection";
 import { scoreLine } from "./contract";
 import type { MatchSnapshot, Team } from "../types";
 
@@ -123,5 +123,14 @@ describe("toTeam", () => {
   });
   it("makes a short code from a pair name", () => {
     expect(shortCode("Taymour / Mohsen")).toBe("TM");
+  });
+});
+
+describe("listedInApp", () => {
+  it("lists an event unless Admin → In the app took it off the lists", () => {
+    expect(listedInApp({ app_skin: null })).toBe(true);
+    expect(listedInApp({ app_skin: {} })).toBe(true);
+    expect(listedInApp({ app_skin: { listed: true } })).toBe(true);
+    expect(listedInApp({ app_skin: { listed: false } })).toBe(false);
   });
 });

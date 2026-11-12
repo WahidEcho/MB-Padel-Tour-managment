@@ -28,6 +28,8 @@ export interface CallSnapshot {
   presentB: boolean;
   /** When the row last changed: the moment a closed call closed. */
   updatedAt?: string | null;
+  /** Each player's answer from the phone that rang (migration 0045); absent from older servers. */
+  players?: { id: string; name: string; side: TeamKey; answer: "coming" | "declined" | null; at: string | null }[];
 }
 
 export type NoShowChoice = "wait" | "extend" | "walkover_to_a" | "walkover_to_b" | "both_no_show";
@@ -48,6 +50,17 @@ export interface CallCardSide {
   present: boolean;
   /** The referee can mark this side as at the court. */
   canMark: boolean;
+  /**
+   * The side's players and how each answered the call on their phone (owner, 12 Nov 2026):
+   * "coming", "declined" or null (no answer yet). Empty when the call is not running or the
+   * server sends no answers.
+   */
+  players: CallCardPlayer[];
+}
+
+export interface CallCardPlayer {
+  name: string;
+  answer: "coming" | "declined" | null;
 }
 
 export interface CallCardModel {
@@ -172,14 +185,15 @@ export function callCardModel(input: {
       detail: hasCourt
         ? `${before}Calling it gives the players ${plural(rules.courtCall.minutes, "minute")} to reach the court.`
         : `${before}Give the match a court first (tournament desk).`,
-      sides: (["A", "B"] as TeamKey[]).map((key) => ({ key, name: names[key], present: false, canMark: false })),
+      sides: (["A", "B"] as TeamKey[]).map((key) => ({ key, name: names[key], present: false, canMark: false, players: [] })),
     };
   }
 
   const view = callView(courtCallOf(call), rules, nowMs);
   const sides: CallCardSide[] = (["A", "B"] as TeamKey[]).map((key) => {
     const present = key === "A" ? call.presentA : call.presentB;
-    return { key, name: names[key], present, canMark: !present && view.actions.includes(key === "A" ? "mark_present_a" : "mark_present_b") };
+    const players = view.phase === "closed" ? [] : (call.players ?? []).filter((p) => p.side === key).map((p) => ({ name: p.name, answer: p.answer }));
+    return { key, name: names[key], present, canMark: !present && view.actions.includes(key === "A" ? "mark_present_a" : "mark_present_b"), players };
   });
   const missing = view.absent.map((k) => names[k]);
   const base = { ...hidden, show: true, phase: view.phase, sides, view, canCancel: view.phase !== "closed" };

@@ -51,7 +51,7 @@ export type TournamentRow = Tournament & {
   timezone?: string | null;
   starts_on?: string | null;
   ends_on?: string | null;
-  app_skin?: (AppSkin & { showPhotos?: boolean; showAges?: boolean }) | null;
+  app_skin?: (AppSkin & { showPhotos?: boolean; showAges?: boolean; listed?: boolean }) | null;
   organization_id?: string | null;
 };
 
@@ -64,6 +64,15 @@ export interface OrgBranding {
   name: string;
   colors?: unknown;
   logo_url?: string | null;
+}
+
+/**
+ * Whether an event appears in the app's lists (Discover, an organisation's page). Admin → In the app
+ * can take an event off them (`app_skin.listed = false`, owner 12 Nov 2026: Cairo after the event)
+ * while its own pages, links and the website stay as they are.
+ */
+export function listedInApp(t: Pick<TournamentRow, "app_skin">): boolean {
+  return t.app_skin?.listed !== false;
 }
 
 /**

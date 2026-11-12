@@ -7,6 +7,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 # Move Beyond Tournament Management — agent notes
 
 - Spec: `docs/move_beyond_tournament_management_spec.md`. README has the architecture summary.
+- **Between events the live project is scaled down (9 Nov 2026): Supabase compute Micro, drain crons every 5 min.** Whenever the
+  owner sets up or mentions an upcoming event/match day, remind them of `docs/match-day-prep.md` (compute up, drain jobs back
+  to every minute, a day or two before play) — and of its "After the event" list when an event ends.
 - Supabase project id: `dwyztzywuscljqklhqij` (org `zigybnrxlgipryfgqvia`). Schema was applied
   via the Supabase MCP migration `init_tournament_schema`.
 - All DB access is server-side through `src/lib/supabase.ts` (`db()`); the key is NOT public.
@@ -409,3 +412,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
   with no tie-break points on Smash (null or 0-0) goes to its winner 7-5 (owner, 2 Nov 2026: announce the winner); retirements, walkovers,
   line-up/pair differs → listed as `desk` in the response.
   Gate `npm run e2e:smash-import` (stand-in only; the script refuses a non-local URL).
+- Padel = tennis console (owner, 12 Nov 2026, no migration): `supports.tennisConsole` (registry) sends the bootstrap's `tennis` for
+  padel too (changeovers, code violations, doubles serve order); padel `scoringFeaturesByDefault` (a friendly session keeps them off,
+  `matchDayRules(raw, { sport, kind })`). Fan stats/aces follow. Admin → In the app "List this event in the app" (`app_skin.listed`,
+  `listedInApp` in projection.ts) takes an event off Discover / org lists while its pages stay public.
+- Players' phone call to court (owner, 12 Nov 2026; migration `0045_player_call_answers.sql`, apply before deploying — the server
+  reads it apart, so it degrades to "no answers" without it): a player's own `called_to_court` / `call_reminder` push on 1.0.3+ rings
+  (`src/lib/notify/ringtone.ts` `playerCallPush`: ringtone, channel `assistance_alarm`, time-sensitive, category `player_call`; dry run
+  `dry-run:self:ring`). Answers: `POST me/matches/[id]/call-answer` {coming|declined}, `GET me/calls`; the umpire's call state carries
+  `players` (names + answers; web + app CallCard). App (OTA 1.0.5): `move-score-app/src/player/{PlayerCallAlarm.tsx,callActions.ts}`,
+  buttons handled in `_layout.tsx` AlertTaps (also the master's Coming / Decline). Gate `npm run e2e:match-day`.

@@ -115,7 +115,7 @@ export default async function ScorePage({ params }: { params: Promise<{ matchId:
       scoringConfig={scoringConfigForMatch(tournament, match, tier, {
         doubles: match.rubber_type ? match.rubber_type === "D" : isDoublesMatch(teamA, teamB),
       })}
-      tennis={tournament.sport === "tennis"}
+      tennis={sportOf(tournament.sport).supports.tennisConsole}
       tossSport={sportOf(tournament.sport).supports.toss}
       teamA={{
         id: teamA.id,

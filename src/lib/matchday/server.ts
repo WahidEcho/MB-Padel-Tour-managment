@@ -81,7 +81,26 @@ export interface CallState {
   presentB: boolean;
   answer: CallAnswer | null;
   view: CallView;
+  /**
+   * The match's players and their answer to the call from their own phones (migration 0045):
+   * names only. Sent on the consoles' GET and after each action; absent on older servers.
+   */
+  players?: CallPlayer[];
 }
+
+/** A player's answer to their call to court, from the phone that rang. */
+export type PlayerCallAnswer = "coming" | "declined";
+
+/** One player of a called match, as the chair umpire's card shows them. */
+export interface CallPlayer {
+  id: string;
+  name: string;
+  side: TeamKey;
+  answer: PlayerCallAnswer | null;
+  at: string | null;
+}
+
+type AnswerMap = Record<string, { answer: PlayerCallAnswer; at: string }>;
 
 /** The parts of the rules a console shows next to a call. */
 export interface CallRules {
@@ -384,7 +403,50 @@ export async function getCall(matchId: string, nowMs = Date.now()): Promise<{ ca
   const day = await dayOf(matchId);
   if (!day) return null;
   const row = await readCall(matchId);
-  return { call: row ? toState(row, day.rules, nowMs) : null, rules: callRules(day.rules) };
+  const call = row ? toState(row, day.rules, nowMs) : null;
+  if (call) call.players = await callPlayers(day.match, await readAnswers(matchId));
+  return { call, rules: callRules(day.rules) };
+}
+
+/** The players' answers to a match's call. Read on their own: before migration 0045 the column is not there, and that is "no answers". */
+async function readAnswers(matchId: string): Promise<AnswerMap> {
+  const { data, error } = await db().from("match_calls").select("player_answers").eq("match_id", matchId).maybeSingle();
+  if (error || !data) return {};
+  const raw = (data as { player_answers?: unknown }).player_answers;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: AnswerMap = {};
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    const a = v as { answer?: unknown; at?: unknown } | null;
+    if (a && (a.answer === "coming" || a.answer === "declined") && typeof a.at === "string") out[id] = { answer: a.answer, at: a.at };
+  }
+  return out;
+}
+
+/** The players of each side of a match: a tie rubber's nominees, otherwise the team's players, in their order. */
+async function sidePlayers(match: Match): Promise<{ id: string; name: string; side: TeamKey }[]> {
+  const teams = [match.team_a_id, match.team_b_id].filter((t): t is string => Boolean(t));
+  if (!teams.length) return [];
+  const { data } = await db().from("players").select("id, full_name, team_id, player_order").in("team_id", teams).order("player_order");
+  const rows = (data ?? []) as { id: string; full_name: string; team_id: string; player_order: number }[];
+  const pick = (side: TeamKey, teamId: string | null, nominees: string[] | null | undefined) => {
+    if (!teamId) return [];
+    const ofTeam = rows.filter((r) => r.team_id === teamId);
+    const chosen = nominees?.length ? ofTeam.filter((r) => nominees.includes(r.id)) : ofTeam;
+    return chosen.map((r) => ({ id: r.id, name: r.full_name, side }));
+  };
+  return [...pick("A", match.team_a_id, match.team_a_player_ids), ...pick("B", match.team_b_id, match.team_b_player_ids)];
+}
+
+/** The chair umpire's view of who answered the call. Names and answers only. */
+async function callPlayers(match: Match, answers: AnswerMap): Promise<CallPlayer[]> {
+  return (await sidePlayers(match)).map((p) => ({ ...p, answer: answers[p.id]?.answer ?? null, at: answers[p.id]?.at ?? null }));
+}
+
+/** The players and their answers, for a call a console action just returned. */
+export async function withCallPlayers<T extends { call: CallState }>(matchId: string, value: T): Promise<T> {
+  const match = await getMatch(matchId);
+  if (!match) return value;
+  return { ...value, call: { ...value.call, players: await callPlayers(match, await readAnswers(matchId)) } };
 }
 
 /**
@@ -797,6 +859,127 @@ export async function callForPlayer(
       call: c ? { status: c.status, calledAt: c.calledAt, deadlineAt: c.deadlineAt, presentA: c.presentA, presentB: c.presentB } : null,
     },
   };
+}
+
+/** The account's own claimed player rows (codes it entered), not archived. */
+async function claimedPlayerIds(userId: string): Promise<Set<string>> {
+  const { data } = await db().from("player_claims").select("player_id").eq("user_id", userId).is("archived_at", null);
+  return new Set(((data ?? []) as { player_id: string }[]).map((c) => c.player_id));
+}
+
+/**
+ * A player answers their call to court from the phone that rang (owner, 12 Nov 2026): "coming"
+ * or "declined", written for each of the account's own players on that match (migration 0045).
+ * Only for a match the account plays in and while it is called; "coming" is not "at court".
+ */
+export async function answerCallAsPlayer(
+  userId: string,
+  matchId: string,
+  answer: PlayerCallAnswer,
+  nowMs = Date.now(),
+): Promise<Outcome<{ side: TeamKey; answer: PlayerCallAnswer }>> {
+  const day = await dayOf(matchId);
+  if (!day) return refuse(404, "not_found", "Not found");
+  const side = await sideOfUser(userId, day.match);
+  if (!side) return refuse(404, "not_found", "Not found");
+  const mine = await claimedPlayerIds(userId);
+  const ids = (await sidePlayers(day.match)).filter((p) => p.side === side && mine.has(p.id)).map((p) => p.id);
+  if (!ids.length) return refuse(404, "not_found", "Not found");
+  const at = new Date(nowMs).toISOString();
+  // Two players of a match can answer at the same moment: compare-and-set on updated_at, a few tries.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const row = await readCall(matchId);
+    if (!row || row.status !== "called") return refuse(409, "no_call", "This match is not called to its court.");
+    const answers = await readAnswers(matchId);
+    for (const id of ids) answers[id] = { answer, at };
+    const { data, error } = await db()
+      .from("match_calls")
+      .update({ player_answers: answers, updated_at: at })
+      .eq("match_id", matchId)
+      .eq("status", "called")
+      .eq("updated_at", row.updated_at)
+      .select("match_id");
+    if (error) return refuse(409, "unavailable", "Answers are not available yet.");
+    if ((data ?? []).length) {
+      await audit({
+        tournament_id: day.match.tournament_id,
+        actor_role: "player",
+        action: "CALL_PLAYER_ANSWER",
+        entity_type: "match",
+        entity_id: matchId,
+        new_value: { side, answer },
+      });
+      return { ok: true, status: 200, value: { side, answer } };
+    }
+  }
+  return refuse(409, "changed", "The call changed. Try again.");
+}
+
+/** A call ringing on a player's own phone (GET /api/mobile/v1/me/calls). */
+export interface MyCall {
+  matchId: string;
+  tournamentName: string;
+  court: string | null;
+  label: string | null;
+  calledAt: string;
+  deadlineAt: string;
+  mySide: TeamKey;
+  aName: string;
+  bName: string;
+  myAnswer: PlayerCallAnswer | null;
+  present: boolean;
+}
+
+/**
+ * The open calls of the account's own matches (players it claimed with a code): what makes the
+ * phone ring. Names, court and times only.
+ */
+export async function myOpenCalls(userId: string, nowMs = Date.now()): Promise<MyCall[]> {
+  const mine = await claimedPlayerIds(userId);
+  if (!mine.size) return [];
+  const { data: players } = await db().from("players").select("id, team_id").in("id", [...mine]);
+  const teamIds = [...new Set(((players ?? []) as { team_id: string | null }[]).map((p) => p.team_id).filter((t): t is string => Boolean(t)))];
+  if (!teamIds.length) return [];
+  const ids = teamIds.join(",");
+  const { data: matches } = await db()
+    .from("matches")
+    .select("id")
+    .or(`team_a_id.in.(${ids}),team_b_id.in.(${ids})`)
+    .in("status", ["scheduled", "ready"])
+    .limit(200);
+  const matchIds = ((matches ?? []) as { id: string }[]).map((m) => m.id);
+  if (!matchIds.length) return [];
+  const { data: calls } = await db().from("match_calls").select(CALL_COLUMNS).in("match_id", matchIds).eq("status", "called").limit(20);
+  const out: MyCall[] = [];
+  for (const row of (calls ?? []) as CallRow[]) {
+    const day = await dayOf(row.match_id);
+    if (!day) continue;
+    const side = await sideOfUser(userId, day.match);
+    if (!side) continue;
+    const state = toState(row, day.rules, nowMs);
+    const answers = await readAnswers(row.match_id);
+    const minePlayers = (await sidePlayers(day.match)).filter((p) => p.side === side && mine.has(p.id));
+    const myAnswer = minePlayers.map((p) => answers[p.id]?.answer).find((a): a is PlayerCallAnswer => Boolean(a)) ?? null;
+    const [{ data: teams }, { data: court }] = await Promise.all([
+      db().from("teams").select("id, team_name").in("id", [day.match.team_a_id, day.match.team_b_id].filter((t): t is string => Boolean(t))),
+      row.court_id ? db().from("courts").select("court_name").eq("id", row.court_id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    const name = (id: string | null) => ((teams ?? []) as { id: string; team_name: string }[]).find((t) => t.id === id)?.team_name ?? "TBD";
+    out.push({
+      matchId: row.match_id,
+      tournamentName: day.tournament.name,
+      court: (court as { court_name?: string } | null)?.court_name ?? null,
+      label: day.match.round_name ?? null,
+      calledAt: state.calledAt,
+      deadlineAt: state.deadlineAt,
+      mySide: side,
+      aName: name(day.match.team_a_id),
+      bName: name(day.match.team_b_id),
+      myAnswer,
+      present: side === "A" ? state.presentA : state.presentB,
+    });
+  }
+  return out;
 }
 
 /**

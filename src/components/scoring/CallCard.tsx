@@ -151,17 +151,34 @@ export default function CallCard({ matchId, rules, initialCall, matchStatus, has
       {model.phase !== "not_called" && (
         <ul className="space-y-2">
           {model.sides.map((s) => (
-            <li key={s.key} className="flex min-h-11 items-center gap-3">
-              <span className={`h-2.5 w-2.5 rounded-full ${s.present ? "bg-success" : "bg-muted"}`} aria-hidden />
-              <span className="flex-1 truncate font-semibold">{s.name}</span>
-              {s.present ? (
-                <span className="text-xs font-bold uppercase tracking-widest text-success">✓ At court</span>
-              ) : s.canMark ? (
-                <button type="button" className="btn-secondary min-h-11" disabled={isBusy} onClick={() => void act({ action: "present", side: s.key })} data-testid={`call-present-${s.key}`}>
-                  Mark here
-                </button>
-              ) : (
-                <span className="text-xs uppercase tracking-widest text-muted">Not here</span>
+            <li key={s.key} className="space-y-1">
+              <div className="flex min-h-11 items-center gap-3">
+                <span className={`h-2.5 w-2.5 rounded-full ${s.present ? "bg-success" : "bg-muted"}`} aria-hidden />
+                <span className="flex-1 truncate font-semibold">{s.name}</span>
+                {s.present ? (
+                  <span className="text-xs font-bold uppercase tracking-widest text-success">✓ At court</span>
+                ) : s.canMark ? (
+                  <button type="button" className="btn-secondary min-h-11" disabled={isBusy} onClick={() => void act({ action: "present", side: s.key })} data-testid={`call-present-${s.key}`}>
+                    Mark here
+                  </button>
+                ) : (
+                  <span className="text-xs uppercase tracking-widest text-muted">Not here</span>
+                )}
+              </div>
+              {!s.present && s.players.length > 0 && (
+                // Each player's answer from the phone that rang (owner, 12 Nov 2026).
+                <ul className="ml-5 space-y-0.5" data-testid={`call-answers-${s.key}`}>
+                  {s.players.map((p, i) => (
+                    <li key={`${p.name}-${i}`} className="flex items-center gap-2 text-sm">
+                      <span className="flex-1 truncate text-muted">{p.name}</span>
+                      <span
+                        className={`text-xs font-bold uppercase tracking-widest ${p.answer === "coming" ? "text-success" : p.answer === "declined" ? "text-danger" : "text-muted"}`}
+                      >
+                        {p.answer === "coming" ? "✓ Coming" : p.answer === "declined" ? "✕ Declined" : "No answer yet"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </li>
           ))}

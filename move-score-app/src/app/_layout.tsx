@@ -18,6 +18,9 @@ import { loadSession } from "../state/session";
 import { openLink, registerDevice } from "../push/register";
 import { AlertsPrompt } from "../push/AlertsPrompt";
 import { MasterCallAlarm } from "../referee/MasterCallAlarm";
+import { PlayerCallAlarm } from "../player/PlayerCallAlarm";
+import { handlePlayerCallResponse } from "../player/callActions";
+import { handleAssistanceResponse } from "../push/assistanceActions";
 import { getJson, setJson } from "../state/kv";
 import { startMonitoring } from "../monitoring";
 import { startSessionKeeper } from "../auth/keepAlive";
@@ -39,10 +42,17 @@ function AlertTaps() {
   const response = Notifications.useLastNotificationResponse();
   const navReady = Boolean(useRootNavigationState()?.key);
   useEffect(() => {
-    if (!navReady || !response || response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
-    const id = response.notification.request.identifier;
+    if (!navReady || !response) return;
+    const tap = response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER;
+    const id = tap ? response.notification.request.identifier : `${response.notification.request.identifier}:${response.actionIdentifier}`;
     if (getJson<string | null>(LAST_TAP, null) === id) return;
     setJson(LAST_TAP, id);
+    // A button on a call alert: a player's call to court (I'm coming / Decline) or a master
+    // referee's call for assistance (Coming / Decline). A plain tap opens the alert's screen.
+    if (!tap) {
+      if (!handlePlayerCallResponse(response)) handleAssistanceResponse(response);
+      return;
+    }
     openLink(response.notification.request.content.data?.url as string | undefined);
   }, [navReady, response]);
   return null;
@@ -74,6 +84,7 @@ function Navigator() {
       {Platform.OS !== "web" && <AlertsPrompt />}
       {/* A master referee's emergency call rings here, above every screen. */}
       {Platform.OS !== "web" && <MasterCallAlarm />}
+      {Platform.OS !== "web" && <PlayerCallAlarm />}
       <AppIconSync />
     </View>
   );

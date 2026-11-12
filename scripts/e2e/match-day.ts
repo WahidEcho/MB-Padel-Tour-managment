@@ -147,8 +147,9 @@ async function main() {
     await f.link(u10, team(10).players[0]);
     const d3a = await f.device("d3a", { userId: u3a });
     const d3b = await f.device("d3b", { userId: u3b, prefs: { court: false } });
-    const d4a = await f.device("d4a", { userId: here.userId });
-    const d4b = await f.device("d4b", { userId: u4b });
+    // d4a runs Move Score 1.0.5 (rings a call with the ringtone); d4b an old 1.0.1 (plain alert).
+    const d4a = await f.device("d4a", { userId: here.userId, appVersion: "1.0.5" });
+    const d4b = await f.device("d4b", { userId: u4b, appVersion: "1.0.1" });
     const d5a = await f.device("d5a", { userId: qr.userId });
     const d9 = await f.device("d9", { userId: u9 });
     const d10 = await f.device("d10", { userId: u10 });
@@ -259,6 +260,30 @@ async function main() {
       const cv = v.json?.call as { view: { phase: string; actions: string[] } } | undefined;
       check(v.status === 200 && cv?.view.phase === "called" && cv.view.actions.includes("mark_present_a"), "GET: phase called, mark present offered", v.text);
       check(!/device_id|phone|email|access_code/.test(v.text), "GET carries no device id or private player field");
+
+      // Players' phone call (owner, 12 Nov 2026; migration 0045): a 1.0.3+ player's own phone rings.
+      check(sent?.get(d4a.id) === "dry-run:self:ring" && sent?.get(d4b.id) === "dry-run:self" && sent?.get(d3a.id) === "dry-run:self", "T4's 1.0.5 phone rings like a call; the 1.0.1 phone and a phone with no version get the plain alert", sent ? Object.fromEntries(sent) : null);
+      const mine = await http("GET", "/api/mobile/v1/me/calls", bearer(here.token));
+      const myCalls = (mine.json?.calls ?? []) as { matchId: string; mySide: string; myAnswer: string | null; court: string | null }[];
+      check(mine.status === 200 && myCalls.length === 1 && myCalls[0].matchId === N1.id && myCalls[0].mySide === "B" && myCalls[0].myAnswer === null && Boolean(myCalls[0].court), "GET /me/calls: the call ringing on the T4 player's phone", mine.text);
+      check(!/device_id|phone|email|access_code/.test(mine.text), "/me/calls carries no private field");
+      check((await http("GET", "/api/mobile/v1/me/calls", {})).status === 401, "/me/calls signed out: 401");
+      const ans = await http("POST", `/api/mobile/v1/me/matches/${N1.id}/call-answer`, bearer(here.token), { answer: "coming" });
+      check(ans.status === 200 && ans.json?.answer === "coming" && ans.json?.side === "B", "the T4 player answers I'm coming", ans.text);
+      const badAns = await http("POST", `/api/mobile/v1/me/matches/${N1.id}/call-answer`, bearer(here.token), { answer: "maybe" });
+      check(badAns.status === 400, "an unknown answer: 400", badAns.text);
+      const otherAns = await http("POST", `/api/mobile/v1/me/matches/${N2.id}/call-answer`, bearer(here.token), { answer: "declined" });
+      check(otherAns.status === 409 || otherAns.status === 404, "answering a match that is not called (or not yours) is refused", otherAns.text);
+      const guestAns = await http("POST", `/api/mobile/v1/me/matches/${N1.id}/call-answer`, {}, { answer: "coming" });
+      check(guestAns.status === 401, "answering signed out: 401", guestAns.text);
+      const seenByUmpire = await view(N1.id);
+      const players = ((seenByUmpire.json?.call as { players?: { id: string; side: string; answer: string | null }[] } | undefined)?.players ?? []);
+      const p4a = players.find((x) => x.id === team(4).players[0]);
+      const p4b = players.find((x) => x.id === team(4).players[1]);
+      check(p4a?.answer === "coming" && p4a.side === "B" && p4b?.answer === null && players.length === 4, "the chair umpire's GET shows T4's first player coming, the others not answered yet", players);
+      check(!/device_id|phone|email|access_code/.test(seenByUmpire.text), "the umpire's view still carries no private player field");
+      const afterAns = await http("GET", "/api/mobile/v1/me/calls", bearer(here.token));
+      check(((afterAns.json?.calls ?? []) as { myAnswer: string | null }[])[0]?.myAnswer === "coming", "/me/calls remembers the answer (the phone stops ringing)", afterAns.text);
 
       const p = await call(N1.id, { action: "present", side: "A" });
       check(p.status === 200 && (await callRow(N1.id))?.a_present_at !== null, "the referee marks T3 present", p.text);

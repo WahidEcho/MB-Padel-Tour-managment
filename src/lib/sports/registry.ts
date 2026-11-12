@@ -37,6 +37,11 @@ export interface SportSupports {
   voice: boolean;
   /** The toss before the first point in the chair umpire's console (scoring/toss.ts). */
   toss: boolean;
+  /**
+   * The chair umpire's console of tennis (owner, 12 Nov 2026: padel too): change-of-ends notices,
+   * code violations and the doubles serve order. Sent to the consoles as the bootstrap's `tennis`.
+   */
+  tennisConsole: boolean;
 }
 
 export interface SportDef {
@@ -48,8 +53,9 @@ export interface SportDef {
   supports: SportSupports;
   /**
    * The scoring features (Fault, Ace, Let, timers, doubles serve order…) are on for a
-   * tournament whose admins have not saved its Scoring features tab yet. Tennis only:
-   * the features follow the ITF rules; other sports keep them off until switched on.
+   * tournament whose admins have not saved its Scoring features tab yet. Tennis and padel
+   * (owner, 12 Nov 2026); a friendly session (Americano / Mexicano night) keeps them off
+   * until switched on. Other sports keep them off.
    */
   scoringFeaturesByDefault?: boolean;
 }
@@ -63,7 +69,8 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     engine: "games",
     defaultRules: DEFAULT_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
-    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true, toss: true },
+    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true, toss: true, tennisConsole: true },
+    scoringFeaturesByDefault: true,
   },
   tennis: {
     id: "tennis",
@@ -71,7 +78,7 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     engine: "games",
     defaultRules: DEFAULT_TENNIS_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
-    supports: { ties: true, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true, toss: true },
+    supports: { ties: true, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: true, toss: true, tennisConsole: true },
     scoringFeaturesByDefault: true,
   },
   chess: {
@@ -81,7 +88,7 @@ export const SPORTS: Readonly<Record<"padel" | "tennis" | "chess", SportDef>> = 
     // Chess has no games-and-sets score; the default is only there so every sport has one.
     defaultRules: DEFAULT_SCORING_CONFIG,
     nouns: { side: "Player", sides: "Players", match: "Game", matches: "Games", court: "Board", courts: "Boards" },
-    supports: { ties: false, showcase: false, finalScore: true, nearEnd: false, liveActivity: false, voice: false, toss: false },
+    supports: { ties: false, showcase: false, finalScore: true, nearEnd: false, liveActivity: false, voice: false, toss: false, tennisConsole: false },
   },
 };
 
@@ -94,7 +101,7 @@ function genericSport(id: string): SportDef {
     engine: "games",
     defaultRules: DEFAULT_SCORING_CONFIG,
     nouns: GAMES_NOUNS,
-    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: false, toss: false },
+    supports: { ties: false, showcase: true, finalScore: true, nearEnd: true, liveActivity: true, voice: false, toss: false, tennisConsole: false },
   };
 }
 

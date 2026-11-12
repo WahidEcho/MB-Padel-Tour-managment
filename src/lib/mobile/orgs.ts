@@ -12,7 +12,7 @@
 import { db } from "../supabase";
 import type { MOrgProfile, MTournamentCard } from "./contract";
 import { memo } from "./http";
-import { toCard, type TournamentRow } from "./projection";
+import { listedInApp, toCard, type TournamentRow } from "./projection";
 import { CARD_COLUMNS } from "./server";
 import { PUBLIC_ORG_COLUMNS, toPublicOrg, type OrgRowPublicPart } from "../orgs/profile";
 import { isOrgSlug } from "../orgs/roles";
@@ -39,7 +39,7 @@ export async function getOrgProfile(slug: string, boardMonth?: string): Promise<
       .or("is_demo.eq.false,event_group_id.not.is.null")
       .order("created_at", { ascending: false })
       .limit(60);
-    const list = (rows ?? []) as unknown as TournamentRow[];
+    const list = ((rows ?? []) as unknown as TournamentRow[]).filter(listedInApp);
     const ids = list.map((t) => t.id);
     const live = new Map<string, number>();
     const teams = new Map<string, number>();

@@ -457,7 +457,7 @@ export interface Tournament {
   timezone?: string | null;
   starts_on?: string | null;
   ends_on?: string | null;
-  app_skin?: { seedA?: string | null; seedB?: string | null; mode?: "dark" | "light" | null; artworkUrl?: string | null; logoUrl?: string | null; showPhotos?: boolean; showAges?: boolean } | null;
+  app_skin?: { seedA?: string | null; seedB?: string | null; mode?: "dark" | "light" | null; artworkUrl?: string | null; logoUrl?: string | null; showPhotos?: boolean; showAges?: boolean; listed?: boolean } | null;
   /** Migration 0022. Raw: read through matchDayRules() in src/lib/matchday/rules.ts; `{}` = all off. */
   match_day_rules?: Record<string, unknown> | null;
   /** When the first match starts (refunds and "soon" are measured from it). */

@@ -246,7 +246,7 @@ export function fixtures(tag: string) {
   }
 
   /** A phone with push on; `userId` makes it a signed-in account's phone. */
-  async function device(name: string, opts: { userId?: string | null; prefs?: Record<string, unknown> } = {}) {
+  async function device(name: string, opts: { userId?: string | null; prefs?: Record<string, unknown>; appVersion?: string } = {}) {
     const installationId = `e2e-${tag}-${name}-${randomUUID().slice(0, 8)}`;
     const { data, error } = await db()
       .from("push_devices")
@@ -256,6 +256,7 @@ export function fixtures(tag: string) {
         user_id: opts.userId ?? null,
         expo_push_token: `ExponentPushToken[e2e${tag}${name}${randomUUID().slice(0, 8)}]`.replace(/[^A-Za-z0-9_[\]-]/g, ""),
         prefs: opts.prefs ?? {},
+        ...(opts.appVersion ? { app_version: opts.appVersion } : {}),
       })
       .select("id")
       .single();

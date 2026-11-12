@@ -78,6 +78,8 @@ export async function saveAppSettings(formData: FormData) {
       showPhotos: formData.get("show_photos") === "on",
       // Off unless ticked: junior players are minors (src/lib/players/publicInfo.ts).
       showAges: formData.get("show_ages") === "on",
+      // Ticked by default; unticked takes the event off the app's lists, its pages stay.
+      listed: formData.get("listed") === "on",
     },
     updated_at: new Date().toISOString(),
   };

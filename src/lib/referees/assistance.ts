@@ -22,6 +22,7 @@ import { takeRateLimit } from "../ratelimit";
 import { courtKey } from "../orgs/courtScope";
 import { isUuid } from "../orgs/roles";
 import { sendExpo, type ExpoMessage } from "../notify/drain";
+import { alarmSound, ringsWithAlarm } from "../notify/ringtone";
 import type { StaffPrincipal } from "../auth/staff";
 import { mastersOnDuty } from "./server";
 import { matchDayRules } from "../matchday/rules";
@@ -220,22 +221,8 @@ async function pushTo(installationIds: string[], words: Words, extra: Omit<ExpoM
 
 type Device = { expo_push_token: string; locale: string | null; app_version?: string | null };
 
-/** Move Score 1.0.3 and later ring calls with their own ringtone (`master_alarm.wav`, channel `assistance_alarm`). */
-export function ringsWithAlarm(appVersion: string | null | undefined): boolean {
-  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(appVersion ?? "");
-  if (!m) return false;
-  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  return a > 1 || (a === 1 && (b > 0 || c >= 3));
-}
-
-/**
- * The call's ringtone. With ASSISTANCE_CRITICAL_ALERTS=1 (only once Apple has granted Move Score the
- * Critical Alerts entitlement and phones run a build that carries it) it is a critical alert: an
- * iPhone plays it at full volume even on silent and in Focus. Android already rings it as an alarm.
- */
-function alarmSound(): ExpoMessage["sound"] {
-  return process.env.ASSISTANCE_CRITICAL_ALERTS === "1" ? { critical: true, name: "master_alarm.wav", volume: 1 } : "master_alarm.wav";
-}
+// The ringtone rules live with the alerts (players called to court ring the same way).
+export { ringsWithAlarm } from "../notify/ringtone";
 
 async function sendTo(devices: Device[], words: Words, extra: Omit<ExpoMessage, "to" | "title" | "body">): Promise<number> {
   if (!devices.length) return 0;

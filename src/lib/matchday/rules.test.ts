@@ -11,7 +11,8 @@ import {
 describe("matchDayRules", () => {
   it("reads an unsaved row as all off", () => {
     for (const raw of [{}, null, undefined, "x", 3, [], { configured: false, alerts: { on: true } }, { configured: "true" }]) {
-      expect(matchDayRules(raw, "padel")).toEqual(OFF_MATCH_DAY_RULES);
+      expect(matchDayRules(raw, "chess")).toEqual(OFF_MATCH_DAY_RULES);
+      expect(matchDayRules(raw, { sport: "padel", kind: "friendly_session" })).toEqual(OFF_MATCH_DAY_RULES);
     }
     const off = OFF_MATCH_DAY_RULES;
     expect(off.showcase.on || off.alerts.on || off.matchSoon.on || off.courtCall.on || off.noShow.on || off.widgets.on).toBe(false);
@@ -19,17 +20,21 @@ describe("matchDayRules", () => {
     expect(off.scoring.mode).toBe("point_by_point");
   });
 
-  it("an unsaved tennis row has the scoring features on, the rest of match day off", () => {
-    for (const raw of [{}, null, { configured: false }]) {
-      const r = matchDayRules(raw, "tennis");
-      expect(r.configured).toBe(false);
-      expect(r.alerts.on).toBe(false);
-      expect(r.features.doublesOrder && r.features.fault && r.features.callMaster).toBe(true);
+  it("an unsaved tennis or padel row has the scoring features on, the rest of match day off", () => {
+    for (const sport of ["tennis", "padel", { sport: "padel", kind: "tournament" }]) {
+      for (const raw of [{}, null, { configured: false }]) {
+        const r = matchDayRules(raw, sport);
+        expect(r.configured).toBe(false);
+        expect(r.alerts.on).toBe(false);
+        expect(r.features.doublesOrder && r.features.fault && r.features.callMaster && r.features.tvAces).toBe(true);
+      }
     }
     // A switch the admins turned off stays off.
     expect(matchDayRules({ features: { doublesOrder: false } }, "tennis").features).toMatchObject({ doublesOrder: false, fault: true });
-    // Padel keeps them off until switched on.
-    expect(matchDayRules({}, "padel").features.fault).toBe(false);
+    expect(matchDayRules({ features: { fault: false } }, "padel").features).toMatchObject({ fault: false, ace: true });
+    // A padel friendly session (Americano / Mexicano night) keeps them off until switched on.
+    expect(matchDayRules({}, { sport: "padel", kind: "friendly_session" }).features.fault).toBe(false);
+    expect(matchDayRules({ features: { fault: true } }, { sport: "padel", kind: "friendly_session" }).features.fault).toBe(true);
   });
 
   it("keeps a saved row's known keys", () => {

@@ -107,6 +107,13 @@ export default async function AppSettingsPage({ params }: { params: Promise<{ id
               <span className="block text-xs text-muted">Off by default: junior players are minors. When on, a player page shows the age reached this year, from the birth year on the player&apos;s linked profile (never the birth year itself).</span>
             </span>
           </label>
+          <label className="col-span-2 flex items-start gap-2 text-sm">
+            <input type="checkbox" name="listed" defaultChecked={skin.listed !== false} className="mt-1" data-testid="app-listed" />
+            <span>
+              List this event in the app
+              <span className="block text-xs text-muted">Shown on Discover and on the organisation&apos;s page. Untick when an event is over and should drop off the lists: its own pages, links, QR codes and the website keep working.</span>
+            </span>
+          </label>
           <label className="col-span-2"><span className="label">Hero artwork URL</span><input name="artwork_url" defaultValue={skin.artworkUrl ?? ""} className="input" /></label>
           <button className="btn-primary col-span-2">Save</button>
         </form>

@@ -50,4 +50,6 @@ export interface RefereeCall {
   answer: { action: string; at: string; by: string } | null;
   /** The server's view when it answered; the phone recomputes it every second with the same rules. */
   view: CallView;
+  /** Each player's answer from the phone that rang (servers from 12 Nov 2026 on); names only. */
+  players?: { id: string; name: string; side: "A" | "B"; answer: "coming" | "declined" | null; at: string | null }[];
 }

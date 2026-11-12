@@ -142,4 +142,14 @@ export const player = {
   missing: "Missing something?",
   missingBody: "Link more of your history with a player code or with the phone number the tournament has for you.",
   phoneNumber: "Phone number",
+  // A call to court ringing on the player's own phone (owner, 12 Nov 2026).
+  callRingTitle: "Called to court",
+  callRingCourt: "You're called to {court}",
+  callRingVs: "{a} v {b}",
+  callRingDeadline: "Be at the court in {clock}",
+  callRingLate: "Go to the court now",
+  callComing: "I'm coming",
+  callDecline: "Decline",
+  callOpenMatch: "Open the match",
+  callAnswerFailed: "Could not send your answer. Tell the chair umpire.",
 };

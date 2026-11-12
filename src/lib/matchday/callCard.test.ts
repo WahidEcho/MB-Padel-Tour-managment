@@ -48,6 +48,23 @@ describe("callCardModel", () => {
     expect(r.sides[0]).toMatchObject({ present: true, canMark: false });
   });
 
+  it("shows each player's answer from their phone under their side", () => {
+    const players: CallSnapshot["players"] = [
+      { id: "a1", name: "Ali", side: "A", answer: "coming", at: new Date(T0 + 20_000).toISOString() },
+      { id: "a2", name: "Omar", side: "A", answer: null, at: null },
+      { id: "b1", name: "Sara", side: "B", answer: "declined", at: new Date(T0 + 30_000).toISOString() },
+    ];
+    const m = model(call({ players }), T0 + MIN);
+    expect(m.sides[0].players).toEqual([
+      { name: "Ali", answer: "coming" },
+      { name: "Omar", answer: null },
+    ]);
+    expect(m.sides[1].players).toEqual([{ name: "Sara", answer: "declined" }]);
+    // An older server sends none; not called shows none.
+    expect(model(call(), T0 + MIN).sides[0].players).toEqual([]);
+    expect(model(null, T0).sides[0].players).toEqual([]);
+  });
+
   it("all present: ready to start, nothing ticking", () => {
     expect(model(call({ presentA: true, presentB: true }), T0 + MIN)).toMatchObject({ phase: "all_present", tickMs: null, noShow: null });
   });

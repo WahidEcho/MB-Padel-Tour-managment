@@ -19,6 +19,7 @@
  * (checkReceipts, run by the scheduled drain) asks Expo what happened to tickets
  * sent at least RECEIPT_AFTER_MS ago and switches off phones that are gone.
  */
+import { PLAYER_CALL_KINDS, playerCallPush, ringsWithAlarm } from "./ringtone";
 import { db } from "../supabase";
 import { DEFAULT_ALERT_PREFS, type MAlertPrefs } from "../mobile/contract";
 import type { AlertPayload, Target } from "./compose";
@@ -54,6 +55,8 @@ interface DeviceRow {
   prefs: Partial<MAlertPrefs> | null;
   /** The app's language on this phone ("es", "fr", "en-GB"…): alerts are written in it. */
   locale?: string | null;
+  /** The Move Score version on this phone: 1.0.3+ rings a player's call with the ringtone. */
+  app_version?: string | null;
 }
 
 export interface Ticket {
@@ -77,7 +80,7 @@ export interface Recipient extends DeviceRow {
  * the alert's own-player wording.
  */
 export async function recipientsFor(targets: Target[], category: keyof MAlertPrefs, selfPlayerIds: string[] = []): Promise<Recipient[]> {
-  const cols = "id, installation_id, user_id, expo_push_token, prefs, locale";
+  const cols = "id, installation_id, user_id, expo_push_token, prefs, locale, app_version";
   const wants = (d: DeviceRow) => d.expo_push_token && ({ ...DEFAULT_ALERT_PREFS, ...(d.prefs ?? {}) })[category] !== false;
   if (targets.some((t) => t.kind === "all")) {
     const all: DeviceRow[] = [];
@@ -174,7 +177,7 @@ export type ExpoMessage = {
 };
 
 export async function sendExpo(messages: ExpoMessage[]): Promise<Ticket[]> {
-  if (pushDryRun()) return messages.map((m) => ({ status: "ok", id: m.data.self ? "dry-run:self" : "dry-run" }));
+  if (pushDryRun()) return messages.map((m) => ({ status: "ok", id: (m.data.self ? "dry-run:self" : "dry-run") + (m.categoryId === "player_call" ? ":ring" : "") }));
   const res = await fetch(EXPO_URL, { method: "POST", headers: expoHeaders(), body: JSON.stringify(messages) });
   if (!res.ok) throw new Error(`Expo push ${res.status}`);
   const json = (await res.json()) as { data?: Ticket[] };
@@ -245,6 +248,9 @@ async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | 
         chunk.map((d) => {
           // Built per phone: a player's own phone reads "You're called to Court 2", in the phone's language.
           const words = wordsFor({ ...ev.payload, self }, d.locale, Boolean(d.self && self));
+          // A player called to their court hears it like a phone call on their own phone (owner,
+          // 12 Nov 2026): the ringtone, the loud channel, through Focus, I'm coming / Decline.
+          const ring = Boolean(d.self && self) && PLAYER_CALL_KINDS.has(ev.kind) && ringsWithAlarm(d.app_version);
           return {
             to: d.expo_push_token!,
             title: words.title,
@@ -252,6 +258,7 @@ async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | 
             data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true } : {}) },
             sound: "default" as const,
             channelId: ev.payload.category === "major" ? "announcements" : "matches",
+            ...(ring ? playerCallPush() : {}),
           };
         }),
       );

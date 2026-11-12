@@ -41,6 +41,7 @@ import {
   type OrgBranding,
   type TimelineRow,
   type TournamentRow,
+  listedInApp,
 } from "./projection";
 import { memo } from "./http";
 import { appleWalletConfigured, googleWalletConfigured } from "../pass/wallet";
@@ -87,7 +88,8 @@ async function visibleTournaments(includeDemo: boolean): Promise<TournamentRow[]
   // A demo shows once an admin puts it in an event group (a demo event set up on purpose).
   if (!includeDemo) q = q.or("is_demo.eq.false,event_group_id.not.is.null");
   const { data } = await q.order("created_at", { ascending: false }).limit(60);
-  return (data ?? []) as unknown as TournamentRow[];
+  // An event taken off the app's lists (Admin → In the app) keeps its own pages.
+  return ((data ?? []) as unknown as TournamentRow[]).filter(listedInApp);
 }
 
 /**

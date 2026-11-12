@@ -260,14 +260,16 @@ function forSport(r: MatchDayRules, sport: SportDef): MatchDayRules {
  * known keys of the right type, with minutes clamped to 1–30 and extensions to
  * 0–5, and anything the sport does not support switched off.
  */
-export function matchDayRules(raw: unknown, sport?: { sport?: string | null } | string | null): MatchDayRules {
+export function matchDayRules(raw: unknown, sport?: { sport?: string | null; kind?: string | null } | string | null): MatchDayRules {
   if (!isRecord(raw) || raw.configured !== true) {
     // The scoring features are the admins' own switches (Admin → Scoring features):
     // saved ones count even while the rest of match day is off.
-    // Tennis starts with them on (sportOf().scoringFeaturesByDefault) until an admin saves the tab.
+    // Tennis and padel start with them on (sportOf().scoringFeaturesByDefault) until an admin saves
+    // the tab; a friendly session (Americano / Mexicano night) does not.
     const def = sportOf(sport);
-    const base = def.scoringFeaturesByDefault ? SCORING_FEATURES_ON : SCORING_FEATURES_OFF;
-    if (!isRecord(raw) || !isRecord(raw.features)) return def.scoringFeaturesByDefault ? forSport({ ...OFF_MATCH_DAY_RULES, features: base }, def) : OFF_MATCH_DAY_RULES;
+    const onByDefault = def.scoringFeaturesByDefault === true && !(typeof sport === "object" && sport?.kind === "friendly_session");
+    const base = onByDefault ? SCORING_FEATURES_ON : SCORING_FEATURES_OFF;
+    if (!isRecord(raw) || !isRecord(raw.features)) return onByDefault ? forSport({ ...OFF_MATCH_DAY_RULES, features: base }, def) : OFF_MATCH_DAY_RULES;
     return forSport({ ...OFF_MATCH_DAY_RULES, features: group(base, raw.features) }, def);
   }
   const d = DEFAULT_MATCH_DAY_RULES;

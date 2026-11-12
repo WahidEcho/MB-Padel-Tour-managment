@@ -137,7 +137,8 @@ export function CallCard({ c, readOnly }: { c: CallControls; readOnly: boolean }
 
         {m.phase !== "not_called" &&
           m.sides.map((s) => (
-            <View key={s.key} style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 }}>
+            <View key={s.key} style={{ gap: 2 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 }}>
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: s.present ? t.success : t.ink3 }} />
               <Body weight="semi" size={15} numberOfLines={1} style={{ flex: 1 }}>
                 {s.name}
@@ -149,6 +150,19 @@ export function CallCard({ c, readOnly }: { c: CallControls; readOnly: boolean }
               ) : (
                 <Eyebrow size={10.5} tone="ink3">{tr("referee.notHere")}</Eyebrow>
               )}
+            </View>
+            {/* Each player's answer from the phone that rang (owner, 12 Nov 2026). */}
+            {!s.present &&
+              (s.players ?? []).map((p, i) => (
+                <View key={`${p.name}-${i}`} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginLeft: 20 }}>
+                  <Body tone="ink2" size={13} numberOfLines={1} style={{ flex: 1 }}>
+                    {p.name}
+                  </Body>
+                  <Eyebrow size={10} tone={p.answer === "declined" ? "live" : p.answer === "coming" ? undefined : "ink3"} style={p.answer === "coming" ? { color: t.success } : undefined}>
+                    {p.answer === "coming" ? tr("referee.callAnswerComing") : p.answer === "declined" ? tr("referee.callAnswerDeclined") : tr("referee.callAnswerNone")}
+                  </Eyebrow>
+                </View>
+              ))}
             </View>
           ))}
 

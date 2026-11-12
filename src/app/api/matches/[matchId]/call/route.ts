@@ -1,12 +1,12 @@
 import { NextResponse, after } from "next/server";
 import { staffRoute } from "@/lib/guard";
 import { takeRateLimit } from "@/lib/ratelimit";
-import { answerNoShow, callToCourt, cancelCall, extendCall, getCall, markPresent, type NoShowAnswer } from "@/lib/matchday/server";
+import { answerNoShow, callToCourt, cancelCall, extendCall, getCall, markPresent, withCallPlayers, type NoShowAnswer } from "@/lib/matchday/server";
 
 /**
  * Calling a match to its court (plan Phase 3, src/lib/matchday/server.ts).
  *
- *   GET  → { call: CallState | null, rules: CallRules }
+ *   GET  → { call: CallState | null, rules: CallRules }   (call.players: each player's answer from their phone)
  *   POST { action: "call", force? }                 → 201 called, 200 already called;
  *                                                     409 court_busy unless force
  *        { action: "present", side: "A" | "B" }      → the side is at the court
@@ -82,5 +82,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       out = await cancelCall(matchId, { role });
   }
   if (!out.ok) return NextResponse.json({ error: out.error, code: out.code }, { status: out.status, headers: NO_STORE });
-  return NextResponse.json(out.value, { status: out.status, headers: NO_STORE });
+  // The players' answers from their phones travel with every call the console gets back.
+  return NextResponse.json(await withCallPlayers(matchId, out.value), { status: out.status, headers: NO_STORE });
 }

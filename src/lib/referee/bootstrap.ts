@@ -118,7 +118,8 @@ export async function refereeBootstrap(matchId: string): Promise<RefereeBootstra
     config: scoringConfigForMatch(tournament, match, tier, {
       doubles: match.rubber_type ? match.rubber_type === "D" : isDoublesMatch(teamA ?? undefined, teamB ?? undefined),
     }),
-    tennis: sport.id === "tennis",
+    // The tennis console (changeovers, code violations, doubles serve order): tennis and padel.
+    tennis: sport.supports.tennisConsole,
     chess: sport.engine === "chess",
     legs: tournament.format_config?.legs === 2 ? 2 : 1,
     waitingForLineups: !teamA ? nationA.team_name : !teamB ? nationB.team_name : null,

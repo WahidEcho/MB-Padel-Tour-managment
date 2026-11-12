@@ -138,4 +138,14 @@ export const player: Shape<typeof en> = {
   missing: "¿Te falta algo?",
   missingBody: "Vincula más de tu historial con un código de jugador o con el número de teléfono que tiene el torneo.",
   phoneNumber: "Número de teléfono",
+  // A call to court ringing on the player's own phone (owner, 12 Nov 2026).
+  callRingTitle: "Llamado a pista",
+  callRingCourt: "Te llaman a {court}",
+  callRingVs: "{a} v {b}",
+  callRingDeadline: "Llega a la pista en {clock}",
+  callRingLate: "Ve a la pista ya",
+  callComing: "Voy",
+  callDecline: "Rechazar",
+  callOpenMatch: "Abrir el partido",
+  callAnswerFailed: "No se pudo enviar tu respuesta. Avisa al juez de silla.",
 };

@@ -12,6 +12,11 @@ describe("sportOf", () => {
     expect(sportOf("chess").nouns.match).toBe("Game");
     expect(sportOf("tennis").supports.ties).toBe(true);
     expect(sportOf("padel").supports.ties).toBe(false);
+    // Padel has the tennis chair umpire's console and its scoring features (owner, 12 Nov 2026).
+    expect(sportOf("padel").supports.tennisConsole).toBe(true);
+    expect(sportOf("tennis").supports.tennisConsole).toBe(true);
+    expect(sportOf("chess").supports.tennisConsole).toBe(false);
+    expect(sportOf("padel").scoringFeaturesByDefault).toBe(true);
   });
 
   it("falls back to a generic games sport", () => {
