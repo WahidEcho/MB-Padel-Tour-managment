@@ -28,7 +28,8 @@ export interface CallAnswerResult {
   matchStatus?: string;
 }
 
-const POLL_MS = 10_000;
+/** While a call is open: answers and check-ins show quickly, and each read keeps the players' phones ringing (every 15 s). */
+const POLL_MS = 5_000;
 
 export function useCall(boot: RefereeBootstrap, opts: { deviceId: string; matchStatus: string; onMatchDecided?: () => void }) {
   const m = boot.match;

@@ -17,7 +17,7 @@ import { tr } from "../i18n/t";
 export const PLAYER_CALL_CATEGORY = "player_call";
 const COMING = "player_call_coming";
 const DECLINE = "player_call_decline";
-const KINDS = new Set(["called_to_court", "call_reminder"]);
+const KINDS = new Set(["called_to_court", "call_reminder", "call_ring"]);
 
 let registered = false;
 /** Registers the category's two buttons, in the app's language. Safe to call more than once. */

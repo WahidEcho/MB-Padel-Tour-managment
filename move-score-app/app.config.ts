@@ -171,7 +171,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     // remote-notification background mode: iOS may wake the app for a push (and for a
     // card started by push) so it can register the card's update token and refresh the widget.
-    ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00", enableBackgroundRemoteNotifications: true, sounds: ["./assets/sounds/master_alarm.wav"] }],
+    ["expo-notifications", { icon: "./assets/brand/notification-icon.png", color: "#FCFC00", enableBackgroundRemoteNotifications: true, sounds: ["./assets/sounds/master_alarm.wav", "./assets/sounds/player_call.wav"] }],
     // The venue map's blue dot and directions: while the map is open only (no background location).
     [
       "expo-location",

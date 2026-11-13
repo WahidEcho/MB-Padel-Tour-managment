@@ -422,3 +422,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `dry-run:self:ring`). Answers: `POST me/matches/[id]/call-answer` {coming|declined}, `GET me/calls`; the umpire's call state carries
   `players` (names + answers; web + app CallCard). App (OTA 1.0.5): `move-score-app/src/player/{PlayerCallAlarm.tsx,callActions.ts}`,
   buttons handled in `_layout.tsx` AlertTaps (also the master's Coming / Decline). Gate `npm run e2e:match-day`.
+  Ring until answered (owner, 13 Nov 2026, no migration): `tickPlayerRings` (matchday/server.ts) sends `call_ring` every 15 s
+  (`PLAYER_RING_EVERY_MS`, one atomic `takeRateLimit` step `player-ring:<match>`) to claimed players with no answer whose side is not
+  present, until the deadline; driven by the umpire's GET of the call (consoles poll every 5 s) and the drain's `tickAllPlayerRings`.
+  Ringtone: builds after 1.0.5 bundle `player_call.wav` (15-s chime, Android channel `player_call`, `hasPlayerRingtone`); 1.0.3–1.0.5
+  ring `master_alarm.wav`; the app rings the chime in-app by OTA. A withdrawn call sends `call_withdrawn` once (only after a call alert
+  went out) and moves a lock-screen card back to "Up next" (`notifyLiveActivityPhase(..., { startNew: false })`); the app takes stale call
+  alerts off the lock screen (`clearStaleCallAlerts`). Lock-screen cards need a valid `APNS_KEY_P8` on Vercel (the 13 Nov value failed
+  `importPKCS8`: "notify live activity phase failed" in the logs).

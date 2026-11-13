@@ -560,16 +560,17 @@ type UpcomingPhase = { phase: "soon" | "called"; until: number | null; from?: nu
  * `{ phase: "called", until: deadlineAt, from: calledAt }`; the match-soon check
  * with `{ phase: "soon", until: scheduled time }`.
  */
-export function notifyLiveActivityPhase(matchId: string, p: UpcomingPhase | { phase: "live" }) {
+/** `startNew: false` only moves cards already showing (a withdrawn call starts none). */
+export function notifyLiveActivityPhase(matchId: string, p: UpcomingPhase | { phase: "live" }, opts: { startNew?: boolean } = {}) {
   return later("live activity phase", async () => {
     const { data } = await db().from("matches").select("*").eq("id", matchId).maybeSingle();
     const match = data as Match | null;
     if (!match) return;
-    await liveActivityPhase(match, await context(match.tournament_id), p);
+    await liveActivityPhase(match, await context(match.tournament_id), p, opts.startNew !== false);
   });
 }
 
-async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { phase: "live" }) {
+async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { phase: "live" }, startNew = true) {
   const { getConfig } = await import("../mobile/server");
   if (!(await getConfig()).flags.live_activity) return;
   const { data: t, error } = await db().from("tournaments").select("sport, match_day_rules").eq("id", match.tournament_id).maybeSingle();
@@ -605,7 +606,7 @@ async function liveActivityPhase(match: Match, ctx: Ctx, p: UpcomingPhase | { ph
   // Cards already showing this match move to the new phase.
   await apns.pushLiveActivities(match.id, state, { important: true });
 
-  if (!la.startByPushAllowed(rules.lockScreen, p.phase)) return;
+  if (!startNew || !la.startByPushAllowed(rules.lockScreen, p.phase)) return;
   const installs = await liveActivityAudience(match, ctx, {
     mine: rules.lockScreen.autoStartMine,
     starred: rules.lockScreen.autoStartStarred,

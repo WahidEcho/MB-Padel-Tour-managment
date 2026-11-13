@@ -268,6 +268,18 @@ async function main() {
       check(mine.status === 200 && myCalls.length === 1 && myCalls[0].matchId === N1.id && myCalls[0].mySide === "B" && myCalls[0].myAnswer === null && Boolean(myCalls[0].court), "GET /me/calls: the call ringing on the T4 player's phone", mine.text);
       check(!/device_id|phone|email|access_code/.test(mine.text), "/me/calls carries no private field");
       check((await http("GET", "/api/mobile/v1/me/calls", {})).status === 401, "/me/calls signed out: 401");
+      // Keep ringing until answered (owner, 13 Nov 2026): the console's read rings again every 15 s.
+      check((await events(N1.id, "call_ring")).length === 0, "no repeat ring in the call's first 15 s");
+      await shiftCall(N1.id, 20_000);
+      await view(N1.id);
+      const ring1 = await eventually(async () => (await events(N1.id, "call_ring"))[0]);
+      const ring1To = (ring1?.payload.self?.playerIds ?? []).slice().sort();
+      check(JSON.stringify(ring1To) === JSON.stringify([...team(3).players, ...team(4).players].sort()), "after 15 s the console's read rings every called player again", ring1?.payload.self);
+      const rang1 = ring1 ? await eventually(async () => ((await deliveries(ring1.id)).size >= 3 ? await deliveries(ring1.id) : null)) : null;
+      check(rang1?.get(d4a.id) === "dry-run:self:ring" && rang1?.get(d4b.id) === "dry-run:self" && rang1?.get(d3a.id) === "dry-run:self" && !rang1?.has(d3b.id) && !rang1?.has(fan.id), "the repeat rings the 1.0.5 phone (alarm), plain on older phones, never the court-off phone or a fan", rang1 ? Object.fromEntries(rang1) : null);
+      await view(N1.id);
+      await view(N1.id);
+      check((await events(N1.id, "call_ring")).length === 1, "readers in the same 15 s ring once (atomic step)", (await events(N1.id, "call_ring")).length);
       const ans = await http("POST", `/api/mobile/v1/me/matches/${N1.id}/call-answer`, bearer(here.token), { answer: "coming" });
       check(ans.status === 200 && ans.json?.answer === "coming" && ans.json?.side === "B", "the T4 player answers I'm coming", ans.text);
       const badAns = await http("POST", `/api/mobile/v1/me/matches/${N1.id}/call-answer`, bearer(here.token), { answer: "maybe" });
@@ -284,6 +296,14 @@ async function main() {
       check(!/device_id|phone|email|access_code/.test(seenByUmpire.text), "the umpire's view still carries no private player field");
       const afterAns = await http("GET", "/api/mobile/v1/me/calls", bearer(here.token));
       check(((afterAns.json?.calls ?? []) as { myAnswer: string | null }[])[0]?.myAnswer === "coming", "/me/calls remembers the answer (the phone stops ringing)", afterAns.text);
+      await db().from("request_counters").delete().eq("bucket_key", `player-ring:${N1.id}`);
+      await shiftCall(N1.id, 16_000);
+      await view(N1.id);
+      const ring2 = await eventually(async () => (await events(N1.id, "call_ring"))[1]);
+      check(Boolean(ring2) && !(ring2!.payload.self?.playerIds ?? []).includes(team(4).players[0]) && (ring2!.payload.self?.playerIds ?? []).includes(team(3).players[0]), "the next ring skips the player who answered I'm coming", ring2?.payload.self);
+      // The drain's sweep rings too when no console is reading (same 15 s step: nothing new yet).
+      const swept = await http("POST", "/api/internal/notifications/drain", { Authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` }, {});
+      check(swept.status === 200 && (swept.json?.rings as { checked?: number } | undefined)?.checked !== undefined && (await events(N1.id, "call_ring")).length === 2, "the cron drain sweeps open calls without a second ring in the same step", swept.text);
 
       const p = await call(N1.id, { action: "present", side: "A" });
       check(p.status === 200 && (await callRow(N1.id))?.a_present_at !== null, "the referee marks T3 present", p.text);
@@ -412,6 +432,13 @@ async function main() {
 
       const cancel = await call(N3.id, { action: "cancel" });
       check(cancel.status === 200 && (await callRow(N3.id))?.status === "cancelled" && (await matchRow(N3.id)).status === "scheduled", "the call is withdrawn: N3 back to scheduled", cancel.text);
+      const withdrawn = await events(N3.id, "call_withdrawn");
+      const heard = (await events(N3.id, "called_to_court")).length;
+      check(
+        withdrawn.length === (heard ? 1 : 0) && withdrawn.every((e) => (e.payload as { self?: { playerIds?: string[]; title?: string } }).self?.title?.includes("withdrawn")),
+        "a withdrawn call tells the players it rang that they are no longer called (once)",
+        { heard, withdrawn: withdrawn.map((e) => e.payload) },
+      );
       // L1: a call / cancel loop neither spams the players nor runs forever.
       const recall = await call(N3.id, { action: "call" });
       check(recall.status === 201 && (await events(N3.id, "called_to_court")).length <= 1, "called again within 10 minutes: no second \"called to court\" alert", { status: recall.status, alerts: (await events(N3.id, "called_to_court")).length });
@@ -420,6 +447,7 @@ async function main() {
       // So far: call, cancel, call (3 of 12 per 10 minutes) — the 10th more is the 13th.
       check(statuses.includes(429) && statuses.length === 10 && statuses.slice(0, -1).every((x) => x === 200 || x === 201), "call / extend / cancel: at most 12 per match per 10 minutes, counted atomically (then 429)", statuses);
       check((await events(N3.id, "called_to_court")).length <= 1, "…and the players heard \"called to court\" once, whatever the loop", (await events(N3.id, "called_to_court")).length);
+      check((await events(N3.id, "call_withdrawn")).length <= 1, "…and \"call withdrawn\" at most once", (await events(N3.id, "call_withdrawn")).length);
       await db().from("request_counters").delete().eq("bucket_key", `match-call:${N3.id}`);
     }
 

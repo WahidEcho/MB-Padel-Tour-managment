@@ -22,6 +22,10 @@ export type AlertKind =
   | "called_to_court"
   /** Match day: the deadline to reach the court is close. */
   | "call_reminder"
+  /** Match day: the call rings again (every 15 s) on the phones of players who have not answered. */
+  | "call_ring"
+  /** Match day: the chair umpire withdrew the call (the phone takes the call alert away). */
+  | "call_withdrawn"
   /** National team coaches (migration 0037): their own team only, to the phones signed in with its code. */
   | "coach_soon"
   | "coach_called"
@@ -44,6 +48,8 @@ export const CATEGORY: Record<AlertKind, keyof MAlertPrefs> = {
   match_soon: "court",
   called_to_court: "court",
   call_reminder: "court",
+  call_ring: "court",
+  call_withdrawn: "court",
   coach_soon: "starting",
   coach_called: "court",
   coach_started: "live",
@@ -371,6 +377,39 @@ export function composeCalledToCourt(o: CourtMatch & { playerIds: string[]; dead
       };
     },
     { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.called_to_court },
+    o.playerIds,
+  );
+}
+
+/** The call rings again for the players who have not answered yet (owner, 13 Nov 2026). */
+export function composeCallRing(o: CourtMatch & { playerIds: string[]; deadline: string; timeZone: string }): AlertPayload {
+  const by = localTime(o.deadline, o.timeZone);
+  return localized(
+    (lang) => {
+      const pair = vsIn(lang, o.a, o.b);
+      return {
+        title: aw(lang, "ringTo", { court: o.court, vs: pair }),
+        body: aw(lang, "ringToBody", { by, label: labelIn(lang, o.label) }),
+        self: { title: aw(lang, "youRing", { court: o.court }), body: aw(lang, "youRingBody", { vs: pair, by }) },
+      };
+    },
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_ring },
+    o.playerIds,
+  );
+}
+
+/** The call was withdrawn: the players it reached are no longer called. */
+export function composeCallWithdrawn(o: CourtMatch & { playerIds: string[] }): AlertPayload {
+  return localized(
+    (lang) => {
+      const pair = vsIn(lang, o.a, o.b);
+      return {
+        title: aw(lang, "callOff", { court: o.court, vs: pair }),
+        body: aw(lang, "callOffBody", { label: labelIn(lang, o.label) }),
+        self: { title: aw(lang, "youCallOff", { court: o.court }), body: aw(lang, "youCallOffBody", { vs: pair }) },
+      };
+    },
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_withdrawn },
     o.playerIds,
   );
 }

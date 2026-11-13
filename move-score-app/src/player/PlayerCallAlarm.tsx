@@ -22,7 +22,7 @@ import { session } from "../state/session";
 import { Body, Display, Eyebrow } from "../ui/Text";
 import { Glyph } from "../ui/Glyph";
 import { useT } from "../i18n";
-import { answerCall, registerPlayerCallCategory } from "./callActions";
+import { answerCall, matchIdOf, registerPlayerCallCategory } from "./callActions";
 import { registerAssistanceCategory } from "../push/assistanceActions";
 
 export interface RingingPlayerCall {
@@ -39,9 +39,31 @@ export interface RingingPlayerCall {
   present: boolean;
 }
 
-const ALARM = require("../../assets/sounds/master_alarm.wav");
+// The players' own ringtone: a soft 15-second chime, looped (owner, 13 Nov 2026).
+const ALARM = require("../../assets/sounds/player_call.wav");
 const PATTERN = [0, 1000, 500];
-const KINDS = new Set(["called_to_court", "call_reminder"]);
+const KINDS = new Set(["called_to_court", "call_reminder", "call_ring", "call_withdrawn"]);
+/** The alerts that say "you're called": taken off the phone once the call is over. */
+const CALL_ALERTS = new Set(["called_to_court", "call_reminder", "call_ring"]);
+
+/**
+ * Takes the "you're called" alerts off the lock screen and the notification centre for
+ * every match not still calling this player (withdrawn, started, answered or at court).
+ */
+async function clearStaleCallAlerts(stillCalling: Set<string>) {
+  if (Platform.OS === "web") return;
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync();
+    for (const n of shown) {
+      const data = n.request.content.data as { kind?: unknown; url?: unknown } | undefined;
+      if (typeof data?.kind !== "string" || !CALL_ALERTS.has(data.kind)) continue;
+      const id = matchIdOf(data.url);
+      if (id && !stillCalling.has(id)) await Notifications.dismissNotificationAsync(n.request.identifier);
+    }
+  } catch {
+    /* nothing to clear */
+  }
+}
 
 /** m:ss until the deadline, never negative; null once it has passed. */
 function left(deadlineIso: string, nowMs: number): string | null {
@@ -97,6 +119,14 @@ export function PlayerCallAlarm() {
   }, [signedIn, qc]);
 
   const ringing = useMemo(() => (calls.data ?? []).filter((c) => !c.myAnswer && !c.present && !answered.has(c.matchId)), [calls.data, answered]);
+
+  // A call that is over (withdrawn by the chair umpire, started, answered, at court) stops
+  // ringing here and its alert leaves the lock screen.
+  const ringingKey = ringing.map((c) => c.matchId).join(",");
+  useEffect(() => {
+    if (!signedIn || !calls.isSuccess) return;
+    void clearStaleCallAlerts(new Set(ringingKey ? ringingKey.split(",") : []));
+  }, [signedIn, calls.isSuccess, calls.dataUpdatedAt, ringingKey]);
   const call = ringing[0] ?? null;
   const ringingNow = Boolean(signedIn && call && active);
 

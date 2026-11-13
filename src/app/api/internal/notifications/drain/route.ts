@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { safeEqual } from "@/lib/auth/safeEqual";
 import { checkReceipts, drainNotifications } from "@/lib/notify/drain";
 import { tickOpenCalls } from "@/lib/referees/assistance";
+import { tickAllPlayerRings } from "@/lib/matchday/server";
 
 /**
  * Sends due alerts. Called right after each hook from inside the request, and by
@@ -26,7 +27,12 @@ async function run(request: Request) {
     console.error("[assistance] sweep failed", err);
     return { checked: 0 };
   });
-  return NextResponse.json({ ok: true, ...result, receipts, assistance }, { headers: { "Cache-Control": "no-store" } });
+  // Players called to court who have not answered: their phones ring again (also when no console is reading the call).
+  const rings = await tickAllPlayerRings().catch((err: unknown) => {
+    console.error("[player rings] sweep failed", err);
+    return { checked: 0 };
+  });
+  return NextResponse.json({ ok: true, ...result, receipts, assistance, rings }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export const GET = run;

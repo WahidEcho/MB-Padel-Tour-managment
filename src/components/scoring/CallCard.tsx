@@ -81,7 +81,8 @@ export default function CallCard({ matchId, rules, initialCall, matchStatus, has
   const open = model.show && call?.status === "called";
   useEffect(() => {
     if (!open) return;
-    const id = setInterval(() => void refresh(), 10_000);
+    // Every 5 s: answers show quickly, and each read keeps the players' phones ringing (every 15 s).
+    const id = setInterval(() => void refresh(), 5_000);
     return () => clearInterval(id);
   }, [open, refresh]);
 

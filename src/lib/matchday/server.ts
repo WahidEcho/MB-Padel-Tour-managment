@@ -371,6 +371,123 @@ async function callAlerts(day: Day, row: CallRow, opts: { announce: boolean; now
   });
 }
 
+/**
+ * The call was withdrawn (owner, 13 Nov 2026): the players it rang hear that they are no
+ * longer called (the app takes the call alert away and stops ringing), and a lock-screen
+ * card already counting down goes back to "Up next" without the countdown. Never throws.
+ */
+async function withdrawnAlerts(day: Day, nowMs: number) {
+  try {
+    const { match, tournament, rules } = day;
+    const { notifyLiveActivityPhase } = await import("../notify/hooks");
+    await notifyLiveActivityPhase(match.id, { phase: "soon", until: null }, { startNew: false });
+    if (!rules.alerts.on || quiet(tournament, rules, nowMs)) return;
+    // Only a call the players actually heard is taken back, and only once: a call / cancel loop
+    // (called again within 10 minutes rings nobody) sends no second "withdrawn".
+    const { data } = await db()
+      .from("notification_events")
+      .select("kind")
+      .eq("match_id", match.id)
+      .in("kind", ["called_to_court", "call_reminder", "call_ring", "call_withdrawn"])
+      .neq("status", "cancelled")
+      .lte("fire_at", new Date(nowMs).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const last = ((data ?? []) as { kind: string }[])[0];
+    if (!last || last.kind === "call_withdrawn") return;
+    const [{ alertContext, alertSideLabel, alertSidePlayerIds, enqueueAlert }, { composeCallWithdrawn }] = await Promise.all([
+      import("../notify/hooks"),
+      import("../notify/compose"),
+    ]);
+    const ctx = await alertContext(match.tournament_id);
+    await enqueueAlert({
+      kind: "call_withdrawn",
+      tournamentId: match.tournament_id,
+      matchId: match.id,
+      tieId: match.tie_id ?? null,
+      dedupeKey: `match:${match.id}:withdrawn:${nowMs}`,
+      payload: composeCallWithdrawn({
+        matchId: match.id,
+        a: alertSideLabel(ctx, match, "A"),
+        b: alertSideLabel(ctx, match, "B"),
+        court: (match.court_id && ctx.courts.get(match.court_id)) || "the court",
+        label: match.round_name ?? ctx.tournament.name,
+        playerIds: [...alertSidePlayerIds(ctx, match, "A"), ...alertSidePlayerIds(ctx, match, "B")],
+      }),
+    });
+  } catch (err) {
+    console.error("call withdrawn alerts failed", err);
+  }
+}
+
+/**
+ * Rings the call again (owner, 13 Nov 2026: "keep ringing until answered"): every 15 s, until the
+ * deadline, the phones of the called players who have not answered (I'm coming / Decline) and whose
+ * side is not at the court yet. Driven by the chair umpire's console reading the call (every 5 s
+ * while it is open) and by the notification drain's sweep; the 15 s step is one atomic counter per
+ * match (`takeRateLimit`), so any number of readers rings each phone once per step. Never throws.
+ */
+export async function tickPlayerRings(matchId: string, nowMs = Date.now()): Promise<{ rang: number }> {
+  try {
+    const row = await readCall(matchId);
+    if (!row || row.status !== "called") return { rang: 0 };
+    const { PLAYER_RING_EVERY_MS } = await import("../notify/ringtone");
+    const calledAt = Date.parse(row.called_at);
+    if (!Number.isFinite(calledAt) || nowMs - calledAt < PLAYER_RING_EVERY_MS - 1000) return { rang: 0 };
+    const day = await dayOf(matchId);
+    if (!day) return { rang: 0 };
+    const { match, tournament, rules } = day;
+    if (!rules.alerts.on || !rules.courtCall.on || quiet(tournament, rules, nowMs)) return { rang: 0 };
+    const call = asCourtCall(row);
+    const deadline = callDeadline(call, rules);
+    if (nowMs >= deadline) return { rang: 0 };
+    const answers = await readAnswers(matchId);
+    const waiting = (await sidePlayers(match))
+      .filter((p) => !(p.side === "A" ? call.presentA : call.presentB) && !answers[p.id])
+      .map((p) => p.id);
+    if (!waiting.length) return { rang: 0 };
+    // Only players signed in on a phone can hear it: no claim, no ring (and no row every 15 s).
+    const { data: claims } = await db().from("player_claims").select("player_id").in("player_id", waiting).is("archived_at", null);
+    const reach = [...new Set(((claims ?? []) as { player_id: string }[]).map((c) => c.player_id))];
+    if (!reach.length) return { rang: 0 };
+    const { takeRateLimit } = await import("../ratelimit");
+    const step = await takeRateLimit({ key: `player-ring:${matchId}`, limit: 1, windowSeconds: Math.round(PLAYER_RING_EVERY_MS / 1000) });
+    if (!step.allowed) return { rang: 0 };
+    const [{ alertContext, alertSideLabel, enqueueAlert }, { composeCallRing }] = await Promise.all([import("../notify/hooks"), import("../notify/compose")]);
+    const ctx = await alertContext(match.tournament_id);
+    await enqueueAlert({
+      kind: "call_ring",
+      tournamentId: match.tournament_id,
+      matchId,
+      tieId: match.tie_id ?? null,
+      dedupeKey: `match:${matchId}:ring:${calledAt}:${Math.floor((nowMs - calledAt) / PLAYER_RING_EVERY_MS)}`,
+      payload: composeCallRing({
+        matchId,
+        a: alertSideLabel(ctx, match, "A"),
+        b: alertSideLabel(ctx, match, "B"),
+        court: (match.court_id && ctx.courts.get(match.court_id)) || "the court",
+        label: match.round_name ?? ctx.tournament.name,
+        timeZone: ctx.tournament.timezone,
+        deadline: new Date(deadline).toISOString(),
+        playerIds: reach,
+      }),
+    });
+    return { rang: reach.length };
+  } catch (err) {
+    console.error("player ring tick failed", err);
+    return { rang: 0 };
+  }
+}
+
+/** Rings every open call that is due (the notification drain's sweep). */
+export async function tickAllPlayerRings(nowMs = Date.now()): Promise<{ checked: number }> {
+  const since = new Date(nowMs - 60 * MINUTE).toISOString();
+  const { data } = await db().from("match_calls").select("match_id").eq("status", "called").gte("called_at", since).limit(100);
+  const ids = ((data ?? []) as { match_id: string }[]).map((r) => r.match_id);
+  for (const id of ids) await tickPlayerRings(id, nowMs);
+  return { checked: ids.length };
+}
+
 /** Withdraws a call's reminders that have not gone out yet. */
 async function cancelReminders(matchId: string) {
   await db().from("notification_events").update({ status: "cancelled" }).eq("match_id", matchId).eq("kind", "call_reminder").eq("status", "pending");
@@ -777,6 +894,7 @@ export async function cancelCall(matchId: string, opts: { role: string; nowMs?: 
   await db().from("matches").update({ status: "scheduled", updated_at: at }).eq("id", matchId).eq("status", "ready");
   await cancelReminders(matchId);
   await audit({ tournament_id: day.match.tournament_id, actor_role: opts.role, action: "CALL_CANCELLED", entity_type: "match", entity_id: matchId, new_value: null });
+  await withdrawnAlerts(day, nowMs);
   return { ok: true, status: 200, value: { call: toState(data as CallRow, day.rules, nowMs) } };
 }
 

@@ -1,12 +1,13 @@
 import { NextResponse, after } from "next/server";
 import { staffRoute } from "@/lib/guard";
 import { takeRateLimit } from "@/lib/ratelimit";
-import { answerNoShow, callToCourt, cancelCall, extendCall, getCall, markPresent, withCallPlayers, type NoShowAnswer } from "@/lib/matchday/server";
+import { answerNoShow, callToCourt, cancelCall, extendCall, getCall, markPresent, tickPlayerRings, withCallPlayers, type NoShowAnswer } from "@/lib/matchday/server";
 
 /**
  * Calling a match to its court (plan Phase 3, src/lib/matchday/server.ts).
  *
- *   GET  → { call: CallState | null, rules: CallRules }   (call.players: each player's answer from their phone)
+ *   GET  → { call: CallState | null, rules: CallRules }   (call.players: each player's answer from their phone;
+ *          an open call rings again on the phones of players who have not answered, every 15 s)
  *   POST { action: "call", force? }                 → 201 called, 200 already called;
  *                                                     409 court_busy unless force
  *        { action: "present", side: "A" | "B" }      → the side is at the court
@@ -35,6 +36,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ mat
   if (!gate.ok) return gate.response;
   const out = await getCall(matchId);
   if (!out) return NextResponse.json({ error: "Not found" }, { status: 404, headers: NO_STORE });
+  // The console reads an open call every few seconds: that keeps the players' phones ringing
+  // (every 15 s, until they answer) after the response is sent.
+  if (out.call?.status === "called") after(() => tickPlayerRings(matchId).then(() => undefined));
   return NextResponse.json(out, { headers: NO_STORE });
 }
 

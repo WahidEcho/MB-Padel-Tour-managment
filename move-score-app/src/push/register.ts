@@ -27,7 +27,16 @@ import { handleAssistanceResponse, registerAssistanceCategory } from "./assistan
 import { openMasterDesk } from "../referee/masterDesk";
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true }),
+  handleNotification: async (n) => {
+    const data = n.request.content.data as { kind?: unknown; self?: unknown } | undefined;
+    // With the app open, the player's own call rings full screen (PlayerCallAlarm): its alerts make no
+    // second sound, and the 15-second repeats show nothing at all.
+    if (data?.self === true && (data.kind === "called_to_court" || data.kind === "call_reminder" || data.kind === "call_ring")) {
+      const repeat = data.kind === "call_ring";
+      return { shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: !repeat, shouldShowList: !repeat };
+    }
+    return { shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true };
+  },
 });
 
 /** Logs why alerts could not be set up (console for a device log, Sentry when configured). */
@@ -107,9 +116,32 @@ async function channels() {
       lightColor: "#FF3B30",
       audioAttributes: { usage: Notifications.AndroidAudioUsage.ALARM, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
     });
+    // Builds after 1.0.5 carry the players' own ringtone (a 15-second chime): called to court rings
+    // on its own channel (the server picks it for those phones only; older builds ring the alarm).
+    if (carriesPlayerRingtone(appVersion)) {
+      await Notifications.setNotificationChannelAsync("player_call", {
+        name: tr("account.channelPlayerCall"),
+        importance: Notifications.AndroidImportance.MAX,
+        sound: "player_call.wav",
+        vibrationPattern: [0, 800, 400, 800, 400, 800],
+        enableVibrate: true,
+        bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        lightColor: "#16A34A",
+        audioAttributes: { usage: Notifications.AndroidAudioUsage.NOTIFICATION_RINGTONE, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
+      });
+    }
   } catch (e) {
     logAlerts("creating the Android notification channels failed", e);
   }
+}
+
+/** Builds after 1.0.5 bundle `player_call.wav` (mirrors hasPlayerRingtone in src/lib/notify/ringtone.ts). */
+function carriesPlayerRingtone(version: string): boolean {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return false;
+  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return a > 1 || (a === 1 && (b > 0 || c >= 6));
 }
 
 const NETWORKISH = /network|offline|internet|timed? ?out|connection|unreachable|SERVICE_NOT_AVAILABLE/i;

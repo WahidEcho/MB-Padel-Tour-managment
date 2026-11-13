@@ -163,10 +163,11 @@ export type ExpoMessage = {
   body: string;
   data: Record<string, unknown>;
   /**
-   * "default", or a sound file bundled in the app ("master_alarm.wav", Move Score 1.0.3+); an object
+   * "default", or a sound file bundled in the app ("master_alarm.wav", Move Score 1.0.3+; "player_call.wav",
+   * builds after 1.0.5); an object
    * makes it an iOS critical alert (plays on silent; needs Apple's Critical Alerts entitlement).
    */
-  sound: "default" | "master_alarm.wav" | { critical: true; name: "master_alarm.wav"; volume: number };
+  sound: "default" | "master_alarm.wav" | "player_call.wav" | { critical: true; name: "master_alarm.wav" | "player_call.wav"; volume: number };
   channelId: string;
   /** Calls for assistance (migration 0035): delivered at once, through Focus where the app may. */
   priority?: "default" | "normal" | "high";
@@ -177,7 +178,7 @@ export type ExpoMessage = {
 };
 
 export async function sendExpo(messages: ExpoMessage[]): Promise<Ticket[]> {
-  if (pushDryRun()) return messages.map((m) => ({ status: "ok", id: (m.data.self ? "dry-run:self" : "dry-run") + (m.categoryId === "player_call" ? ":ring" : "") }));
+  if (pushDryRun()) return messages.map((m) => ({ status: "ok", id: (m.data.self ? "dry-run:self" : "dry-run") + (m.categoryId === "player_call" ? ":ring" : "") + (m.channelId === "player_call" ? ":chime" : "") }));
   const res = await fetch(EXPO_URL, { method: "POST", headers: expoHeaders(), body: JSON.stringify(messages) });
   if (!res.ok) throw new Error(`Expo push ${res.status}`);
   const json = (await res.json()) as { data?: Ticket[] };
@@ -258,7 +259,7 @@ async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | 
             data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true } : {}) },
             sound: "default" as const,
             channelId: ev.payload.category === "major" ? "announcements" : "matches",
-            ...(ring ? playerCallPush() : {}),
+            ...(ring ? playerCallPush(d.app_version) : {}),
           };
         }),
       );

@@ -35,6 +35,7 @@ export const account = {
   channelAnnouncements: "Tournament announcements",
   channelAssistance: "Calls for assistance (master referees)",
   channelAssistanceAlarm: "Master referee emergency calls",
+  channelPlayerCall: "Called to court (players)",
   // Leagues and look
   leagues: "Leagues",
   leaguesA11y: "My leagues and the top of all leagues",
