@@ -433,5 +433,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Android countdown (owner, 13 Nov 2026; build 1.0.6, no migration): `patches/expo-notifications+57.0.21.patch` (move-score-app) reads two
   keys of a player's own call push data from `playerCallData` (ringtone.ts): `notifTag` (`call:<match id>`, one notification per match:
   each ring and the withdrawal replace it) and `countdownUntil` (epoch ms: chronometer countdown on the lock screen, alarm category,
-  removed at the deadline). Older builds ignore both. 1.0.6 also makes the Mark Android's icon (`android.adaptiveIcon`). From 1.0.6 on
+  removed at the deadline). Older builds ignore both. SDK 57 links expo-notifications as a precompiled AAR, so
+  `package.json` `expo.autolinking.android.buildFromSource: ["expo-notifications"]` is what makes the patch count (build 30 lacked it;
+  check an .aab by grepping its `base/dex/*.dex` for `countdownUntil`). 1.0.6 also makes the Mark Android's icon (`android.adaptiveIcon`). From 1.0.6 on
   `app.config.ts` says 1.0.6: an OTA for 1.0.5 phones must be published from 1.0.5's code (runtime = app version).
