@@ -78,5 +78,14 @@
   },
   "overrides": {
     "expo-modules-jsi": "57.1.2"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-notifications"
+        ]
+      }
+    }
   }
 }
