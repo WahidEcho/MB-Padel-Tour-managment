@@ -37,10 +37,18 @@ async function providerToken(): Promise<string | null> {
   const { APNS_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID } = process.env;
   if (!APNS_KEY_P8 || !APNS_KEY_ID || !APNS_TEAM_ID) return null;
   if (cached && Date.now() - cached.at < 40 * 60_000) return cached.jwt;
-  const key = await importPKCS8(APNS_KEY_P8.replace(/\\n/g, "\n"), "ES256");
-  const jwt = await new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: APNS_KEY_ID }).setIssuer(APNS_TEAM_ID).setIssuedAt().sign(key);
-  cached = { jwt, at: Date.now() };
-  return jwt;
+  // A bad key never throws past here (13 Nov 2026: an unreadable APNS_KEY_P8 threw after a lock-screen card was
+  // claimed for a phone, so later calls skipped that phone). No token: nothing is sent and every claim is freed.
+  try {
+    const pem = APNS_KEY_P8.trim().replace(/^["']|["']$/g, "").replace(/\\n/g, "\n");
+    const key = await importPKCS8(pem, "ES256");
+    const jwt = await new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: APNS_KEY_ID }).setIssuer(APNS_TEAM_ID).setIssuedAt().sign(key);
+    cached = { jwt, at: Date.now() };
+    return jwt;
+  } catch (err) {
+    console.error("[apns] APNS_KEY_P8 is not a usable .p8 key (paste the whole AuthKey file, BEGIN/END lines included):", err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 function send(client: http2.ClientHttp2Session, token: string, jwt: string, body: string, priority: 5 | 10): Promise<ApnsResult> {
