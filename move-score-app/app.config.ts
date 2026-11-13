@@ -81,7 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_ENV === "production" ? "Move Score" : `Move Score ${APP_ENV === "staging" ? "Staging" : "Dev"}`,
   slug: "move-score",
   scheme: "movescore",
-  version: "1.0.5",
+  version: "1.0.6",
   orientation: "default",
   icon: "./assets/brand/icon.png",
   userInterfaceStyle: "automatic",
@@ -111,7 +111,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: `${BUNDLE}${suffix}`,
-    adaptiveIcon: { foregroundImage: "./assets/brand/adaptive-icon.png", backgroundColor: "#01041A" },
+    // 1.0.6: Android shows the Move Score mark (iPhones switch to it from the server, flag `icon_mark`).
+    adaptiveIcon: { foregroundImage: "./assets/brand/alt/adaptive-mark.png", backgroundColor: "#231F20" },
     permissions: ["android.permission.CAMERA", "android.permission.VIBRATE", "android.permission.POST_NOTIFICATIONS"],
     blockedPermissions: ["android.permission.RECORD_AUDIO", "com.google.android.gms.permission.AD_ID"],
     googleServicesFile: GOOGLE_SERVICES_JSON,

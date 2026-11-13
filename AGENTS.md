@@ -430,3 +430,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   went out) and moves a lock-screen card back to "Up next" (`notifyLiveActivityPhase(..., { startNew: false })`); the app takes stale call
   alerts off the lock screen (`clearStaleCallAlerts`). Lock-screen cards need a valid `APNS_KEY_P8` on Vercel (the 13 Nov value failed
   `importPKCS8`: "notify live activity phase failed" in the logs).
+  Android countdown (owner, 13 Nov 2026; build 1.0.6, no migration): `patches/expo-notifications+57.0.21.patch` (move-score-app) reads two
+  keys of a player's own call push data from `playerCallData` (ringtone.ts): `notifTag` (`call:<match id>`, one notification per match:
+  each ring and the withdrawal replace it) and `countdownUntil` (epoch ms: chronometer countdown on the lock screen, alarm category,
+  removed at the deadline). Older builds ignore both. 1.0.6 also makes the Mark Android's icon (`android.adaptiveIcon`). From 1.0.6 on
+  `app.config.ts` says 1.0.6: an OTA for 1.0.5 phones must be published from 1.0.5's code (runtime = app version).

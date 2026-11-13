@@ -48,3 +48,21 @@ export function playerCallPush(appVersion?: string | null): Pick<ExpoMessage, "s
   const sound: ExpoMessage["sound"] = process.env.ASSISTANCE_CRITICAL_ALERTS === "1" ? { critical: true, name, volume: 1 } : name;
   return { sound, channelId: own ? "player_call" : "assistance_alarm", priority: "high", interruptionLevel: "time-sensitive", categoryId: "player_call", ttl: 600 };
 }
+
+/** A player's call alerts that share one notification per match on their own phone. */
+const CALL_NOTIFICATION_KINDS: ReadonlySet<string> = new Set([...PLAYER_CALL_KINDS, "call_withdrawn"]);
+
+/**
+ * Extra push data for a player's own phone (owner, 13 Nov 2026). Android 1.0.6+ (patched
+ * expo-notifications) reads `notifTag` as the notification's id, so each repeat ring and the
+ * withdrawal replace the match's call notification, and `countdownUntil` (epoch ms) as a live
+ * countdown to the deadline on the lock screen that goes away when the deadline passes. Older
+ * builds and iPhones (which count down on the Live Activity) ignore both.
+ */
+export function playerCallData(kind: string, url: string, countdownUntil: string | null | undefined, nowMs = Date.now()): { notifTag?: string; countdownUntil?: number } {
+  if (!CALL_NOTIFICATION_KINDS.has(kind)) return {};
+  const m = /^movescore:\/\/match\/([0-9a-f-]{36})/i.exec(url);
+  if (!m) return {};
+  const until = kind === "call_withdrawn" || !countdownUntil ? NaN : Date.parse(countdownUntil);
+  return { notifTag: `call:${m[1].toLowerCase()}`, ...(Number.isFinite(until) && until > nowMs ? { countdownUntil: until } : {}) };
+}

@@ -19,7 +19,7 @@
  * (checkReceipts, run by the scheduled drain) asks Expo what happened to tickets
  * sent at least RECEIPT_AFTER_MS ago and switches off phones that are gone.
  */
-import { PLAYER_CALL_KINDS, playerCallPush, ringsWithAlarm } from "./ringtone";
+import { PLAYER_CALL_KINDS, playerCallData, playerCallPush, ringsWithAlarm } from "./ringtone";
 import { db } from "../supabase";
 import { DEFAULT_ALERT_PREFS, type MAlertPrefs } from "../mobile/contract";
 import type { AlertPayload, Target } from "./compose";
@@ -256,7 +256,7 @@ async function sendEvent(ev: EventRow): Promise<{ sent: number; retry: string | 
             to: d.expo_push_token!,
             title: words.title,
             body: words.body,
-            data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true } : {}) },
+            data: { url: ev.payload.url, kind: ev.kind, ...(d.self && self ? { self: true, ...playerCallData(ev.kind, ev.payload.url, ev.payload.countdownUntil) } : {}) },
             sound: "default" as const,
             channelId: ev.payload.category === "major" ? "announcements" : "matches",
             ...(ring ? playerCallPush(d.app_version) : {}),

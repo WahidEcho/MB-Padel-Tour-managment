@@ -87,6 +87,8 @@ export interface AlertPayload {
    * on alerts written by people (announcements): those go out as written.
    */
   tr?: AlertTranslations;
+  /** A player's call to court: its deadline (ISO), counted down on the players' own Android phones (`playerCallData`). */
+  countdownUntil?: string;
 }
 
 export interface SelfWording {
@@ -376,7 +378,7 @@ export function composeCalledToCourt(o: CourtMatch & { playerIds: string[]; dead
         self: { title: aw(lang, "youCalled", { court: o.court }), body: aw(lang, "youCalledBody", { vs: pair, by, minutes: o.minutes }) },
       };
     },
-    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.called_to_court },
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.called_to_court, countdownUntil: o.deadline },
     o.playerIds,
   );
 }
@@ -393,7 +395,7 @@ export function composeCallRing(o: CourtMatch & { playerIds: string[]; deadline:
         self: { title: aw(lang, "youRing", { court: o.court }), body: aw(lang, "youRingBody", { vs: pair, by }) },
       };
     },
-    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_ring },
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_ring, countdownUntil: o.deadline },
     o.playerIds,
   );
 }
@@ -426,7 +428,7 @@ export function composeCallReminder(o: CourtMatch & { playerIds: string[]; deadl
         self: { title: aw(lang, "youMinLeft", { minutes: o.minutesLeft, court: o.court }), body: aw(lang, "youMinLeftBody", { vs: pair, by }) },
       };
     },
-    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_reminder },
+    { url: `movescore://match/${o.matchId}`, targets: [], category: CATEGORY.call_reminder, countdownUntil: o.deadline },
     o.playerIds,
   );
 }

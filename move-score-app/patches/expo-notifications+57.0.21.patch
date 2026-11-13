@@ -1,0 +1,52 @@
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
+index 610d303..2dd332b 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
+@@ -121,6 +121,21 @@ open class ExpoNotificationBuilder(
+       builder.setExtras(extras)
+     }
+ 
++    // Move Score: a player's call to court counts down to its deadline on the lock screen
++    // (data.countdownUntil, epoch ms), and the notification goes away when the call ends.
++    val countdownUntil = content.body?.optLong("countdownUntil", 0L) ?: 0L
++    val countdownLeft = countdownUntil - System.currentTimeMillis()
++    if (countdownLeft > 1_000L) {
++      builder.setWhen(countdownUntil)
++      builder.setShowWhen(true)
++      builder.setUsesChronometer(true)
++      builder.setChronometerCountDown(true)
++      builder.setTimeoutAfter(countdownLeft)
++      // Alarm category: Do Not Disturb lets it through when alarms are allowed (the default).
++      builder.setCategory(NotificationCompat.CATEGORY_ALARM)
++      builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
++    }
++
+     // Save the notification request in extras for later usage
+     // eg. in ExpoPresentationDelegate when we fetch active notifications.
+     // Otherwise we'd have to create expo.Notification from android.Notification
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt
+index eecdae8..dde86ff 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt
+@@ -126,7 +126,20 @@ open class FirebaseMessagingDelegate(protected val context: Context) : FirebaseM
+    * the existing notification is replaced, but the ID can remain constant.
+    */
+   protected fun getNotificationIdentifier(remoteMessage: RemoteMessage): String {
+-    return remoteMessage.data["tag"] ?: remoteMessage.messageId ?: UUID.randomUUID().toString()
++    return remoteMessage.data["tag"] ?: bodyTag(remoteMessage) ?: remoteMessage.messageId ?: UUID.randomUUID().toString()
++  }
++
++  /**
++   * Move Score: `data.notifTag` (the Expo push data) gives a player's call to court one
++   * notification per match, replaced by each repeat ring and by the withdrawal.
++   */
++  private fun bodyTag(remoteMessage: RemoteMessage): String? {
++    val raw = remoteMessage.data["body"] ?: return null
++    return try {
++      org.json.JSONObject(raw).optString("notifTag", "").takeIf { it.isNotEmpty() }
++    } catch (e: Exception) {
++      null
++    }
+   }
+ 
+   protected open fun createNotificationRequest(
